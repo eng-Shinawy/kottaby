@@ -24,6 +24,8 @@ export const students = pgTable(
     balanceHifz: integer("balance_hifz").default(0),
     balanceReviews: integer("balance_reviews").default(0),
     balanceTajweed: integer("balance_tajweed").default(0),
+    balanceTrial: integer("balance_trial").notNull().default(0),
+    trialGrantedAt: timestamp("trial_granted_at"),
     primaryLanguage: varchar("primary_language", { length: 100 }),
     anotherLanguage: varchar("another_language", { length: 100 }),
     handshakeCode: varchar("handshake_code", { length: 50 }).notNull(),
@@ -40,5 +42,6 @@ export const students = pgTable(
     check("students_balance_hifz_check", sql`${t.balanceHifz} >= 0`),
     check("students_balance_reviews_check", sql`${t.balanceReviews} >= 0`),
     check("students_balance_tajweed_check", sql`${t.balanceTajweed} >= 0`),
+    check("students_balance_trial_check", sql`${t.balanceTrial} >= 0`),
   ]
 );

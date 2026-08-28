@@ -23,7 +23,7 @@
 
 # Phase 0 — Pre-Implementation Baseline
 
-- [ ] **0.1 Record Error Baseline & Initialize Deferred-Items Ledger**
+- [x] **0.1 Record Error Baseline & Initialize Deferred-Items Ledger**
   - Run baseline suite and capture counts into `ai/plans/dev1-004-free-trial-session-provisioning/outcome/0.1-baseline-outcome.md`:
     - `bun tsgo` → record error count
     - `bun biome:check` → record diagnostic count
@@ -34,7 +34,7 @@
   - Record `git rev-parse HEAD` and `git diff --name-only` baseline snapshot in the outcome file (used by REQ-076 deviation accounting).
   - _Requirements: REQ-001, REQ-076, REQ-083_
 
-- [ ] **0.2 Prerequisite & Blocker Verification (DEV1-002 Dependency Gate)**
+- [x] **0.2 Prerequisite & Blocker Verification (DEV1-002 Dependency Gate)**
   - Verify DEV1-002/DEV1-003 artifacts exist and are current:
     - `backend/services/auth/registration.service.ts` — `registerUser` + `createRoleChild` + `withTransaction(outerTx)` SAVEPOINT pattern
     - `backend/db/repo/students/student.repository.ts` — `createForRegistration` + handshake retry loop
@@ -52,7 +52,7 @@
 
 # Phase 1 — Types, Enums & Database Schema
 
-- [ ] **1.1 Add Trial Columns & CHECK Constraint to `students` Table (REQ-010, REQ-035)**
+- [x] **1.1 Add Trial Columns & CHECK Constraint to `students` Table (REQ-010, REQ-035)**
   - Files to modify:
     - `backend/db/schema/students/students.ts`
   - Changes:
@@ -68,27 +68,27 @@
   - Notes: new column is `NOT NULL` (stricter inference than existing balance lanes): `StudentSelectType.balanceTrial: number`, `StudentInsertType.balanceTrial?: number`. No inline `--` comments inside any `sql`` template`. No new indexes (single-row PK lookups only).
   - Applicable instruction files: `backend/db/schema/AGENTS.md`, `docs/DATABASE_MIGRATIONS.md`
   - _Requirements: REQ-010, REQ-035, REQ-003_
-  - [ ] 1.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/schema/students/students.ts --lifecycle duplicates` (exit code 0)
-  - [ ] 1.1.TE **Test Engineering**: Type-flow smoke test — `bun tsgo` confirms `StudentSelectType`/`StudentInsertType` now carry `balanceTrial`/`trialGrantedAt` with zero consumer breakage; `bun test` on existing students repo suite remains green.
-  - [ ] 1.1.SEC **Security & Tenancy Audit**: Confirm CHECK constraint is declared at table level (defense-in-depth, REQ-035); confirm no client-reachable input path can name these columns (they are server-derived only — gate re-verified in 3.1.SEC); no tenant filter applicable (single-tenant schema).
-  - [ ] 1.1.SR **Semantic Review**: Column names match plan exactly; default `0` present; marker nullable with no default; no drift between column JS names and snake_case SQL names; zero dead code.
-  - [ ] 1.1.IV **Instruction Verification**: Re-read `backend/db/schema/AGENTS.md`; confirm schema discipline (no custom SQL migration file authored).
+  - [x] 1.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/schema/students/students.ts --lifecycle duplicates` (exit code 0)
+  - [x] 1.1.TE **Test Engineering**: Type-flow smoke test — `bun tsgo` confirms `StudentSelectType`/`StudentInsertType` now carry `balanceTrial`/`trialGrantedAt` with zero consumer breakage; `bun test` on existing students repo suite remains green.
+  - [x] 1.1.SEC **Security & Tenancy Audit**: Confirm CHECK constraint is declared at table level (defense-in-depth, REQ-035); confirm no client-reachable input path can name these columns (they are server-derived only — gate re-verified in 3.1.SEC); no tenant filter applicable (single-tenant schema).
+  - [x] 1.1.SR **Semantic Review**: Column names match plan exactly; default `0` present; marker nullable with no default; no drift between column JS names and snake_case SQL names; zero dead code.
+  - [x] 1.1.IV **Instruction Verification**: Re-read `backend/db/schema/AGENTS.md`; confirm schema discipline (no custom SQL migration file authored).
   - Outcome: `outcome/1.1-schema-columns-outcome.md`
 
-- [ ] **1.2 Apply Schema via `bun run db push` (REQ-043)**
+- [x] **1.2 Apply Schema via `bun run db push` (REQ-043)**
   - Steps:
     1. `bun run db push` — capture full push output in the outcome file. **`db reset` / `db cleanGenerate` are permanently disabled; never run them.**
     2. Verify live DB: `SELECT ... FROM information_schema.check_constraints WHERE constraint_name = 'students_balance_trial_check'` present via a rollback-wrapped probe.
   - Applicable instruction files: `docs/DATABASE_MIGRATIONS.md`, `db/AGENTS.md` (if present)
   - _Requirements: REQ-010, REQ-035, REQ-043_
-  - [ ] 1.2.QL **Quality Loop**: n/a (push-only task, no file edits) — record in outcome.
-  - [ ] 1.2.TE **Test Engineering**: DB-level constraint live-check (happy path deferred to 2.1.TE): insert probe with `balance_trial = 0` succeeds; probe confirmed inside `runInRollback`.
-  - [ ] 1.2.SEC **Security & Tenancy Audit**: Confirm push applied to dev database only; no production/data-mutation semantics; constraint name stable for future audit queries.
-  - [ ] 1.2.SR **Semantic Review**: Drizzle schema and runtime code landing in the same commit set (anti-drift, REQ-043).
-  - [ ] 1.2.IV **Instruction Verification**: Validate against `docs/DATABASE_MIGRATIONS.md` push-only rule.
+  - [x] 1.2.QL **Quality Loop**: n/a (push-only task, no file edits) — record in outcome.
+  - [x] 1.2.TE **Test Engineering**: DB-level constraint live-check (happy path deferred to 2.1.TE): insert probe with `balance_trial = 0` succeeds; probe confirmed inside `runInRollback`.
+  - [x] 1.2.SEC **Security & Tenancy Audit**: Confirm push applied to dev database only; no production/data-mutation semantics; constraint name stable for future audit queries.
+  - [x] 1.2.SR **Semantic Review**: Drizzle schema and runtime code landing in the same commit set (anti-drift, REQ-043).
+  - [x] 1.2.IV **Instruction Verification**: Validate against `docs/DATABASE_MIGRATIONS.md` push-only rule.
   - Outcome: `outcome/1.2-db-push-outcome.md`
 
-- [ ] **1.3 Create Shared Constant `FREE_TRIAL_SESSION_COUNT` (REQ-014)**
+- [x] **1.3 Create Shared Constant `FREE_TRIAL_SESSION_COUNT` (REQ-014)**
   - Files to create/modify:
     - `shared/constants/free-trial.constants.ts` (NEW)
     - `shared/constants/index.ts` (append barrel line)
@@ -101,14 +101,14 @@
     Barrel: append `export * from "./free-trial.constants";` (relative per barrel rules).
   - Applicable instruction files: `shared/AGENTS.md`
   - _Requirements: REQ-014, REQ-060 (shared-layer isolation)_
-  - [ ] 1.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts shared/constants/free-trial.constants.ts --lifecycle duplicates` and run once for `shared/constants/index.ts` (exit code 0 each)
-  - [ ] 1.3.TE **Test Engineering**: Compile check (`bun tsgo`) confirms importability from both backend and shared test contexts; value `=== 1` asserted later in 2.2.TE role-matrix suite.
-  - [ ] 1.3.SEC **Security & Tenancy Audit**: Constant is compile-time only — no env var, no admin-secret surface, not client-overridable (BOPLA: ignores any smuggled `trialCount`).
-  - [ ] 1.3.SR **Semantic Review**: No imports in the constants file (shared-layer isolation); docstring references FR-2.6/REQ-014; no magic literal duplicated elsewhere (grep `balance_trial + 1`-style literals → zero).
-  - [ ] 1.3.IV **Instruction Verification**: Validate against `shared/AGENTS.md` isolation + barrel ordering rules.
+  - [x] 1.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts shared/constants/free-trial.constants.ts --lifecycle duplicates` and run once for `shared/constants/index.ts` (exit code 0 each)
+  - [x] 1.3.TE **Test Engineering**: Compile check (`bun tsgo`) confirms importability from both backend and shared test contexts; value `=== 1` asserted later in 2.2.TE role-matrix suite.
+  - [x] 1.3.SEC **Security & Tenancy Audit**: Constant is compile-time only — no env var, no admin-secret surface, not client-overridable (BOPLA: ignores any smuggled `trialCount`).
+  - [x] 1.3.SR **Semantic Review**: No imports in the constants file (shared-layer isolation); docstring references FR-2.6/REQ-014; no magic literal duplicated elsewhere (grep `balance_trial + 1`-style literals → zero).
+  - [x] 1.3.IV **Instruction Verification**: Validate against `shared/AGENTS.md` isolation + barrel ordering rules.
   - Outcome: `outcome/1.3-shared-constant-outcome.md`
 
-- [ ] **1.4 Add Localized `trialAlreadyGranted` Error Key (REQ-051)**
+- [x] **1.4 Add Localized `trialAlreadyGranted` Error Key (REQ-051)**
   - Files to modify:
     - `shared/locale/types/errors/index.ts` — add to the errors `MessageSchema` interface:
       ```ts
@@ -121,11 +121,11 @@
   - Notes: the `errors` namespace already exists — **no namespace registration needed**; if the `studentTrial` grouping object is absent in any file, create it only in that file. Confirm locale contract parity across all registered locale contract files per `shared/locale/AGENTS.md`; verify the compile-time key-type test (if present in the locale test harness) stays green.
   - Applicable instruction files: `shared/locale/AGENTS.md`
   - _Requirements: REQ-051, REQ-002, REQ-050_
-  - [ ] 1.4.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts shared/locale/types/errors/index.ts --lifecycle duplicates` (repeat for the `en` and `ar` files — exit code 0 each)
-  - [ ] 1.4.TE **Test Engineering**: Property-access resolution test: `await getServerTranslations("en", "errors")` → `.studentTrial.trialAlreadyGranted` equals expected string; same for `"ar"`; `t("...")` function-call form MUST NOT be used.
-  - [ ] 1.4.SEC **Security & Tenancy Audit**: Error copy is generic — leaks no account state, ownership, or soft-delete internals (private-data-disclosure review).
-  - [ ] 1.4.SR **Semantic Review**: Property access only; English/Arabic contract parity (same key set in both); no hardcoded error string anywhere in backend (grep `trialAlreadyGranted` → only locale files + property access site).
-  - [ ] 1.4.IV **Instruction Verification**: Validate against `shared/locale/AGENTS.md` (type-first, all locales same commit).
+  - [x] 1.4.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts shared/locale/types/errors/index.ts --lifecycle duplicates` (repeat for the `en` and `ar` files — exit code 0 each)
+  - [x] 1.4.TE **Test Engineering**: Property-access resolution test: `await getServerTranslations("en", "errors")` → `.studentTrial.trialAlreadyGranted` equals expected string; same for `"ar"`; `t("...")` function-call form MUST NOT be used.
+  - [x] 1.4.SEC **Security & Tenancy Audit**: Error copy is generic — leaks no account state, ownership, or soft-delete internals (private-data-disclosure review).
+  - [x] 1.4.SR **Semantic Review**: Property access only; English/Arabic contract parity (same key set in both); no hardcoded error string anywhere in backend (grep `trialAlreadyGranted` → only locale files + property access site).
+  - [x] 1.4.IV **Instruction Verification**: Validate against `shared/locale/AGENTS.md` (type-first, all locales same commit).
   - Outcome: `outcome/1.4-i18n-error-key-outcome.md`
 
 ---

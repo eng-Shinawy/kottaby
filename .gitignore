@@ -139,3 +139,5 @@ tool-results/
 
 # Sandbox runtime SQLite artifact (DB_FILE_NAME)
 db/app.sqlite
+skills/
+node_modules/
