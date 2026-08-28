@@ -65,6 +65,8 @@
     // Source subtrees deliberately excluded from type-checking.
     "Kottaby",
     "frontend/graphql/generated",
-    "**/unRefactored_tests"
+    "**/unRefactored_tests",
+    // Local agent tooling library (not app code; references unavailable SDKs).
+    "skills"
   ]
 }
