@@ -265,7 +265,7 @@
   - [x] 2.4.IV **Instruction Verification**: Validate against `backend/db/seeds/AGENTS.md` service-bootstrap mandate.
   - Outcome: `outcome/2.4-seed-parity-outcome.md`
 
-- [ ] **2.M Phase 2 Mid-Point Review Gate (MANDATORY before Phase 3)**
+- [x] **2.M Phase 2 Mid-Point Review Gate (MANDATORY before Phase 3)**
   - Checklist gate (all must pass before proceeding):
     - `bun tsgo` → error count == baseline (±0)
     - `bun biome:check` → diagnostics == baseline (±0)
@@ -282,7 +282,7 @@
 
 > **Scope note**: No new resolvers ship in this ticket (REQ-060). This phase is a **contract-verification gate**, not an authoring phase. It exists to prove the GraphQL surface is byte-stable.
 
-- [ ] **3.1 GraphQL Schema Stability Verification (REQ-060, REQ-023, REQ-030)**
+- [x] **3.1 GraphQL Schema Stability Verification (REQ-060, REQ-023, REQ-030)**
   - Files: none modified. Verification artifacts only.
   - Steps:
     1. Snapshot the current generated schema; run `bun run generate:gqlSchema && bun codegen`.
@@ -292,11 +292,11 @@
     5. Record the forward-exposure contract note (REQ-062) verbatim in the outcome: any future exposure MUST use canonical `Student` object with `id` + `t.loadable()`/DataLoader batching per `docs/graphql/dataloader-batching.md` and canonical `@/backend/types` imports.
   - Applicable instruction files: `backend/graphql/AGENTS.md`, `docs/graphql/dataloader-batching.md`, `docs/graphql/domain-error-extensions-code.md`
   - _Requirements: REQ-023, REQ-030, REQ-060, REQ-061, REQ-062_
-  - [ ] 3.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/graphql/schema.ts --lifecycle duplicates` (exit code 0; regenerated artifacts must remain sub-loop clean)
-  - [ ] 3.1.TE **Test Engineering**: Existing resolver integration suite pass-through: `bun run test/scripts/run-test.ts backend/graphql/__tests__` → green; registerUser integration test asserts payload shape identical to baseline (field-set equality check).
-  - [ ] 3.1.SEC **Security & Tenancy Audit**: **BFLA sweep** — enumerate schema Query/Mutation root members; prove no grant/top-up/manipulate operation for `balance_trial` exists for any role (anonymous/student/parent/teacher/supervisor/super_admin); confirm low-priv token has no function path to mint trial credits; finalize the permission-matrix table from plan §3 with ✅/❌ per role.
-  - [ ] 3.1.SR **Semantic Review**: codegen diff contains no unintended renames/orderings attributable to this ticket; no local types introduced in resolver files (canonical-type-only rule holds trivially).
-  - [ ] 3.1.IV **Instruction Verification**: Validate against `backend/graphql/AGENTS.md` (no-local-types, explicit exposes, DataLoader rules not yet applicable).
+  - [x] 3.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/graphql/schema.ts --lifecycle duplicates` (exit code 0; regenerated artifacts must remain sub-loop clean)
+  - [x] 3.1.TE **Test Engineering**: Existing resolver integration suite pass-through: `bun run test/scripts/run-test.ts backend/graphql/__tests__` → green; registerUser integration test asserts payload shape identical to baseline (field-set equality check).
+  - [x] 3.1.SEC **Security & Tenancy Audit**: **BFLA sweep** — enumerate schema Query/Mutation root members; prove no grant/top-up/manipulate operation for `balance_trial` exists for any role (anonymous/student/parent/teacher/supervisor/super_admin); confirm low-priv token has no function path to mint trial credits; finalize the permission-matrix table from plan §3 with ✅/❌ per role.
+  - [x] 3.1.SR **Semantic Review**: codegen diff contains no unintended renames/orderings attributable to this ticket; no local types introduced in resolver files (canonical-type-only rule holds trivially).
+  - [x] 3.1.IV **Instruction Verification**: Validate against `backend/graphql/AGENTS.md` (no-local-types, explicit exposes, DataLoader rules not yet applicable).
   - Outcome: `outcome/3.1-graphql-stability-outcome.md`
 
 ---
@@ -305,7 +305,7 @@
 
 > **Scope note**: This ticket ships **zero frontend changes** (REQ-023, REQ-063). No UI component/page/view tasks exist; consequently the dual Agent-Browser self-loops (.BF functional + .BS screenshot analysis) have **no target surface** and are expressly out of scope by spec §2.6. This phase records the absence as a verified gate and locks the forward contract so downstream UI tickets inherit correct rules. If the executor finds ANY incidental frontend edit, the full UI pipeline (QL → TE → BF → BS → SR → IV) with both Agent-Browser loops becomes mandatory for that file — otherwise this phase remains verification-only.
 
-- [ ] **4.1 Frontend No-Op Verification & Forward-Contract Lock (REQ-023, REQ-063, REQ-002)**
+- [x] **4.1 Frontend No-Op Verification & Forward-Contract Lock (REQ-023, REQ-063, REQ-002)**
   - Files: none modified. Verification artifacts only.
   - Steps:
     1. `git diff --name-only <baseline> -- frontend/ app/` → MUST be empty.
@@ -314,17 +314,17 @@
     4. Record forward UI contract note (for the future trial-balance dashboard ticket): MUI v9 `sx`-only styling, no direct style props, `*Outlined` icons, `useAppTranslation(Translation.<Namespace>)` property access (never `t('key')`), RTL bidirectional correctness, `FREE_TRIAL_SESSION_COUNT` imported from `@/shared/constants` (never re-declared), and Agent-Browser dual self-loops mandatory when the badge/banner UI ships.
   - Applicable instruction files: `frontend/AGENTS.md`, `frontend/views/AGENTS.md`, `frontend/components/ui/AGENTS.md`, `frontend.instructions.md`, `mobile-desktop.instructions.md` (reference only — to be enforced by the future UI ticket)
   - _Requirements: REQ-002, REQ-023, REQ-060, REQ-063_
-  - [ ] 4.1.QL **Quality Loop**: re-run `bun biome:check` scoped root-wide to prove zero frontend diagnostics delta vs baseline (exit code 0)
-  - [ ] 4.1.TE **Unit/Component Tests**: regression pass — existing frontend test suites (`bun test frontend/`) green with zero new snapshots; assert no `balanceTrial` references leaked into generated client types consumers.
-  - [ ] 4.1.SR **Semantic Review**: diff-empty assertion re-verified post-Phase-5; outcome file records that BF/BS browser loops are not applicable per approved spec §1 (non-goal #4) and §2.6 (REQ-063 "N/A for this ticket").
-  - [ ] 4.1.IV **Instruction Verification**: Record that `frontend/AGENTS.md` and instruction files were read; no rules violated (no files touched).
+  - [x] 4.1.QL **Quality Loop**: re-run `bun biome:check` scoped root-wide to prove zero frontend diagnostics delta vs baseline (exit code 0)
+  - [x] 4.1.TE **Unit/Component Tests**: regression pass — existing frontend test suites (`bun test frontend/`) green with zero new snapshots; assert no `balanceTrial` references leaked into generated client types consumers.
+  - [x] 4.1.SR **Semantic Review**: diff-empty assertion re-verified post-Phase-5; outcome file records that BF/BS browser loops are not applicable per approved spec §1 (non-goal #4) and §2.6 (REQ-063 "N/A for this ticket").
+  - [x] 4.1.IV **Instruction Verification**: Record that `frontend/AGENTS.md` and instruction files were read; no rules violated (no files touched).
   - Outcome: `outcome/4.1-frontend-noop-outcome.md`
 
 ---
 
 # Phase 5 — Integration & Differential Testing
 
-- [ ] **5.1 Full-Stack Integration & Differential Test Sweep (REQ-070..076)**
+- [x] **5.1 Full-Stack Integration & Differential Test Sweep (REQ-070..076)**
   - Steps:
     1. Full test suite: `bun test` (root) → green; record duration & counts.
     2. Coverage assertion: `bun test --coverage backend/services/students/ backend/db/repo/students/ backend/services/auth/` → new/modified code at **100% statement + branch**; export coverage summary into outcome.
