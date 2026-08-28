@@ -5,6 +5,7 @@ import {
   type SeedConfig,
   type SeedStepResult,
 } from "@/backend/db/seeds/lib";
+import { seedOrGetStudents } from "@/backend/db/seeds/students";
 import { seedOrGetUsers } from "@/backend/db/seeds/users";
 import { logger } from "@/backend/lib/logger";
 
@@ -17,6 +18,12 @@ export async function runAllSeeds(config?: SeedConfig): Promise<void> {
   // Step 1: Users (Admin, Teacher Applicant, Parent, Student)
   const usersStep = await runSeedStep("users", () => seedOrGetUsers(seedConfig));
   stepResults.push(usersStep);
+
+  // Step 2: Demo student trial-grant reconcile. Runs after the user seeder so
+  // the demo student row exists; applies the production grant entry point
+  // only to rows whose trial marker is still null.
+  const studentsStep = await runSeedStep("students", () => seedOrGetStudents(seedConfig));
+  stepResults.push(studentsStep);
 
   logFailedSeedSteps(stepResults);
 

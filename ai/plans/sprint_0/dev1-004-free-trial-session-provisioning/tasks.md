@@ -132,7 +132,7 @@
 
 # Phase 2 — Repositories & Backend Services
 
-- [ ] **2.1 Implement `StudentRepository.grantFreeTrialOnce` (REQ-012, REQ-041, REQ-042)**
+- [x] **2.1 Implement `StudentRepository.grantFreeTrialOnce` (REQ-012, REQ-041, REQ-042)**
   - Files to modify:
     - `backend/db/repo/students/student.repository.ts` — append new exported method (no new repository file; no changes to existing methods)
     - Test file: `backend/db/repo/students/__tests__/student-grant-free-trial-once.test.ts` (NEW)
@@ -158,20 +158,20 @@
   - Hard rules: single conditional UPDATE (no SELECT-then-UPDATE; TOCTOU window = 0); `tx` optional-last per `backend/db/repo/AGENTS.md`; bound parameters only inside `sql``` — no inline `--` comments; repo throws no domain errors and contains no i18n/permission logic; NOT a Prepared-Statements-2.0 candidate (write, not read).
   - Applicable instruction files: `backend/db/repo/AGENTS.md`, `docs/drizzle/prepared-statements.md`
   - _Requirements: REQ-012, REQ-041, REQ-042, REQ-035_
-  - [ ] 2.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/repo/students/student.repository.ts --lifecycle duplicates` (exit code 0)
-  - [ ] 2.1.TE **Test Engineering** (4-Tier, all inside `runInRollback`, own entities via `entity-setup.ts`, `tx` propagated, `expectRepoError` for failures — **never** `.rejects.toThrow()` inside `runInRollback`):
+  - [x] 2.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/repo/students/student.repository.ts --lifecycle duplicates` (exit code 0)
+  - [x] 2.1.TE **Test Engineering** (4-Tier, all inside `runInRollback`, own entities via `entity-setup.ts`, `tx` propagated, `expectRepoError` for failures — **never** `.rejects.toThrow()` inside `runInRollback`):
     - Tier 1 (branch/stmt): grant on fresh student → returns `true`, `balanceTrial = trialCount`, `trialGrantedAt IS NOT NULL`;
     - Tier 1 (false branch): second call → returns `false`, balance unchanged (no silent no-op confusion — service converts to ConflictError);
     - Tier 2 (boundary): `trialCount = 0` behavior documented/guarded (constant guarantees 1; assert expression arithmetic path);
     - Tier 3 (chaos): nonexistent `studentId` → returns `false`, no row created, no side effects;
     - Tier 4 (security/constraint): direct raw insert with `balance_trial = -1` → `students_balance_trial_check` rejects (REQ-075 via `expectRepoError`);
     - Run: `bun run test/scripts/run-test.ts backend/db/repo/students/__tests__/student-grant-free-trial-once.test.ts`; then `bun test --coverage backend/db/repo/students/` → new method at 100% statement+branch (REQ-070).
-  - [ ] 2.1.SEC **Security & Tenancy Audit**: BOLA — `studentId` is the only identity input (callers server-derived; verified again at 2.3.SEC); BOPLA — set-clause touches exactly two columns, no input spread; tenant — single-tenant by PK; no LIKE/search input (no `escapeLikeWildcards` applicable).
-  - [ ] 2.1.SR **Semantic Review**: repo purity (returns `boolean`, no errors thrown), `tx ?? db` pattern matches neighboring methods, no dead code, no strings, atomic single-statement semantics confirmed by reading final SQL.
-  - [ ] 2.1.IV **Instruction Verification**: Re-validate against `backend/db/repo/AGENTS.md` and `backend/db/test/AGENTS.md`.
+  - [x] 2.1.SEC **Security & Tenancy Audit**: BOLA — `studentId` is the only identity input (callers server-derived; verified again at 2.3.SEC); BOPLA — set-clause touches exactly two columns, no input spread; tenant — single-tenant by PK; no LIKE/search input (no `escapeLikeWildcards` applicable).
+  - [x] 2.1.SR **Semantic Review**: repo purity (returns `boolean`, no errors thrown), `tx ?? db` pattern matches neighboring methods, no dead code, no strings, atomic single-statement semantics confirmed by reading final SQL.
+  - [x] 2.1.IV **Instruction Verification**: Re-validate against `backend/db/repo/AGENTS.md` and `backend/db/test/AGENTS.md`.
   - Outcome: `outcome/2.1-repo-grant-outcome.md`
 
-- [ ] **2.2 Implement `StudentTrialService.grantFreeTrial` Domain Service (REQ-013, REQ-017, REQ-050..052)**
+- [x] **2.2 Implement `StudentTrialService.grantFreeTrial` Domain Service (REQ-013, REQ-017, REQ-050..052)**
   - Files to create:
     - `backend/services/students/student-trial.service.ts` (NEW)
     - `backend/services/students/__tests__/student-trial.service.test.ts` (NEW)
@@ -209,20 +209,20 @@
   - Hard rules: service owns error taxonomy + i18n + logging; no permission gates here (authorization enforced at caller boundary); no `try/catch` swallowing on the happy path (REQ-053); `ConflictError.extensions.code = CONFLICT` per `docs/graphql/domain-error-extensions-code.md`; service-local `.types.ts` PROHIBITED.
   - Applicable instruction files: `backend/services/AGENTS.md`, `docs/graphql/domain-error-extensions-code.md`, `backend/lib/logger` usage docs, `shared/locale/AGENTS.md`
   - _Requirements: REQ-013, REQ-014, REQ-017, REQ-019, REQ-050, REQ-051, REQ-052, REQ-053_
-  - [ ] 2.2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/services/students/student-trial.service.ts --lifecycle duplicates` (exit code 0)
-  - [ ] 2.2.TE **Test Engineering** (4-Tier, `runInRollback` + `tx` propagation for DB-backed asserts; mock-adapter tier for translation/logger):
+  - [x] 2.2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/services/students/student-trial.service.ts --lifecycle duplicates` (exit code 0)
+  - [x] 2.2.TE **Test Engineering** (4-Tier, `runInRollback` + `tx` propagation for DB-backed asserts; mock-adapter tier for translation/logger):
     - Tier 1: fresh student (entity-setup) → `grantFreeTrial` resolves; row shows `balanceTrial = FREE_TRIAL_SESSION_COUNT` and non-null `trialGrantedAt`;
     - Tier 1 (re-grant): second invocation → `expectRepoError` catches `ConflictError`; message CONTAINS the *translated en string substring* from 1.4 (never the raw key); `balancedTrial` remains exactly `1` (REQ-074);
     - Tier 2: locale `"ar"` path resolves the Arabic message substring; undefined-locale → default-locale fallback per server-graphql harness behavior;
     - Tier 3: repo failure injected (mock adapter) → error propagates without wrapping, partial state absent;
     - Tier 4: `logger.logDomainError` spy confirms structured context (`code`, `entity: "students"`, `entityId`) exactly once per rejection; confirm no `console.*` in file (grep).
     - Run: `bun run test/scripts/run-test.ts backend/services/students/__tests__/student-trial.service.test.ts`; `bun test --coverage backend/services/students/` → 100% stmt+branch on new file (REQ-070).
-  - [ ] 2.2.SEC **Security & Tenancy Audit**: BFLA — no exported mutation surface (service-internal only, REQ-030); BOLA — identity ONLY from param; BOPLA — count comes EXCLUSIVELY from `FREE_TRIAL_SESSION_COUNT`; verify the conflict message is generic (no private state leak).
-  - [ ] 2.2.SR **Semantic Review**: single entry point (grep confirms this is the only file containing `grantFreeTrialOnce` callers beyond tests); zero plain `new Error(...)`; property-access i18n; `tx` forwarded verbatim; happy path logs nothing (REQ-053).
-  - [ ] 2.2.IV **Instruction Verification**: Validate against `backend/services/AGENTS.md` (namespacing, no service-local types, DomainError-only).
+  - [x] 2.2.SEC **Security & Tenancy Audit**: BFLA — no exported mutation surface (service-internal only, REQ-030); BOLA — identity ONLY from param; BOPLA — count comes EXCLUSIVELY from `FREE_TRIAL_SESSION_COUNT`; verify the conflict message is generic (no private state leak).
+  - [x] 2.2.SR **Semantic Review**: single entry point (grep confirms this is the only file containing `grantFreeTrialOnce` callers beyond tests); zero plain `new Error(...)`; property-access i18n; `tx` forwarded verbatim; happy path logs nothing (REQ-053).
+  - [x] 2.2.IV **Instruction Verification**: Validate against `backend/services/AGENTS.md` (namespacing, no service-local types, DomainError-only).
   - Outcome: `outcome/2.2-trial-service-outcome.md`
 
-- [ ] **2.3 Wire Grant into `RegistrationService.registerUser` — Student Branch Only (REQ-011, REQ-015, REQ-018, REQ-040, REQ-033)**
+- [x] **2.3 Wire Grant into `RegistrationService.registerUser` — Student Branch Only (REQ-011, REQ-015, REQ-018, REQ-040, REQ-033)**
   - Files to modify:
     - `backend/services/auth/registration.service.ts`
     - Test file: `backend/services/auth/__tests__/registration-trial-provisioning.test.ts` (NEW)
@@ -234,8 +234,8 @@
   - Hard rules: grant inherits the existing `withTransaction(outerTx)` SAVEPOINT pattern (do NOT restructure the registration transaction); `UserRole` referenced via **value import** (REQ-002); `RegistrationSubmitInput` whitelist byte-identical (no new fields); **`userId` = shared PK of the freshly inserted `users` row — never client input** (REQ-032).
   - Applicable instruction files: `backend/services/AGENTS.md`, `docs/specs/state-machine-invariants.md` (INV-B1/B4/B5, B.6/B.7), `docs/IDEMPOTENCY.md`
   - _Requirements: REQ-011, REQ-015, REQ-016, REQ-018, REQ-023, REQ-031, REQ-032, REQ-033, REQ-040, REQ-041, REQ-044_
-  - [ ] 2.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/services/auth/registration.service.ts --lifecycle duplicates` (exit code 0)
-  - [ ] 2.3.TE **Test Engineering** (4-Tier; all DB cases in `runInRollback`; own entities only; `expectRepoError` helper for throws):
+  - [x] 2.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/services/auth/registration.service.ts --lifecycle duplicates` (exit code 0)
+  - [x] 2.3.TE **Test Engineering** (4-Tier; all DB cases in `runInRollback`; own entities only; `expectRepoError` helper for throws):
     - Tier 1 (role matrix, REQ-072):
       - `registerUser(student)` → student row: `balanceTrial = 1`, `trialGrantedAt IS NOT NULL`; `balanceHifz/balanceTajweed/balanceReviews = 0` exactly (REQ-016);
       - `registerUser(teacher)` → `applicants.status = "pending"`, no student row, grant untouched;
@@ -246,23 +246,23 @@
     - Tier 3 (chaos, REQ-073): force child-insert failure AFTER the grant line executes (inject via mock-adapter on the post-grant step) → assert zero residual `users` row, zero residual `students` row, no grant persists (SAVEPOINT/rollback atomicity fully verified under `outerTx`).
     - Tier 4: duplicate `registerUser` race simulation (two sequential calls same email) → exactly one grant total across the system.
     - Run: `bun run test/scripts/run-test.ts backend/services/auth/__tests__/registration-trial-provisioning.test.ts`; plus full existing registration suite: `bun run test/scripts/run-test.ts backend/services/auth/__tests__` → zero regressions; coverage on `registration.service.ts` new lines = 100% (REQ-070).
-  - [ ] 2.3.SEC **Security & Tenancy Audit**: BOLA — derived `users.id` only; BOPLA — grep registration file for `{ ...input` → zero occurrences; whitelist diff vs HEAD → empty; BFLA — no role can invoke grant except student registration path; teacher-side state (`applicants.status`) asserted untouched (REQ-033); rate-limiter posture untouched (REQ-034).
-  - [ ] 2.3.SR **Semantic Review**: single call-site; tx propagated to BOTH `createForRegistration` and `grantFreeTrial` within identical transaction scope; no silent try/catch added (REQ-053); review diff is minimal/additive; no dead branches.
-  - [ ] 2.3.IV **Instruction Verification**: Validate against `backend/services/AGENTS.md`, `docs/IDEMPOTENCY.md` (structural idempotency argument recorded in outcome), spec §2.4.
+  - [x] 2.3.SEC **Security & Tenancy Audit**: BOLA — derived `users.id` only; BOPLA — grep registration file for `{ ...input` → zero occurrences; whitelist diff vs HEAD → empty; BFLA — no role can invoke grant except student registration path; teacher-side state (`applicants.status`) asserted untouched (REQ-033); rate-limiter posture untouched (REQ-034).
+  - [x] 2.3.SR **Semantic Review**: single call-site; tx propagated to BOTH `createForRegistration` and `grantFreeTrial` within identical transaction scope; no silent try/catch added (REQ-053); review diff is minimal/additive; no dead branches.
+  - [x] 2.3.IV **Instruction Verification**: Validate against `backend/services/AGENTS.md`, `docs/IDEMPOTENCY.md` (structural idempotency argument recorded in outcome), spec §2.4.
   - Outcome: `outcome/2.3-registration-hook-outcome.md`
 
-- [ ] **2.4 Seed Parity — `seed-students.ts` Bootstrap via Service (REQ-024, D7)**
+- [x] **2.4 Seed Parity — `seed-students.ts` Bootstrap via Service (REQ-024, D7)**
   - Files to modify:
     - `backend/db/seeds/students/seed-students.ts`
   - Change: implement the **find-then-grant-if-null seed-or-get pattern** per `backend/db/seeds/AGENTS.md`: for each demo student, resolve existing row via the student service; if `trialGrantedAt IS NULL`, invoke `StudentTrialService.grantFreeTrial(studentId, locale)` (production entry point — never a raw field bypass); second `bun run db seed` run must be a no-op (never surfaces REQ-013 `ConflictError`).
   - Hard rules: never bypass `students_balance_trial_check`; never hardcode the grant count (use the constant via service); seeds must use the production service bootstrap, not raw inserts of trial columns.
   - Applicable instruction files: `backend/db/seeds/AGENTS.md`, `backend/services/AGENTS.md`
   - _Requirements: REQ-024, REQ-017_
-  - [ ] 2.4.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/seeds/students/seed-students.ts --lifecycle duplicates` (exit code 0)
-  - [ ] 2.4.TE **Test Engineering**: Run `bun run db seed` twice in sequence (dev DB or rollback harness) → second run exits 0, no `TRIAL_ALREADY_GRANTED` log entries beyond seed-time diagnostics, seeded students show `balance_trial = 1` with marker set; Tier 3: re-run under partially-seeded DB state.
-  - [ ] 2.4.SEC **Security & Tenancy Audit**: Seed script remains dev-only entry (not reachable from GraphQL); no credentials/tokens logged.
-  - [ ] 2.4.SR **Semantic Review**: no raw `balanceTrial` column writes in seed file; uses exact production entry point; idempotent branching on `trialGrantedAt`.
-  - [ ] 2.4.IV **Instruction Verification**: Validate against `backend/db/seeds/AGENTS.md` service-bootstrap mandate.
+  - [x] 2.4.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/seeds/students/seed-students.ts --lifecycle duplicates` (exit code 0)
+  - [x] 2.4.TE **Test Engineering**: Run `bun run db seed` twice in sequence (dev DB or rollback harness) → second run exits 0, no `TRIAL_ALREADY_GRANTED` log entries beyond seed-time diagnostics, seeded students show `balance_trial = 1` with marker set; Tier 3: re-run under partially-seeded DB state.
+  - [x] 2.4.SEC **Security & Tenancy Audit**: Seed script remains dev-only entry (not reachable from GraphQL); no credentials/tokens logged.
+  - [x] 2.4.SR **Semantic Review**: no raw `balanceTrial` column writes in seed file; uses exact production entry point; idempotent branching on `trialGrantedAt`.
+  - [x] 2.4.IV **Instruction Verification**: Validate against `backend/db/seeds/AGENTS.md` service-bootstrap mandate.
   - Outcome: `outcome/2.4-seed-parity-outcome.md`
 
 - [ ] **2.M Phase 2 Mid-Point Review Gate (MANDATORY before Phase 3)**
