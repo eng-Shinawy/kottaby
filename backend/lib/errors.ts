@@ -165,11 +165,7 @@ function mergeFieldsIntoExtensions(
 export class ConflictError extends DomainError {
   constructor(message: string, options?: GraphQLErrorOptions);
   constructor(code: string, message: string, options?: GraphQLErrorOptions);
-  constructor(
-    codeOrMessage: string,
-    messageOrOptions?: string | GraphQLErrorOptions,
-    options?: GraphQLErrorOptions
-  ) {
+  constructor(codeOrMessage: string, messageOrOptions?: string | GraphQLErrorOptions, options?: GraphQLErrorOptions) {
     if (typeof messageOrOptions === "string") {
       // Forms: (code, message) · (code, message, options)
       super(codeOrMessage, messageOrOptions, options);

@@ -70,8 +70,9 @@ export namespace PlanRepository {
    * `isActive`/`deactivatedAt`/timestamps come from schema defaults unless the
    * caller explicitly provides them (test fixtures only).
    *
-   * A duplicate `title` surfaces as the driver's unique-violation error — the
-   * service layer owns its translation into a localized domain error.
+   * Inserts are tolerant of duplicate `title` values by design — `plans.title`
+   * carries no unique constraint (double-submit tolerance ruling), so callers
+   * own the dedup policy.
    *
    * @returns The inserted plan row.
    */

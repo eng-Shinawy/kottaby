@@ -1,7 +1,7 @@
 /**
  * `plans` namespace labels — the admin plan-catalog surfaces.
  *
- * Used by (Phase 4 wiring; structural handle today):
+ * Used by (structural handle today; UI wiring follows in the admin plans views):
  *  - Plan catalog page header (title + subtitle + create action).
  *  - Catalog table (column headers, row actions, loading state).
  *  - Status chips (active / inactive).

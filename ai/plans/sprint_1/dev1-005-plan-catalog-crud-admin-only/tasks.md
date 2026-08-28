@@ -215,43 +215,43 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 2.3 — `PlanCatalogService` Implementation
 
-- [ ] 2.3 Implement `backend/services/billing/plan-catalog.service.ts`
+- [x] 2.3 Implement `backend/services/billing/plan-catalog.service.ts`
   - Files to create:
     - `backend/services/billing/plan-catalog.service.ts` (NEW)
     - `backend/services/billing/index.ts` (create-or-extend barrel per existing layout)
   - Applicable AGENTS.md: `backend/services/AGENTS.md`; instruction docs: `docs/graphql/domain-error-extensions-code.md`
   - _Requirements: REQ-011, REQ-012, REQ-013, REQ-014, REQ-015, REQ-016, REQ-017, REQ-018, REQ-031, REQ-032, REQ-040, REQ-050, REQ-051, REQ-052, REQ-053_
-  - [ ] 2.3.1 Implement module-scope pure `validatePlanInput(input, tErrors)` — collects field-error map, throws ONE `ValidationError` with `extensions.fields[]` (`{field, code, message}` localized): title trim/≤255, `sessionCount` integer ≥1, `price` regex `^\d{1,8}(\.\d{1,2})?$` (module-level const), `currency` regex `^[A-Z]{3}$`, `intervalDays` integer ≥1
-  - [ ] 2.3.2 Implement `createPlan(input, locale, tx?)` — validate BEFORE any write → explicit field-by-field insert mapping (`title: input.title.trim()`, …) with NO `{ ...input }` spread; `isActive`/`deactivatedAt`/timestamps never mapped from input → `PlanRepository.insertPlan(insert, tx)` → catch-path `23505`/`23514` cause-chain translation to localized `ValidationError` (DEV1-002 `isUniqueViolation` precedent; REQ-052)
-  - [ ] 2.3.3 Implement `updatePlan(id, patch, locale, tx?)` — id coercion (positive integer; invalid → `ValidationError`) → empty-patch → `VALIDATION` (`planPatchEmpty`) → validate every supplied field → whitelist patch key-by-key → repo `updatePlanFields` → `null` → `NotFoundError("PLAN", …)` (entity name only — double-suffix rule)
-  - [ ] 2.3.4 Implement `setPlanActiveStatus(id, isActive, locale, tx?)` — id validation → `setActiveStatusOnce` (guarded) → `null` return → `existsById` probe → `false` → `NotFoundError("PLAN", …)`; `true` → `ConflictError` with custom code `PLAN_ALREADY_INACTIVE` / `PLAN_ALREADY_ACTIVE` (REQ-050 map) → `logger.logDomainError` with `{ code, entity: "plans", entityId: id }`. NOTE (0.3 gate): extend `backend/lib/errors.ts` `ConflictError` with the overloaded custom-code constructor mirroring `ValidationError` (default `CONFLICT` preserved) — add `backend/lib/errors.ts` to this task's change set
-  - [ ] 2.3.5 Implement `listActiveCatalog(locale, tx?)` → `PlanRepository.listActive(tx)`; `listForAdmin(includeInactive, locale, tx?)` → `includeInactive ? listAll(tx) : listActive(tx)` (single-predicate consumption)
-  - [ ] 2.3.6 All expected rejections via `logger.logDomainError`; unexpected via `logger.error`; NO `console.*`; log payloads limited to plan id + code (REQ-053)
-  - [ ] 2.3.7 Emit the DEV3-020 audit hook seam (`logger.info` + marked comment) after every successful transition — D1 deferred-item linkage; NO `audit_logs` writes
-  - [ ] 2.3.8 Physical zero-import guarantee: the service file contains NO imports of `subscriptions`, `student_subscriptions`, `student_payments`, `students`, `wallet`, `teacher_transaction` tables (grep-verifiable forward-only/no-cascade proof, REQ-017/018)
-  - [ ] 2.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/services/billing/plan-catalog.service.ts --lifecycle duplicates` (exit 0)
-  - [ ] 2.3.TE **Test Engineering**: `backend/db/test/logic/billing/plan-catalog.service.test.ts` — 4-Tier:
+  - [x] 2.3.1 Implement module-scope pure `validatePlanInput(input, tErrors)` — collects field-error map, throws ONE `ValidationError` with `extensions.fields[]` (`{field, code, message}` localized): title trim/≤255, `sessionCount` integer ≥1, `price` regex `^\d{1,8}(\.\d{1,2})?$` (module-level const), `currency` regex `^[A-Z]{3}$`, `intervalDays` integer ≥1
+  - [x] 2.3.2 Implement `createPlan(input, locale, tx?)` — validate BEFORE any write → explicit field-by-field insert mapping (`title: input.title.trim()`, …) with NO `{ ...input }` spread; `isActive`/`deactivatedAt`/timestamps never mapped from input → `PlanRepository.insertPlan(insert, tx)` → catch-path `23505`/`23514` cause-chain translation to localized `ValidationError` (DEV1-002 `isUniqueViolation` precedent; REQ-052)
+  - [x] 2.3.3 Implement `updatePlan(id, patch, locale, tx?)` — id coercion (positive integer; invalid → `ValidationError`) → empty-patch → `VALIDATION` (`planPatchEmpty`) → validate every supplied field → whitelist patch key-by-key → repo `updatePlanFields` → `null` → `NotFoundError("PLAN", …)` (entity name only — double-suffix rule)
+  - [x] 2.3.4 Implement `setPlanActiveStatus(id, isActive, locale, tx?)` — id validation → `setActiveStatusOnce` (guarded) → `null` return → `existsById` probe → `false` → `NotFoundError("PLAN", …)`; `true` → `ConflictError` with custom code `PLAN_ALREADY_INACTIVE` / `PLAN_ALREADY_ACTIVE` (REQ-050 map) → `logger.logDomainError` with `{ code, entity: "plans", entityId: id }`. NOTE (0.3 gate): extend `backend/lib/errors.ts` `ConflictError` with the overloaded custom-code constructor mirroring `ValidationError` (default `CONFLICT` preserved) — add `backend/lib/errors.ts` to this task's change set
+  - [x] 2.3.5 Implement `listActiveCatalog(locale, tx?)` → `PlanRepository.listActive(tx)`; `listForAdmin(includeInactive, locale, tx?)` → `includeInactive ? listAll(tx) : listActive(tx)` (single-predicate consumption)
+  - [x] 2.3.6 All expected rejections via `logger.logDomainError`; unexpected via `logger.error`; NO `console.*`; log payloads limited to plan id + code (REQ-053)
+  - [x] 2.3.7 Emit the DEV3-020 audit hook seam (`logger.info` + marked comment) after every successful transition — D1 deferred-item linkage; NO `audit_logs` writes
+  - [x] 2.3.8 Physical zero-import guarantee: the service file contains NO imports of `subscriptions`, `student_subscriptions`, `student_payments`, `students`, `wallet`, `teacher_transaction` tables (grep-verifiable forward-only/no-cascade proof, REQ-017/018)
+  - [x] 2.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/services/billing/plan-catalog.service.ts --lifecycle duplicates` (exit 0)
+  - [x] 2.3.TE **Test Engineering**: `backend/db/test/logic/billing/plan-catalog.service.test.ts` — 4-Tier:
     - Tier 1 (branch/statement): every guard branch of REQ-012; both zero-row branches of guarded updates (NotFound vs Conflict disambiguation); every error class thrown with correct `extensions.code`
     - Tier 2 (boundary, full REQ-073 matrix): title empty / whitespace-only / 255 (pass) / 256 (fail); `sessionCount` 0 (fail), 1 (pass), −1 (fail), non-integer (fail); `price` `"0.00"` (pass), `"-0.01"` (fail), `"abc"` (fail), `"1.005"` (fail), `"99999999.99"` (pass), `"100000000.00"` (fail); `currency` `"EGP"` (pass), `"egp"` (fail), `"EG"` (fail); `intervalDays` 0 (fail), 1 (pass); empty patch (fail); nonexistent id update (PLAN_NOT_FOUND)
     - Tier 3 (chaos): `Promise.allSettled` double-deactivation → exactly one success + one `PLAN_ALREADY_INACTIVE` with row transitioned exactly once; deactivate/reactivate round-trip; concurrent `updatePlan` patches converge last-write-wins without error
     - Tier 4 (security): BOPLA smuggle test — extra `id`/`isActive`/`createdAt` fields on input ignored by construction; `23514` escape path translated via cause-chain (never raw SQL, never 500)
-  - [ ] 2.3.SEC **Security & Tenancy Audit**: BOLA — identity comes from caller context only (service receives no actor input); BOPLA — grep-level audit proves zero `{ ...input }` spreads reach DB calls; error disclosure — no constraint names/SQL surface in any thrown message
-  - [ ] 2.3.SR **Semantic Review**: errors localized via `getServerTranslations(locale).errorsTranslations`; `DomainError` subclasses only (plain `new Error` prohibited); no cross-layer imports; no service `.types.ts`; zero dead code
-  - [ ] 2.3.IV **Instruction Verification**: `backend/services/AGENTS.md` + `docs/graphql/domain-error-extensions-code.md` error map honored verbatim
-  - [ ] 2.3.OD **Outcome**: `outcome/2.3-plan-catalog-service-outcome.md`
+  - [x] 2.3.SEC **Security & Tenancy Audit**: BOLA — identity comes from caller context only (service receives no actor input); BOPLA — grep-level audit proves zero `{ ...input }` spreads reach DB calls; error disclosure — no constraint names/SQL surface in any thrown message
+  - [x] 2.3.SR **Semantic Review**: errors localized via `getServerTranslations(locale).errorsTranslations`; `DomainError` subclasses only (plain `new Error` prohibited); no cross-layer imports; no service `.types.ts`; zero dead code
+  - [x] 2.3.IV **Instruction Verification**: `backend/services/AGENTS.md` + `docs/graphql/domain-error-extensions-code.md` error map honored verbatim
+  - [x] 2.3.OD **Outcome**: `outcome/2.3-plan-catalog-service-outcome.md`
 
 ### Task 2.4 — Phase 2.M Mid-Point Review Gate
 
-- [ ] 2.4 Mid-point review of all Phase 1–2 artifacts before GraphQL exposure
+- [x] 2.4 Mid-point review of all Phase 1–2 artifacts before GraphQL exposure
   - _Requirements: REQ-070, REQ-077 (partial gate)_
-  - [ ] 2.4.1 Re-run `bun tsgo`, `bun biome:check` — compare against Phase 0 baseline (zero NEW errors allowed)
-  - [ ] 2.4.2 Verify coverage so far: `bun test --coverage` on repository + service suites — target 100% statements/branches on new files
-  - [ ] 2.4.3 Verify the REQ-016 single-predicate rule by grep: the `is_active = true` filter exists in EXACTLY ONE place (`PlanRepository.listActive`)
-  - [ ] 2.4.4 Verify REQ-017/018 zero-import guarantee by grep on the service file
-  - [ ] 2.4.5 Resolve or defer any findings into `deferred-items.md` with owners before Phase 3 begins
-  - [ ] 2.4.SR **Semantic Review**: full Phase 1–2 diff reviewed against canonical-type discipline, repo AGENTS.md conventions, and transaction rules
-  - [ ] 2.4.IV **Instruction Verification**: `docs/specs/state-machine-invariants.md` re-read — confirm plan lifecycle addendum targets (INV-PC1..PC3) still match the implementation shape
-  - [ ] 2.4.OD **Outcome**: `outcome/2.4-mid-point-review-outcome.md` — Phase 3 is BLOCKED until this file exists with a pass verdict
+  - [x] 2.4.1 Re-run `bun tsgo`, `bun biome:check` — compare against Phase 0 baseline (zero NEW errors allowed)
+  - [x] 2.4.2 Verify coverage so far: `bun test --coverage` on repository + service suites — target 100% statements/branches on new files
+  - [x] 2.4.3 Verify the REQ-016 single-predicate rule by grep: the `is_active = true` filter exists in EXACTLY ONE place (`PlanRepository.listActive`)
+  - [x] 2.4.4 Verify REQ-017/018 zero-import guarantee by grep on the service file
+  - [x] 2.4.5 Resolve or defer any findings into `deferred-items.md` with owners before Phase 3 begins
+  - [x] 2.4.SR **Semantic Review**: full Phase 1–2 diff reviewed against canonical-type discipline, repo AGENTS.md conventions, and transaction rules
+  - [x] 2.4.IV **Instruction Verification**: `docs/specs/state-machine-invariants.md` re-read — confirm plan lifecycle addendum targets (INV-PC1..PC3) still match the implementation shape
+  - [x] 2.4.OD **Outcome**: `outcome/2.4-mid-point-review-outcome.md` — Phase 3 is BLOCKED until this file exists with a pass verdict
 
 ---
 

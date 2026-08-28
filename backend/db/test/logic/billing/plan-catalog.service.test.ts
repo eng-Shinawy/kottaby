@@ -311,13 +311,16 @@ describe("PlanCatalogService", () => {
         const minimal = await PlanCatalogService.createPlan(planSubmitInput({ sessionCount: 1 }), "en", tx);
         expect(minimal.sessionCount).toBe(1);
 
-        for (const sessionCount of [0, -1, 2.5]) {
-          await expectValidationError(
-            () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount }), "en", tx),
-            "sessionCount",
-            "PLAN_SESSION_COUNT_INVALID"
-          );
-        }
+        const rejected = await Promise.all(
+          [0, -1, 2.5].map(sessionCount =>
+            expectValidationError(
+              () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount }), "en", tx),
+              "sessionCount",
+              "PLAN_SESSION_COUNT_INVALID"
+            )
+          )
+        );
+        expect(rejected).toHaveLength(3);
       });
     });
 
@@ -328,13 +331,16 @@ describe("PlanCatalogService", () => {
         const capped = await PlanCatalogService.createPlan(planSubmitInput({ price: "99999999.99" }), "en", tx);
         expect(capped.price).toBe("99999999.99");
 
-        for (const price of ["-0.01", "abc", "1.005", "100000000.00"]) {
-          await expectValidationError(
-            () => PlanCatalogService.createPlan(planSubmitInput({ price }), "en", tx),
-            "price",
-            "PLAN_PRICE_INVALID"
-          );
-        }
+        const rejected = await Promise.all(
+          ["-0.01", "abc", "1.005", "100000000.00"].map(price =>
+            expectValidationError(
+              () => PlanCatalogService.createPlan(planSubmitInput({ price }), "en", tx),
+              "price",
+              "PLAN_PRICE_INVALID"
+            )
+          )
+        );
+        expect(rejected).toHaveLength(4);
       });
     });
 
@@ -343,13 +349,16 @@ describe("PlanCatalogService", () => {
         const ok = await PlanCatalogService.createPlan(planSubmitInput({ currency: "EGP" }), "en", tx);
         expect(ok.currency).toBe("EGP");
 
-        for (const currency of ["egp", "EG"]) {
-          await expectValidationError(
-            () => PlanCatalogService.createPlan(planSubmitInput({ currency }), "en", tx),
-            "currency",
-            "PLAN_CURRENCY_INVALID"
-          );
-        }
+        const rejected = await Promise.all(
+          ["egp", "EG"].map(currency =>
+            expectValidationError(
+              () => PlanCatalogService.createPlan(planSubmitInput({ currency }), "en", tx),
+              "currency",
+              "PLAN_CURRENCY_INVALID"
+            )
+          )
+        );
+        expect(rejected).toHaveLength(2);
       });
     });
 
@@ -380,18 +389,21 @@ describe("PlanCatalogService", () => {
 
     test("non-positive and non-integer ids reject before any database call", async () => {
       await runInRollback(async tx => {
-        for (const id of [0, -3, 2.5]) {
-          await expectValidationError(
-            () => PlanCatalogService.updatePlan(id, { title: "Whatever" }, "en", tx),
-            null,
-            "PLAN_ID_INVALID"
-          );
-          await expectValidationError(
-            () => PlanCatalogService.setPlanActiveStatus(id, true, "en", tx),
-            null,
-            "PLAN_ID_INVALID"
-          );
-        }
+        const rejected = await Promise.all(
+          [0, -3, 2.5].flatMap(id => [
+            expectValidationError(
+              () => PlanCatalogService.updatePlan(id, { title: "Whatever" }, "en", tx),
+              null,
+              "PLAN_ID_INVALID"
+            ),
+            expectValidationError(
+              () => PlanCatalogService.setPlanActiveStatus(id, true, "en", tx),
+              null,
+              "PLAN_ID_INVALID"
+            ),
+          ])
+        );
+        expect(rejected).toHaveLength(6);
       });
     });
   });

@@ -32,7 +32,7 @@
  *    constraint names and SQL fragments never reach a caller-facing message.
  *  - All user-facing strings resolve through
  *    `getServerTranslations(locale).errorsTranslations`; no hardcoded
- *    messages, no `console.*`.
+ *    messages, and no raw print-style logging.
  *  - Logging: expected domain rejections go through `logger.logDomainError`
  *    with payloads limited to the plan id + code; unexpected database
  *    failures log a static line via `logger.error` and bubble unswallowed to
@@ -41,7 +41,7 @@
  *    transaction tables — the catalog layer cannot cascade into any
  *    commercial ledger (grep-verifiable).
  */
-import { PlanRepository, type PlanFieldPatch } from "@/backend/db/repo";
+import { type PlanFieldPatch, PlanRepository } from "@/backend/db/repo";
 import { ConflictError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import type {
@@ -141,62 +141,116 @@ function parsePlanId(id: number, t: PlanErrorTranslations): number {
 }
 
 /**
- * Pure collector: walks the submitted (or patched) plan values and returns
- * one entry per offending field. With `requireAll` the caller asserts a
- * full creation payload (absent fields are violations); without it, only
- * fields actually supplied are judged — the partial-update contract.
+ * Judges the plan title against its validation rule. With `requireAll` the
+ * caller asserts a full creation payload, so an absent title is itself a
+ * violation; without it, an absent title is simply not supplied. Returns
+ * `null` when the title is acceptable or not supplied.
+ */
+function titlePlanFieldError(
+  value: string | undefined,
+  requireAll: boolean,
+  t: PlanErrorTranslations
+): PlanFieldError | null {
+  if (value === undefined && !requireAll) {
+    return null;
+  }
+  const title = value?.trim() ?? "";
+  if (title.length === 0) {
+    return { field: "title", code: "PLAN_TITLE_REQUIRED", message: t.planTitleRequired };
+  }
+  if (title.length > PLAN_TITLE_MAX_LENGTH) {
+    return { field: "title", code: "PLAN_TITLE_TOO_LONG", message: t.planTitleTooLong };
+  }
+  return null;
+}
+
+/**
+ * Judges one positive-integer plan value (`sessionCount` / `intervalDays`)
+ * under the same requireAll contract as the title judge.
+ */
+function countPlanFieldError(
+  field: "sessionCount" | "intervalDays",
+  value: number | undefined,
+  requireAll: boolean,
+  code: PlanFieldErrorCode,
+  message: string
+): PlanFieldError | null {
+  if (value === undefined && !requireAll) {
+    return null;
+  }
+  if (value === undefined || !Number.isInteger(value) || value < 1) {
+    return { field, code, message };
+  }
+  return null;
+}
+
+/**
+ * Judges one pattern-shaped plan value (`price` / `currency`) under the
+ * same requireAll contract as the title judge.
+ */
+function patternPlanFieldError(
+  field: "price" | "currency",
+  value: string | undefined,
+  pattern: RegExp,
+  requireAll: boolean,
+  code: PlanFieldErrorCode,
+  message: string
+): PlanFieldError | null {
+  if (value === undefined && !requireAll) {
+    return null;
+  }
+  if (value === undefined || !pattern.test(value)) {
+    return { field, code, message };
+  }
+  return null;
+}
+
+/**
+ * Pure collector: walks the submitted (or patched) plan values in field
+ * order and returns one entry per offending field. With `requireAll` the
+ * caller asserts a full creation payload (absent fields are violations);
+ * without it, only fields actually supplied are judged — the
+ * partial-update contract.
  */
 function collectPlanFieldErrors(
   values: PlanUpdateInput,
   requireAll: boolean,
   t: PlanErrorTranslations
 ): PlanFieldError[] {
-  const fieldErrors: PlanFieldError[] = [];
-
-  if (requireAll || values.title !== undefined) {
-    const title = (values.title ?? "").trim();
-    if (title.length === 0) {
-      fieldErrors.push({ field: "title", code: "PLAN_TITLE_REQUIRED", message: t.planTitleRequired });
-    } else if (title.length > PLAN_TITLE_MAX_LENGTH) {
-      fieldErrors.push({ field: "title", code: "PLAN_TITLE_TOO_LONG", message: t.planTitleTooLong });
-    }
-  }
-
-  if (requireAll || values.sessionCount !== undefined) {
-    const sessionCount = values.sessionCount;
-    if (sessionCount === undefined || !Number.isInteger(sessionCount) || sessionCount < 1) {
-      fieldErrors.push({
-        field: "sessionCount",
-        code: "PLAN_SESSION_COUNT_INVALID",
-        message: t.planSessionCountInvalid,
-      });
-    }
-  }
-
-  if (requireAll || values.price !== undefined) {
-    if (values.price === undefined || !PLAN_PRICE_PATTERN.test(values.price)) {
-      fieldErrors.push({ field: "price", code: "PLAN_PRICE_INVALID", message: t.planPriceInvalid });
-    }
-  }
-
-  if (requireAll || values.currency !== undefined) {
-    if (values.currency === undefined || !PLAN_CURRENCY_PATTERN.test(values.currency)) {
-      fieldErrors.push({ field: "currency", code: "PLAN_CURRENCY_INVALID", message: t.planCurrencyInvalid });
-    }
-  }
-
-  if (requireAll || values.intervalDays !== undefined) {
-    const intervalDays = values.intervalDays;
-    if (intervalDays === undefined || !Number.isInteger(intervalDays) || intervalDays < 1) {
-      fieldErrors.push({
-        field: "intervalDays",
-        code: "PLAN_INTERVAL_DAYS_INVALID",
-        message: t.planIntervalDaysInvalid,
-      });
-    }
-  }
-
-  return fieldErrors;
+  const judged: readonly (PlanFieldError | null)[] = [
+    titlePlanFieldError(values.title, requireAll, t),
+    countPlanFieldError(
+      "sessionCount",
+      values.sessionCount,
+      requireAll,
+      "PLAN_SESSION_COUNT_INVALID",
+      t.planSessionCountInvalid
+    ),
+    patternPlanFieldError(
+      "price",
+      values.price,
+      PLAN_PRICE_PATTERN,
+      requireAll,
+      "PLAN_PRICE_INVALID",
+      t.planPriceInvalid
+    ),
+    patternPlanFieldError(
+      "currency",
+      values.currency,
+      PLAN_CURRENCY_PATTERN,
+      requireAll,
+      "PLAN_CURRENCY_INVALID",
+      t.planCurrencyInvalid
+    ),
+    countPlanFieldError(
+      "intervalDays",
+      values.intervalDays,
+      requireAll,
+      "PLAN_INTERVAL_DAYS_INVALID",
+      t.planIntervalDaysInvalid
+    ),
+  ];
+  return judged.filter((error): error is PlanFieldError => error !== null);
 }
 
 /** Projects collected field errors onto the transport field payload. */
@@ -472,6 +526,9 @@ export namespace PlanCatalogService {
     _locale: string,
     tx?: DBTransaction
   ): Promise<PlanReturnType[]> {
-    return includeInactive ? PlanRepository.listAll(tx) : PlanRepository.listActive(tx);
+    if (!includeInactive) {
+      return PlanRepository.listActive(tx);
+    }
+    return PlanRepository.listAll(tx);
   }
 }
