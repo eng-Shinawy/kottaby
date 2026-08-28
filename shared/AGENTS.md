@@ -58,6 +58,10 @@ When frontend and backend both need the same enum values:
 
 `shared/constants/specialized-groups.constants.ts` exports `SPECIALIZED_GROUP_SLUGS` (readonly tuple of student/teacher/parent default group slugs), `SPECIALIZED_GROUP_SLUG_SET` (Set<string> for O(1) lookup), and `isSpecializedGroup(slug)` predicate. Used by backend services to reject specialized groups in general user creation and by frontend to filter the permission group dropdown. See `docs/services/general-user-creation.md` for usage.
 
+## Free Trial Sizing Constant
+
+`shared/constants/free-trial.constants.ts` holds `FREE_TRIAL_SESSION_COUNT` — the single source of truth for trial sizing (one free trial session per newly registered student). The constant lives in the shared layer (zero imports from `@/backend/**`, `@/frontend/**`, or `@/app/**`) so any future consumer — the DEV3 booking flow, a future admin dashboard, a future frontend trial-balance badge — can import it without violating layer isolation. See `docs/students/free-trial-provisioning.md` for the full trial-provisioning contract.
+
 ## Recitation Catalog (Qira'ah)
 
 Recitation catalog: `shared/constants/recitation-reading.enum.ts` is the canonical `RecitationReading` enum (10 Qira'at — stable lowercase snake_case values), with the frozen `RECITATION_READINGS` array and the `isRecitationReading(value: unknown)` type guard. The physical `recitation` table is session-linked per decision C.5 (1:1 with `session` via unique `session_id`) — this catalog is for user-preference selection only and MUST NOT be used to create user-linked `recitation` rows. See `docs/auth/qiraah-selection-and-c5.md`.

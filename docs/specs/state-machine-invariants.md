@@ -125,12 +125,14 @@ stateDiagram-v2
 ### 4.2 Session Balance Invariants
 | ID | Invariant |
 |---|---|
-| INV-B1 | Session balances (`balance_hifz`, `balance_tajweed`, `balance_reviews`) are non-negative integers (default 0). |
+| INV-B1 | Session balances (`balance_hifz`, `balance_tajweed`, `balance_reviews`, `balance_trial`) are non-negative integers (default 0). Structurally extended by the dedicated `balance_trial` lane (4th non-negative lane) enforced via the `students_balance_trial_check` CHECK constraint. |
 | INV-B2 | The full session count from a plan is credited to the respective balance immediately upon subscription activation. |
-| INV-B3 | Unused sessions expire at the end of the `interval_days` window with no carryover. |
-| INV-B4 | A student cannot request a session if the relevant balance is 0 (or expired). |
-| INV-B5 | Session balances are segregated: Hifz sessions decrement `balance_hifz`, Tajweed sessions decrement `balance_tajweed`, review sessions decrement `balance_reviews`. |
+| INV-B3 | Unused sessions expire at the end of the `interval_days` window with no carryover. This expiry rule explicitly DOES NOT apply to `balance_trial`: the trial lane is not subscription-bound (no `subscriptions` row), so no `interval_days` window exists. A trial credit persists until consumed by a session booking. |
+| INV-B4 | A student cannot request a session if the relevant balance is 0 (or expired). Eligibility is extended to: `(relevant intent balance > 0) OR (balance_trial > 0)` — the trial is an additional eligibility lane, not a replacement for any paid lane. The blocking semantics for a student with `balance_trial = 0` AND intent balance 0 are unchanged. |
+| INV-B5 | Session balances are segregated: Hifz sessions decrement `balance_hifz`, Tajweed sessions decrement `balance_tajweed`, review sessions decrement `balance_reviews`. The dedicated `balance_trial` lane keeps INV-B5 pure: a trial is not a Hifz/Tajweed/Review purchase, so it must not co-mingle into any paid lane. |
 | INV-B6 | The Admin can manually extend subscription validity windows (`end_date`). |
+| INV-B7 | A trial credit is granted at most once per student record. Enforced structurally by the `trial_granted_at` marker column (nullable timestamp, set server-side on first grant) and the guarded single conditional `UPDATE students SET balance_trial = balance_trial + <count>, trial_granted_at = now() WHERE id = <studentId> AND trial_granted_at IS NULL RETURNING id` atomic statement. The `trial_granted_at IS NULL` predicate IS the atomicity mechanism — no advisory lock and no `SELECT FOR UPDATE` is required, because the predicate evaluation and the column mutation share one SQL statement (TOCTOU window = 0). A second grant attempt matches zero rows, returns an empty `RETURNING` set, and the service converts that into a localized `ConflictError` with `extensions.code = "CONFLICT"`. |
+| INV-B8 | Session allowance consumption decrements `balance_trial` BEFORE any paid intent lane (`balance_hifz` / `balance_tajweed` / `balance_reviews`). When `balance_trial > 0`, the trial is decremented first and the paid lane is untouched; only when the trial has been exhausted does the existing paid-lane escrow rule (decision B.4) apply. The decrement MUST use the same single-guarded-UPDATE atomicity pattern: `UPDATE students SET balance_trial = balance_trial - 1 WHERE id = ? AND balance_trial > 0` returning a row count, with a separate conditional UPDATE on the paid lane if and only if the trial decrement returned zero rows. This preserves INV-B5 segregation and keeps trial-vs-paid analytics clean. |
 
 ---
 

@@ -216,6 +216,24 @@
 
 ---
 
+## D. Resolved During Implementation (DEV1-004 — Free Trial Session Provisioning)
+
+### D.1: Trial Placement — Dedicated `balance_trial` Lane (NOT `balance_hifz`)
+> **✅ RESOLVED** (per FR-2.6)
+>
+> **Decision:** The free trial credit for newly registered students lives in a dedicated, segregated `balance_trial` column on the `students` table, paired with a `trial_granted_at` one-time marker column. The alternative — crediting the trial into `balance_hifz` — was explicitly rejected.
+>
+> **Schema impact:** `students.balance_trial INTEGER NOT NULL DEFAULT 0` + `students.trial_granted_at TIMESTAMP NULL` + CHECK constraint `students_balance_trial_check` (`balance_trial >= 0`). The `students_balance_hifz_check` / `students_balance_tajweed_check` / `students_balance_reviews_check` constraints are unchanged.
+>
+> **Three-point rationale:**
+> 1. **INV-B5 purity (paid-lane segregation)** — a trial is not a Hifz purchase. Crediting `balance_hifz` with a trial would dilute the semantic meaning of that column for every consumer that reads it (booking eligibility, analytics dashboards, refund flows). The dedicated lane keeps the paid lanes pure: a non-zero `balance_hifz` always means "the student (or their parent) paid for Hifz sessions via a subscription."
+> 2. **INV-B2 subscription-binding** — paid crediting ties to subscription activation (a `subscriptions` row transitioning to `active`). A trial has no `subscriptions` row, no payment, and no validity window. Crediting `balance_hifz` would require either fabricating a synthetic subscription (which would corrupt the subscription state machine) or bypassing the crediting discipline that INV-B2 mandates — both unacceptable.
+> 3. **Analytics separability** — Admin needs to distinguish granted trials from paid credits for the M3 trial-funnel conversion dashboard (trials granted → trials consumed → trials converted to paid). With a dedicated lane + marker, the query `SELECT count(*) FROM students WHERE trial_granted_at IS NOT NULL` is a clean grant-count metric; with a co-mingled `balance_hifz`, that query would require joining against `subscriptions` and filtering out non-trial credits — fragile, slow, and structurally unable to distinguish a trial grant from a paid top-up.
+>
+> **Reference:** Canonical implementation documented in `docs/students/free-trial-provisioning.md`. Invariant addenda (INV-B7 grant-once, INV-B8 trial-first decrement) recorded in `docs/specs/state-machine-invariants.md` §4.2.
+
+---
+
 ## Summary
 
 | Category | Count | Status |

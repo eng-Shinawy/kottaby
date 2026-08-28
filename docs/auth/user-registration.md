@@ -14,7 +14,7 @@ When `RegistrationService.registerUser(input, locale, tx?)` runs, the `users` ro
 
 | `role` (public) | `users.role` enum value | Child table | Child-row contents | Public mutation? |
 |---|---|---|---|---|
-| `student` | `student` | `students` | `balance_hifz=0`, `balance_tajweed=0`, `balance_reviews=0`, `parent_id=NULL`, server-generated `handshake_code` | ✓ `registerUser` |
+| `student` | `student` | `students` | `balance_hifz=0`, `balance_tajweed=0`, `balance_reviews=0`, `balance_trial=0` (default 0, granted once via the trial provisioning service), `trial_granted_at=NULL`, `parent_id=NULL`, server-generated `handshake_code` | ✓ `registerUser` |
 | `teacher` | `teacher` | **`applicants`** (NOT `teacher`) | `status='pending'`, `verification_attempts=0`, `last_attempt_at=NULL`, `cooldown_until=NULL` | ✓ `registerUser` |
 | `parent` | `parent` | `parents` | (PK only; extension columns added by later flows) | ✓ `registerUser` |
 | `admin` | `admin` | `admin` | (PK only) | ✗ — service-only via `RegistrationService.createAdminUser` |
@@ -121,6 +121,20 @@ Every registration repo method takes `tx: DBTransaction` as its **last** paramet
 
 **All five MUST receive the same `tx`** — never call them with `db` directly inside a registration flow.
 
+### 3.4 Free-trial grant on the student branch
+
+After `createStudentWithHandshakeRetry` resolves on the `student` branch of `createRoleChild`, the registration transaction invokes the trial provisioning service:
+
+```ts
+case "student": {
+  await createStudentWithHandshakeRetry(userId, tx);
+  await StudentTrialService.grantFreeTrial(userId, locale, tx);
+  return;
+}
+```
+
+The grant is issued through `StudentTrialService.grantFreeTrial(studentId, locale, tx?)` — the single canonical provisioning entry point — which delegates to a single guarded conditional `UPDATE … WHERE trial_granted_at IS NULL … RETURNING id` on the `students` table. The grant shares the surrounding `withTransaction(outerTx)` SAVEPOINT-aware scope, so if any later step in registration throws, the user row, student row, and trial grant all roll back atomically. The teacher (`applicants`), parent, and admin (`createAdminUser`) paths do NOT receive the grant — it is structurally unreachable outside the `student` branch. The full grant-once atomicity argument, the dedicated `balance_trial` lane rationale, the DEV3 booking-eligibility & decrement contract, and the canonical anti-patterns are documented in [`docs/students/free-trial-provisioning.md`](../students/free-trial-provisioning.md).
+
 ---
 
 ## 4. BOPLA Whitelist (Mass-Assignment Defense)
@@ -157,6 +171,7 @@ const insert: UserInsertType = {
 | `id` | Server-generated |
 | `handshakeCode` | Server-generated for students |
 | `balanceHifz`, `balanceTajweed`, `balanceReviews` | Server-zeroed for students |
+| `balanceTrial`, `trialGrantedAt` | Server-set by the trial provisioning service (`StudentTrialService.grantFreeTrial`) on the student branch only — never client-controlled. See `docs/students/free-trial-provisioning.md` |
 | `parentId` | Server-set during the parent handshake flow |
 | `isDeleted`, `deletedAt` | Governance — server-controlled |
 | `suspended`, `suspendedAt`, `suspendedPeriodDays` | Governance — server-controlled |
@@ -369,7 +384,6 @@ Never hardcode error strings — always use typed translation functions.
 ### 9.3 Deferred and future work
 
 - Recitation (Qira'ah) record creation tied to student registration.
-- Free-trial balance crediting beyond the zeroed student columns.
 - Session store for refresh-token revocation and a real rate limiter (the current `backend/lib/ratelimit.ts` is a stub).
 - Teacher verification pipeline (applicants → teacher row) — see `docs/teachers/applicant-lifecycle.md`.
 - Parent handshake consumption (linking a parent via `handshake_code`).

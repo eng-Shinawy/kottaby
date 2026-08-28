@@ -343,31 +343,31 @@
 
 > Launch as parallel sub-reviews; each wave writes its own outcome file. No wave may declare pass while any ❌/⚠️ item is unresolved (except pre-seeded D1/D2).
 
-- [ ] **6.1 Review Wave: review-types**
+- [x] **6.1 Review Wave: review-types**
   - Scope: `backend/types/students/student.types.ts` (confirm zero edits — inference flows), `shared/locale/types/errors/index.ts`, `shared/constants/*`, schema inference bankruptcy check (`bun tsgo`).
   - Verify: no new `.types.ts` files were created; no local types in services/repos; canonical-type imports only; `StudentSelectType.balanceTrial: number` (not nullable) confirmed by inspection/inference probe.
   - Outcome: `outcome/6.1-review-types-outcome.md`
   - _Requirements: REQ-003, REQ-002_
 
-- [ ] **6.2 Review Wave: review-backend**
+- [x] **6.2 Review Wave: review-backend**
   - Scope: repo method (2.1), domain service (2.2), registration hook (2.3), seeds (2.4) — code + tests.
   - Checklist: single guarded UPDATE (no read-modify-write); `tx` propagation at every call site; DomainError-only throws; `logger.logDomainError` usage; no `console.*`; property-access i18n; no `try/catch` swallowing (REQ-053); role gating present; seed bootstrap pattern; atomic-registration rollback test evidence.
   - Outcome: `outcome/6.2-review-backend-outcome.md`
   - _Requirements: REQ-011..019, REQ-040..042, REQ-050..053_
 
-- [ ] **6.3 Review Wave: review-frontend**
+- [x] **6.3 Review Wave: review-frontend**
   - Scope: verify Phase 4 no-op claim independently: `git diff --name-only -- frontend/ app/` empty; generated client documents unchanged; no MUI/icon/i18n violations introduced anywhere in repo diff.
   - If any frontend file IS present in the diff: escalate — the receiving file MUST retroactively pass the full UI pipeline (QL, TE, **BF Agent-Browser functional loop: dev server + Playwright navigation/form/button/toast assertions**, **BS Agent-Browser visual loop: 1440×900 / 768×1024 / 375×812 × en-LTR / ar-RTL screenshots with MUI palette + RTL mirroring triage**, SR, IV) before this wave may pass.
   - Outcome: `outcome/6.3-review-frontend-outcome.md`
   - _Requirements: REQ-023, REQ-060, REQ-063_
 
-- [ ] **6.4 Review Wave: pentester**
+- [x] **6.4 Review Wave: pentester**
   - Scope: BOPLA/BOLA/BFLA threat review on the grant path.
   - Checks: smuggled-field fuzz (attempt `balanceTrial`/`trialCount`/`trial_granted_at` in `registerUser` input at integration level → rejected/ignored by whitelist); identity-derivation proof (no client-supplied studentId anywhere — grep + code path review); BFLA schema sweep (no balance-mutation ops, all roles); TOCTOU concurrency proof write-up (two concurrent `grantFreeTrialOnce` calls on same row → serialized by row lock; exactly ONE credit); negative-balance CHECK enforcement (REQ-035); privilege-escalation check (teacher/applicant states untouched, REQ-033); governance preservation (INV-U5: trial lane persists across suspend/block/soft-delete — documented review note).
   - Outcome: `outcome/6.4-pentester-outcome.md`
   - _Requirements: REQ-030..035, REQ-042, REQ-033_
 
-- [ ] **6.5 Deferred-Items Ledger Gate**
+- [x] **6.5 Deferred-Items Ledger Gate**
   - Run: `grep -c "❌\|⚠️" ai/plans/dev1-004-free-trial-session-provisioning/deferred-items.md` → MUST equal **0**, with the explicit exception that D1 (→ DEV3-010) and D2 (→ DEV3-004/DEV3-013) are pre-seeded, targeted, documented as non-blocking per the deferred-items template enforcement rules.
   - If any NEW items surfaced during phases 1–5: either resolve them pre-close or formally append with target ticket + justification and record in outcome.
   - Outcome: `outcome/6.5-deferred-gate-outcome.md`
@@ -377,7 +377,7 @@
 
 # Phase 7 — Knowledge Propagation & Documentation
 
-- [ ] **7.1 Canonical Doc: `docs/students/free-trial-provisioning.md` (REQ-080)**
+- [x] **7.1 Canonical Doc: `docs/students/free-trial-provisioning.md` (REQ-080)**
   - Create `docs/students/free-trial-provisioning.md` covering, per spec §REQ-080:
     - **Why**: FR-2.6 acquisition mechanic + INV-B5/InV-B2 invariant protection (dedicated-lane ruling rationale) + conversion analytics;
     - **Grant-once pattern**: guarded single conditional `UPDATE … WHERE trial_granted_at IS NULL … RETURNING id` + `trial_granted_at` marker; TOCTOU-window-zero argument; why no advisory lock / no `SELECT FOR UPDATE`;
@@ -388,7 +388,7 @@
   - Outcome: `outcome/7.1-canonical-doc-outcome.md`
   - _Requirements: REQ-080, REQ-020, REQ-021, REQ-022_
 
-- [ ] **7.2 Invariant & Decisions Addenda (REQ-081)**
+- [x] **7.2 Invariant & Decisions Addenda (REQ-081)**
   - Modify:
     - `docs/specs/state-machine-invariants.md` §4.2 — append:
       - **INV-B7**: A trial credit is granted at most once per student record; enforced by the `trial_granted_at` marker and the guarded conditional UPDATE (grant-once at SQL level).
@@ -399,7 +399,7 @@
   - Outcome: `outcome/7.2-invariants-decisions-outcome.md`
   - _Requirements: REQ-081_
 
-- [ ] **7.3 Cross-Doc & Layer AGENTS Updates (REQ-082)**
+- [x] **7.3 Cross-Doc & Layer AGENTS Updates (REQ-082)**
   - Modify (rule-only one-liners referencing the canonical doc, never duplicated logic):
     - `docs/auth/user-registration.md` — add trial-hook paragraph in the registration flow section (grant happens inside registration tx for `role = student` via `StudentTrialService.grantFreeTrial`; link canonical doc).
     - `backend/services/AGENTS.md` — one-liner: "Student trial provisioning flows exclusively through `StudentTrialService.grantFreeTrial` (grant-once, guarded UPDATE). See docs/students/free-trial-provisioning.md."
@@ -409,7 +409,7 @@
   - Outcome: `outcome/7.3-cross-doc-agents-outcome.md`
   - _Requirements: REQ-082_
 
-- [ ] **7.4 Outcome Synthesis & Final Quality Gate (REQ-076, REQ-083)**
+- [x] **7.4 Outcome Synthesis & Final Quality Gate (REQ-076, REQ-083)**
   - Produce `ai/plans/dev1-004-free-trial-session-provisioning/outcome/FINAL-synthesis-outcome.md`:
     - Consolidated baseline-vs-final table: `tsgo` errors, `biome` diagnostics, lint counts (new errors introduced: **0 expected** — any nonzero delta requires explicit justification + remediation task);
     - `git diff --name-only` authoritative file inventory vs Phase 0.1 snapshot;
