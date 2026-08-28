@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { char, check, decimal, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, char, check, decimal, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 
 /**
  * Subscription plans table (`plans`).
@@ -10,6 +10,9 @@ import { char, check, decimal, integer, pgTable, timestamp, varchar } from "driz
  * valid for `interval_days` (must be > 0).
  *
  * CHECK constraints mirror the intended validation rules.
+ *
+ * Lifecycle: `is_active` (soft-disable flag, default true) and
+ * `deactivated_at` are server-controlled catalog state.
  */
 export const plans = pgTable(
   "plans",
@@ -20,6 +23,8 @@ export const plans = pgTable(
     price: decimal("price", { precision: 10, scale: 2 }).notNull(),
     currency: char("currency", { length: 3 }).notNull().default("EGP"),
     intervalDays: integer("interval_days").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    deactivatedAt: timestamp("deactivated_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

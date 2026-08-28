@@ -1,7 +1,7 @@
 # Implementation Tasks — DEV1-005: Plan Catalog CRUD (Admin Only)
 
 > **Ticket:** `[DEV1-005] Plan Catalog CRUD (Admin Only)` (Owner: Dev 1 · Sprint 1 · 3 SP)
-> **Plan directory:** `ai/plans/dev1-005-plan-catalog-crud-admin-only/`
+> **Plan directory:** `ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/`
 > **Source of truth:** `specs.md` (REQ-001..REQ-083) + `plan.md` (D1..D8)
 > **Blocking dependencies (verified in Phase 0):** DEV1-001, DEV1-002, DEV2-001, DEV2-002
 
@@ -11,7 +11,7 @@
 
 The executing agent MUST follow this protocol for **every task** — no exceptions:
 
-1. **Pre-Execution Outcome Knowledge Read** — Before touching any file, read the outcome files of prerequisite tasks under `ai/plans/dev1-005-plan-catalog-crud-admin-only/outcome/` and the AGENTS.md files of every layer being modified.
+1. **Pre-Execution Outcome Knowledge Read** — Before touching any file, read the outcome files of prerequisite tasks under `ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/outcome/` and the AGENTS.md files of every layer being modified.
 2. **Post-Edit Quality Loop** — After every file creation/modification, run:
    ```
    bun run scripts/health/sub-loop.ts <file-path> --lifecycle duplicates
@@ -21,11 +21,11 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
    ```
    bun run test/scripts/run-test.ts <test-path>
    ```
-   (or `bun run scripts/run-test/run-test.ts <path>` where the canonical runner path is used). DB-bound tests MUST use `runInRollback` + `tx` propagation + `entity-setup.ts` helpers + `expectRepoError` (never `expect(...).rejects.toThrow()` inside `runInRollback`).
+   (the canonical runner location — root AGENTS.md documents `bun run test/scripts/run-test.ts <test-path>` for log-captured runs; no `test/scripts/n.ts` exists — 0.3 gate re-validation). DB-bound tests MUST use `runInRollback` + `tx` propagation + `entity-setup.ts` helpers + `expectRepoError` (never `expect(...).rejects.toThrow()` inside `runInRollback`).
 4. **Semantic Review Checklist Self-Review** — Before marking any task `[x]`, the agent self-reviews against: atomicity, env-config correctness, zero dead code, no cross-layer imports (`shared/` purity enforced), enums as **value imports**, logging via `logger` only (never `console.*`), canonical types only (no resolver-local types, no service `.types.ts`), MUI v9 `sx`-only discipline, i18n property-access discipline.
 5. **Outcome Documentation** — Every completed task MUST produce `outcome/<task-id>-outcome.md` under the plan directory, recording: what was changed, verification command outputs summary, deviations (if any), and deferred-items implications.
 6. **Checkbox Tracking** — Mark `[ ]` → `[x]` only when ALL sub-pipelines of that task are complete and verified.
-7. **Deferred-Items Discipline** — Anything not completed in-plan MUST be recorded in `ai/plans/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` with a ❌/⚠️ marker, target ticket, and owner. The pre-seeded D1/D2 are the only sanctioned non-blocking entries at close.
+7. **Deferred-Items Discipline** — Anything not completed in-plan MUST be recorded in `ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` with a ❌/⚠️ marker, target ticket, and owner. The pre-seeded D1/D2 are the only sanctioned non-blocking entries at close.
 
 ---
 
@@ -33,42 +33,42 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 0.1 — Error Baseline Recording & Deferred-Items Ledger Initialization
 
-- [ ] 0.1 Record implementation baseline and initialize the deferred-items ledger
+- [x] 0.1 Record implementation baseline and initialize the deferred-items ledger
   - Files to create:
-    - `ai/plans/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` (from template)
-    - `ai/plans/dev1-005-plan-catalog-crud-admin-only/outcome/phase0-baseline-outcome.md`
+    - `ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` (from template)
+    - `ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/outcome/phase0-baseline-outcome.md`
   - Applicable instructions: root `AGENTS.md`; `docs/specs/open-decisions-and-gaps.md`
   - _Requirements: REQ-001_
-  - [ ] 0.1.1 Run and record baseline error counts as JSON artifacts: `bun tsgo`, `bun biome:check`, `bun run scripts/lint-service.ts --json --id baseline`, `git diff --name-only`
-  - [ ] 0.1.2 Initialize `deferred-items.md` pre-seeded with:
+  - [x] 0.1.1 Run and record baseline error counts as JSON artifacts: `bun tsgo`, `bun biome:check`, `bun run scripts/lint-service.ts --json --id baseline`, `git diff --name-only`
+  - [x] 0.1.2 Initialize `deferred-items.md` pre-seeded with:
     - **D1** — Audit-log integration for plan mutations → target **DEV3-020** (non-blocking; hook points only in this ticket)
     - **D2** — Purchase-time active-plan re-validation (`is_active = true` inside purchase transaction) → target **DEV1-006** (non-blocking forward contract; this ticket ships the predicate)
-  - [ ] 0.1.3 Write `outcome/phase0-baseline-outcome.md` capturing baseline counts verbatim (numbers must be comparable at Phase 7 final-delta check, REQ-083)
-  - [ ] 0.1.SR **Semantic Review**: baseline artifacts exist and are machine-comparable; ledger matches template structure
-  - [ ] 0.1.IV **Instruction Verification**: confirm the ledger template and baseline commands against root AGENTS.md
+  - [x] 0.1.3 Write `outcome/phase0-baseline-outcome.md` capturing baseline counts verbatim (numbers must be comparable at Phase 7 final-delta check, REQ-083)
+  - [x] 0.1.SR **Semantic Review**: baseline artifacts exist and are machine-comparable; ledger matches template structure — VERIFIED: outcome file records tsgo=0 / biome warn=0 / lint exitCode=1 (empty diagnostics) verbatim; raw artifacts written to /tmp; ledger table columns and status legend match the deferred-items template
+  - [x] 0.1.IV **Instruction Verification**: confirm the ledger template and baseline commands against root AGENTS.md — VERIFIED: ledger matches `.agents/spec-process-guide/templates/deferred-items-template.md` (columns ID|Deferred Item|Source Task|Target Task|Status|Verified By|Notes + ✅/⚠️/❌/🔄 legend); commands confirmed against AGENTS.md: `bun run tsgo` (Essential Commands), `bun biome:check` (safe concurrent formatter, wraps `check --write --unsafe .` hence pre/post diff capture), `lint-service.ts --json --id` (Lint Service section, exit codes 0/1/2); AGENTS.md cache rule (NEVER CLEAR CACHES) respected
 
 ### Task 0.2 — Prerequisite & Dependency Guard Verification
 
-- [ ] 0.2 Verify all blocking-dependency artifacts exist before domain work starts
-  - Files to read (no modification): `backend/db/schema/billing/plans.ts`, `backend/types/billing/plan.types.ts`, `backend/services/` (registration service from DEV1-002), `backend/graphql/gqlSchemaBuilder.ts`, `shared/locale/` structure
+- [x] 0.2 Verify all blocking-dependency artifacts exist before domain work starts
+  - Files to read (no modification): `backend/db/schema/billing/plans.ts`, `backend/types/billing/plan.types.ts`, `backend/services/` (registration service from DEV1-002), `backend/graphql/pothos/builder.ts` (the `gqlSchemaBuilder` export), `shared/locale/` structure
   - _Requirements: REQ-004_
-  - [ ] 0.2.1 Verify DEV1-001 artifacts: `plans` table present with `plans_session_count_check`, `plans_price_check`, `plans_interval_days_check`; `paymentGateway`/`subscriptionStatus` enums exist; `PlanSelectType`/`PlanInsertType` exist in `backend/types/billing/plan.types.ts`
-  - [ ] 0.2.2 Verify DEV1-002 artifacts: `registerUser`/`createAdminUser` service paths exist; `isUniqueViolation`-style cause-chain translation precedent located for reuse pattern (REQ-052)
-  - [ ] 0.2.3 Verify DEV2-001 artifacts: JWT context factory producing `ctx.user` / `ctx.role` / `ctx.locale`; `withPageAuth({ roles, redirectTo })` server guard contract
-  - [ ] 0.2.4 Verify DEV2-002 artifacts: `role` authScope in `backend/graphql/gqlSchemaBuilder.ts` with OR semantics and fail-closed evaluation; `authenticated` scope → `UnauthorizedError` (401)
-  - [ ] 0.2.5 Verify DEV1-004 guarded-update precedent (`grantFreeTrialOnce`-pattern) exists as the reference implementation for REQ-014/015
-  - [ ] 0.2.6 IF any artifact is missing → record a ❌ entry in `deferred-items.md` and BLOCK dependent tasks; otherwise record verification evidence
-  - [ ] 0.2.SR **Semantic Review**: every dependency cell has verifiable evidence (file path + symbol), not assumptions
-  - [ ] 0.2.IV **Instruction Verification**: `docs/specs/open-decisions-and-gaps.md` re-read to confirm REQ-081 addendum authorization for the schema delta (A-category)
-  - [ ] 0.2.OD **Outcome**: `outcome/0.2-prerequisite-verification-outcome.md`
+  - [x] 0.2.1 Verify DEV1-001 artifacts: `plans` table present with `plans_session_count_check`, `plans_price_check`, `plans_interval_days_check`; `paymentGateway`/`subscriptionStatus` enums exist; `PlanSelectType`/`PlanInsertType` exist in `backend/types/billing/plan.types.ts`
+  - [x] 0.2.2 Verify DEV1-002 artifacts: `registerUser`/`createAdminUser` service paths exist; `isUniqueViolation`-style cause-chain translation precedent located for reuse pattern (REQ-052)
+  - [x] 0.2.3 Verify DEV2-001 artifacts: JWT context factory producing `ctx.user` / `ctx.role` / `ctx.locale`; `withPageAuth({ roles, redirectTo })` server guard contract
+  - [x] 0.2.4 Verify DEV2-002 artifacts: `role` authScope with OR semantics and fail-closed evaluation in `backend/graphql/pothos/builder.ts` (the `gqlSchemaBuilder` export — path corrected by the 0.3 gate; no file named `gqlSchemaBuilder.ts` exists); `authenticated` scope → `UnauthorizedError` (401)
+  - [x] 0.2.5 Verify the DEV1-004 guarded-update DESIGN reference exists (`ai/plans/sprint_0/dev1-004-free-trial-session-provisioning/plan.md`) as the documented pattern source for REQ-014/015 — pattern reference ONLY per the 0.3 gate ruling on deferred-item D3 (resolution path a): the guarded UPDATE is fully specified by REQ-014/015 + plan.md D2/§4.2 and does NOT depend on DEV1-004 code being merged (no `grantFreeTrialOnce` symbol exists in this repo state) — VERIFIED by the 0.3 gate: the sprint_0 DEV1-004 plan doc exists (specs/plan/tasks/prototype/deferred-items present on disk); REQ-014/015 + D2/§4.2 carry the normative SQL; cell was redefined by the gate ruling and is now satisfiable
+  - [x] 0.2.6 IF any artifact is missing → record a ❌ entry in `deferred-items.md` and BLOCK dependent tasks; otherwise record verification evidence
+  - [x] 0.2.SR **Semantic Review**: every dependency cell has verifiable evidence (file path + symbol), not assumptions
+  - [x] 0.2.IV **Instruction Verification**: `docs/specs/open-decisions-and-gaps.md` re-read to confirm REQ-081 addendum authorization for the schema delta (A-category)
+  - [x] 0.2.OD **Outcome**: `outcome/0.2-prerequisite-verification-outcome.md`
 
 ### Task 0.3 — Plan-Review Gate (Phase 1.5 Gate)
 
-- [ ] 0.3 Plan-review gate executed and outcome recorded BEFORE any implementation begins
+- [x] 0.3 Plan-review gate executed and outcome recorded BEFORE any implementation begins
   - _Requirements: REQ-083 ("the plan-review gate outcome SHALL exist before implementation")_
-  - [ ] 0.3.1 Run `@plan-review` against `specs.md` + `plan.md`; record verdict and required adjustments
-  - [ ] 0.3.2 Apply any required spec/plam adjustments as a pre-implementation amendment (with change log entry)
-  - [ ] 0.3.OD **Outcome**: `outcome/plan-review-gate-outcome.md` — implementation is BLOCKED until this file exists
+  - [x] 0.3.1 Run `@plan-review` against `specs.md` + `plan.md`; record verdict and required adjustments
+  - [x] 0.3.2 Apply any required spec/plan adjustments as a pre-implementation amendment (with change log entry)
+  - [x] 0.3.OD **Outcome**: `outcome/plan-review-gate-outcome.md` — implementation is BLOCKED until this file exists
 
 ---
 
@@ -76,90 +76,91 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 1.1 — Drizzle Schema Delta: Plan Lifecycle Columns
 
-- [ ] 1.1 Implement the `plans` table schema delta (`is_active`, `deactivated_at`)
+- [x] 1.1 Implement the `plans` table schema delta (`is_active`, `deactivated_at`)
   - Files to modify:
     - `backend/db/schema/billing/plans.ts` (add two columns; CHECK constraints untouched)
-  - Applicable AGENTS.md: `backend/db/AGENTS.md`, `backend/db/schema/AGENTS.md`; instruction docs: `docs/DATABASE_MIGRATIONS.md`
+  - Applicable AGENTS.md: `backend/db/schema/AGENTS.md` (note: no `backend/db/AGENTS.md` exists — corrected by 0.3 gate); instruction docs: `docs/DATABASE_MIGRATIONS.md`
   - _Requirements: REQ-010, REQ-042_
-  - [ ] 1.1.1 Add `isActive: boolean("is_active").notNull().default(true)` and `deactivatedAt: timestamp("deactivated_at")` to `pgTable("plans", ...)` — NO new enums, NO new indexes (no-index ruling per REQ-010 decision note)
-  - [ ] 1.1.2 Apply via `bun run db push` ONLY (`db reset` / `db cleanGenerate` permanently disabled); capture the push log
-  - [ ] 1.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/schema/billing/plans.ts --lifecycle duplicates` (exit 0)
-  - [ ] 1.1.TE **Test Engineering**: DB column-presence test in `backend/db/test/logic/billing/plan-catalog-schema.test.ts` asserting `is_active` (NOT NULL, default true) and `deactivated_at` (NULL default) via information_schema probes inside `runInRollback`; assert existing CHECK constraints still reject invalid direct writes (Tier 2 boundary + Tier 3 chaos entry-point for 1.2)
-  - [ ] 1.1.SEC **Security & Tenancy Audit**: confirm default `true` backfills existing rows non-destructively (zero data-loss); confirm no new writable surface exposed (columns server-controlled only)
-  - [ ] 1.1.SR **Semantic Review**: schema change and runtime code land in the same commit set (no drift); no raw SQL migration; `$inferSelect`/`$inferInsert` automatically flow the new fields (verify via tsgo downstream)
-  - [ ] 1.1.IV **Instruction Verification**: `docs/DATABASE_MIGRATIONS.md` compliance (push-only, no custom SQL)
-  - [ ] 1.1.OD **Outcome**: `outcome/1.1-schema-delta-outcome.md`
+  - [x] 1.1.1 Add `isActive: boolean("is_active").notNull().default(true)` and `deactivatedAt: timestamp("deactivated_at")` to `pgTable("plans", ...)` — NO new enums, NO new indexes (no-index ruling per REQ-010 decision note)
+  - [x] 1.1.2 Apply via `bun run db push` ONLY (`db reset` / `db cleanGenerate` permanently disabled); capture the push log
+  - [x] 1.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/schema/billing/plans.ts --lifecycle duplicates` (exit 0)
+  - [x] 1.1.TE **Test Engineering**: DB column-presence test in `backend/db/test/logic/billing/plan-catalog-schema.test.ts` asserting `is_active` (NOT NULL, default true) and `deactivated_at` (NULL default) via information_schema probes inside `runInRollback`; assert existing CHECK constraints still reject invalid direct writes (Tier 2 boundary + Tier 3 chaos entry-point for 1.2)
+  - [x] 1.1.SEC **Security & Tenancy Audit**: confirm default `true` backfills existing rows non-destructively (zero data-loss); confirm no new writable surface exposed (columns server-controlled only)
+  - [x] 1.1.SR **Semantic Review**: schema change and runtime code land in the same commit set (no drift); no raw SQL migration; `$inferSelect`/`$inferInsert` automatically flow the new fields (verify via tsgo downstream)
+  - [x] 1.1.IV **Instruction Verification**: `docs/DATABASE_MIGRATIONS.md` compliance (push-only, no custom SQL)
+  - [x] 1.1.OD **Outcome**: `outcome/1.1-schema-delta-outcome.md`
 
 ### Task 1.2 — Canonical Types Extension
 
-- [ ] 1.2 Extend canonical billing plan types (`PlanReturnType`, `PlanSubmitInput`, `PlanUpdateInput`)
+- [x] 1.2 Extend canonical billing plan types (`PlanReturnType`, `PlanSubmitInput`, `PlanUpdateInput`)
   - Files to modify:
     - `backend/types/billing/plan.types.ts` (extend — NO new file; barrel already re-exports `./plan.types`)
   - Applicable AGENTS.md: `backend/types/AGENTS.md`
   - _Requirements: REQ-003, REQ-022, REQ-031_
-  - [ ] 1.2.1 Add `PlanReturnType = PlanSelectType` (identity — plans carry no forbidden fields)
-  - [ ] 1.2.2 Add `PlanSubmitInput` interface with readonly fields: `title: string`, `sessionCount: number`, `price: string` (decimal string), `currency: string`, `intervalDays: number` — structurally omitting `id`, `isActive`, `deactivatedAt`, `createdAt`, `updatedAt` (BOPLA by type construction)
-  - [ ] 1.2.3 Add `PlanUpdateInput` as a strict mapped partial over `PlanSubmitInput`
-  - [ ] 1.2.4 Verify `DBTransaction`/`DBQueryExecutor` NOT redefined here — they are imported from `@/backend/types` by consumers only
-  - [ ] 1.2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/types/billing/plan.types.ts --lifecycle duplicates` (exit 0)
-  - [ ] 1.2.TE **Test Engineering**: Tier 1 type-level proof via tsgo (new columns present on `PlanSelectType`); compile-level negative assertions (assigning `isActive` into `PlanSubmitInput` fails type-check — documented via `// @ts-expect-error` assertion block in a type test file `backend/types/billing/plan.types.test-d.ts` or equivalent established pattern)
-  - [ ] 1.2.SEC **Security & Tenancy Audit**: BOPLA — server-controlled fields structurally absent from both input types; money discipline — `price` is `string`, never `number`/`Float` (REQ-022)
-  - [ ] 1.2.SR **Semantic Review**: no local types outside `backend/types/`; no service-layer `.types.ts` file created anywhere in this ticket
-  - [ ] 1.2.IV **Instruction Verification**: `backend/types/AGENTS.md` canonical naming rules honored (`{{Entity}}SelectType/InsertType/ReturnType/SubmitInput`)
-  - [ ] 1.2.OD **Outcome**: `outcome/1.2-canonical-types-outcome.md`
+  - [x] 1.2.1 Add `PlanReturnType = PlanSelectType` (identity — plans carry no forbidden fields)
+  - [x] 1.2.2 Add `PlanSubmitInput` interface with readonly fields: `title: string`, `sessionCount: number`, `price: string` (decimal string), `currency: string`, `intervalDays: number` — structurally omitting `id`, `isActive`, `deactivatedAt`, `createdAt`, `updatedAt` (BOPLA by type construction)
+  - [x] 1.2.3 Add `PlanUpdateInput` as a strict mapped partial over `PlanSubmitInput`
+  - [x] 1.2.4 Verify `DBTransaction`/`DBQueryExecutor` NOT redefined here — they are imported from `@/backend/types` by consumers only
+  - [x] 1.2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/types/billing/plan.types.ts --lifecycle duplicates` (exit 0)
+  - [x] 1.2.TE **Test Engineering**: Tier 1 type-level proof via tsgo (new columns present on `PlanSelectType`); compile-level negative assertions (assigning `isActive` into `PlanSubmitInput` fails type-check — documented via `// @ts-expect-error` assertion block in a type test file `backend/types/billing/plan.types.test-d.ts` or equivalent established pattern)
+  - [x] 1.2.SEC **Security & Tenancy Audit**: BOPLA — server-controlled fields structurally absent from both input types; money discipline — `price` is `string`, never `number`/`Float` (REQ-022)
+  - [x] 1.2.SR **Semantic Review**: no local types outside `backend/types/`; no service-layer `.types.ts` file created anywhere in this ticket
+  - [x] 1.2.IV **Instruction Verification**: `backend/types/AGENTS.md` canonical naming rules honored (`{{Entity}}SelectType/InsertType/ReturnType/SubmitInput`)
+  - [x] 1.2.OD **Outcome**: `outcome/1.2-canonical-types-outcome.md`
 
 ### Task 1.3 — i18n: `errors.planCatalog` Grouping (EN/AR/Types)
 
-- [ ] 1.3 Add `planCatalog` error-message grouping to the `errors` namespace
+- [x] 1.3 Add `planCatalog` error-message grouping to the `errors` namespace
   - Files to modify:
     - `shared/locale/types/errors/index.ts` (add `planCatalog` interface group: `planNotFound`, `planAlreadyInactive`, `planAlreadyActive`, `planTitleRequired`, `planTitleTooLong`, `planSessionCountInvalid`, `planPriceInvalid`, `planCurrencyInvalid`, `planIntervalDaysInvalid`, `planPatchEmpty`)
     - `shared/locale/en/errors/index.ts` (English implementations)
     - `shared/locale/ar/errors/index.ts` (Arabic implementations — natural RTL phrasing)
   - Applicable AGENTS.md: `shared/locale/AGENTS.md`
   - _Requirements: REQ-002, REQ-050, REQ-051_
-  - [ ] 1.3.1 Implement types interface group first (compile-time `MessageSchema` parity is the gate)
-  - [ ] 1.3.2 Implement EN messages (localized, user-facing, domain-error-safe phrasing — no internal/SQL hints)
-  - [ ] 1.3.3 Implement AR messages (natural translations; no machine-translated artifacts)
-  - [ ] 1.3.4 Run `bun tsgo` — parity gate MUST pass (missing key = tsgo failure)
-  - [ ] 1.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts shared/locale/types/errors/index.ts --lifecycle duplicates` (exit 0); repeat for both locale implementation files
-  - [ ] 1.3.TE **Test Engineering**: locale parity test — enumerate all `planCatalog` keys and assert EN/AR/type-shape alignment (ar/en structural equality assertion per existing locale test patterns)
-  - [ ] 1.3.SEC **Security & Tenancy Audit**: messages contain no internal identifiers, constraint names, SQL fragments, or stack hints (error disclosure confidentiality, REQ-052/050)
-  - [ ] 1.3.SR **Semantic Review**: `shared/` purity — zero imports from `@/frontend/**`, `@/backend/**`, `@/app/**`; no `next-intl`; no `shared/messages/` references
-  - [ ] 1.3.IV **Instruction Verification**: `shared/locale/AGENTS.md` property-access and namespace registration rules
-  - [ ] 1.3.OD **Outcome**: `outcome/1.3-errors-i18n-outcome.md`
+  - [x] 1.3.1 Implement types interface group first (compile-time `ErrorsLabels` interface parity is the gate)
+  - [x] 1.3.2 Implement EN messages (localized, user-facing, domain-error-safe phrasing — no internal/SQL hints)
+  - [x] 1.3.3 Implement AR messages (natural translations; no machine-translated artifacts)
+  - [x] 1.3.4 Run `bun tsgo` — parity gate MUST pass (missing key = tsgo failure)
+  - [x] 1.3.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts shared/locale/types/errors/index.ts --lifecycle duplicates` (exit 0); repeat for both locale implementation files
+  - [x] 1.3.TE **Test Engineering**: locale parity test — enumerate all `planCatalog` keys and assert EN/AR/type-shape alignment (ar/en structural equality assertion per existing locale test patterns)
+  - [x] 1.3.SEC **Security & Tenancy Audit**: messages contain no internal identifiers, constraint names, SQL fragments, or stack hints (error disclosure confidentiality, REQ-052/050)
+  - [x] 1.3.SR **Semantic Review**: `shared/` purity — zero imports from `@/frontend/**`, `@/backend/**`, `@/app/**`; no `next-intl`; no `shared/messages/` references
+  - [x] 1.3.IV **Instruction Verification**: `shared/locale/AGENTS.md` property-access and namespace registration rules
+  - [x] 1.3.OD **Outcome**: `outcome/1.3-errors-i18n-outcome.md`
 
 ### Task 1.4 — i18n: New `plans` UI Namespace (Full Registration Procedure)
 
-- [ ] 1.4 Register the `plans` UI namespace end-to-end per `shared/locale/AGENTS.md`
+- [x] 1.4 Register the `plans` UI namespace end-to-end per `shared/locale/AGENTS.md`
   - Files to create/modify:
     - `shared/locale/types/plans/index.ts` (NEW — labels interface: page title, table headers, status chips `active`/`inactive`, create/edit dialog labels, field labels, empty/error states, confirm-deactivate/reactivate copy, submit/loading/success states)
+    - `shared/locale/namespaces/plans/plans.namespace.ts` + `shared/locale/namespaces/plans/index.ts` (NEW — `Plans` handle via `defineNamespace`, pattern per `shared/locale/namespaces/dashboard/`; exported through `shared/locale/namespaces/index.ts`)
     - `shared/locale/en/plans/index.ts` (NEW)
     - `shared/locale/ar/plans/index.ts` (NEW)
-    - `shared/locale/types/message.ts` (add `plansTranslations` entry to `MessageSchema`)
+    - `shared/locale/types/message.ts` (add `plansTranslations` entry to the `Translations` interface)
     - Locale server namespace-path registration map (add `plans` path per `shared/locale/AGENTS.md` procedure)
   - Applicable AGENTS.md: `shared/locale/AGENTS.md`
   - _Requirements: REQ-002, REQ-051, REQ-054_
-  - [ ] 1.4.1 Author the types interface with complete key coverage for every UI surface planned in Phase 4 (table, chips, dialogs, toasts, empty/error states, confirm copy)
-  - [ ] 1.4.2 Author EN implementation; author AR implementation (RTL-safe phrasing, no truncation-prone hardcoded width assumptions coupled to copy)
-  - [ ] 1.4.3 Register namespace in `MessageSchema` + server paths map
-  - [ ] 1.4.4 Run `bun tsgo` (parity gate) — MUST pass
-  - [ ] 1.4.QL **Quality Loop**: sub-loop on every created/modified locale file (exit 0)
-  - [ ] 1.4.TE **Test Engineering**: parity test asserting every EN key exists in AR and matches type shape; verify `getTranslations(locale)` exposes `t.plansTranslations.*` on the server and `useAppTranslation(Translation.Plans)` resolves on the client (test-lineage only; wiring proven in Phase 4)
-  - [ ] 1.4.SEC **Security & Tenancy Audit**: plan *content* (`title`) documented as admin-authored DATA, not translation keys — no key-space pollution
-  - [ ] 1.4.SR **Semantic Review**: property-access convention only; `Translation.Plans` enum member used (value import path verified in Phase 4); no hardcoded strings anywhere
-  - [ ] 1.4.IV **Instruction Verification**: every step of the `shared/locale/AGENTS.md` new-namespace procedure executed in order
-  - [ ] 1.4.OD **Outcome**: `outcome/1.4-plans-i18n-outcome.md`
+  - [x] 1.4.1 Author the types interface with complete key coverage for every UI surface planned in Phase 4 (table, chips, dialogs, toasts, empty/error states, confirm copy)
+  - [x] 1.4.2 Author EN implementation; author AR implementation (RTL-safe phrasing, no truncation-prone hardcoded width assumptions coupled to copy)
+  - [x] 1.4.3 Register `plansTranslations` in the `Translations` interface (`shared/locale/types/message.ts`), aggregate label consts into `shared/locale/en/messages.ts` + `shared/locale/ar/messages.ts`, and create the `Plans` namespace handle (`defineNamespace<PlansLabels>` in `shared/locale/namespaces/plans/`, exported via `shared/locale/namespaces/index.ts`)
+  - [x] 1.4.4 Run `bun tsgo` (parity gate) — MUST pass
+  - [x] 1.4.QL **Quality Loop**: sub-loop on every created/modified locale file (exit 0)
+  - [x] 1.4.TE **Test Engineering**: parity test asserting every EN key exists in AR and matches type shape; verify `getTranslations(locale)` exposes `t.plansTranslations.*` on the server and `useAppTranslation(Plans)` resolves on the client (test-lineage only; wiring proven in Phase 4)
+  - [x] 1.4.SEC **Security & Tenancy Audit**: plan *content* (`title`) documented as admin-authored DATA, not translation keys — no key-space pollution
+  - [x] 1.4.SR **Semantic Review**: property-access convention only; the `Plans` namespace handle used (import path verified in Phase 4); no hardcoded strings anywhere
+  - [x] 1.4.IV **Instruction Verification**: every step of the `shared/locale/AGENTS.md` new-namespace procedure executed in order
+  - [x] 1.4.OD **Outcome**: `outcome/1.4-plans-i18n-outcome.md`
 
 ### Task 1.5 — Phase 1 Seed Bootstrap Contract (Service-Only Pattern Declaration)
 
-- [ ] 1.5 Pre-stage the seed-parity contract for the demo catalog (implementation lands in Phase 3 after the service exists)
+- [x] 1.5 Pre-stage the seed-parity contract for the demo catalog (implementation lands in Phase 3 after the service exists)
   - Files to read: `backend/db/seeds/AGENTS.md`
   - _Requirements: REQ-019, REQ-021_
-  - [ ] 1.5.1 Document the exact demo catalog fixtures to be provisioned in Phase 3.5: (a) one Hifz Jadid plan, (b) one Tajweed plan, (c) "New Teacher Verification & Evaluation Plan" with `sessionCount = 5` (FR-2.3), (d) one deactivated demo plan — all via service find-or-create by stable title lookup, idempotent on re-run
-  - [ ] 1.5.2 Verify `backend/db/seeds/AGENTS.md` service-bootstrap rule (never raw `@/backend/db/**` imports from seeders)
-  - [ ] 1.5.SR **Semantic Review**: the declared fixtures will exercise the FULL lifecycle (incl. deactivated state) so dev/demo environments prove INV-PC1 visibility filtering
-  - [ ] 1.5.IV **Instruction Verification**: seeds AGENTS.md contract confirmed before Phase 3.5 starts
-  - [ ] 1.5.OD **Outcome**: `outcome/1.5-seed-contract-outcome.md`
+  - [x] 1.5.1 Document the exact demo catalog fixtures to be provisioned in Phase 3.5: (a) one Hifz Jadid plan, (b) one Tajweed plan, (c) "New Teacher Verification & Evaluation Plan" with `sessionCount = 5` (FR-2.3), (d) one deactivated demo plan — all via service find-or-create by stable title lookup, idempotent on re-run
+  - [x] 1.5.2 Verify `backend/db/seeds/AGENTS.md` service-bootstrap rule (never raw `@/backend/db/**` imports from seeders)
+  - [x] 1.5.SR **Semantic Review**: the declared fixtures will exercise the FULL lifecycle (incl. deactivated state) so dev/demo environments prove INV-PC1 visibility filtering
+  - [x] 1.5.IV **Instruction Verification**: seeds AGENTS.md contract confirmed before Phase 3.5 starts
+  - [x] 1.5.OD **Outcome**: `outcome/1.5-seed-contract-outcome.md`
 
 ---
 
@@ -167,50 +168,50 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 2.1 — `entity-setup.ts` Test Helper: `createTestPlan`
 
-- [ ] 2.1 Add `createTestPlan` (and `createTestPlanWithSubscription` linkage fixture) to entity-setup helpers
+- [x] 2.1 Add `createTestPlan` (and `createTestPlanWithSubscription` linkage fixture) to entity-setup helpers
   - Files to modify:
     - `backend/db/test/entity-setup.ts` (verify exact existing signatures FIRST per rule 17; unique suffixes via `randomUUID()`)
-  - Applicable AGENTS.md: `backend/db/AGENTS.md`, test-layer AGENTS.md
+  - Applicable AGENTS.md: `backend/db/test/AGENTS.md` (note: no `backend/db/AGENTS.md` exists — corrected by 0.3 gate)
   - _Requirements: REQ-070, REQ-071, REQ-075_
-  - [ ] 2.1.1 Add `createTestPlan(overrides, tx)` helper creating a plan row with randomized unique title
-  - [ ] 2.1.2 Add (or verify existing) subscription/balance fixture linkage helpers needed by the REQ-075 byte-identical preservation proof (subscription row + student balance lane referencing a plan)
-  - [ ] 2.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/test/entity-setup.ts --lifecycle duplicates` (exit 0)
-  - [ ] 2.1.TE **Test Engineering**: helper self-test — create two plans with helpers inside `runInRollback`, assert unique IDs/titles, assert rollback leaves zero residue
-  - [ ] 2.1.SEC **Security & Tenancy Audit**: helpers never bypass validation via unsafe defaults; all writes go through `tx`
-  - [ ] 2.1.SR **Semantic Review**: no seed data used; helpers compose existing entity factories rather than duplicating them (duplicates lifecycle clean)
-  - [ ] 2.1.IV **Instruction Verification**: verify signatures against existing callers per rule 17 before adding overloads
-  - [ ] 2.1.OD **Outcome**: `outcome/2.1-entity-setup-outcome.md`
+  - [x] 2.1.1 Add `createTestPlan(overrides, tx)` helper creating a plan row with randomized unique title
+  - [x] 2.1.2 Add (or verify existing) subscription/balance fixture linkage helpers needed by the REQ-075 byte-identical preservation proof (subscription row + student balance lane referencing a plan)
+  - [x] 2.1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/test/entity-setup.ts --lifecycle duplicates` (exit 0)
+  - [x] 2.1.TE **Test Engineering**: helper self-test — create two plans with helpers inside `runInRollback`, assert unique IDs/titles, assert rollback leaves zero residue
+  - [x] 2.1.SEC **Security & Tenancy Audit**: helpers never bypass validation via unsafe defaults; all writes go through `tx`
+  - [x] 2.1.SR **Semantic Review**: no seed data used; helpers compose existing entity factories rather than duplicating them (duplicates lifecycle clean)
+  - [x] 2.1.IV **Instruction Verification**: verify signatures against existing callers per rule 17 before adding overloads
+  - [x] 2.1.OD **Outcome**: `outcome/2.1-entity-setup-outcome.md`
 
 ### Task 2.2 — `PlanRepository` Implementation
 
-- [ ] 2.2 Implement `backend/db/repo/billing/plan.repository.ts`
+- [x] 2.2 Implement `backend/db/repo/billing/plan.repository.ts`
   - Files to create:
     - `backend/db/repo/billing/plan.repository.ts` (NEW)
     - `backend/db/repo/billing/index.ts` (create-or-extend barrel per existing `billing/` domain layout)
   - Applicable AGENTS.md: `backend/db/repo/AGENTS.md`; instruction docs: `docs/drizzle/prepared-statements.md`
   - _Requirements: REQ-014, REQ-015, REQ-016, REQ-040, REQ-041, REQ-042_
-  - [ ] 2.2.1 Implement `insertPlan(insert: PlanInsertType, tx?: DBTransaction): Promise<PlanSelectType>` — single INSERT … RETURNING
-  - [ ] 2.2.2 Implement `updatePlanFields(id, patch, tx?): Promise<PlanSelectType | null>` — single UPDATE … RETURNING with server-side `updatedAt: new Date()`; empty-returned rows → `null`
-  - [ ] 2.2.3 Implement `setActiveStatusOnce(id, target, tx?): Promise<PlanSelectType | null>` — the guarded conditional UPDATE (D2):
+  - [x] 2.2.1 Implement `insertPlan(insert: PlanInsertType, tx?: DBTransaction): Promise<PlanSelectType>` — single INSERT … RETURNING
+  - [x] 2.2.2 Implement `updatePlanFields(id, patch, tx?): Promise<PlanSelectType | null>` — single UPDATE … RETURNING with server-side `updatedAt: new Date()`; empty-returned rows → `null`
+  - [x] 2.2.3 Implement `setActiveStatusOnce(id, target, tx?): Promise<PlanSelectType | null>` — the guarded conditional UPDATE (D2):
     ```ts
     .set({ isActive: target, deactivatedAt: target ? null : new Date(), updatedAt: new Date() })
     .where(and(eq(plans.id, id), eq(plans.isActive, !target)))
     .returning()
     ```
     No `sql` template (no inline-comment hazard); full Drizzle parameterization; NO SELECT-then-UPDATE
-  - [ ] 2.2.4 Implement `existsById(id, tx?): Promise<boolean>` — read-only post-guard disambiguation probe (D3)
-  - [ ] 2.2.5 Implement `listActive(tx?)` — `WHERE is_active = true ORDER BY created_at ASC` — **THE single active predicate** (REQ-016); and `listAll(tx?)` — `ORDER BY created_at ASC`
-  - [ ] 2.2.6 Non-transactional reads use `queryDb(tx)` Neon-HTTP-eligible pattern; `tx` is the LAST parameter everywhere; NO `inArray`; NO module-level mutable state
-  - [ ] 2.2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/repo/billing/plan.repository.ts --lifecycle duplicates` (exit 0)
-  - [ ] 2.2.TE **Test Engineering**: `backend/db/test/logic/billing/plan-catalog.repository.test.ts` — 4-Tier:
+  - [x] 2.2.4 Implement `existsById(id, tx?): Promise<boolean>` — read-only post-guard disambiguation probe (D3)
+  - [x] 2.2.5 Implement `listActive(tx?)` — `WHERE is_active = true ORDER BY created_at ASC` — **THE single active predicate** (REQ-016); and `listAll(tx?)` — `ORDER BY created_at ASC`
+  - [x] 2.2.6 Non-transactional reads use `queryDb(tx)` Neon-HTTP-eligible pattern; `tx` is the LAST parameter everywhere; NO `inArray`; NO module-level mutable state
+  - [x] 2.2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts backend/db/repo/billing/plan.repository.ts --lifecycle duplicates` (exit 0)
+  - [x] 2.2.TE **Test Engineering**: `backend/db/test/logic/billing/plan-catalog.repository.test.ts` — 4-Tier:
     - Tier 1: every method happy path inside `runInRollback` with `tx` propagation position-verified per signature
     - Tier 2: boundary — `updatePlanFields` on nonexistent id returns `null`; `listActive` excludes deactivated rows; `listAll` includes them; ordering `created_at ASC` proven with three fixtures
     - Tier 3: chaos — `setActiveStatusOnce` double-guard: second identical transition returns `null` (empty RETURNING), row transitioned exactly once
     - Tier 4: security — direct-write CHECK bypass attempts (`session_count <= 0`, `price < 0`, `interval_days <= 0`) rejected at DB layer, asserted via `expectRepoError` try/catch (REQ-035)
-  - [ ] 2.2.SEC **Security & Tenancy Audit**: all queries Drizzle-parameterized; no LIKE/search surface (`escapeLikeWildcards` documented N/A); guarded update is the ONLY mutation primitive for state (TOCTOU window = 0)
-  - [ ] 2.2.SR **Semantic Review**: zero business rules/translations/log strings in the repository; `DBTransaction` imported from `@/backend/types` only; single-statement writes (no explicit transaction needed, REQ-041); methods composable via optional `tx` for future DEV1-009 consumers
-  - [ ] 2.2.IV **Instruction Verification**: `backend/db/repo/AGENTS.md` (`queryDb(tx)` pattern, tx-last convention, prepared-statement read-path rules) + `docs/drizzle/prepared-statements.md`
-  - [ ] 2.2.OD **Outcome**: `outcome/2.2-plan-repository-outcome.md`
+  - [x] 2.2.SEC **Security & Tenancy Audit**: all queries Drizzle-parameterized; no LIKE/search surface (`escapeLikeWildcards` documented N/A); guarded update is the ONLY mutation primitive for state (TOCTOU window = 0)
+  - [x] 2.2.SR **Semantic Review**: zero business rules/translations/log strings in the repository; `DBTransaction` imported from `@/backend/types` only; single-statement writes (no explicit transaction needed, REQ-041); methods composable via optional `tx` for future DEV1-009 consumers
+  - [x] 2.2.IV **Instruction Verification**: `backend/db/repo/AGENTS.md` (`queryDb(tx)` pattern, tx-last convention, prepared-statement read-path rules) + `docs/drizzle/prepared-statements.md`
+  - [x] 2.2.OD **Outcome**: `outcome/2.2-plan-repository-outcome.md`
 
 ### Task 2.3 — `PlanCatalogService` Implementation
 
@@ -223,7 +224,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
   - [ ] 2.3.1 Implement module-scope pure `validatePlanInput(input, tErrors)` — collects field-error map, throws ONE `ValidationError` with `extensions.fields[]` (`{field, code, message}` localized): title trim/≤255, `sessionCount` integer ≥1, `price` regex `^\d{1,8}(\.\d{1,2})?$` (module-level const), `currency` regex `^[A-Z]{3}$`, `intervalDays` integer ≥1
   - [ ] 2.3.2 Implement `createPlan(input, locale, tx?)` — validate BEFORE any write → explicit field-by-field insert mapping (`title: input.title.trim()`, …) with NO `{ ...input }` spread; `isActive`/`deactivatedAt`/timestamps never mapped from input → `PlanRepository.insertPlan(insert, tx)` → catch-path `23505`/`23514` cause-chain translation to localized `ValidationError` (DEV1-002 `isUniqueViolation` precedent; REQ-052)
   - [ ] 2.3.3 Implement `updatePlan(id, patch, locale, tx?)` — id coercion (positive integer; invalid → `ValidationError`) → empty-patch → `VALIDATION` (`planPatchEmpty`) → validate every supplied field → whitelist patch key-by-key → repo `updatePlanFields` → `null` → `NotFoundError("PLAN", …)` (entity name only — double-suffix rule)
-  - [ ] 2.3.4 Implement `setPlanActiveStatus(id, isActive, locale, tx?)` — id validation → `setActiveStatusOnce` (guarded) → `null` return → `existsById` probe → `false` → `NotFoundError("PLAN", …)`; `true` → `ConflictError` with custom code `PLAN_ALREADY_INACTIVE` / `PLAN_ALREADY_ACTIVE` (REQ-050 map) → `logger.logDomainError` with `{ code, entity: "plans", entityId: id }`
+  - [ ] 2.3.4 Implement `setPlanActiveStatus(id, isActive, locale, tx?)` — id validation → `setActiveStatusOnce` (guarded) → `null` return → `existsById` probe → `false` → `NotFoundError("PLAN", …)`; `true` → `ConflictError` with custom code `PLAN_ALREADY_INACTIVE` / `PLAN_ALREADY_ACTIVE` (REQ-050 map) → `logger.logDomainError` with `{ code, entity: "plans", entityId: id }`. NOTE (0.3 gate): extend `backend/lib/errors.ts` `ConflictError` with the overloaded custom-code constructor mirroring `ValidationError` (default `CONFLICT` preserved) — add `backend/lib/errors.ts` to this task's change set
   - [ ] 2.3.5 Implement `listActiveCatalog(locale, tx?)` → `PlanRepository.listActive(tx)`; `listForAdmin(includeInactive, locale, tx?)` → `includeInactive ? listAll(tx) : listActive(tx)` (single-predicate consumption)
   - [ ] 2.3.6 All expected rejections via `logger.logDomainError`; unexpected via `logger.error`; NO `console.*`; log payloads limited to plan id + code (REQ-053)
   - [ ] 2.3.7 Emit the DEV3-020 audit hook seam (`logger.info` + marked comment) after every successful transition — D1 deferred-item linkage; NO `audit_logs` writes
@@ -235,7 +236,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
     - Tier 3 (chaos): `Promise.allSettled` double-deactivation → exactly one success + one `PLAN_ALREADY_INACTIVE` with row transitioned exactly once; deactivate/reactivate round-trip; concurrent `updatePlan` patches converge last-write-wins without error
     - Tier 4 (security): BOPLA smuggle test — extra `id`/`isActive`/`createdAt` fields on input ignored by construction; `23514` escape path translated via cause-chain (never raw SQL, never 500)
   - [ ] 2.3.SEC **Security & Tenancy Audit**: BOLA — identity comes from caller context only (service receives no actor input); BOPLA — grep-level audit proves zero `{ ...input }` spreads reach DB calls; error disclosure — no constraint names/SQL surface in any thrown message
-  - [ ] 2.3.SR **Semantic Review**: errors localized via `getServerTranslations(locale, "errors")`; `DomainError` subclasses only (plain `new Error` prohibited); no cross-layer imports; no service `.types.ts`; zero dead code
+  - [ ] 2.3.SR **Semantic Review**: errors localized via `getServerTranslations(locale).errorsTranslations`; `DomainError` subclasses only (plain `new Error` prohibited); no cross-layer imports; no service `.types.ts`; zero dead code
   - [ ] 2.3.IV **Instruction Verification**: `backend/services/AGENTS.md` + `docs/graphql/domain-error-extensions-code.md` error map honored verbatim
   - [ ] 2.3.OD **Outcome**: `outcome/2.3-plan-catalog-service-outcome.md`
 
@@ -353,7 +354,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
   - [ ] 3.6.2 Assert `extensions.code` per cell — never message-text-coupled for the matrix (messages asserted separately as localized substrings)
   - [ ] 3.6.3 Visibility split assertion: deactivated plan absent from `planCatalog` for every authenticated role, present in `adminPlans` for admin
   - [ ] 3.6.QL **Quality Loop**: sub-loop on the test file (exit 0)
-  - [ ] 3.6.TE **Test Engineering**: suite executed via `bun run scripts/run-test/run-test.ts <path>`; fixtures exclusively via `entity-setup.ts`; token fixtures per established auth-fixture patterns
+  - [ ] 3.6.TE **Test Engineering**: suite executed via `bun run test/scripts/run-test.ts <path>`; fixtures exclusively via `entity-setup.ts`; token fixtures per established auth-fixture patterns
   - [ ] 3.6.SEC **Security & Tenancy Audit**: this suite IS the BFLA proof — confirm no matrix cell is skipped or soft-asserted
   - [ ] 3.6.SR **Semantic Review**: assertions translation-agnostic at the matrix layer; no dead helpers
   - [ ] 3.6.IV **Instruction Verification**: integration-test conventions per graphql test-layer AGENTS.md
@@ -367,8 +368,9 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 - [ ] 4.1 Author the plan-catalog frontend GraphQL documents
   - Files to create:
-    - `frontend/graphql/sharedDocuments/billing/plan-catalog.documents.ts` (NEW)
-    - `frontend/graphql/sharedDocuments/billing/index.ts` (add `export * from "./plan-catalog.documents";`; sub-directory barrel per AGENTS.md)
+    - `frontend/graphql/sharedDocuments/billing/plan-catalog.documents.ts` (NEW — billing/ sub-directory mirrors the existing `teachers/` layout)
+    - `frontend/graphql/sharedDocuments/billing/index.ts` (NEW — `export * from "./plan-catalog.documents";` sub-directory barrel per AGENTS.md)
+    - `frontend/graphql/sharedDocuments/index.ts` (MODIFY — top-level barrel currently exports only `./auth` + `./teachers`; add `export * from "./billing";` — 0.3 gate correction)
   - Applicable AGENTS.md: `frontend/graphql/sharedDocuments/AGENTS.md`
   - _Requirements: REQ-061_
   - [ ] 4.1.1 Author `planCatalogQueryDocument`, `adminPlansQueryDocument` (with `AdminPlansQueryVariables`), `createPlanMutationDocument`, `updatePlanMutationDocument`, `setPlanActiveStatusMutationDocument` as `TypedDocumentNode<…>` (from `@apollo/client`, codegen types only)
@@ -388,11 +390,11 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
     - `app/(dashboard)/admin/plans/page.tsx` (NEW — Server Component)
   - Applicable AGENTS.md: `app/AGENTS.md`
   - _Requirements: REQ-002, REQ-062, REQ-064_
-  - [ ] 4.2.1 Apply `withPageAuth({ roles: [UserRole.Admin], redirectTo: "/admin/plans" })` (UserRole as value import): anonymous → `/login?redirect=/admin/plans`; role mismatch → `/dashboard`
+  - [ ] 4.2.1 Apply `withPageAuth({ roles: [UserRole.Admin], redirectTo: "/admin/plans" })` (UserRole as value import): anonymous → `/login?redirect=/admin/plans`; role mismatch → caller's role-specific dashboard via `roleDashboardPath` (never bare `/dashboard` — REDIRECT_LOOP_FIX rule; verified `frontend/lib/auth/withPageAuth.ts` + `roleDashboardRoute.ts`)
   - [ ] 4.2.2 Server Component resolves `await getTranslations(locale)` (single argument) and passes shell labels via property access (`t.plansTranslations.*`) as props to the client container
   - [ ] 4.2.3 Server component contains ZERO data-fetching through GraphQL (server layer consumes services directly if needed — here it delegates everything to the client container)
   - [ ] 4.2.QL **Quality Loop**: sub-loop on the page file (exit 0)
-  - [ ] 4.2.TE **Unit / Component Tests**: guard behavior tests — anonymous redirect, student/parent/teacher redirect to `/dashboard`, admin renders (SSR-level harness per established app-layer test patterns)
+  - [ ] 4.2.TE **Unit / Component Tests**: guard behavior tests — anonymous redirect, student/parent/teacher redirect to their role-specific dashboards (`/student/dashboard`, `/parent/dashboard`, `/teacher/dashboard`), admin renders (SSR-level harness per established app-layer test patterns)
   - [ ] 4.2.SR **Semantic Review**: server/client boundary clean (no client hooks in server file); `UserRole` value import; no hardcoded strings
   - [ ] 4.2.IV **Instruction Verification**: `app/AGENTS.md` (SSR guard = security boundary; client gating is UX-only)
   - [ ] 4.2.OD **Outcome**: `outcome/4.2-admin-page-outcome.md`
@@ -404,17 +406,17 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
     - `frontend/views/admin/plans/PlanCatalogContainer.tsx` (NEW — client)
     - `frontend/views/admin/plans/PlanCatalogTable.tsx` (NEW — client)
     - `frontend/views/admin/plans/index.ts` (barrel per views conventions, if applicable)
-  - Applicable AGENTS.md: `frontend/AGENTS.md`, `frontend/views/AGENTS.md`, `frontend/components/ui/AGENTS.md`
-  - _Requirements: REQ-054, REQ-060, REQ-062, REQ-063, REQ-064_
-  - [ ] 4.3.1 Container: `useAppTranslation(Translation.Plans)` with property access only; `useQuery(adminPlansQueryDocument, { variables: { includeInactive: true } })` from `@apollo/client/react`
+  - Applicable AGENTS.md: `frontend/AGENTS.md` + convention docs `frontend/COMPONENT_PATTERNS.md` + `frontend/THEME_PALETTE.md` (no `frontend/views/AGENTS.md` / `frontend/components/ui/AGENTS.md` exist — corrected by 0.3 gate)
+  - _Requirements: REQ-054, REQ-060, REQ-062, REQ-063, REQ-064, REQ-076_
+  - [ ] 4.3.1 Container: `useAppTranslation(Plans)` with property access only; `useQuery(adminPlansQueryDocument, { variables: { includeInactive: true } })` from `@apollo/client/react`
   - [ ] 4.3.2 Table columns: title, sessionCount, price + currency (string rendering — no number coercion), intervalDays, isActive status chip (Active/Inactive via `theme.palette.success.*` / `theme.palette.grey.*` — theme-callback pattern, NO hex), deactivatedAt, createdAt; per-row edit + activate/deactivate actions
   - [ ] 4.3.3 Mutation wiring here (create/edit/status dialogs in 4.4); success path: localized snackbar + Apollo cache convergence via `id`-normalized `Plan!` payloads (no manual refetch unless cache update insufficient); row action buttons disabled during their in-flight transition
   - [ ] 4.3.4 Loading: skeleton rows per dashboard conventions; empty: localized empty state (icon + translated copy + create CTA)
   - [ ] 4.3.QL **Quality Loop**: sub-loop on each created file (exit 0)
-  - [ ] 4.3.TE **Unit / Component Tests**: Happy DOM + Apollo `MockedProvider` + `translation-preload.ts` + `readTranslation(handle, locale)` + `TestWrapper locale`; translation-driven matchers ONLY (zero hardcoded UI strings); assert: active/inactive chip rendering from query data, empty state, skeleton state, table row fields
+  - [ ] 4.3.TE **Unit / Component Tests** (REQ-076 discipline): Happy DOM + Apollo `MockedProvider` + `translation-preload.ts` + `readTranslation(handle, locale)` + `TestWrapper locale`; translation-driven matchers ONLY (zero hardcoded UI strings); assert: active/inactive chip rendering from query data, empty state, skeleton state, table row fields
   - [ ] 4.3.BF **Agent-Browser Functional Self-Loop**:
     - Launch dev server; connect via agent-browser (Playwright)
-    - Anonymous `GET /admin/plans` → assert redirect to `/login?redirect=/admin/plans`; non-admin login → `/admin/plans` → redirect to `/dashboard` (no table render); admin login → table renders with seeded catalog
+    - Anonymous `GET /admin/plans` → assert redirect to `/login?redirect=/admin/plans`; non-admin login → `/admin/plans` → redirect to the role-specific dashboard (no table render); admin login → table renders with seeded catalog
     - Navigate tabs/rows; trigger per-row edit/status actions; assert GraphQL request payloads (`adminPlans` issued; mutations carry whitelisted fields only) and error toast / inline alert states for conflict cases
     - Iterative self-loop: any interaction or state failure → patch → re-test until clean
   - [ ] 4.3.BS **Agent-Browser Visual & Styling Self-Loop (Screenshot Analysis)**:
@@ -422,7 +424,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
     - Inspect screenshots for: MUI v9 theme-palette compliance (zero hardcoded hex/rgb visible in computed styles), typography hierarchy, padding/margin rhythm, chip contrast in dark/light modes, text truncation/overflows (Arabic copy), RTL mirroring (action column at inline-end, logical properties only), table-to-card responsive switch
     - Iterative self-loop: inspect screenshot → identify defect → patch `sx` tokens → re-capture → repeat until visually polished
   - [ ] 4.3.SR **Semantic Review**: zero direct style props (sx only); `*Outlined` icons; `theme.palette.*` only; property-access i18n; no Zustand store introduced (server state = Apollo cache only)
-  - [ ] 4.3.IV **Instruction Verification**: `frontend.instructions.md`, `mobile-desktop.instructions.md`, and all three applicable layer AGENTS.md files
+  - [ ] 4.3.IV **Instruction Verification**: `frontend/AGENTS.md`, `frontend/THEME_PALETTE.md`, `frontend/COMPONENT_PATTERNS.md` (the repo has no `frontend.instructions.md` / `mobile-desktop.instructions.md` — corrected by 0.3 gate)
   - [ ] 4.3.OD **Outcome**: `outcome/4.3-catalog-container-outcome.md`
 
 ### Task 4.4 — Dialogs: `PlanFormDialog` (Create/Edit) + `PlanStatusConfirmDialog`
@@ -431,14 +433,14 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
   - Files to create:
     - `frontend/views/admin/plans/PlanFormDialog.tsx` (NEW)
     - `frontend/views/admin/plans/PlanStatusConfirmDialog.tsx` (NEW)
-  - Applicable AGENTS.md: `frontend/AGENTS.md`, `frontend/views/AGENTS.md`, `frontend/components/ui/AGENTS.md`
+  - Applicable AGENTS.md: `frontend/AGENTS.md` + convention docs `frontend/COMPONENT_PATTERNS.md` + `frontend/THEME_PALETTE.md`
   - _Requirements: REQ-012, REQ-043, REQ-050, REQ-063_
   - [ ] 4.4.1 `PlanFormDialog`: shared create/edit scaffold; fields title/sessionCount/price/currency/intervalDays; submit via `React.SubmitEvent` / `React.SyntheticEvent<HTMLFormElement>` (never `FormEvent`); per-field error mapping from `extensions.fields[]` → `TextField error` + localized `helperText` + `aria-invalid={!!error}`; price entered/rendered as a string
   - [ ] 4.4.2 Submit button disabled while mutation in flight (`loading`) — REQ-043 double-submit UX mitigation; spinner adornment
   - [ ] 4.4.3 `PlanStatusConfirmDialog`: localized confirm copy for deactivate AND reactivate flows; `PLAN_ALREADY_*` / `PLAN_NOT_FOUND` → localized inline `Alert` (severity via theme tokens) + list convergence
   - [ ] 4.4.4 `FORBIDDEN`/`UNAUTHORIZED` handled via global errorLink posture; masked `INTERNAL_SERVER_ERROR` → generic localized toast with correlation guidance
   - [ ] 4.4.QL **Quality Loop**: sub-loop on each file (exit 0)
-  - [ ] 4.4.TE **Unit / Component Tests**: Happy DOM + MockedProvider: (a) create happy path creates via mocked mutation; (b) server `VALIDATION` + `fields[]` renders localized per-field errors; (c) `PLAN_ALREADY_INACTIVE` renders localized inline alert; (d) disabled-during-flight asserted; (e) `React.SubmitEvent` submit handling proven
+  - [ ] 4.4.TE **Unit / Component Tests** (REQ-076 discipline): Happy DOM + MockedProvider: (a) create happy path creates via mocked mutation; (b) server `VALIDATION` + `fields[]` renders localized per-field errors; (c) `PLAN_ALREADY_INACTIVE` renders localized inline alert; (d) disabled-during-flight asserted; (e) `React.SubmitEvent` submit handling proven
   - [ ] 4.4.BF **Agent-Browser Functional Self-Loop**:
     - Admin: open create dialog → submit valid payload → new row appears with Active chip; submit invalid payloads (price `"19.999"`, sessionCount `0`, currency `"egp"`) → localized field-level errors under the CORRECT fields
     - Edit flow: partial patch applies; status flow: deactivate → confirm → Inactive chip; reactivate → Active chip
@@ -449,7 +451,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
     - Inspect: dialog sizing to content (Arabic copy not truncated), field error placement/alignment under RTL, button width behavior on mobile (full-width), severity-color token usage on chips/alerts/snackbars, focus rings and contrast
     - Iterative self-loop: screenshot → defect → `sx` token patch → re-capture → polish
   - [ ] 4.4.SR **Semantic Review**: sx-only styling; `*Outlined` icons; property-access translations; no hardcoded strings/colors; `aria-invalid` present
-  - [ ] 4.4.IV **Instruction Verification**: `frontend.instructions.md`, `mobile-desktop.instructions.md`, layer AGENTS.md files
+  - [ ] 4.4.IV **Instruction Verification**: `frontend/AGENTS.md`, `frontend/THEME_PALETTE.md`, `frontend/COMPONENT_PATTERNS.md`
   - [ ] 4.4.OD **Outcome**: `outcome/4.4-dialogs-outcome.md`
 
 ### Task 4.5 — Sidebar Navigation Integration (Admin Group)
@@ -483,7 +485,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
   - [ ] 5.1.2 Execute `setPlanActiveStatus(id, false)` → assert subscription row (status/dates) and balance fixtures byte-identical
   - [ ] 5.1.3 Execute `updatePlan` with changed price/sessionCount/intervalDays → assert the same byte-identical invariance (forward-only semantics, INV-B2/B3 shield)
   - [ ] 5.1.QL **Quality Loop**: sub-loop on the test file (exit 0)
-  - [ ] 5.1.TE **Test Engineering**: executed via `bun run scripts/run-test/run-test.ts`; `expectRepoError` discipline for any failure probes; `tx` propagation verified
+  - [ ] 5.1.TE **Test Engineering**: executed via `bun run test/scripts/run-test.ts`; `expectRepoError` discipline for any failure probes; `tx` propagation verified
   - [ ] 5.1.SEC **Security & Tenancy Audit**: confirms zero cross-entity writes (A.9 lifecycle independence)
   - [ ] 5.1.SR **Semantic Review**: assertions on full row shape, not selected columns
   - [ ] 5.1.IV **Instruction Verification**: test AGENTS.md fixtures-only rule
@@ -510,7 +512,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 - [ ] 5.3 Close the REQ-070 coverage target and run the full differential test + lint baseline comparison
   - _Requirements: REQ-070, REQ-077, REQ-083 (partial), REQ-023_
   - [ ] 5.3.1 `bun test --coverage` on ALL new/modified backend suites — assert 100% statements/branches on new service/repo files (incl. both zero-row guard branches)
-  - [ ] 5.3.2 Run full impacted suites: `bun run scripts/run-test/run-test.ts` for every new test file; assert DEV1-002/DEV2-001 auth suites REMAIN GREEN (registration/refresh contract untouched, REQ-023)
+  - [ ] 5.3.2 Run full impacted suites: `bun run test/scripts/run-test.ts` for every new test file; assert DEV1-002/DEV2-001 auth suites REMAIN GREEN (registration/refresh contract untouched, REQ-023)
   - [ ] 5.3.3 Run `bun tsgo`, `bun biome:check` — compare to Phase 0 baseline: zero NEW errors
   - [ ] 5.3.4 Re-run REQ-020 no-delete grep + REQ-016 single-predicate grep + REQ-031 no-spread grep as the verification bundle
   - [ ] 5.3.QL **Quality Loop**: sub-loop across every created/modified file in the change set (final sweep, exit 0 each)
@@ -561,7 +563,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 - [ ] 6.5 Audit the deferred-items ledger against the REQ-083 close gate
   - _Requirements: REQ-001, REQ-083_
-  - [ ] 6.5.1 Run `grep -c "❌\|⚠️" ai/plans/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` — MUST equal exactly the pre-seeded entries (D1 → DEV3-020, D2 → DEV1-006), both non-blocking with documented owners; any additional open marker MUST be resolved first
+  - [ ] 6.5.1 Run `grep -c "❌\|⚠️" ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` — MUST equal exactly the pre-seeded entries (D1 → DEV3-020, D2 → DEV1-006), both non-blocking with documented owners; any additional open marker MUST be resolved first (scope the count to `| D…` ledger-table rows — the template's Status-Values legend also contains the marker glyphs, so a raw whole-file count over-counts by 2)
   - [ ] 6.5.OD **Outcome**: `outcome/6.5-deferred-gate-outcome.md`
 
 ---
@@ -581,6 +583,7 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 - [ ] 7.2 Update `docs/specs/state-machine-invariants.md` and `docs/specs/open-decisions-and-gaps.md`
   - _Requirements: REQ-081, REQ-010, REQ-015, REQ-018, REQ-020, REQ-043_
+  - Gate note (0.3 ruling): the specs.md header statement "The addendum is recorded in `docs/specs/open-decisions-and-gaps.md`" is FORWARD-LOOKING until 7.2.2 lands (0.2.IV caveat); the 7.4 closure MUST verify the addendum rows actually exist in the decisions doc before plan close
   - [ ] 7.2.1 Add "Plan Catalog Lifecycle" section: **INV-PC1** (deactivated plan never appears in active catalog / never purchasable while inactive), **INV-PC2** (deactivation/edit never mutates existing subscriptions or credited balances), **INV-PC3** (no hard deletion of plan rows)
   - [ ] 7.2.2 Add resolved addendum to `open-decisions-and-gaps.md`: activation-flag schema delta (A-category), reactivation semantics (marker cleared, audit history via DEV3-020), forward-only edit semantics, title-encoded taxonomy (FR-2.2 reaffirmed), verification-plan lookup rule ownership (FR-2.3 → DEV1-006/DEV2-005), create double-submit tolerance ruling (REQ-043), no-pagination/no-index rulings with revisit triggers
   - [ ] 7.2.QL/IV: doc lint; confirm numbering consistency with the existing 33-decision register

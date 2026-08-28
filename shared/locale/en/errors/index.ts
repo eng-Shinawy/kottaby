@@ -22,4 +22,15 @@ export const errorsEn: ErrorsLabels = {
   applicantNotFound: "Teacher application not found.",
   applicantCooldownActive: "You can re-apply for teacher verification after {cooldownUntil}.",
   applicantStatusCorrupt: "Your application status could not be read. Please contact support.",
+  // Plan-catalog domain errors — user-facing, free of internal/constraint hints.
+  planNotFound: "The requested plan was not found.",
+  planAlreadyInactive: "This plan is already inactive.",
+  planAlreadyActive: "This plan is already active.",
+  planTitleRequired: "Please enter a plan title.",
+  planTitleTooLong: "The plan title is too long.",
+  planSessionCountInvalid: "The session count must be a positive number.",
+  planPriceInvalid: "The plan price must be a valid positive amount.",
+  planCurrencyInvalid: "The selected currency is not supported.",
+  planIntervalDaysInvalid: "The interval must be a positive number of days.",
+  planPatchEmpty: "No changes were provided.",
 };

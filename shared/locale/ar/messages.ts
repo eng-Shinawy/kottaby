@@ -4,6 +4,7 @@ import { commonAr } from "@/shared/locale/ar/common";
 import { dashboardAr } from "@/shared/locale/ar/dashboard";
 import { errorsAr } from "@/shared/locale/ar/errors";
 import { landingAr } from "@/shared/locale/ar/landing";
+import { plansAr } from "@/shared/locale/ar/plans";
 import { recitationAr } from "@/shared/locale/ar/recitation";
 import type { Translations } from "@/shared/locale/types/message";
 
@@ -15,4 +16,5 @@ export const arMessages: Translations = {
   dashboardTranslations: dashboardAr,
   landingTranslations: landingAr,
   applicantTranslations: applicantAr,
+  plansTranslations: plansAr,
 };

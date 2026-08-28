@@ -42,4 +42,30 @@ export interface ErrorsLabels {
   readonly applicantCooldownActive: string;
   /** Fail-closed deny when an applicants row status cannot be interpreted as a known ApplicantStatus. */
   readonly applicantStatusCorrupt: string;
+  /**
+   * Plan-catalog domain errors — the flat `plan*` key family covering plan
+   * lifecycle rejects (lookup miss, idempotent activate/deactivate) and
+   * create/update field validation. Flat camelCase-of-code keys keep
+   * transport emitters on the `errorsTranslations.<key>` access convention.
+   */
+  /** "The requested plan was not found." — plan lookup miss. */
+  readonly planNotFound: string;
+  /** "This plan is already inactive." — idempotent deactivate reject. */
+  readonly planAlreadyInactive: string;
+  /** "This plan is already active." — idempotent reactivate reject. */
+  readonly planAlreadyActive: string;
+  /** "Please enter a plan title." — required title validation. */
+  readonly planTitleRequired: string;
+  /** "The plan title is too long." — title length validation. */
+  readonly planTitleTooLong: string;
+  /** "The session count must be a positive number." */
+  readonly planSessionCountInvalid: string;
+  /** "The plan price must be a valid positive amount." */
+  readonly planPriceInvalid: string;
+  /** "The selected currency is not supported." */
+  readonly planCurrencyInvalid: string;
+  /** "The interval must be a positive number of days." */
+  readonly planIntervalDaysInvalid: string;
+  /** "No changes were provided." — empty update payload reject. */
+  readonly planPatchEmpty: string;
 }

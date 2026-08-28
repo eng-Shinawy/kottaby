@@ -1,0 +1,548 @@
+/**
+ * PlanCatalogService self-tests — validation, lifecycle transitions, and the
+ * localized rejection contract against the live `kottab_test` PostgreSQL
+ * instance.
+ *
+ * Per `backend/db/test/AGENTS.md`:
+ *  - Every case runs inside `runInRollback`; `tx` is passed to EVERY
+ *    service/repository/entity-setup call, so nothing commits and the
+ *    non-transactional pool path stays unexercised here.
+ *  - Entities ONLY via `entity-setup.ts` helpers (collision-proof titles);
+ *    boundary values arrive through deliberate `planSubmitInput` overrides.
+ *  - Rejection assertions use `expectRepoError` (try/catch) —
+ *    `expect(...).rejects.toThrow()` is prohibited and appears nowhere.
+ *  - Translated-message assertions use literals computed in-file from
+ *    `getServerTranslations` — never raw keys, never hardcoded copy.
+ *  - The logging contract is verified via logger spies; no console output.
+ *
+ * Coverage map (4 tiers):
+ *  - Tier 1 (branch/statement): create/update/status happy paths; both
+ *    list views over the single active predicate; missing-id rejects for
+ *    update and status change (probe path); BOTH idempotency conflicts;
+ *    the aggregated multi-field validation payload; domain-rejection
+ *    logging plus the audit seam markers on success.
+ *  - Tier 2 (boundary): the full field matrix — title empty /
+ *    whitespace-only / 255 (pass) / 256 (fail); sessionCount 0 / 1 / −1 /
+ *    non-integer; price "0.00" / "-0.01" / "abc" / "1.005" /
+ *    "99999999.99" (pass) / "100000000.00"; currency "EGP" / "egp" /
+ *    "EG"; intervalDays 0 / 1; empty patch; non-positive/non-integer ids.
+ *  - Tier 3 (chaos): `Promise.allSettled` double-deactivation — exactly one
+ *    success plus one `PLAN_ALREADY_INACTIVE` with the row transitioned
+ *    exactly once; concurrent field patches converge last-write-wins
+ *    without error; deactivate/reactivate round-trip.
+ *  - Tier 4 (security/i18n): smuggled lifecycle/identity keys on create and
+ *    update payloads are ignored by construction; a database CHECK
+ *    violation raised behind validating input is translated through the
+ *    driver cause chain into the matching localized field error (no SQL or
+ *    constraint names in any message); duplicate titles both succeed;
+ *    localized rejections switch between "en" and "ar".
+ */
+
+import { describe, expect, spyOn, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
+import { plans } from "@/backend/db/schema/billing/plans";
+import { createTestPlan } from "@/backend/db/test/entity-setup";
+import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
+import { ConflictError, NotFoundError, ValidationError } from "@/backend/lib/errors";
+import { logger } from "@/backend/lib/logger";
+import { PlanCatalogService } from "@/backend/services/billing/plan-catalog.service";
+import type { PlanSubmitInput, PlanUpdateInput } from "@/backend/types";
+import { getServerTranslations } from "@/shared/locale/server-graphql";
+
+const enErrors = getServerTranslations("en").errorsTranslations;
+const arErrors = getServerTranslations("ar").errorsTranslations;
+
+/** Valid submission baseline; overrides merge last for boundary cells. */
+function planSubmitInput(overrides?: Partial<PlanSubmitInput>): PlanSubmitInput {
+  return {
+    title: `Service Plan ${randomUUID()}`,
+    sessionCount: 5,
+    price: "10.00",
+    currency: "EGP",
+    intervalDays: 30,
+    ...overrides,
+  };
+}
+
+/**
+ * Asserts the call rejects with the aggregated `ValidationError` and that
+ * its field payload carries the expected `{field, code}` entry (or that the
+ * payload is absent entirely when `field` is `null`). Returns the caught
+ * error so callers can additionally assert the localized top-level message.
+ */
+async function expectValidationError(
+  fn: () => Promise<unknown>,
+  field: string | null,
+  fieldCode: string,
+  expectedCode = "VALIDATION"
+): Promise<ValidationError> {
+  const error = await expectRepoError(fn);
+  if (!(error instanceof ValidationError)) {
+    throw new Error(`expected ValidationError but caught ${error.name}`);
+  }
+  expect(error.code).toBe(expectedCode);
+  if (field === null) {
+    expect(error.fields).toBeUndefined();
+  } else {
+    const entry = error.fields?.find(item => item.field === field);
+    expect(entry?.code).toBe(fieldCode);
+    expect(entry?.message.length ?? 0).toBeGreaterThan(0);
+  }
+  return error;
+}
+
+/** Asserts the call rejects with a `NotFoundError` carrying the entity code. */
+async function expectNotFoundError(fn: () => Promise<unknown>, expectedMessage: string): Promise<void> {
+  const error = await expectRepoError(fn);
+  if (!(error instanceof NotFoundError)) {
+    throw new Error(`expected NotFoundError but caught ${error.name}`);
+  }
+  expect(error.code).toBe("PLAN_NOT_FOUND");
+  expect(error.message).toBe(expectedMessage);
+}
+
+/** Asserts the call rejects with a `ConflictError` carrying the given code. */
+async function expectConflictError(fn: () => Promise<unknown>, code: string, expectedMessage: string): Promise<void> {
+  const error = await expectRepoError(fn);
+  if (!(error instanceof ConflictError)) {
+    throw new Error(`expected ConflictError but caught ${error.name}`);
+  }
+  expect(error.code).toBe(code);
+  expect(error.message).toBe(expectedMessage);
+}
+
+describe("PlanCatalogService", () => {
+  describe("Tier 1 — happy paths and branch coverage", () => {
+    test("createPlan persists a validated plan with server-owned lifecycle defaults", async () => {
+      await runInRollback(async tx => {
+        const created = await PlanCatalogService.createPlan(
+          planSubmitInput({ title: `  Trimmed Title ${randomUUID()}  ` }),
+          "en",
+          tx
+        );
+
+        expect(created.id).toBeGreaterThan(0);
+        expect(created.title).toMatch(/^Trimmed Title /);
+        expect(created.isActive).toBe(true);
+        expect(created.deactivatedAt).toBeNull();
+        expect(created.createdAt).toBeInstanceOf(Date);
+        expect(created.updatedAt).toBeInstanceOf(Date);
+      });
+    });
+
+    test("updatePlan patches supplied fields and leaves lifecycle columns untouched", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+        const updated = await PlanCatalogService.updatePlan(
+          plan.id,
+          { title: `Edited ${randomUUID()}`, price: "42.50" },
+          "en",
+          tx
+        );
+
+        expect(updated.id).toBe(plan.id);
+        expect(updated.title).toMatch(/^Edited /);
+        expect(updated.price).toBe("42.50");
+        expect(updated.sessionCount).toBe(plan.sessionCount);
+        expect(updated.isActive).toBe(true);
+        expect(updated.deactivatedAt).toBeNull();
+      });
+    });
+
+    test("setPlanActiveStatus moves the lifecycle pair in both directions (round-trip)", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+
+        const deactivated = await PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx);
+        expect(deactivated.isActive).toBe(false);
+        expect(deactivated.deactivatedAt).toBeInstanceOf(Date);
+
+        const reactivated = await PlanCatalogService.setPlanActiveStatus(deactivated.id, true, "en", tx);
+        expect(reactivated.isActive).toBe(true);
+        expect(reactivated.deactivatedAt).toBeNull();
+      });
+    });
+
+    test("listActiveCatalog serves active rows only while listForAdmin covers both views", async () => {
+      await runInRollback(async tx => {
+        const active = await createTestPlan(tx, { title: `Active ${randomUUID()}` });
+        const retired = await createTestPlan(tx, {
+          title: `Retired ${randomUUID()}`,
+          isActive: false,
+          deactivatedAt: new Date("2024-06-01T00:00:00.000Z"),
+        });
+
+        const catalogIds = (await PlanCatalogService.listActiveCatalog("en", tx)).map(row => row.id);
+        expect(catalogIds).toContain(active.id);
+        expect(catalogIds).not.toContain(retired.id);
+
+        const adminIds = (await PlanCatalogService.listForAdmin(true, "en", tx)).map(row => row.id);
+        expect(adminIds).toContain(active.id);
+        expect(adminIds).toContain(retired.id);
+
+        const filteredIds = (await PlanCatalogService.listForAdmin(false, "en", tx)).map(row => row.id);
+        expect(filteredIds).toContain(active.id);
+        expect(filteredIds).not.toContain(retired.id);
+      });
+    });
+
+    test("updatePlan on a missing plan rejects with PLAN_NOT_FOUND", async () => {
+      await runInRollback(async tx => {
+        await expectNotFoundError(
+          () => PlanCatalogService.updatePlan(999_999_999, { title: "Ghost" }, "en", tx),
+          enErrors.planNotFound
+        );
+      });
+    });
+
+    test("setPlanActiveStatus on a missing plan rejects with PLAN_NOT_FOUND (probe path)", async () => {
+      await runInRollback(async tx => {
+        await expectNotFoundError(
+          () => PlanCatalogService.setPlanActiveStatus(999_999_999, false, "en", tx),
+          enErrors.planNotFound
+        );
+      });
+    });
+
+    test("reactivating an already-active plan conflicts with PLAN_ALREADY_ACTIVE", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+        await expectConflictError(
+          () => PlanCatalogService.setPlanActiveStatus(plan.id, true, "en", tx),
+          "PLAN_ALREADY_ACTIVE",
+          enErrors.planAlreadyActive
+        );
+      });
+    });
+
+    test("deactivating an already-inactive plan conflicts with PLAN_ALREADY_INACTIVE", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx, { isActive: false, deactivatedAt: new Date() });
+        await expectConflictError(
+          () => PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx),
+          "PLAN_ALREADY_INACTIVE",
+          enErrors.planAlreadyInactive
+        );
+      });
+    });
+
+    test("createPlan aggregates every offending field into ONE ValidationError", async () => {
+      await runInRollback(async tx => {
+        const error = await expectValidationError(
+          () =>
+            PlanCatalogService.createPlan(
+              planSubmitInput({ title: "", sessionCount: 0, price: "abc", currency: "egp", intervalDays: 0 }),
+              "en",
+              tx
+            ),
+          "title",
+          "PLAN_TITLE_REQUIRED"
+        );
+
+        expect(error.message).toBe(enErrors.planTitleRequired);
+        const codes = error.fields?.map(item => item.code);
+        expect(codes).toEqual([
+          "PLAN_TITLE_REQUIRED",
+          "PLAN_SESSION_COUNT_INVALID",
+          "PLAN_PRICE_INVALID",
+          "PLAN_CURRENCY_INVALID",
+          "PLAN_INTERVAL_DAYS_INVALID",
+        ]);
+        expect(error.fields?.every(item => item.message.length > 0)).toBe(true);
+      });
+    });
+
+    test("success emits audit seams only, rejections log via logDomainError only", async () => {
+      await runInRollback(async tx => {
+        const infoSpy = spyOn(logger, "info");
+        const domainSpy = spyOn(logger, "logDomainError");
+        try {
+          const created = await PlanCatalogService.createPlan(planSubmitInput(), "en", tx);
+          expect(domainSpy).not.toHaveBeenCalled();
+          const seamCall = infoSpy.mock.calls.at(-1);
+          expect(seamCall?.[1]).toEqual({ code: "PLAN_CREATED", entityId: created.id });
+
+          await PlanCatalogService.setPlanActiveStatus(created.id, false, "en", tx);
+          const statusSeam = infoSpy.mock.calls.at(-1);
+          expect(statusSeam?.[1]).toEqual({ code: "PLAN_DEACTIVATED", entityId: created.id });
+
+          await expectValidationError(
+            () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", tx),
+            "title",
+            "PLAN_TITLE_REQUIRED"
+          );
+          const rejectionCall = domainSpy.mock.calls.at(-1);
+          expect(rejectionCall?.[1]).toEqual({ code: "VALIDATION", entity: "plans" });
+        } finally {
+          infoSpy.mockRestore();
+          domainSpy.mockRestore();
+        }
+      });
+    });
+  });
+
+  describe("Tier 2 — boundary matrix", () => {
+    test("title: empty and whitespace-only rejected, 255 passes, 256 rejected", async () => {
+      await runInRollback(async tx => {
+        const longest = await PlanCatalogService.createPlan(planSubmitInput({ title: "a".repeat(255) }), "en", tx);
+        expect(longest.title).toBe("a".repeat(255));
+
+        await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", tx),
+          "title",
+          "PLAN_TITLE_REQUIRED"
+        );
+        await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "   " }), "en", tx),
+          "title",
+          "PLAN_TITLE_REQUIRED"
+        );
+        await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "b".repeat(256) }), "en", tx),
+          "title",
+          "PLAN_TITLE_TOO_LONG"
+        );
+      });
+    });
+
+    test("sessionCount: 1 passes, 0 / −1 / non-integer rejected", async () => {
+      await runInRollback(async tx => {
+        const minimal = await PlanCatalogService.createPlan(planSubmitInput({ sessionCount: 1 }), "en", tx);
+        expect(minimal.sessionCount).toBe(1);
+
+        for (const sessionCount of [0, -1, 2.5]) {
+          await expectValidationError(
+            () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount }), "en", tx),
+            "sessionCount",
+            "PLAN_SESSION_COUNT_INVALID"
+          );
+        }
+      });
+    });
+
+    test("price matrix: two decimals and the 8-digit cap pass, malformed shapes rejected", async () => {
+      await runInRollback(async tx => {
+        const zero = await PlanCatalogService.createPlan(planSubmitInput({ price: "0.00" }), "en", tx);
+        expect(zero.price).toBe("0.00");
+        const capped = await PlanCatalogService.createPlan(planSubmitInput({ price: "99999999.99" }), "en", tx);
+        expect(capped.price).toBe("99999999.99");
+
+        for (const price of ["-0.01", "abc", "1.005", "100000000.00"]) {
+          await expectValidationError(
+            () => PlanCatalogService.createPlan(planSubmitInput({ price }), "en", tx),
+            "price",
+            "PLAN_PRICE_INVALID"
+          );
+        }
+      });
+    });
+
+    test("currency: uppercase 3-letter code passes, lowercase and short codes rejected", async () => {
+      await runInRollback(async tx => {
+        const ok = await PlanCatalogService.createPlan(planSubmitInput({ currency: "EGP" }), "en", tx);
+        expect(ok.currency).toBe("EGP");
+
+        for (const currency of ["egp", "EG"]) {
+          await expectValidationError(
+            () => PlanCatalogService.createPlan(planSubmitInput({ currency }), "en", tx),
+            "currency",
+            "PLAN_CURRENCY_INVALID"
+          );
+        }
+      });
+    });
+
+    test("intervalDays: 1 passes, 0 rejected", async () => {
+      await runInRollback(async tx => {
+        const ok = await PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 1 }), "en", tx);
+        expect(ok.intervalDays).toBe(1);
+
+        await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 0 }), "en", tx),
+          "intervalDays",
+          "PLAN_INTERVAL_DAYS_INVALID"
+        );
+      });
+    });
+
+    test("updatePlan with an empty patch rejects with the localized empty-patch message", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+        const error = await expectValidationError(
+          () => PlanCatalogService.updatePlan(plan.id, {}, "en", tx),
+          null,
+          "PLAN_PATCH_EMPTY"
+        );
+        expect(error.message).toBe(enErrors.planPatchEmpty);
+      });
+    });
+
+    test("non-positive and non-integer ids reject before any database call", async () => {
+      await runInRollback(async tx => {
+        for (const id of [0, -3, 2.5]) {
+          await expectValidationError(
+            () => PlanCatalogService.updatePlan(id, { title: "Whatever" }, "en", tx),
+            null,
+            "PLAN_ID_INVALID"
+          );
+          await expectValidationError(
+            () => PlanCatalogService.setPlanActiveStatus(id, true, "en", tx),
+            null,
+            "PLAN_ID_INVALID"
+          );
+        }
+      });
+    });
+  });
+
+  describe("Tier 3 — chaos and concurrency", () => {
+    test("double-deactivation via allSettled succeeds exactly once and conflicts once", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+
+        const [first, second] = await Promise.allSettled([
+          PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx),
+          PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx),
+        ]);
+
+        expect(first.status).toBe("fulfilled");
+        expect(second.status).toBe("rejected");
+        if (second.status !== "rejected") {
+          throw new Error("expected the second deactivation to reject");
+        }
+        const reason = second.reason;
+        if (!(reason instanceof ConflictError)) {
+          throw new Error(`expected ConflictError but caught ${String(reason)}`);
+        }
+        expect(reason.code).toBe("PLAN_ALREADY_INACTIVE");
+        expect(reason.message).toBe(enErrors.planAlreadyInactive);
+
+        if (first.status !== "fulfilled") {
+          throw new Error("expected the first deactivation to fulfill");
+        }
+        const [reread] = await tx.select().from(plans).where(eq(plans.id, plan.id));
+        expect(reread).toEqual(first.value);
+        expect(reread?.isActive).toBe(false);
+        expect(reread?.deactivatedAt).toBeInstanceOf(Date);
+      });
+    });
+
+    test("concurrent field patches converge last-write-wins without error", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+
+        const [first, second] = await Promise.allSettled([
+          PlanCatalogService.updatePlan(plan.id, { title: `First ${randomUUID()}` }, "en", tx),
+          PlanCatalogService.updatePlan(plan.id, { title: `Second ${randomUUID()}` }, "en", tx),
+        ]);
+
+        expect(first.status).toBe("fulfilled");
+        expect(second.status).toBe("fulfilled");
+
+        const [reread] = await tx.select().from(plans).where(eq(plans.id, plan.id));
+        expect(reread?.title).toBe(second.status === "fulfilled" ? second.value.title : "");
+        expect(reread?.title).toMatch(/^Second /);
+      });
+    });
+  });
+
+  describe("Tier 4 — security and i18n", () => {
+    test("smuggled lifecycle and identity keys never reach the insert (BOPLA)", async () => {
+      await runInRollback(async tx => {
+        const smuggled = planSubmitInput({ title: `Smuggler ${randomUUID()}` });
+        Object.assign(smuggled, {
+          id: 987_654,
+          isActive: false,
+          deactivatedAt: new Date("2020-01-01T00:00:00.000Z"),
+          createdAt: new Date("1999-01-01T00:00:00.000Z"),
+        });
+
+        const created = await PlanCatalogService.createPlan(smuggled, "en", tx);
+
+        expect(created.id).not.toBe(987_654);
+        expect(created.isActive).toBe(true);
+        expect(created.deactivatedAt).toBeNull();
+        expect(created.createdAt.getTime()).toBeGreaterThan(new Date("2020-01-01T00:00:00.000Z").getTime());
+      });
+    });
+
+    test("smuggled lifecycle keys never reach the update whitelist (BOPLA)", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+        const patch: PlanUpdateInput = { title: `Whitelisted ${randomUUID()}` };
+        Object.assign(patch, { isActive: false, deactivatedAt: new Date(), id: plan.id + 1 });
+
+        const updated = await PlanCatalogService.updatePlan(plan.id, patch, "en", tx);
+
+        expect(updated.id).toBe(plan.id);
+        expect(updated.isActive).toBe(true);
+        expect(updated.deactivatedAt).toBeNull();
+        expect(updated.title).toMatch(/^Whitelisted /);
+      });
+    });
+
+    test("a database CHECK violation behind validating input is translated, never raw", async () => {
+      await runInRollback(async tx => {
+        // Simulates schema drift: a stricter session_count CHECK that the
+        // validation layer does not know about. The service must translate
+        // the resulting 23514 through the driver cause chain into the
+        // matching localized field error — the constraint name never leaks.
+        await tx.execute(
+          sql`ALTER TABLE plans ADD CONSTRAINT plans_session_count_service_probe_check CHECK (session_count <= 100)`
+        );
+
+        const error = await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount: 200 }), "en", tx),
+          null,
+          "PLAN_SESSION_COUNT_INVALID",
+          "PLAN_SESSION_COUNT_INVALID"
+        );
+        expect(error.message).toBe(enErrors.planSessionCountInvalid);
+        expect(error.message.includes("23514")).toBe(false);
+        expect(error.message.includes("constraint")).toBe(false);
+      });
+    });
+
+    test("duplicate titles both succeed — double-submit tolerance", async () => {
+      await runInRollback(async tx => {
+        const title = `Double Submit ${randomUUID()}`;
+        const first = await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx);
+        const second = await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx);
+
+        expect(first.id).not.toBe(second.id);
+        expect(second.title).toBe(title);
+      });
+    });
+
+    test("localized rejections switch between English and Arabic", async () => {
+      await runInRollback(async tx => {
+        const enError = await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", tx),
+          "title",
+          "PLAN_TITLE_REQUIRED"
+        );
+        const arError = await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "ar", tx),
+          "title",
+          "PLAN_TITLE_REQUIRED"
+        );
+        expect(enError.message).toBe(enErrors.planTitleRequired);
+        expect(arError.message).toBe(arErrors.planTitleRequired);
+        expect(arError.message).not.toBe(enError.message);
+
+        await expectNotFoundError(
+          () => PlanCatalogService.updatePlan(999_999_999, { title: "Ghost" }, "ar", tx),
+          arErrors.planNotFound
+        );
+
+        const activePlan = await createTestPlan(tx);
+        await expectConflictError(
+          () => PlanCatalogService.setPlanActiveStatus(activePlan.id, true, "ar", tx),
+          "PLAN_ALREADY_ACTIVE",
+          arErrors.planAlreadyActive
+        );
+      });
+    });
+  });
+});

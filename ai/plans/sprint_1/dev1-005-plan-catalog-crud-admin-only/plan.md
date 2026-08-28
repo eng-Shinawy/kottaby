@@ -1,8 +1,8 @@
 # Technical Architecture & Implementation Design: DEV1-005 — Plan Catalog CRUD (Admin Only)
 
-> **Plan of record:** `ai/plans/dev1-005-plan-catalog-crud-admin-only/`
+> **Plan of record:** `ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/`
 > **Specs:** `specs.md` REQ-001..REQ-083
-> **Canonical refs:** `docs/auth/user-registration.md` (23505 cause-chain precedent), `docs/graphql/domain-error-extensions-code.md`, `docs/auth/jwt-authentication-service.md` (authScopes contract), `docs/DATABASE_MIGRATIONS.md`, `docs/IDEMPOTENCY.md`, `docs/specs/open-decisions-and-gaps.md`, `docs/specs/state-machine-invariants.md`, `docs/workflows/05-admin-governance-override.md`, plus the DEV1-004 guarded-update precedent (`ai/plans/dev1-004-free-trial-session-provisioning/plan.md`)
+> **Canonical refs:** `docs/auth/user-registration.md` (23505 cause-chain precedent), `docs/graphql/domain-error-extensions-code.md`, `docs/auth/jwt-authentication-service.md` (authScopes contract), `docs/DATABASE_MIGRATIONS.md`, `docs/IDEMPOTENCY.md`, `docs/specs/open-decisions-and-gaps.md`, `docs/specs/state-machine-invariants.md`, `docs/workflows/05-admin-governance-override.md`, plus the DEV1-004 guarded-update design precedent (`ai/plans/sprint_0/dev1-004-free-trial-session-provisioning/plan.md` — design reference only; DEV1-004 code is not a merged dependency in this repo state)
 
 ---
 
@@ -26,7 +26,7 @@ DEV1-005 is a **full vertical slice**: one schema delta (two lifecycle columns o
 │   ├─ authScopes: { authenticated: true, role: [UserRole.Admin] }            │
 │   │     scopeAuth → !ctx.user → UnauthorizedError (401, UNAUTHORIZED)       │
 │   │     role scope → ctx.role ∉ {admin} → 403 FORBIDDEN (fail-closed)       │
-│   └─ service-localized errors via getServerTranslations(ctx.locale,"errors")│
+│   └─ service-localized errors via getServerTranslations(ctx.locale).errorsTranslations │
 └──────────────────────────────────┬──────────────────────────────────────────┘
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -85,7 +85,7 @@ Server Component: app/(dashboard)/admin/plans/page.tsx
 | # | Decision | Options Considered | Pros / Cons | Rationale (Maintainability, Scalability, Reliability) |
 |---|---|---|---|---|
 | D1 | **Lifecycle via `is_active` + `deactivated_at` delta on `plans`** (DEV1-004-style per-ticket schema delta) | (a) `status` enum (`active`/`deactivated`/…); (b) boolean + timestamp; (c) separate lifecycle table | (a) Pros: extensible states. Cons: new pgEnum + enum files for a binary lifecycle today — over-engineering (YAGNI); migration churn. (b) Pros: minimal, self-documenting, `deactivated_at` is audit-adjacent metadata, default `true` backfills all existing rows (zero backfill migration). Cons: future states require a follow-up delta. (c) Pros: normalized. Cons: unjustified for a two-state toggle. | REQ-010. Boolean + nullable timestamp is the smallest contract that satisfies "no longer visible to students for purchase; existing subscriptions remain active." Default `true` makes `db push` non-destructive. Drizzle schema + `$infer*` types land in one commit set (REQ-042). |
-| D2 | **State transitions via single guarded conditional `UPDATE … WHERE id AND is_active = <opposite> RETURNING *`** | (a) SELECT-then-UPDATE; (b) advisory lock; (c) guarded conditional UPDATE | (a) TOCTOU: two concurrent deactivations both read `is_active=true`, both succeed silently — REQ-040 violated. (b) Serializes correctly but adds lock plumbing for a trivially lock-free statement. (c) Row-lock inside the statement serializes; loser sees empty RETURNING → mapped to `PLAN_ALREADY_*`. Zero extra infra. | REQ-014/015/040. Direct reuse of the DEV1-004 `grantFreeTrialOnce` atomicity pattern (proven, reviewed). TOCTOU window = 0; the predicate is evaluated under the row's write lock. |
+| D2 | **State transitions via single guarded conditional `UPDATE … WHERE id AND is_active = <opposite> RETURNING *`** | (a) SELECT-then-UPDATE; (b) advisory lock; (c) guarded conditional UPDATE | (a) TOCTOU: two concurrent deactivations both read `is_active=true`, both succeed silently — REQ-040 violated. (b) Serializes correctly but adds lock plumbing for a trivially lock-free statement. (c) Row-lock inside the statement serializes; loser sees empty RETURNING → mapped to `PLAN_ALREADY_*`. Zero extra infra. | REQ-014/015/040. Reuses the DEV1-004 designed grant-once atomicity pattern (documented in `ai/plans/sprint_0/dev1-004-free-trial-session-provisioning/`; pattern reference — REQ-014/D2 fully specify the statement, so no DEV1-004 code dependency). TOCTOU window = 0; the predicate is evaluated under the row's write lock. |
 | D3 | **Guard-ambiguity resolution: empty RETURNING → `existsById` probe → NotFound vs Conflict** | (a) probe first, then update; (b) update first, probe on empty | (a) Reintroduces TOCTOU on the *state* branch (row could flip between probe and guarded update — harmless here because the second update would empty-match, but adds a wasted round-trip on the hot path). (b) One statement hot path; probe only on the failure path (cold). | (b). Plan state churn is admin-frequency (rare); correctness preserved because the guarded UPDATE remains the only mutation primitive. The probe is read-only and its result cannot be stale-misused (a re-check after a concurrent flip still yields the correct user-facing outcome class: the row *is* in the target state → `PLAN_ALREADY_*` is accurate at response time if we re-read post-update — see §4.3 race table). |
 | D4 | **Price as decimal STRING end-to-end (`String!` in GraphQL, `string` in TS, regex-validated in service)** | (a) `Float!`; (b) `String!`; (c) fixed-point Int (cents) | (a) Float precision loss violates money discipline (e.g., 19.99 corruptible). (b) Preserves Drizzle `decimal(10,2)` → `string` inference verbatim; regex `^\d{1,8}(\.\d{1,2})?$` fits the column exactly; UI renders without conversion. (c) Requires a unit contract (`priceInCents`) diverging from DEV1-001 schema — forbidden drift. | REQ-012/022. Follows the schema as-is; zero arithmetic is performed on price in this ticket, so string carry is safe and lossless. |
 | D5 | **Two read operations (`planCatalog` active-only, `adminPlans` full) instead of one query with a client-side filter arg** | (a) single `plans(includeInactive)` gated per-arg; (b) two named operations | (a) An argument-controlled visibility gate on a shared field is a latent BFLA hazard (student passing `includeInactive:true`) and complicates authScope documentation. (b) Visibility is enforced at the *field* level by Pothos authScopes — structurally impossible for non-admins to reach the full catalog. Slightly more SDL. | REQ-016/030/064. Server-side predicate lives in exactly one repository method (`listActive`). The split mirrors the per-audience rendering table and makes the REQ-072 role-matrix cells individually testable. |
@@ -149,7 +149,7 @@ export type PlanUpdateInput = {
 
 Barrel: `backend/types/billing/index.ts` already re-exports `./plan.types` — no barrel change needed.
 
-Rules compliance: no service-layer `.types.ts`; `DBTransaction` imported from `@/backend/types`; no resolver-local types. The new columns flow into `PlanSelectType` automatically (`StudentSelectType.balanceTrial` precedent from DEV1-004).
+Rules compliance: no service-layer `.types.ts`; `DBTransaction` imported from `@/backend/types`; no resolver-local types. The new columns flow into `PlanSelectType` automatically via `$inferSelect` (schema-is-ground-truth typing flow).
 
 ### 2.5 Enums
 
@@ -165,16 +165,16 @@ Rules compliance: no service-layer `.types.ts`; `DBTransaction` imported from `@
 | `shared/locale/en/errors/index.ts` | English implementations for all keys |
 | `shared/locale/ar/errors/index.ts` | Arabic implementations (natural RTL phrasing) |
 
-Compile-time `MessageSchema` parity is the gate — a missing key fails `tsgo` (REQ-051).
+Compile-time `ErrorsLabels`/`Translations` interface parity is the gate — a missing key fails `tsgo` (REQ-051).
 
 **(b) New `plans` UI namespace (REQ-054):**
 
-Registered per `shared/locale/AGENTS.md` full procedure:
+Registered per the actual `shared/locale/` compile-time system (namespace handles via `defineNamespace`):
 1. `shared/locale/types/plans/index.ts` — labels interface (page title, catalog table headers, status chips `active`/`inactive`, create/edit dialog labels, field labels, validation-adjacent UI hints, empty state, error state, confirm-deactivate copy, submit/loading states).
 2. `shared/locale/en/plans/index.ts` + `shared/locale/ar/plans/index.ts`.
-3. `MessageSchema` entry in `shared/locale/types/message.ts`.
-4. Namespace-path registration in the locale server paths map.
-5. Client consumption via `useAppTranslation(Translation.Plans)` with property access; server shell via `getTranslations(locale)`.
+3. `plansTranslations: PlansLabels` entry added to the `Translations` interface in `shared/locale/types/message.ts`; label consts aggregated into `shared/locale/en/messages.ts` + `shared/locale/ar/messages.ts`.
+4. `Plans` namespace handle created via `defineNamespace<PlansLabels>` in `shared/locale/namespaces/plans/plans.namespace.ts` (+ barrel) and exported through `shared/locale/namespaces/index.ts`.
+5. Client consumption via `useAppTranslation(Plans)` with property access; server shell via `getTranslations(locale).plansTranslations`.
 
 Plan *content* (`title` values) is admin-authored data, NOT translation keys — the boundary is documented in the canonical doc to prevent i18n misuse downstream.
 
@@ -242,7 +242,8 @@ extend type Mutation {
 
 **Resolver behavior:**
 - Resolvers are thin: resolve args → call `PlanCatalogService.<method>(…, ctx.locale)` → return `PlanReturnType`. No business logic, no repository calls, no `await import()` (top-level static imports only — Bun ESM rule).
-- Resolver-direct errors: none expected beyond authScopes; all domain failures are service-thrown `DomainError` subclasses (`ctx.t` not needed since no resolver-thrown errors exist; service errors use `getServerTranslations(ctx.locale, "errors")` via locale propagation).
+- Resolver-direct errors: none expected beyond authScopes; all domain failures are service-thrown `DomainError` subclasses (`ctx.t` not needed since no resolver-thrown errors exist; service errors use `getServerTranslations(ctx.locale).errorsTranslations` via locale propagation).
+- `setPlanActiveStatus` conflict codes: `ConflictError` in `backend/lib/errors.ts` currently hard-codes `extensions.code = "CONFLICT"` — this ticket extends it with the same overloaded custom-code constructor `ValidationError` has (default `CONFLICT` preserved for existing callers; `PLAN_ALREADY_INACTIVE`/`PLAN_ALREADY_ACTIVE` passed as the custom code). Covered by Task 2.3.
 - `adminPlans` arg `includeInactive` defaults `true` at SDL level; nullable-hardened per Pothos input nullability rules (`Boolean | null | undefined` handling in signature).
 - `createPlan`/`updatePlan`/`setPlanActiveStatus` return `Plan!` (non-null) — success always returns the authoritative post-write row (`RETURNING *`), so the client cache updates without refetch.
 
@@ -274,7 +275,7 @@ extend type Mutation {
 | `createPlan` | `UNAUTHORIZED` | `FORBIDDEN` | `FORBIDDEN` | `FORBIDDEN` | `FORBIDDEN` | ✅ |
 | `updatePlan` | `UNAUTHORIZED` | `FORBIDDEN` | `FORBIDDEN` | `FORBIDDEN` | `FORBIDDEN` | ✅ |
 | `setPlanActiveStatus` | `UNAUTHORIZED` | `FORBIDDEN` | `FORBIDDEN` | `FORBIDDEN` | `FORBIDDEN` | ✅ |
-| `/admin/plans` (SSR page) | redirect `/login?redirect=/admin/plans` | redirect `/dashboard` | redirect `/dashboard` | redirect `/dashboard` | redirect `/dashboard` | ✅ renders |
+| `/admin/plans` (SSR page) | redirect `/login?redirect=/admin/plans` | redirect role dashboard | redirect role dashboard | redirect role dashboard | redirect role dashboard | ✅ renders |
 
 ---
 
@@ -305,7 +306,7 @@ Contract rules per method:
   - `intervalDays`: `Number.isInteger(v) && v >= 1` → else `planIntervalDaysInvalid`.
 - **`createPlan`**: validate → explicit field-by-field insert mapping `{ title: input.title.trim(), sessionCount, price, currency, intervalDays }` (`isActive`/`deactivatedAt`/timestamps NEVER mapped from input; DB defaults apply) → `PlanRepository.insertPlan(insert, tx)` → catch → `translateDbError`-style 23505/23514 handling via cycle-safe cause traversal → localized.
 - **`updatePlan`**: validate `id` (positive integer coercion from GraphQL ID string; invalid → `ValidationError`) → reject empty patch (`planPatchEmpty` VALIDATION) → validate every *supplied* field → whitelist patch object built key-by-key → `PlanRepository.updatePlanFields` returns `RETURNING *` row or `null` → `null` → `NotFoundError("PLAN", tErrors.planCatalog.planNotFound)`. `updatedAt` set server-side by the repository (`new Date()`).
-- **`setPlanActiveStatus`**: validate `id` → `PlanRepository.setActiveStatusOnce(id, isActive, tx)` → `null` returned → `PlanRepository.existsById(id, tx)` → `false` → `NotFoundError("PLAN", …)`; `true` → `ConflictError` with code `PLAN_ALREADY_INACTIVE` / `PLAN_ALREADY_ACTIVE` via `new ConflictError(tErrors.planCatalog.planAlready…)` (custom code set per overloaded Validation/Conflict patterns in the error doc) → `logger.logDomainError` with `{ code, entity: "plans", entityId: id }`.
+- **`setPlanActiveStatus`**: validate `id` → `PlanRepository.setActiveStatusOnce(id, isActive, tx)` → `null` returned → `PlanRepository.existsById(id, tx)` → `false` → `NotFoundError("PLAN", …)`; `true` → `ConflictError` with custom code `PLAN_ALREADY_INACTIVE` / `PLAN_ALREADY_ACTIVE` (requires the `backend/lib/errors.ts` `ConflictError` custom-code constructor overload — see §3.2) → `logger.logDomainError` with `{ code, entity: "plans", entityId: id }`.
 - All expected rejections use `logger.logDomainError`; unexpected → `logger.error` (REQ-053). No `console.*`.
 - **Zero writes** to `subscriptions`, `student_subscriptions`, `students`, `wallet`, `teacher_transaction` — the service file physically has no imports of those tables (grep-verifiable; REQ-017/018 defense).
 - Audit hook: after a successful transition, emit a log/event seam comment + `logger.info` marking the mutation for the future DEV3-020 audit integration (deferred item D1 — no `audit_logs` writes in this ticket).
@@ -360,7 +361,7 @@ export namespace PlanRepository {
 
 ### 4.4 Test Discipline Anchors
 
-- All DB tests: `runInRollback`, `tx` propagated to every call (positions verified), entities created exclusively via `entity-setup.ts` helpers (never seed data), `expectRepoError` try/catch helper for failure assertions (`.toContain()` on translated substrings — never raw keys), executed via `bun run scripts/run-test/run-test.ts <path>`.
+- All DB tests: `runInRollback`, `tx` propagated to every call (positions verified), entities created exclusively via `entity-setup.ts` helpers (never seed data), `expectRepoError` try/catch helper for failure assertions (`.toContain()` on translated substrings — never raw keys), executed via `bun run test/scripts/run-test.ts <path>`.
 - If `entity-setup.ts` lacks a `createTestPlan` helper, add it there (rule 17: verify signatures before use; unique suffixes via `randomUUID()`).
 - Service tests mock nothing DB (service tests may use `runInRollback` through the real repo for integration realism) and never call external providers (none exist here).
 
@@ -389,7 +390,7 @@ No student-facing browsing page ships in this ticket — the student catalog con
 | Audience | What they see |
 |---|---|
 | Super Admin | Full `/admin/plans` page: catalog table (all plans incl. inactive), status chips (Active/Inactive, theme-palette severity colors), create button, per-row edit + activate/deactivate actions with confirmation dialog, ID/created/updated metadata columns |
-| Student / Parent / Teacher / Supervisor | Never reach the page — SSR redirect to `/dashboard` before any client render; the `adminPlans` document is never issued by their UI |
+| Student / Parent / Teacher / Supervisor | Never reach the page — SSR redirect to their role-specific dashboard (`roleDashboardPath`; never bare `/dashboard`) before any client render; the `adminPlans` document is never issued by their UI |
 | Anonymous | Redirected to `/login?redirect=/admin/plans` |
 
 ### 5.4 Apollo GraphQL Documents & UI Components
@@ -405,7 +406,7 @@ setPlanActiveStatusMutationDocument: TypedDocumentNode<SetPlanActiveStatusMutati
 ```
 
 - Imported via `gql` / `TypedDocumentNode` from `@apollo/client`; codegen types only (no inline type literals, no mapping layers); `id` in EVERY `Plan` selection set; hooks `useQuery`/`useMutation` from `@apollo/client/react`; no `useLazyQuery`.
-- Barrels: add `export * from "./plan-catalog.documents";` to `frontend/graphql/sharedDocuments/billing/index.ts` (sub-directory exists per `frontend/graphql/sharedDocuments/AGENTS.md`); no top-level barrel change needed (billing subdir already exported).
+- Barrels: NEW sub-directory `frontend/graphql/sharedDocuments/billing/` (mirroring the existing `teachers/` layout) with its own `index.ts` exporting `export * from "./plan-catalog.documents";`, PLUS a top-level barrel change: `frontend/graphql/sharedDocuments/index.ts` currently exports only `./auth` and `./teachers` — add `export * from "./billing";` per `frontend/graphql/sharedDocuments/AGENTS.md`.
 - Run `bun run generate:gqlSchema && bun codegen`; commit generated artifacts in the same change set.
 
 **Component tree:**
@@ -417,7 +418,7 @@ app/(dashboard)/admin/plans/page.tsx                     (Server Component)
   → <PlanCatalogContainer labels={...} />                 (client)
 
 frontend/views/admin/plans/PlanCatalogContainer.tsx       (client)
-  → useAppTranslation(Translation.Plans)                  (client-side labels)
+  → useAppTranslation(Plans)                             (client-side labels)
   → useQuery(adminPlansQueryDocument, { variables: { includeInactive: true } })
   → PlanCatalogTable (rows: title, sessionCount, price+currency, intervalDays,
        isActive chip, deactivatedAt, createdAt)
@@ -457,7 +458,7 @@ frontend/views/admin/plans/PlanCatalogContainer.tsx       (client)
 
 **Agent-Browser Verification Protocol:**
 1. Anonymous `GET /admin/plans` → redirect to `/login?redirect=/admin/plans` (screenshot at 375/768/1440, both locales).
-2. Login as non-admin (student fixture) → `/admin/plans` → redirect to `/dashboard` (assert no table render, En + Ar).
+2. Login as non-admin (student fixture) → `/admin/plans` → redirect to the student role-specific dashboard (`/student/dashboard`; never bare `/dashboard` — REDIRECT_LOOP_FIX rule; amended by 0.3 gate re-validation) (assert no table render, En + Ar).
 3. Login as admin → page renders catalog table; create a valid plan via the dialog → row appears with Active chip (functional verification + screenshots both locales).
 4. Create with invalid inputs (price `"19.999"`, sessionCount `0`, currency `"egp"`) → localized field-level errors under the right fields (screenshot RTL + LTR).
 5. Deactivate a plan → confirm dialog → Inactive chip renders; activate again → Active chip; double-submit guard: rapid double-click on submit issues one mutation (button disabled while pending — screenshot the disabled state).
@@ -504,4 +505,35 @@ frontend/views/admin/plans/PlanCatalogContainer.tsx       (client)
 - `bun run generate:gqlSchema && bun codegen`; REQ-020 no-delete grep assertion on the generated schema; role-matrix integration tests (`setupTestServerLifecycle` + `testClient`) asserting every §3.3 cell's `extensions.code`.
 - `bun test --coverage` on new service/repo suites — 100% statements/branches (REQ-070); chaos probes per §4.3 (REQ-074); fixture-immutability test proving subscriptions/balances byte-identical after deactivate/edit (REQ-075).
 - `bun run scripts/health/sub-loop.ts <file> --lifecycle duplicates` exit 0 per created/modified file (REQ-077).
-- Knowledge propagation outputs: canonical `docs/billing/plan-catalog.md`; INV-PC1..PC3 addendum in `docs/specs/state-machine-invariants.md`; decisions addendum (schema delta, forward-only edits, title-encoded taxonomy, create double-submit tolerance) in `docs/specs/open-decisions-and-gaps.md`; rule-only one-liner references in `backend/services/AGENTS.md`, `backend/graphql/AGENTS.md`, and root `AGENTS.md` Important References (REQ-080..082); deferred-items ledger pre-seeded with D1 (audit integration → DEV3-020) and D2 (purchase-time re-validation → DEV1-006), non-blocking per the template enforcement rule (REQ
+- Knowledge propagation outputs: canonical `docs/billing/plan-catalog.md`; INV-PC1..PC3 addendum in `docs/specs/state-machine-invariants.md`; decisions addendum (schema delta, forward-only edits, title-encoded taxonomy, create double-submit tolerance) in `docs/specs/open-decisions-and-gaps.md`; rule-only one-liner references in `backend/services/AGENTS.md`, `backend/graphql/AGENTS.md`, and root `AGENTS.md` Important References (REQ-080..082); deferred-items ledger pre-seeded with D1 (audit integration → DEV3-020) and D2 (purchase-time re-validation → DEV1-006), non-blocking per the template enforcement rule (REQ-083).
+
+---
+
+## Pre-Implementation Amendment Log
+
+> Recorded by the Task 0.3 plan-review gate (Phase 1.5) before any implementation began. All findings were MINOR — no structural rewrite; see `outcome/plan-review-gate-outcome.md` for the full findings list. Every amendment below is a surgical text correction aligning the plan documents with the ACTUAL repo state (verified by symbol-level probes during the gate).
+
+1. **`getServerTranslations` is single-argument** (specs REQ-002/051 + traceability row; plan §1.1 diagram/§3.2/§4.1; tasks 2.3.SR). The two-arg `getServerTranslations(locale, "errors")` signature does not exist — `shared/locale/server-graphql.ts` accepts `(locale)` and returns the full `Translations` bundle. Amended to `getServerTranslations(locale).errorsTranslations.*` property access (matches the `backend/lib/api/api-response.ts:218` precedent).
+2. **No `Translation` enum / `MessageSchema` exists in `shared/locale/`** (specs REQ-002/054 + traceability row; plan §2.6(b); tasks 1.3.1/1.4.3/1.4.TE/1.4.SR/4.3.1). The real client mechanism is typed namespace handles via `defineNamespace` (`shared/locale/namespaces/*/*.namespace.ts` → `useAppTranslation(<Handle>)`), and the aggregate type is the `Translations` interface in `shared/locale/types/message.ts`. Amended all references; task 1.4 now includes creating the `Plans` namespace handle (`shared/locale/namespaces/plans/`) and aggregating labels into `en/messages.ts` + `ar/messages.ts`.
+3. **`ConflictError` cannot carry `PLAN_ALREADY_*` custom codes as-is** (specs REQ-050; plan §3.2/§4.1; task 2.3.4). `backend/lib/errors.ts:159` hard-codes `extensions.code = "CONFLICT"` and the `DomainError` constructor overrides any `options.extensions.code`. Amended REQ-050 wording and added an explicit sub-step: task 2.3 extends `ConflictError` with the overloaded custom-code constructor mirroring `ValidationError` (default `CONFLICT` preserved).
+4. **`backend/graphql/gqlSchemaBuilder.ts` path drift** (specs REQ-004; tasks 0.2 file list + 0.2.4). `gqlSchemaBuilder` is exported from `backend/graphql/pothos/builder.ts:66`. Paths corrected (matches the 0.2 outcome §3 finding).
+5. **`frontend/graphql/sharedDocuments/billing/` does not exist and the top-level barrel needs a new export** (plan §5.4; task 4.1). The sub-directory will be created (mirroring `teachers/`), and `frontend/graphql/sharedDocuments/index.ts` (currently exporting only `./auth` + `./teachers`) gains `export * from "./billing";`. The old claim "no top-level barrel change needed" was wrong.
+6. **Phantom convention-doc references** (tasks 1.1, 2.1, 4.3, 4.4). `backend/db/AGENTS.md`, `frontend/views/AGENTS.md`, `frontend/components/ui/AGENTS.md`, `frontend.instructions.md`, and `mobile-desktop.instructions.md` do not exist. Repointed to the real docs: `backend/db/schema/AGENTS.md`, `backend/db/test/AGENTS.md`, `frontend/AGENTS.md`, `frontend/COMPONENT_PATTERNS.md`, `frontend/THEME_PALETTE.md`.
+7. **Test-runner path corrected** (specs REQ-071; tasks protocol + 3.6.TE/5.1.TE/5.3.2). `scripts/run-test/run-test.ts` does not exist; the canonical runner is `test/scripts/run-test.ts` (root AGENTS.md documents its `--last`/`--focus` log-capture flags; an `n.ts` claim made here was itself wrong and is corrected by amendment 13).
+8. **DEV1-004 precedent downgrade — D3 adjudication (resolution path (a))** (plan canonical refs + D2 rationale + §2.3; tasks 0.2.5). The `grantFreeTrialOnce` guarded-update code does not exist in this repo (DEV1-004 was planned, never executed). The REQ-014/015-specified guarded conditional UPDATE (fully normative SQL in specs + plan §4.2) is now the spec-defined pattern; the sprint_0 DEV1-004 plan doc is a DOCUMENTED design reference only. Deferred-item D3 → resolved (✅ Done). Tasks 2.2.3/2.3.4 unblocked. No design change: SQL, TOCTOU-window-zero argument, and `PLAN_ALREADY_*` mapping unchanged.
+9. **Role-mismatch redirect target corrected** (specs REQ-062 + REQ-064 matrix; plan §3.3/§5.3; tasks 4.2.1/4.2.TE/4.3.BF). `withPageAuth` redirects role-mismatched callers to their ROLE-SPECIFIC dashboard via `roleDashboardPath` (`/student/dashboard`, `/parent/dashboard`, `/teacher/dashboard`) — never bare `/dashboard` (`frontend/lib/auth/roleDashboardRoute.ts`; REDIRECT_LOOP_FIX rule). Tests asserting literal `/dashboard` would have failed.
+10. **REQ-081 addendum sequencing caveat recorded** (task 7.2 gate note; 6.5.1 scoping note). specs.md's present-tense "The addendum is recorded in `docs/specs/open-decisions-and-gaps.md`" is forward-looking until 7.2.2 lands (0.2.IV caveat); 7.4 closure must verify existence. 6.5.1's marker-grep must be scoped to ledger-table rows (the template legend also contains ❌/⚠️).
+11. **Text repairs**: plan.md final bullet was truncated mid-sentence (completed as "…(REQ-083)"); specs.md REQ-064 note had a garbled clause ("distinct from via" → "distinct from active chips via"); tasks.md 0.3.2 typo "spec/plam" → "spec/plan"; plan-directory headers updated to the actual `ai/plans/sprint_1/…` path in all three documents.
+
+**Gate-completion addendum (0.3 re-validation pass, same gate — residual inconsistencies found by re-verifying every amendment fact against the repo):**
+
+12. **Residual stale plan-directory paths** (tasks.md protocol rules 1 & 7, task 0.1 file list, task 6.5.1 grep command; specs.md REQ-001, REQ-083, closing footer). Amendment 11 fixed only the document headers; the `ai/plans/dev1-005-…` paths (missing the `sprint_1/` segment) remained inside requirement bodies and task cells — including the REQ-083/6.5.1 grep gate command, which would have run against a non-existent path. All corrected to `ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/…`.
+13. **Runner-path leftovers + phantom `n.ts`** (plan §4.4; specs REQ-076; tasks protocol rule 3). `scripts/run-test/run-test.ts` remained in plan §4.4 and specs REQ-076 despite amendment 7; and the protocol's claim that root AGENTS.md documents `test/scripts/n.ts` is FALSE (no such file exists — root AGENTS.md documents `test/scripts/run-test.ts` with `--last`/`--focus` log-capture flags). Corrected to the verified canonical runner; the `n.ts` clause removed.
+14. **plan §5.4 component tree** still referenced the non-existent `Translation.Plans` enum (`useAppTranslation(Translation.Plans)`) → corrected to `useAppTranslation(Plans)` (leftover from amendment 2).
+15. **plan §5.5 agent-browser protocol step 2** still asserted a bare `/dashboard` redirect for non-admins → corrected to the role-specific dashboard via `roleDashboardPath` (leftover from amendment 9).
+16. **REQ-076 had no covering task** (completeness gap found by the REQ↔task re-sweep): REQ-076 (component-test discipline) was cited by zero tasks. Added REQ-076 to Task 4.3's `_Requirements_` line and tagged 4.3.TE / 4.4.TE with the REQ-076 discipline. REQ-001..REQ-083 now each map to ≥1 task.
+17. **specs.md §3 canonical-alignment bullet + traceability row** still credited "DEV1-002/DEV1-004 precedents … are reused, not reinvented" and "DEV1-004 guarded-update precedent" without the D3 downgrade → reworded to the spec-defined pattern with DEV1-004 as documented design reference only (D3 consistency).
+
+Task 0.2.5 (redefined by the D3 ruling) was ticked with verification evidence: the sprint_0 DEV1-004 plan doc exists on disk and REQ-014/015 + D2/§4.2 carry the normative guarded-UPDATE SQL.
+
+INFO (no change required): plan.md §2 numbering skips "2.4" (cosmetic only); the plan's permission matrix adds a Supervisor row beyond the specs matrix (benign superset, consistently tested by task 3.6.1); all other reviewed facts (schema CHECK names, `decimal(10,2)`, `char(3)` default `EGP`, `withPageAuth`, `runInRollback`/`expectRepoError`/`entity-setup.ts`, `logger.logDomainError`, `generate:gqlSchema`/`codegen` scripts, `bun db push` policy, `registerUser`/`createAdminUser`, `role` scope OR semantics, `tsgo`/`biome:check`) verified correct against the repo.

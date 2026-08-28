@@ -22,4 +22,15 @@ export const errorsAr: ErrorsLabels = {
   applicantNotFound: "لم يتم العثور على طلب التقديم كمعلم قرآن.",
   applicantCooldownActive: "يمكنك إعادة التقديم للتحقق كمعلم قرآن بعد {cooldownUntil}.",
   applicantStatusCorrupt: "تعذر قراءة حالة طلبك. يرجى التواصل مع فريق الدعم.",
+  // Plan-catalog domain errors — natural RTL phrasing matching the existing tone.
+  planNotFound: "الخطة المطلوبة غير موجودة.",
+  planAlreadyInactive: "هذه الخطة غير مفعّلة بالفعل.",
+  planAlreadyActive: "هذه الخطة مفعّلة بالفعل.",
+  planTitleRequired: "يرجى إدخال عنوان الخطة.",
+  planTitleTooLong: "عنوان الخطة طويل جداً.",
+  planSessionCountInvalid: "يجب أن يكون عدد الجلسات رقماً موجباً.",
+  planPriceInvalid: "يجب أن يكون سعر الخطة مبلغاً موجباً صحيحاً.",
+  planCurrencyInvalid: "العملة المختارة غير مدعومة.",
+  planIntervalDaysInvalid: "يجب أن تكون الفترة عدداً موجباً من الأيام.",
+  planPatchEmpty: "لا توجد تغييرات لحفظها.",
 };

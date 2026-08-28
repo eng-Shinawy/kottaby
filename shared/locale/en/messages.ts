@@ -4,6 +4,7 @@ import { commonEn } from "@/shared/locale/en/common";
 import { dashboardEn } from "@/shared/locale/en/dashboard";
 import { errorsEn } from "@/shared/locale/en/errors";
 import { landingEn } from "@/shared/locale/en/landing";
+import { plansEn } from "@/shared/locale/en/plans";
 import { recitationEn } from "@/shared/locale/en/recitation";
 import type { Translations } from "@/shared/locale/types/message";
 
@@ -15,4 +16,5 @@ export const enMessages: Translations = {
   dashboardTranslations: dashboardEn,
   landingTranslations: landingEn,
   applicantTranslations: applicantEn,
+  plansTranslations: plansEn,
 };

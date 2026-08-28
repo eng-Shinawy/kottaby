@@ -16,6 +16,9 @@
  * `RegistrationService.registerUser(...)` directly in the test body.
  */
 import { randomUUID } from "node:crypto";
+import { plans } from "@/backend/db/schema/billing/plans";
+import { studentSubscriptions } from "@/backend/db/schema/billing/student-subscriptions";
+import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { parents } from "@/backend/db/schema/parents/parents";
 import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
@@ -26,7 +29,10 @@ import type {
   ApplicantSelectType,
   DBTransaction,
   ParentSelectType,
+  PlanSelectType,
   StudentSelectType,
+  StudentSubscriptionSelectType,
+  SubscriptionSelectType,
   UserSelectType,
 } from "@/backend/types";
 
@@ -131,6 +137,98 @@ export async function createTestApplicant(
     throw new Error("createTestApplicant: insert returned no rows");
   }
   return row;
+}
+
+/**
+ * Creates a `plans` row with a randomized unique title and CHECK-safe
+ * defaults (`session_count >= 1`, `price >= 0`, `interval_days >= 1`).
+ * Override any column via `overrides` — including the lifecycle pair
+ * (`isActive` / `deactivatedAt`) to arrange pre-deactivated catalog states.
+ * Overrides that violate the table CHECKs intentionally surface the raw
+ * check-violation error, which is useful for constraint probes.
+ *
+ * @example
+ * const plan = await createTestPlan(tx);
+ * const free = await createTestPlan(tx, { price: "0.00", sessionCount: 1 });
+ */
+export async function createTestPlan(
+  tx: DBTransaction,
+  overrides: Partial<PlanSelectType> = {}
+): Promise<PlanSelectType> {
+  const [row] = await tx
+    .insert(plans)
+    .values({
+      title: `Test Plan ${randomUUID().slice(0, 8)}`,
+      sessionCount: 5,
+      price: "10.00",
+      currency: "EGP",
+      intervalDays: 30,
+      // Lifecycle defaults mirror the server-side column defaults.
+      isActive: true,
+      deactivatedAt: null,
+      ...overrides,
+    })
+    .returning();
+  if (!row) {
+    throw new Error("createTestPlan: insert returned no rows");
+  }
+  return row;
+}
+
+/**
+ * Creates a full plan → subscription → student linkage: a fresh `plans` row,
+ * an active `subscriptions` row owned by a fresh user and pointing at that
+ * plan, and the `student_subscriptions` enrollment lane for a fresh student
+ * (whose balance columns are the per-student balance lanes). Composes the
+ * existing factories (`createTestPlan`, `createTestUser`, `createTestStudent`)
+ * instead of duplicating them. Each slice accepts its own overrides.
+ *
+ * @example
+ * const { plan, subscription, student } = await createTestPlanWithSubscription(tx);
+ */
+export async function createTestPlanWithSubscription(
+  tx: DBTransaction,
+  overrides: {
+    plan?: Partial<PlanSelectType>;
+    user?: Partial<UserSelectType>;
+    student?: Partial<StudentSelectType>;
+    subscription?: Partial<SubscriptionSelectType>;
+  } = {}
+): Promise<{
+  plan: PlanSelectType;
+  user: UserSelectType;
+  student: StudentSelectType;
+  subscription: SubscriptionSelectType;
+  studentSubscription: StudentSubscriptionSelectType;
+}> {
+  const plan = await createTestPlan(tx, overrides.plan);
+  const user = await createTestUser(tx, overrides.user);
+  const student = await createTestStudent(tx, user.id, overrides.student);
+  const [subscription] = await tx
+    .insert(subscriptions)
+    .values({
+      userId: user.id,
+      planId: plan.id,
+      status: "active",
+      startDate: new Date(),
+      endDate: null,
+      paymentMethod: null,
+      paymentReference: null,
+      paymentVerifiedAt: null,
+      ...overrides.subscription,
+    })
+    .returning();
+  if (!subscription) {
+    throw new Error("createTestPlanWithSubscription: subscription insert returned no rows");
+  }
+  const [studentSubscription] = await tx
+    .insert(studentSubscriptions)
+    .values({ studentId: student.id, subscriptionId: subscription.id })
+    .returning();
+  if (!studentSubscription) {
+    throw new Error("createTestPlanWithSubscription: student subscription insert returned no rows");
+  }
+  return { plan, user, student, subscription, studentSubscription };
 }
 
 /**
