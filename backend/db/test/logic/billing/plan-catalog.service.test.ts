@@ -36,6 +36,11 @@
  *    driver cause chain into the matching localized field error (no SQL or
  *    constraint names in any message); duplicate titles both succeed;
  *    localized rejections switch between "en" and "ar".
+ *  - Tier 5 (coverage closure, 5.3): every remaining branch of the service
+ *    gets a dedicated test — updatePlan's supplied-field validation reject
+ *    and partial-patch title-absent path; the price and interval_days
+ *    constraint-family mappings; and BOTH untranslated-rethrow paths
+ *    (unrecognized constraint name, non-check driver error).
  */
 
 import { describe, expect, spyOn, test } from "bun:test";
@@ -387,6 +392,32 @@ describe("PlanCatalogService", () => {
       });
     });
 
+    test("updatePlan validates supplied fields and accepts a price-only patch", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+
+        // An INVALID supplied field must hit the update-side aggregated
+        // rejection (its own logging branch before any whitelist copy).
+        const error = await expectValidationError(
+          () => PlanCatalogService.updatePlan(plan.id, { price: "abc" }, "en", tx),
+          "price",
+          "PLAN_PRICE_INVALID"
+        );
+        expect(error.message).toBe(enErrors.planPriceInvalid);
+
+        // A price-only patch exercises the partial-update contract: the
+        // absent title is judged "not supplied" (not a violation) and the
+        // whitelisted copy must leave every other column untouched.
+        const updated = await PlanCatalogService.updatePlan(plan.id, { price: "99.99" }, "en", tx);
+        expect(updated.id).toBe(plan.id);
+        expect(updated.title).toBe(plan.title);
+        expect(updated.price).toBe("99.99");
+        expect(updated.sessionCount).toBe(plan.sessionCount);
+        expect(updated.currency).toBe(plan.currency);
+        expect(updated.intervalDays).toBe(plan.intervalDays);
+      });
+    });
+
     test("non-positive and non-integer ids reject before any database call", async () => {
       await runInRollback(async tx => {
         const rejected = await Promise.all(
@@ -513,6 +544,90 @@ describe("PlanCatalogService", () => {
         expect(error.message).toBe(enErrors.planSessionCountInvalid);
         expect(error.message.includes("23514")).toBe(false);
         expect(error.message.includes("constraint")).toBe(false);
+      });
+    });
+
+    test("price CHECK violation maps through the price constraint family", async () => {
+      await runInRollback(async tx => {
+        // Schema-drift probe mirroring the session_count precedent: a stricter
+        // CHECK the validation layer does not model, named after the price
+        // family so the cause-chain translation has to match on the
+        // constraint NAME. NOT VALID skips validation of pre-existing (seed)
+        // rows — the probe only needs enforcement on NEW inserts. The failing
+        // insert must be the LAST statement: any statement error aborts a
+        // PostgreSQL transaction (no savepoints under runInRollback).
+        await tx.execute(
+          sql`ALTER TABLE plans ADD CONSTRAINT plans_price_service_probe_check CHECK (price < 100) NOT VALID`
+        );
+
+        const priceError = await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ price: "200.00" }), "en", tx),
+          null,
+          "PLAN_PRICE_INVALID",
+          "PLAN_PRICE_INVALID"
+        );
+        expect(priceError.message).toBe(enErrors.planPriceInvalid);
+      });
+    });
+
+    test("interval_days CHECK violation maps through the interval_days constraint family", async () => {
+      await runInRollback(async tx => {
+        await tx.execute(
+          sql`ALTER TABLE plans ADD CONSTRAINT plans_interval_days_service_probe_check CHECK (interval_days <= 100) NOT VALID`
+        );
+
+        const intervalError = await expectValidationError(
+          () => PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 200 }), "en", tx),
+          null,
+          "PLAN_INTERVAL_DAYS_INVALID",
+          "PLAN_INTERVAL_DAYS_INVALID"
+        );
+        expect(intervalError.message).toBe(enErrors.planIntervalDaysInvalid);
+      });
+    });
+
+    test("a 23514 whose constraint name matches no family is rethrown untranslated", async () => {
+      await runInRollback(async tx => {
+        // Check violation raised by a constraint named outside the known
+        // families: the service must rethrow the raw driver error — masking-
+        // boundary territory, no localized field error invented.
+        await tx.execute(
+          sql`ALTER TABLE plans ADD CONSTRAINT plans_service_probe_misc_check CHECK (currency <> 'ZZZ') NOT VALID`
+        );
+
+        const errorSpy = spyOn(logger, "error");
+        try {
+          const constraintError = await expectRepoError(() =>
+            PlanCatalogService.createPlan(planSubmitInput({ currency: "ZZZ" }), "en", tx)
+          );
+          expect(constraintError).not.toBeInstanceOf(ValidationError);
+          expect(constraintError).not.toBeInstanceOf(NotFoundError);
+          expect(constraintError).not.toBeInstanceOf(ConflictError);
+          expect(errorSpy).toHaveBeenCalled();
+        } finally {
+          errorSpy.mockRestore();
+        }
+      });
+    });
+
+    test("a non-check driver error (unique violation) is rethrown untranslated", async () => {
+      await runInRollback(async tx => {
+        // 23505 is not a check violation: the cause-chain walk must exhaust
+        // (return null) and the error must surface as-is via logger.error.
+        await tx.execute(sql`CREATE UNIQUE INDEX plans_title_service_probe_unique ON plans (title)`);
+        const title = `Untranslated ${randomUUID()}`;
+        await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx);
+
+        const errorSpy = spyOn(logger, "error");
+        try {
+          const uniqueError = await expectRepoError(() =>
+            PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx)
+          );
+          expect(uniqueError).not.toBeInstanceOf(ValidationError);
+          expect(errorSpy).toHaveBeenCalled();
+        } finally {
+          errorSpy.mockRestore();
+        }
       });
     });
 
