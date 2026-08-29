@@ -460,6 +460,7 @@ After reading the applicable instruction files and AGENTS.md, subagents check fo
 - `docs/backend/cross-stream-contracts.md` — Cross-stream contract types canonical reference (DEV2-003: 6 contracts, composition-only rule, forbidden-field registry, consumer-ticket wiring, change governance)
 - `docs/graphql/api-gateway-and-routing.md` — API gateway & routing canonical reference (dev3-003: seven-step request pipeline in `app/api/graphql/route.ts`, transport-failure matrix + `MAX_GRAPHQL_BODY_BYTES`, default-deny public-operation allowlist gate, the two sanctioned health probes, ROUTE_INVENTORY registration rule (A4), REQ-018 operation-registration contract)
 - `docs/teachers/applicant-lifecycle.md` — Teacher applicant lifecycle canonical reference (DEV2-004: `applicants` state machine REQ-013, cooldown/attempt contracts REQ-014/015/016, zero-arg `myApplicantProfile` query contract REQ-017, INV-TV1..TV7 + B.6/B.7 anchoring, consumer guidance for DEV2-005..010/DEV3-019)
+- `docs/billing/plan-catalog.md` — Plan Catalog (`plans`) canonical reference (DEV1-005: admin-only CRUD with `$all{authenticated, role:[...]}` mutation gates, forward-only edits, lifecycle-pair invariant, `planCatalog`/`adminPlans` visibility split, service-bootstrap-only seeding)
 
 
 ## Linting Rules

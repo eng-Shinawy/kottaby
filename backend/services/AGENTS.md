@@ -3,6 +3,7 @@
 - **Registration: see `docs/auth/user-registration.md` for the role→child mapping, handshake generation, and atomicity pattern.**
 - **Auth service: see `docs/auth/jwt-authentication-service.md` for the JWT auth contract (token claims, cookie matrix, redirect-loop fix, governance gate, `AuthService.login`/`refreshToken`/`getMe`, `assertUserActive`, DEV2-002 RBAC consumption guide).**
 - **Teacher applicant lifecycle: applicant lifecycle logic lives in `ApplicantLifecycleService` (`backend/services/teachers/`) — the cooldown/attempt contracts (`assertCanPurchaseVerification`, `recordReapplication`, strict-`>` `applicants.cooldown_until` reads, REQ-014/015/016) are owned there; see `docs/teachers/applicant-lifecycle.md`.**
+- **Plan catalog service: `PlanCatalogService` edits are forward-only — commercial fields via `updatePlan` only, lifecycle changes exclusively via `setPlanActiveStatus`, no hard delete; see `docs/billing/plan-catalog.md`.**
 - **Domain-Driven Architecture**: Service layers must be constructed per domain of concern (e.g., `PermissionsService`, `ScheduleService`).
 - **NO Monolithic Services**: Do not create generic, monolithic services (like a single `DashboardService` handling everything). 
 - **Business Logic Hub**: This layer should contain all business rules, orchestration, and complex permission gating before calling the repository layer.
