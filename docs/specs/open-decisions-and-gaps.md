@@ -1,7 +1,7 @@
 # Draft Academy — Resolved Decisions & Edge Cases
 
 > **Source of truth:** `draft_docs/1-sc.en.md`, `draft_docs/2-admin-sc.en.md`, `backend/db/schema/` (Drizzle schema)
-> **Purpose:** All 33 open decisions have been resolved through stakeholder review. This document records each decision, its resolution, and the schema/specification impact.
+> **Purpose:** All 33 open decisions have been resolved through stakeholder review. This document records each decision, its resolution, and the schema/specification impact. **Addendum:** section D records 7 further plan-catalog lifecycle decisions resolved by DEV1-005 (total 40).
 > **Status:** ✅ All decisions resolved. Schema updated and validated.
 
 ---
@@ -216,6 +216,54 @@
 
 ---
 
+## D. Plan Catalog Lifecycle Addendum (DEV1-005)
+
+> Recorded by DEV1-005 (Plan Catalog CRUD — Admin Only). Numbering continues the register (A/B/C → D; no collision with the original 33). Canonical reference: [`docs/billing/plan-catalog.md`](../billing/plan-catalog.md); lifecycle invariants: INV-PC1..PC3 in [`state-machine-invariants.md`](state-machine-invariants.md) §11.
+
+### D.1: Plan Catalog Activation-Flag Schema Delta
+> **✅ RESOLVED**
+>
+> **Decision:** Close the A-category gap (no activation flag on `plans`) with exactly two lifecycle columns — plan.md decision D1. No other lifecycle surface (no `plan_type`, no snapshot, no soft-delete duplicates).
+> **Schema impact:** `plans.is_active` (`boolean NOT NULL DEFAULT true` — the default backfills every pre-existing row, zero backfill migration) and `plans.deactivated_at` (`timestamp NULL`, retirement marker). Push-only delta (`bun run db push`). Lifecycle-pair invariant: `is_active = (deactivated_at IS NULL)` at all times — the columns move together in one guarded statement (`setActiveStatusOnce`); proven per-row by `plan-catalog-schema.test.ts`.
+
+### D.2: Reactivation Semantics & Durable Audit History
+> **✅ RESOLVED**
+>
+> **Decision:** Reactivation CLEARS the `deactivated_at` marker (`is_active = true`, `deactivated_at = NULL`). No durable deactivation/reactivation history is kept on the row; durable audit history (who retired/reactivated a plan and when) is owned by DEV3-020 (D1 deferral — the service already emits through the `emitPlanAuditSeam`).
+> **Spec impact:** Within MVP, a reactivated row is indistinguishable from a never-deactivated row; the inactive period is reconstructible only once DEV3-020 integrates the audit log.
+
+### D.3: Forward-Only Edit Semantics — No Price Snapshot
+> **✅ RESOLVED (trade-off accepted)**
+>
+> **Decision:** Edits are forward-only (REQ-018): the five commercial fields (`title`, `sessionCount`, `price`, `currency`, `intervalDays`) apply only to purchases made after the edit. There is deliberately **no price-snapshot column** in MVP — a recorded subscription keeps its purchase-time terms, but the catalog row always carries the *current* price.
+> **Spec impact:** Any future flow that must charge, renew, or invoice an existing subscription at its *historical* price cannot read `plans.price`. **Revisit trigger:** the first renewal / auto-billing / historical-invoicing flow (DEV1-006 follow-ups and beyond) must add a snapshot surface (column or table) before shipping.
+
+### D.4: Title-Encoded Taxonomy Reaffirmed
+> **✅ RESOLVED**
+>
+> **Decision:** The plan taxonomy (Hifz Jadid / Muraja'ah / Tathbeet / Atfal / Mukathaf / Tajweed) lives entirely in `plans.title` (FR-2.2 / REQ-019). There is deliberately **no `plan_type`/`kind` discriminator column**; adding one is schema drift against this ruling.
+> **Spec impact:** Consumers distinguish special plans by documented lookup rules (see D.5), never by schema columns. Titles are admin-authored free-text data — never i18n keys; localized UI copy lives in the `plans` locale namespace.
+
+### D.5: Verification-Plan Lookup Rule Ownership
+> **✅ RESOLVED**
+>
+> **Decision:** The verification plan is an ordinary catalog row (FR-2.3), identified by the stable title `"New Teacher Verification & Evaluation Plan"` with `sessionCount = 5` (REQ-019). The rule is defined here and consumed by DEV1-006 (purchases) and DEV2-005 (verification/evaluation flows); the canonical constant is `VERIFICATION_PLAN_TITLE` in `backend/db/seeds/billing/seed-plan-catalog.ts`.
+> **Spec impact:** No verification-specific schema surface exists. The demo catalog (including the deactivated `Legacy Tajweed Plan 2025` fixture) is seeded via `PlanCatalogService` bootstrap only — never raw DB writes, and no lifecycle "repair" of the deactivated fixture on re-run (INV-PC1).
+
+### D.6: Create Double-Submit Tolerance — Title Not Unique
+> **✅ RESOLVED**
+>
+> **Decision:** `plans.title` deliberately carries **no unique constraint** (REQ-040/REQ-043): duplicate `createPlan` submissions (e.g., a double-click before the server responds) yield distinct rows. There is no 23505 path on this surface; de-duplication is an admin UX concern (review before publish), not a DB constraint.
+> **Spec impact:** Admins clean up accidental duplicates by deactivating the unwanted row (INV-PC3: never delete). Any future uniqueness ruling must be paired with a migration strategy for existing duplicate titles.
+
+### D.7: No Pagination / No Index / No Search Rulings
+> **✅ RESOLVED**
+>
+> **Decision:** The catalog is a small admin-managed set (dozens of rows), so: no pagination on `planCatalog`/`adminPlans`, no index on `is_active`, and no search input (REQ-034/REQ-046-area rulings). All reads are static parameterized SQL.
+> **Spec impact:** **Revisit triggers:** (a) the catalog growing past the dozens-scale threshold requires pagination and/or an `is_active` index; (b) the first search feature over plan titles must route input through `escapeLikeWildcards` before interpolation into any `LIKE`/`ILIKE` fragment.
+
+---
+
 ## Summary
 
 | Category | Count | Status |
@@ -223,7 +271,8 @@
 | Schema Gaps (Missing Entities & Fields) | 10 | ✅ All Resolved |
 | Business Rule Ambiguities | 18 | ✅ All Resolved |
 | Cross-Cutting Concerns | 5 | ✅ All Resolved |
-| **Total** | **33** | **✅ All Resolved** |
+| Plan Catalog Lifecycle Addendum (DEV1-005) | 7 | ✅ All Resolved |
+| **Total** | **40** | **✅ All Resolved** |
 
 ### Schema Changes Summary
 
@@ -252,6 +301,7 @@
 | `recitation.user_id` → `session_id` (unique) | C.5 | One per session |
 | `home_work.current_surah_juz`, `revision_surah_juz` added | B.11 | Surah/Juz enum |
 | `users.last_active_at` added | B.15 | Inactivity tracking |
+| `plans.is_active`, `plans.deactivated_at` added | D.1 | Lifecycle flag + retirement marker (push-only, pair invariant) |
 | 7 new enums created | Multiple | `session_type`, `session_intent`, `subscription_status`, `link_status`, `notification_type`, `audit_action_type`, `surah_juz_ref`, `teacher_request_preference` |
 
 All schema changes have been validated against the Drizzle schema in `backend/db/schema/` (the sole structural ground truth).

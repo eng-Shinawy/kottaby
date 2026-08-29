@@ -272,3 +272,33 @@ stateDiagram-v2
 | INV-E4 | Teacher evaluations (submitted by students) update `teacher.average_rating` (0-5 scale). |
 | INV-E5 | Student evaluations are aggregated from session reports and grades for cumulative performance metrics. |
 | INV-E6 | Evaluation records are permanently retained for dispute resolution and teacher re-evaluations. |
+
+---
+
+## 11. Plan Catalog Lifecycle
+
+> **Canonical reference:** [`docs/billing/plan-catalog.md`](../billing/plan-catalog.md) (DEV1-005 — Plan Catalog CRUD, Admin Only)
+> **Guarding tests:** `backend/db/test/logic/billing/plan-catalog-schema.test.ts` (lifecycle-pair invariant), `backend/graphql/test/billing/schema-gates.test.ts` (INV-PC3 no-delete gate), `frontend/graphql/test/billing/plan-catalog.roles.test.ts` (admin/consumer visibility split), `backend/db/test/logic/billing/plan-catalog-preservation.test.ts` (byte-identical preservation proof, outcome [5.1](../../ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/outcome/5.1-preservation-proof-outcome.md))
+
+### 11.1 States
+| State | Schema Representation | Description |
+|---|---|---|
+| Active | `plans.is_active = true`, `plans.deactivated_at IS NULL` | Listed in the consumer catalog (`planCatalog`) and purchasable |
+| Deactivated (Retired) | `plans.is_active = false`, `plans.deactivated_at = <ts>` | Hidden from the consumer catalog; still visible to Admin via `adminPlans`; never purchasable while inactive |
+
+### 11.2 Allowed Transitions
+```mermaid
+stateDiagram-v2
+    [*] --> Active: createPlan / seed bootstrap (insertPlan, server-owned defaults)
+    Active --> Deactivated: setPlanActiveStatus(id, false) — guarded transition stamps deactivated_at
+    Deactivated --> Active: setPlanActiveStatus(id, true) — reactivation CLEARS deactivated_at
+```
+
+State moves only through the guarded transition primitive `PlanRepository.setActiveStatusOnce` (state predicate evaluated inside the same statement, TOCTOU window = 0). `updatePlan` edits the five commercial fields only and never transitions state. There is no terminal state: rows are retired, never deleted (INV-PC3).
+
+### 11.3 Invariants
+| ID | Invariant |
+|---|---|
+| INV-PC1 | A deactivated plan never appears in the active catalog (`planCatalog`) and is never purchasable while inactive. The server-side predicate `PlanRepository.listActive` is the single source of truth for the `is_active` filter (both `planCatalog` and `adminPlans` route through it). Purchase-time re-validation inside the purchase transaction is a deferred obligation on DEV1-006 (D2 forward contract) — see the Consumption Guides in `docs/billing/plan-catalog.md`. |
+| INV-PC2 | Deactivation and edits never mutate existing subscriptions or credited balances: ledger rows (`subscriptions`, `student_subscriptions`, balances shielded by INV-B2/INV-B3) are preserved byte-identically across deactivate → edit sequences (proof: outcome [5.1](../../ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/outcome/5.1-preservation-proof-outcome.md)). Edits are forward-only (REQ-018): new terms apply only to purchases made after the edit. |
+| INV-PC3 | No hard deletion of plan rows exists anywhere in code or SDL — rows are retired via the guarded transition only. Enforced by the schema-gates test proving `deletePlan`/`removePlan` appear nowhere in the printed SDL or committed `schema.graphql` (`backend/graphql/test/billing/schema-gates.test.ts`). |
