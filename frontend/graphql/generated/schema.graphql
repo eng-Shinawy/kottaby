@@ -15,6 +15,16 @@ enum ApplicantStatus {
   Pending
 }
 
+input CreatePlanInput {
+  currency: String!
+  intervalDays: Int!
+  price: String!
+  sessionCount: Int!
+  title: String!
+}
+
+scalar DateTime
+
 enum Gender {
   Female
   Male
@@ -49,6 +59,8 @@ type LogoutPayload {
 }
 
 type Mutation {
+  createPlan(input: CreatePlanInput!): Plan!
+
   """
   Authenticate with email + password. Returns the authenticated user + access + refresh tokens. The access_token + refresh_token + session_id are also set as httpOnly cookies.
   """
@@ -64,16 +76,33 @@ type Mutation {
   """
   refreshToken(refreshToken: String!): RefreshTokenPayload!
   registerUser(input: RegisterUserInput!): User!
+  setPlanActiveStatus(id: ID!, isActive: Boolean!): Plan!
+  updatePlan(id: ID!, input: UpdatePlanInput!): Plan!
+}
+
+type Plan {
+  createdAt: DateTime!
+  currency: String!
+  deactivatedAt: DateTime
+  id: ID!
+  intervalDays: Int!
+  isActive: Boolean!
+  price: String!
+  sessionCount: Int!
+  title: String!
+  updatedAt: DateTime!
 }
 
 type Query {
   _health: HealthCheck!
+  adminPlans(includeInactive: Boolean = true): [Plan!]!
 
   """
   Returns the authenticated user (or null for anonymous). Anonymous callers receive null — the AuthProvider uses this to detect expired access tokens and silently restore the session via `refreshToken`.
   """
   me: User
   myApplicantProfile: ApplicantProfile
+  planCatalog: [Plan!]!
 
   """
   Returns the canonical list of recitation readings (Qira'at) for the registration form selector. Public — no authentication required. The values are stable API identifiers; display labels are resolved client-side via the i18n recitation namespace.
@@ -119,6 +148,14 @@ input RegisterUserInput {
   phone: String!
   preferredRecitation: RecitationReading
   role: RegisterPublicRole!
+}
+
+input UpdatePlanInput {
+  currency: String
+  intervalDays: Int
+  price: String
+  sessionCount: Int
+  title: String
 }
 
 type User {

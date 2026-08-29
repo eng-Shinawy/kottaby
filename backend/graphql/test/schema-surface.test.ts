@@ -12,9 +12,17 @@
  *    and carries NO `id` field (embedded value object — proven both at
  *    the type level and behaviorally: selecting `id` fails validation).
  *  - **Surface freeze** — against the frozen baseline inventory (captured
- *    at HEAD `8e5ebb8`): ZERO new mutations, ZERO new enums, and a
- *    whole-schema named-type delta of EXACTLY `{HealthCheck}` while the
- *    query set grows only by the sanctioned probe re-registration.
+ *    at HEAD `8e5ebb8`) PLUS the reviewed post-baseline additions that
+ *    were reconciled into the freeze lists (DEV2-004 applicant profile
+ *    surface and DEV1-005 plan-catalog billing surface — see the
+ *    `POST_BASELINE_*_ADDITIONS` tuples): the root query/mutation sets
+ *    and the whole-schema named-type set may only ever grow by THOSE
+ *    sanctioned entries, never ad hoc.
+ *    History: the freeze lists originally pinned `ZERO new mutations /
+ *    enums / one type delta` and drifted stale when DEV2-004 and DEV1-005
+ *    landed their reviewed surfaces; they were reconciled at Task 3.4 of
+ *    DEV1-005 (the DEV2-004 drift pre-dates that task and was proven
+ *    unrelated to the billing work by Task 3.1).
  *  - **Allowlist agreement** — the scopeless `_health` field is present in
  *    the closed `PUBLIC_OPERATION_NAMES` tuple / `PUBLIC_OPERATIONS` set
  *    1:1 (schema↔allowlist agreement enforced as code).
@@ -53,7 +61,7 @@ import { PUBLIC_OPERATION_NAMES, PUBLIC_OPERATIONS } from "@/backend/lib/gateway
 
 /** Root query field names present before the probe re-registration. */
 const PRE_3_1_QUERY_FIELDS = ["me", "recitationReadings"] as const;
-/** Root mutation field names — must remain UNCHANGED forever. */
+/** Root mutation field names in the baseline (post-baseline additions are enumerated separately below). */
 const PRE_3_1_MUTATION_FIELDS = ["login", "logout", "refreshToken", "registerUser"] as const;
 /** GraphQL enum type names — the freeze forbids any new Pothos enum. */
 const PRE_3_1_ENUMS = ["Gender", "RecitationReading", "RegisterPublicRole", "UserRole"] as const;
@@ -72,6 +80,33 @@ const PRE_3_1_TYPE_NAMES = [
   "UserRole",
 ] as const;
 
+// ─── Sanctioned post-baseline additions (reconciled @ Task 3.4, HEAD c70248b) ──
+// Reviewed surfaces that joined the schema AFTER the frozen baseline. Each
+// tuple is the EXACT, CLOSED set of names its plan was authorized to add —
+// anything else on top of `PRE_3_1_* + POST_BASELINE_*` is a regression.
+
+/** Query root fields: the `_health` probe (DEV1-001), the DEV2-004 applicant profile read, the DEV1-005 catalog reads. */
+const POST_BASELINE_QUERY_ADDITIONS = ["_health", "adminPlans", "myApplicantProfile", "planCatalog"] as const;
+/** Mutation root fields: the DEV1-005 admin plan-catalog trio (admin-gated; NO delete surface — INV-PC3). */
+const POST_BASELINE_MUTATION_ADDITIONS = ["createPlan", "setPlanActiveStatus", "updatePlan"] as const;
+/** Enum types: the DEV2-004 applicant status enum. */
+const POST_BASELINE_ENUM_ADDITIONS = ["ApplicantStatus"] as const;
+/** Non-root SDL type names: the DEV2-004 applicant surface, the DEV1-005 billing surface, and the probe's `HealthCheck` VO. */
+const POST_BASELINE_TYPE_ADDITIONS = [
+  "ApplicantProfile",
+  "ApplicantStatus",
+  "CreatePlanInput",
+  "DateTime",
+  "HealthCheck",
+  "Plan",
+  "UpdatePlanInput",
+] as const;
+
+/** Deterministic merge of a frozen baseline tuple with its sanctioned additions. */
+function frozenSet(baseline: readonly string[], additions: readonly string[]): string[] {
+  return [...baseline, ...additions].toSorted((a, b) => a.localeCompare(b));
+}
+
 // ─── Schema walk helpers ─────────────────────────────────────────────────────
 
 /** All named SDL type names, introspection builtins + spec scalars excluded, sorted deterministically. */
@@ -89,16 +124,19 @@ describe("Query._health — retyped probe surface", () => {
     throw new Error("Schema must define a root Query type");
   }
 
-  test("root query retains EXACTLY the baseline fields plus the probe", () => {
+  test("root query retains EXACTLY the baseline fields plus the sanctioned additions", () => {
     expect(queryType).toBeDefined();
     const fieldNames = Object.keys(queryType.getFields());
     // Baseline survivors intact…
     for (const name of PRE_3_1_QUERY_FIELDS) {
       expect(fieldNames).toContain(name);
     }
-    // …and the ONLY addition beyond them is the probe itself.
+    // …and the ONLY additions beyond them are the sanctioned post-baseline
+    // fields (probe + DEV2-004 applicant profile + DEV1-005 catalog reads).
     const additions = fieldNames.filter(name => !(PRE_3_1_QUERY_FIELDS as readonly string[]).includes(name));
-    expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual(["_health"]);
+    expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual([
+      ...POST_BASELINE_QUERY_ADDITIONS,
+    ]);
   });
 
   test("`_health` is NON-NULLABLE `HealthCheck!` (retyped from the String! placeholder)", () => {
@@ -157,32 +195,32 @@ describe("HealthCheck object shape — four scalar fields, no id", () => {
   });
 });
 
-describe("Surface freeze — exactly one addition vs the baseline inventory", () => {
-  test("ZERO new mutations (frozen mutation set unchanged)", () => {
+describe("Surface freeze — baseline inventory plus sanctioned post-baseline additions", () => {
+  test("mutation set frozen to baseline + the sanctioned DEV1-005 plan-catalog trio", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
-    expect(names).toEqual([...PRE_3_1_MUTATION_FIELDS]);
+    expect(names).toEqual(frozenSet(PRE_3_1_MUTATION_FIELDS, POST_BASELINE_MUTATION_ADDITIONS));
     expect(names).not.toContain("_health");
   });
 
-  test("ZERO new enums (frozen enum set unchanged)", () => {
+  test("enum set frozen to baseline + the sanctioned DEV2-004 ApplicantStatus", () => {
     const enumNames = Object.values(graphQLSchema.getTypeMap())
       .filter(type => type instanceof GraphQLEnumType && !type.name.startsWith("__"))
       .map(type => type.name)
       .toSorted((a, b) => a.localeCompare(b));
 
-    expect(enumNames).toEqual([...PRE_3_1_ENUMS]);
+    expect(enumNames).toEqual(frozenSet(PRE_3_1_ENUMS, POST_BASELINE_ENUM_ADDITIONS));
   });
 
-  test("whole-schema named-type delta is EXACTLY one new type: HealthCheck", () => {
+  test("whole-schema named-type delta is EXACTLY the sanctioned post-baseline additions", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
       expect(post.has(name)).toBe(true);
     }
     const additions = sdlTypeNames().filter(name => !(PRE_3_1_TYPE_NAMES as readonly string[]).includes(name));
-    expect(additions).toEqual(["HealthCheck"]);
+    expect(additions).toEqual([...POST_BASELINE_TYPE_ADDITIONS]);
   });
 });
 
