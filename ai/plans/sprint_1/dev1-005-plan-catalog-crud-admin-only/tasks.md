@@ -572,42 +572,42 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 7.1 — Canonical Reference Doc
 
-- [ ] 7.1 Author `docs/billing/plan-catalog.md`
+- [x] 7.1 Author `docs/billing/plan-catalog.md`
   - _Requirements: REQ-080, REQ-032, REQ-033, REQ-043, REQ-044, REQ-045_
-  - [ ] 7.1.1 Structure: Why (FR-2.1/2.2/2.3) → lifecycle columns (D1) → guarded state-transition pattern (D2/D3) → catalog/admin visibility split (D5) → forward-only edits + no price snapshot trade-off → error code map → consumption guides for DEV1-006 (incl. purchase-time re-validation contract D2-deferred), DEV2-005 (verification plan lookup rule), DEV1-009 (transactional composition of repo methods)
-  - [ ] 7.1.2 Explicit warnings: catalog-ID non-sensitivity ruling is NOT inheritable by sensitive resources; `escapeLikeWildcards` mandated for any future catalog search; title is admin-authored data NOT i18n keys
-  - [ ] 7.1.QL/IV: doc lint + cross-link validation
-  - [ ] 7.1.OD **Outcome**: `outcome/7.1-canonical-doc-outcome.md`
+  - [x] 7.1.1 Structure: Why (FR-2.1/2.2/2.3) → lifecycle columns (D1) → guarded state-transition pattern (D2/D3) → catalog/admin visibility split (D5) → forward-only edits + no price snapshot trade-off → error code map → consumption guides for DEV1-006 (incl. purchase-time re-validation contract D2-deferred), DEV2-005 (verification plan lookup rule), DEV1-009 (transactional composition of repo methods)
+  - [x] 7.1.2 Explicit warnings: catalog-ID non-sensitivity ruling is NOT inheritable by sensitive resources; `escapeLikeWildcards` mandated for any future catalog search; title is admin-authored data NOT i18n keys
+  - [x] 7.1.QL/IV: doc lint + cross-link validation
+  - [x] 7.1.OD **Outcome**: `outcome/7.1-canonical-doc-outcome.md`
 
 ### Task 7.2 — Invariant & Decision Addenda
 
-- [ ] 7.2 Update `docs/specs/state-machine-invariants.md` and `docs/specs/open-decisions-and-gaps.md`
+- [x] 7.2 Update `docs/specs/state-machine-invariants.md` and `docs/specs/open-decisions-and-gaps.md`
   - _Requirements: REQ-081, REQ-010, REQ-015, REQ-018, REQ-020, REQ-043_
   - Gate note (0.3 ruling): the specs.md header statement "The addendum is recorded in `docs/specs/open-decisions-and-gaps.md`" is FORWARD-LOOKING until 7.2.2 lands (0.2.IV caveat); the 7.4 closure MUST verify the addendum rows actually exist in the decisions doc before plan close
-  - [ ] 7.2.1 Add "Plan Catalog Lifecycle" section: **INV-PC1** (deactivated plan never appears in active catalog / never purchasable while inactive), **INV-PC2** (deactivation/edit never mutates existing subscriptions or credited balances), **INV-PC3** (no hard deletion of plan rows)
-  - [ ] 7.2.2 Add resolved addendum to `open-decisions-and-gaps.md`: activation-flag schema delta (A-category), reactivation semantics (marker cleared, audit history via DEV3-020), forward-only edit semantics, title-encoded taxonomy (FR-2.2 reaffirmed), verification-plan lookup rule ownership (FR-2.3 → DEV1-006/DEV2-005), create double-submit tolerance ruling (REQ-043), no-pagination/no-index rulings with revisit triggers
-  - [ ] 7.2.QL/IV: doc lint; confirm numbering consistency with the existing 33-decision register
-  - [ ] 7.2.OD **Outcome**: `outcome/7.2-spec-addenda-outcome.md`
+  - [x] 7.2.1 Add "Plan Catalog Lifecycle" section: **INV-PC1** (deactivated plan never appears in active catalog / never purchasable while inactive), **INV-PC2** (deactivation/edit never mutates existing subscriptions or credited balances), **INV-PC3** (no hard deletion of plan rows)
+  - [x] 7.2.2 Add resolved addendum to `open-decisions-and-gaps.md`: activation-flag schema delta (A-category), reactivation semantics (marker cleared, audit history via DEV3-020), forward-only edit semantics, title-encoded taxonomy (FR-2.2 reaffirmed), verification-plan lookup rule ownership (FR-2.3 → DEV1-006/DEV2-005), create double-submit tolerance ruling (REQ-043), no-pagination/no-index rulings with revisit triggers
+  - [x] 7.2.QL/IV: doc lint; confirm numbering consistency with the existing 33-decision register
+  - [x] 7.2.OD **Outcome**: `outcome/7.2-spec-addenda-outcome.md`
 
 ### Task 7.3 — AGENTS.md Propagation
 
-- [ ] 7.3 Add rule-only one-liner references to layer AGENTS.md files
+- [x] 7.3 Add rule-only one-liner references to layer AGENTS.md files
   - Files to modify: `backend/services/AGENTS.md`, `backend/graphql/AGENTS.md`, root `AGENTS.md` (Important References)
   - _Requirements: REQ-082_
-  - [ ] 7.3.1 `backend/services/AGENTS.md`: one-liner — catalog service + forward-only edit rule → `docs/billing/plan-catalog.md`
-  - [ ] 7.3.2 `backend/graphql/AGENTS.md`: one-liner — role-scope mutation gate example + required `id` on `Plan` → canonical doc
-  - [ ] 7.3.3 Root `AGENTS.md` Important References: one-liner pointer
-  - [ ] 7.3.IV: verify entries are rules/pointers ONLY — no code, no implementation recipes
-  - [ ] 7.3.OD **Outcome**: `outcome/7.3-agents-propagation-outcome.md`
+  - [x] 7.3.1 `backend/services/AGENTS.md`: one-liner — catalog service + forward-only edit rule → `docs/billing/plan-catalog.md`
+  - [x] 7.3.2 `backend/graphql/AGENTS.md`: one-liner — role-scope mutation gate example + required `id` on `Plan` → canonical doc
+  - [x] 7.3.3 Root `AGENTS.md` Important References: one-liner pointer
+  - [x] 7.3.IV: verify entries are rules/pointers ONLY — no code, no implementation recipes
+  - [x] 7.3.OD **Outcome**: `outcome/7.3-agents-propagation-outcome.md`
 
 ### Task 7.4 — Final Baseline Delta & Plan Closure Synthesis
 
-- [ ] 7.4 Final closure: baseline comparison, outcome index, deferred-ledger attestation
+- [x] 7.4 Final closure: baseline comparison, outcome index, deferred-ledger attestation
   - _Requirements: REQ-001, REQ-083_
-  - [ ] 7.4.1 Re-run `bun tsgo`, `bun biome:check`, `bun run scripts/lint-service.ts --json` — prove zero NEW errors versus the Phase 0 baseline (numbers recorded side-by-side)
-  - [ ] 7.4.2 Verify every task has its `outcome/<task-id>-outcome.md`; produce the outcome index
-  - [ ] 7.4.3 Final deferred-items attestation: only D1 (→ DEV3-020) and D2 (→ DEV1-006) remain, both non-blocking with owners
-  - [ ] 7.4.4 Synthesize `outcome/7.4-plan-closure-outcome.md`: REQ-by-REQ satisfaction table (REQ-001..REQ-083), quality-gate evidence bundle (sub-loop exits, coverage report, SDL grep assertions, role-matrix proof, browser-loop screenshot archive references), and forward handoff notes to DEV1-006 / DEV1-009 / DEV2-005 / DEV3-020
+  - [x] 7.4.1 Re-run `bun tsgo`, `bun biome:check`, `bun run scripts/lint-service.ts --json` — prove zero NEW errors versus the Phase 0 baseline (numbers recorded side-by-side)
+  - [x] 7.4.2 Verify every task has its `outcome/<task-id>-outcome.md`; produce the outcome index
+  - [x] 7.4.3 Final deferred-items attestation: only D1 (→ DEV3-020) and D2 (→ DEV1-006) remain, both non-blocking with owners
+  - [x] 7.4.4 Synthesize `outcome/7.4-plan-closure-outcome.md`: REQ-by-REQ satisfaction table (REQ-001..REQ-083), quality-gate evidence bundle (sub-loop exits, coverage report, SDL grep assertions, role-matrix proof, browser-loop screenshot archive references), and forward handoff notes to DEV1-006 / DEV1-009 / DEV2-005 / DEV3-020
 
 ---
 
