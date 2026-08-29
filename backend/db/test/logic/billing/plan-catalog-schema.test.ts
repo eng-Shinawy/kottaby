@@ -14,8 +14,14 @@
  * Coverage map:
  *  - Tier 1 (branch/stmt): information_schema reports `is_active`
  *    (NOT NULL, boolean default true) and `deactivated_at` (nullable, no
- *    default); every persisted row (seeded or inserted) carries the
- *    non-destructive backfill `is_active = true` / `deactivated_at IS NULL`.
+ *    default).
+ *  - Tier 1 also pins the durable lifecycle-pair invariant (REQ-014/015):
+ *    every persisted row satisfies `is_active = (deactivated_at IS NULL)` —
+ *    the pair moves together through the guarded transition primitive.
+ *    (The migration-moment backfill itself — all rows active at push time —
+ *    is a point-in-time property that a shared dev database outlives: the
+ *    seed suite legitimately creates a deactivated demo plan, so an
+ *    "every row is active" assertion would be unsound here.)
  *  - Tier 2 (boundary): direct INSERT violating session_count = 0 and
  *    price < 0 each raise the corresponding check_violation (23514) with
  *    the exact constraint name.
@@ -26,7 +32,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { eq, isNotNull, or, sql } from "drizzle-orm";
+import { or, sql } from "drizzle-orm";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import type { DBTransaction } from "@/backend/types";
@@ -127,12 +133,20 @@ describe("plans schema — lifecycle columns", () => {
     });
   });
 
-  test("every persisted row carries the backfill: is_active=true, deactivated_at null", async () => {
+  test("every persisted row satisfies the lifecycle-pair invariant: is_active = (deactivated_at IS NULL)", async () => {
     await runInRollback(async tx => {
       const drifted = await tx
         .select({ id: plans.id })
         .from(plans)
-        .where(or(eq(plans.isActive, false), isNotNull(plans.deactivatedAt)));
+        .where(
+          or(
+            // Active rows must have NO deactivation timestamp...
+            sql`${plans.isActive} = true AND ${plans.deactivatedAt} IS NOT NULL`,
+            // ...and inactive rows MUST carry one (set exactly once by the
+            // guarded transition primitive — never hand-cleared).
+            sql`${plans.isActive} = false AND ${plans.deactivatedAt} IS NULL`
+          )
+        );
       expect(drifted).toHaveLength(0);
     });
   });

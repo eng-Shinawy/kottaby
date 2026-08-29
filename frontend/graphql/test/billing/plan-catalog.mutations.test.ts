@@ -271,7 +271,10 @@ async function createStudentAccessToken(): Promise<string> {
 
 /**
  * Direct-DB plan fixture. `isActive` defaults to true at the schema level;
- * pass `{ isActive: false }` for the already-inactive conflict fixture.
+ * pass `{ isActive: false }` for the already-inactive conflict fixture —
+ * the helper stamps `deactivatedAt` alongside it, keeping the fixture
+ * faithful to the REQ-014/015 lifecycle-pair semantics (a persisted
+ * inactive plan always carries its deactivation timestamp).
  */
 async function insertPlanFixture(
   overrides: { title?: string; price?: string; isActive?: boolean } = {}
@@ -284,7 +287,12 @@ async function insertPlanFixture(
       price: overrides.price ?? "250.00",
       currency: "EGP",
       intervalDays: 30,
-      ...(overrides.isActive === undefined ? {} : { isActive: overrides.isActive }),
+      ...(overrides.isActive === undefined
+        ? {}
+        : {
+            isActive: overrides.isActive,
+            ...(overrides.isActive ? {} : { deactivatedAt: new Date() }),
+          }),
     })
     .returning();
   if (!row) throw new Error("plan fixture insert returned no rows");
