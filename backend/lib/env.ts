@@ -26,8 +26,26 @@ const DB_ENV_KEYS = [
   "CACHE_PROVIDER",
 ] as const;
 
-/** Force `.env` DB keys to win over stale OS-env placeholders (one-time, idempotent). */
+/**
+ * Force `.env` DB keys to win over stale OS-env placeholders (one-time, idempotent).
+ *
+ * SKIPPED for test processes (`TEST_SERVER=1` present at module-eval time):
+ * those launch with an explicit `--env-file=.env.test` whose DB config is the
+ * deliberate source of truth. Without this gate the override silently
+ * redirected every `bun test` / test-server process back to the DEV database,
+ * leaking test fixtures into `kottaby` (the file exists locally; in CI it
+ * does not, which is why CI never observed the clobber).
+ *
+ * Test-process flag sources (all land BEFORE this module evaluates):
+ * - the materialized `.env.test` itself (`TEST_SERVER=1`, loaded via
+ *   `bun --env-file=.env.test`) — runners `test:db`, `test:services`, …
+ * - `run-server-tests.ts` `serverEnv` for the spawned `next dev` test server;
+ * - CI materialization of `.env.test.ci` (same key, same semantics).
+ */
 function applyDbEnvOverride(): void {
+  if (process.env.TEST_SERVER === "1") {
+    return;
+  }
   const result = loadDotenv({ path: ".env", quiet: true });
   if (!result.parsed) {
     return;
