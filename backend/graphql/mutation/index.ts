@@ -11,5 +11,8 @@
  *
  * `auth.mutation.ts` wires the auth mutations (`registerUser`, `login`,
  * `refreshToken`, `logout`).
+ * `plan-catalog.mutation.ts` wires the admin plan catalog mutations
+ * (`createPlan`, `updatePlan`, `setPlanActiveStatus`).
  */
 import "./auth.mutation";
+import "./plan-catalog.mutation";
