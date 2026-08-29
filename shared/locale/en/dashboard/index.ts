@@ -60,4 +60,9 @@ export const dashboardEn: DashboardLabels = {
   profileMetaDescription: "View your Kottaby Academy profile information.",
   comingSoonMetaTitle: "Coming soon — Kottaby Academy",
   comingSoonMetaDescription: "This page is not available yet. Check back soon.",
+  gettingStartedTitle: "Getting Started",
+  gettingStartedBody: "Welcome aboard! Here are a few things you can do to get started with your account.",
+  gettingStartedTipSessions: "Browse available Quran sessions and book your first recitation.",
+  gettingStartedTipSubscriptions: "Explore subscription plans to continue your learning journey.",
+  gettingStartedTipNotifications: "Check your notifications for important updates and announcements.",
 };

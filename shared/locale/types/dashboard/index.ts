@@ -129,4 +129,14 @@ export interface DashboardLabels {
   readonly comingSoonMetaTitle: string;
   /** Next.js metadata description for the catch-all "coming soon" page */
   readonly comingSoonMetaDescription: string;
+  /** Getting Started section title shown below the stat grid on the dashboard landing */
+  readonly gettingStartedTitle: string;
+  /** Getting Started section description body */
+  readonly gettingStartedBody: string;
+  /** Getting Started tip: explore sessions */
+  readonly gettingStartedTipSessions: string;
+  /** Getting Started tip: view subscriptions */
+  readonly gettingStartedTipSubscriptions: string;
+  /** Getting Started tip: check notifications */
+  readonly gettingStartedTipNotifications: string;
 }
