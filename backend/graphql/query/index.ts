@@ -14,6 +14,7 @@
  * health, recitation, billing, and teacher-domain queries.
  */
 import "./auth.query";
+import "./admin";
 import "./billing";
 import "./health.query";
 import "./recitation.query";

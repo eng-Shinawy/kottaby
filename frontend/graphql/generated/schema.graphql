@@ -1,3 +1,26 @@
+type AdminAuditActor {
+  email: String!
+  fullName: String!
+  id: ID!
+}
+
+type AdminAuditLog {
+  actionType: String!
+  actor: AdminAuditActor!
+  createdAt: DateTime!
+  details: String
+  entityId: Int
+  entityType: String!
+  id: ID!
+}
+
+type AdminAuditLogConnection {
+  items: [AdminAuditLog!]!
+  limit: Int!
+  offset: Int!
+  total: Int!
+}
+
 type AdminSubscriptionRequest {
   createdAt: DateTime!
   id: ID!
@@ -112,6 +135,7 @@ type Plan {
 
 type Query {
   _health: HealthCheck!
+  adminAuditLogs(actionType: String, actorId: Int, createdFrom: DateTime, createdTo: DateTime, entityId: Int, entityType: String, limit: Int, offset: Int): AdminAuditLogConnection!
   adminPendingSubscriptionRequests: [AdminSubscriptionRequest!]!
   adminPlans(includeInactive: Boolean = true): [Plan!]!
 
