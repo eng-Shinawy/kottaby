@@ -140,7 +140,7 @@ describe("PlanCatalogService — deactivation preservation proof (REQ-075)", () 
       const fixture = await createPreservationFixture(tx);
       const before = await readLedgerSnapshot(tx, fixture);
 
-      const deactivated = await PlanCatalogService.setPlanActiveStatus(fixture.plan.id, false, "en", tx);
+      const deactivated = await PlanCatalogService.setPlanActiveStatus(fixture.plan.id, false, "en", undefined, tx);
       expect(deactivated.id).toBe(fixture.plan.id);
 
       const after = await readLedgerSnapshot(tx, fixture);
@@ -169,6 +169,7 @@ describe("PlanCatalogService — deactivation preservation proof (REQ-075)", () 
         fixture.plan.id,
         { price: "999.99", sessionCount: 12, intervalDays: 7 },
         "en",
+        undefined,
         tx
       );
       expect(updated.id).toBe(fixture.plan.id);
@@ -196,11 +197,12 @@ describe("PlanCatalogService — deactivation preservation proof (REQ-075)", () 
       const fixture = await createPreservationFixture(tx);
       const before = await readLedgerSnapshot(tx, fixture);
 
-      await PlanCatalogService.setPlanActiveStatus(fixture.plan.id, false, "en", tx);
+      await PlanCatalogService.setPlanActiveStatus(fixture.plan.id, false, "en", undefined, tx);
       await PlanCatalogService.updatePlan(
         fixture.plan.id,
         { price: "999.99", sessionCount: 12, intervalDays: 7 },
         "en",
+        undefined,
         tx
       );
 

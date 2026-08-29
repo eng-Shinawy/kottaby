@@ -378,4 +378,8 @@ describe("SEC — root-field authScopes audit (runtime config, not SDL)", () => 
     expect(authScopesOf("mutation", "verifySubscriptionPayment")).toEqual(ADMIN_GATE);
     expect(authScopesOf("query", "adminPendingSubscriptionRequests")).toEqual(ADMIN_GATE);
   });
+
+  test("adminAuditLogs carries the EXPLICIT admin $all conjunction (DEV3-020 Phase 1)", () => {
+    expect(authScopesOf("query", "adminAuditLogs")).toEqual(ADMIN_GATE);
+  });
 });

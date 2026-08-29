@@ -35,6 +35,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
+import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { createTestPlan, createTestUser } from "@/backend/db/test/entity-setup";
@@ -232,13 +233,12 @@ describe("SubscriptionService", () => {
 
   // ── DEV1-006 Phase B — the admin payment-verification transition ─────────
   describe("Phase B — verifySubscriptionPayment", () => {
-    test("happy path: stamps payment columns, flips pending → active, derives endDate from the plan's intervalDays, emits the seam with verifiedBy", async () => {
+    test("happy path: stamps payment columns, flips pending → active, derives endDate from the plan's intervalDays, writes the audit row with verifiedBy", async () => {
       await runInRollback(async tx => {
         const user = await createTestUser(tx);
         const admin = await createTestUser(tx, { role: "admin" });
         const plan = await createTestPlan(tx, { intervalDays: 30 });
         const request = await SubscriptionService.requestPlanSubscription(user.id, plan.id, "en", tx);
-        const infoSpy = spyOn(logger, "info");
 
         const before = Date.now();
         const activated = await SubscriptionService.verifySubscriptionPayment(
@@ -269,13 +269,18 @@ describe("SubscriptionService", () => {
         // The embedded plan rides the canonical wire shape.
         expect(activated.plan.id).toBe(plan.id);
 
-        // Audit seam emitted exactly once with the verifier's identity.
-        expect(infoSpy).toHaveBeenCalledTimes(1);
-        const [message, payload] = infoSpy.mock.calls[0] ?? ["", {}];
-        expect(message).toContain("SUBSCRIPTION_PAYMENT_VERIFIED");
-        expect((payload as { entityId?: number }).entityId).toBe(request.id);
-        expect((payload as { verifiedBy?: number }).verifiedBy).toBe(admin.id);
-        infoSpy.mockRestore();
+        // DEV3-020: the verification is an ADMIN action — one immutable
+        // audit row rides the SAME transaction, attributed to the verifying
+        // admin (the logger marker alone is the ACTORLESS path's contract).
+        const auditRows = await tx.select().from(auditLogs).where(eq(auditLogs.actorId, admin.id));
+        expect(auditRows).toHaveLength(1);
+        const auditRow = auditRows[0];
+        expect(auditRow?.entityType).toBe("subscriptions");
+        expect(auditRow?.entityId).toBe(request.id);
+        const parsed: unknown = JSON.parse(auditRow?.details ?? "{}");
+        expect((parsed as { code?: string }).code).toBe("SUBSCRIPTION_PAYMENT_VERIFIED");
+        expect((parsed as { planId?: number }).planId).toBe(plan.id);
+        expect((parsed as { verifiedBy?: number }).verifiedBy).toBe(admin.id);
       });
     });
 

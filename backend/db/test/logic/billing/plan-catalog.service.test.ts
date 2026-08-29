@@ -46,6 +46,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
+import { PlanRepository } from "@/backend/db/repo";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { createTestPlan } from "@/backend/db/test/entity-setup";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
@@ -124,6 +125,7 @@ describe("PlanCatalogService", () => {
         const created = await PlanCatalogService.createPlan(
           planSubmitInput({ title: `  Trimmed Title ${randomUUID()}  ` }),
           "en",
+          undefined,
           tx
         );
 
@@ -143,6 +145,7 @@ describe("PlanCatalogService", () => {
           plan.id,
           { title: `Edited ${randomUUID()}`, price: "42.50" },
           "en",
+          undefined,
           tx
         );
 
@@ -159,11 +162,11 @@ describe("PlanCatalogService", () => {
       await runInRollback(async tx => {
         const plan = await createTestPlan(tx);
 
-        const deactivated = await PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx);
+        const deactivated = await PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", undefined, tx);
         expect(deactivated.isActive).toBe(false);
         expect(deactivated.deactivatedAt).toBeInstanceOf(Date);
 
-        const reactivated = await PlanCatalogService.setPlanActiveStatus(deactivated.id, true, "en", tx);
+        const reactivated = await PlanCatalogService.setPlanActiveStatus(deactivated.id, true, "en", undefined, tx);
         expect(reactivated.isActive).toBe(true);
         expect(reactivated.deactivatedAt).toBeNull();
       });
@@ -195,7 +198,7 @@ describe("PlanCatalogService", () => {
     test("updatePlan on a missing plan rejects with PLAN_NOT_FOUND", async () => {
       await runInRollback(async tx => {
         await expectNotFoundError(
-          () => PlanCatalogService.updatePlan(999_999_999, { title: "Ghost" }, "en", tx),
+          () => PlanCatalogService.updatePlan(999_999_999, { title: "Ghost" }, "en", undefined, tx),
           enErrors.planNotFound
         );
       });
@@ -204,7 +207,7 @@ describe("PlanCatalogService", () => {
     test("setPlanActiveStatus on a missing plan rejects with PLAN_NOT_FOUND (probe path)", async () => {
       await runInRollback(async tx => {
         await expectNotFoundError(
-          () => PlanCatalogService.setPlanActiveStatus(999_999_999, false, "en", tx),
+          () => PlanCatalogService.setPlanActiveStatus(999_999_999, false, "en", undefined, tx),
           enErrors.planNotFound
         );
       });
@@ -214,7 +217,7 @@ describe("PlanCatalogService", () => {
       await runInRollback(async tx => {
         const plan = await createTestPlan(tx);
         await expectConflictError(
-          () => PlanCatalogService.setPlanActiveStatus(plan.id, true, "en", tx),
+          () => PlanCatalogService.setPlanActiveStatus(plan.id, true, "en", undefined, tx),
           "PLAN_ALREADY_ACTIVE",
           enErrors.planAlreadyActive
         );
@@ -225,7 +228,7 @@ describe("PlanCatalogService", () => {
       await runInRollback(async tx => {
         const plan = await createTestPlan(tx, { isActive: false, deactivatedAt: new Date() });
         await expectConflictError(
-          () => PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx),
+          () => PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", undefined, tx),
           "PLAN_ALREADY_INACTIVE",
           enErrors.planAlreadyInactive
         );
@@ -239,6 +242,7 @@ describe("PlanCatalogService", () => {
             PlanCatalogService.createPlan(
               planSubmitInput({ title: "", sessionCount: 0, price: "abc", currency: "egp", intervalDays: 0 }),
               "en",
+              undefined,
               tx
             ),
           "title",
@@ -263,17 +267,17 @@ describe("PlanCatalogService", () => {
         const infoSpy = spyOn(logger, "info");
         const domainSpy = spyOn(logger, "logDomainError");
         try {
-          const created = await PlanCatalogService.createPlan(planSubmitInput(), "en", tx);
+          const created = await PlanCatalogService.createPlan(planSubmitInput(), "en", undefined, tx);
           expect(domainSpy).not.toHaveBeenCalled();
           const seamCall = infoSpy.mock.calls.at(-1);
           expect(seamCall?.[1]).toEqual({ code: "PLAN_CREATED", entityId: created.id });
 
-          await PlanCatalogService.setPlanActiveStatus(created.id, false, "en", tx);
+          await PlanCatalogService.setPlanActiveStatus(created.id, false, "en", undefined, tx);
           const statusSeam = infoSpy.mock.calls.at(-1);
           expect(statusSeam?.[1]).toEqual({ code: "PLAN_DEACTIVATED", entityId: created.id });
 
           await expectValidationError(
-            () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", tx),
+            () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", undefined, tx),
             "title",
             "PLAN_TITLE_REQUIRED"
           );
@@ -290,21 +294,26 @@ describe("PlanCatalogService", () => {
   describe("Tier 2 — boundary matrix", () => {
     test("title: empty and whitespace-only rejected, 255 passes, 256 rejected", async () => {
       await runInRollback(async tx => {
-        const longest = await PlanCatalogService.createPlan(planSubmitInput({ title: "a".repeat(255) }), "en", tx);
+        const longest = await PlanCatalogService.createPlan(
+          planSubmitInput({ title: "a".repeat(255) }),
+          "en",
+          undefined,
+          tx
+        );
         expect(longest.title).toBe("a".repeat(255));
 
         await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", undefined, tx),
           "title",
           "PLAN_TITLE_REQUIRED"
         );
         await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ title: "   " }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "   " }), "en", undefined, tx),
           "title",
           "PLAN_TITLE_REQUIRED"
         );
         await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ title: "b".repeat(256) }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "b".repeat(256) }), "en", undefined, tx),
           "title",
           "PLAN_TITLE_TOO_LONG"
         );
@@ -313,13 +322,13 @@ describe("PlanCatalogService", () => {
 
     test("sessionCount: 1 passes, 0 / −1 / non-integer rejected", async () => {
       await runInRollback(async tx => {
-        const minimal = await PlanCatalogService.createPlan(planSubmitInput({ sessionCount: 1 }), "en", tx);
+        const minimal = await PlanCatalogService.createPlan(planSubmitInput({ sessionCount: 1 }), "en", undefined, tx);
         expect(minimal.sessionCount).toBe(1);
 
         const rejected = await Promise.all(
           [0, -1, 2.5].map(sessionCount =>
             expectValidationError(
-              () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount }), "en", tx),
+              () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount }), "en", undefined, tx),
               "sessionCount",
               "PLAN_SESSION_COUNT_INVALID"
             )
@@ -331,15 +340,20 @@ describe("PlanCatalogService", () => {
 
     test("price matrix: two decimals and the 8-digit cap pass, malformed shapes rejected", async () => {
       await runInRollback(async tx => {
-        const zero = await PlanCatalogService.createPlan(planSubmitInput({ price: "0.00" }), "en", tx);
+        const zero = await PlanCatalogService.createPlan(planSubmitInput({ price: "0.00" }), "en", undefined, tx);
         expect(zero.price).toBe("0.00");
-        const capped = await PlanCatalogService.createPlan(planSubmitInput({ price: "99999999.99" }), "en", tx);
+        const capped = await PlanCatalogService.createPlan(
+          planSubmitInput({ price: "99999999.99" }),
+          "en",
+          undefined,
+          tx
+        );
         expect(capped.price).toBe("99999999.99");
 
         const rejected = await Promise.all(
           ["-0.01", "abc", "1.005", "100000000.00"].map(price =>
             expectValidationError(
-              () => PlanCatalogService.createPlan(planSubmitInput({ price }), "en", tx),
+              () => PlanCatalogService.createPlan(planSubmitInput({ price }), "en", undefined, tx),
               "price",
               "PLAN_PRICE_INVALID"
             )
@@ -351,13 +365,13 @@ describe("PlanCatalogService", () => {
 
     test("currency: uppercase 3-letter code passes, lowercase and short codes rejected", async () => {
       await runInRollback(async tx => {
-        const ok = await PlanCatalogService.createPlan(planSubmitInput({ currency: "EGP" }), "en", tx);
+        const ok = await PlanCatalogService.createPlan(planSubmitInput({ currency: "EGP" }), "en", undefined, tx);
         expect(ok.currency).toBe("EGP");
 
         const rejected = await Promise.all(
           ["egp", "EG"].map(currency =>
             expectValidationError(
-              () => PlanCatalogService.createPlan(planSubmitInput({ currency }), "en", tx),
+              () => PlanCatalogService.createPlan(planSubmitInput({ currency }), "en", undefined, tx),
               "currency",
               "PLAN_CURRENCY_INVALID"
             )
@@ -369,11 +383,11 @@ describe("PlanCatalogService", () => {
 
     test("intervalDays: 1 passes, 0 rejected", async () => {
       await runInRollback(async tx => {
-        const ok = await PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 1 }), "en", tx);
+        const ok = await PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 1 }), "en", undefined, tx);
         expect(ok.intervalDays).toBe(1);
 
         await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 0 }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 0 }), "en", undefined, tx),
           "intervalDays",
           "PLAN_INTERVAL_DAYS_INVALID"
         );
@@ -384,7 +398,7 @@ describe("PlanCatalogService", () => {
       await runInRollback(async tx => {
         const plan = await createTestPlan(tx);
         const error = await expectValidationError(
-          () => PlanCatalogService.updatePlan(plan.id, {}, "en", tx),
+          () => PlanCatalogService.updatePlan(plan.id, {}, "en", undefined, tx),
           null,
           "PLAN_PATCH_EMPTY"
         );
@@ -399,7 +413,7 @@ describe("PlanCatalogService", () => {
         // An INVALID supplied field must hit the update-side aggregated
         // rejection (its own logging branch before any whitelist copy).
         const error = await expectValidationError(
-          () => PlanCatalogService.updatePlan(plan.id, { price: "abc" }, "en", tx),
+          () => PlanCatalogService.updatePlan(plan.id, { price: "abc" }, "en", undefined, tx),
           "price",
           "PLAN_PRICE_INVALID"
         );
@@ -408,7 +422,7 @@ describe("PlanCatalogService", () => {
         // A price-only patch exercises the partial-update contract: the
         // absent title is judged "not supplied" (not a violation) and the
         // whitelisted copy must leave every other column untouched.
-        const updated = await PlanCatalogService.updatePlan(plan.id, { price: "99.99" }, "en", tx);
+        const updated = await PlanCatalogService.updatePlan(plan.id, { price: "99.99" }, "en", undefined, tx);
         expect(updated.id).toBe(plan.id);
         expect(updated.title).toBe(plan.title);
         expect(updated.price).toBe("99.99");
@@ -423,12 +437,12 @@ describe("PlanCatalogService", () => {
         const rejected = await Promise.all(
           [0, -3, 2.5].flatMap(id => [
             expectValidationError(
-              () => PlanCatalogService.updatePlan(id, { title: "Whatever" }, "en", tx),
+              () => PlanCatalogService.updatePlan(id, { title: "Whatever" }, "en", undefined, tx),
               null,
               "PLAN_ID_INVALID"
             ),
             expectValidationError(
-              () => PlanCatalogService.setPlanActiveStatus(id, true, "en", tx),
+              () => PlanCatalogService.setPlanActiveStatus(id, true, "en", undefined, tx),
               null,
               "PLAN_ID_INVALID"
             ),
@@ -444,28 +458,64 @@ describe("PlanCatalogService", () => {
       await runInRollback(async tx => {
         const plan = await createTestPlan(tx);
 
+        // CONCURRENCY SEMANTICS (DEV3-020 amendment): the guarded-write
+        // chaos property lives at the REPOSITORY layer — two interleaved
+        // guarded UPDATEs on one connection serialize on the `is_active`
+        // predicate, exactly one matches. The service layer wraps each
+        // mutation in a nested transaction (audit atomicity), and Drizzle
+        // names nested savepoints per-call from a shared counter — two
+        // CONCURRENT nested transactions on ONE client reuse the name and
+        // their rollback windows interfere. Production never shares a
+        // connection between concurrent requests (one tx per request), so
+        // the cross-connection race is settled by the same predicate
+        // below; here the same property is asserted where it lives.
         const [first, second] = await Promise.allSettled([
-          PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx),
-          PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", tx),
+          PlanRepository.setActiveStatusOnce(plan.id, false, tx),
+          PlanRepository.setActiveStatusOnce(plan.id, false, tx),
         ]);
 
+        // The guarded write RESOLVES null on a zero-row match (throwing is
+        // the service's job) — "exactly once" here means: one settled call
+        // produced the row, the other produced null.
         expect(first.status).toBe("fulfilled");
-        expect(second.status).toBe("rejected");
-        if (second.status !== "rejected") {
-          throw new Error("expected the second deactivation to reject");
-        }
-        const reason = second.reason;
-        if (!(reason instanceof ConflictError)) {
-          throw new Error(`expected ConflictError but caught ${String(reason)}`);
-        }
-        expect(reason.code).toBe("PLAN_ALREADY_INACTIVE");
-        expect(reason.message).toBe(enErrors.planAlreadyInactive);
+        expect(second.status).toBe("fulfilled");
 
-        if (first.status !== "fulfilled") {
-          throw new Error("expected the first deactivation to fulfill");
+        const [firstRow, secondRow] = [first, second].map(outcome =>
+          outcome.status === "fulfilled" ? outcome.value : null
+        );
+        expect(firstRow === null || secondRow === null, "exactly one call matched the predicate").toBeTrue();
+        expect(firstRow !== null || secondRow !== null, "at least one call matched the predicate").toBeTrue();
+        const winner = firstRow ?? secondRow;
+        if (winner === null) {
+          throw new Error("unreachable — the prior assertions prove one call matched");
         }
+
         const [reread] = await tx.select().from(plans).where(eq(plans.id, plan.id));
-        expect(reread).toEqual(first.value);
+        expect(reread).toEqual(winner);
+        expect(reread?.isActive).toBe(false);
+        expect(reread?.deactivatedAt).toBeInstanceOf(Date);
+      });
+    });
+
+    test("a second deactivation through the service conflicts with the localized idempotency copy", async () => {
+      await runInRollback(async tx => {
+        const plan = await createTestPlan(tx);
+
+        // Sequential service-level chaos: the first transition wins; the
+        // second hits the zero-row predicate and re-probes into the
+        // idempotency conflict (DEV3-020 audit rows ride BOTH first-write
+        // transactions — asserted by the audit service suite).
+        const first = await PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", undefined, tx);
+        expect(first.isActive).toBe(false);
+
+        const error = await expectRepoError(() =>
+          PlanCatalogService.setPlanActiveStatus(plan.id, false, "en", undefined, tx)
+        );
+        expect(error).toBeInstanceOf(ConflictError);
+        expect((error as ConflictError).code).toBe("PLAN_ALREADY_INACTIVE");
+        expect(error.message).toBe(enErrors.planAlreadyInactive);
+
+        const [reread] = await tx.select().from(plans).where(eq(plans.id, plan.id));
         expect(reread?.isActive).toBe(false);
         expect(reread?.deactivatedAt).toBeInstanceOf(Date);
       });
@@ -476,8 +526,8 @@ describe("PlanCatalogService", () => {
         const plan = await createTestPlan(tx);
 
         const [first, second] = await Promise.allSettled([
-          PlanCatalogService.updatePlan(plan.id, { title: `First ${randomUUID()}` }, "en", tx),
-          PlanCatalogService.updatePlan(plan.id, { title: `Second ${randomUUID()}` }, "en", tx),
+          PlanCatalogService.updatePlan(plan.id, { title: `First ${randomUUID()}` }, "en", undefined, tx),
+          PlanCatalogService.updatePlan(plan.id, { title: `Second ${randomUUID()}` }, "en", undefined, tx),
         ]);
 
         expect(first.status).toBe("fulfilled");
@@ -501,7 +551,7 @@ describe("PlanCatalogService", () => {
           createdAt: new Date("1999-01-01T00:00:00.000Z"),
         });
 
-        const created = await PlanCatalogService.createPlan(smuggled, "en", tx);
+        const created = await PlanCatalogService.createPlan(smuggled, "en", undefined, tx);
 
         expect(created.id).not.toBe(987_654);
         expect(created.isActive).toBe(true);
@@ -516,7 +566,7 @@ describe("PlanCatalogService", () => {
         const patch: PlanUpdateInput = { title: `Whitelisted ${randomUUID()}` };
         Object.assign(patch, { isActive: false, deactivatedAt: new Date(), id: plan.id + 1 });
 
-        const updated = await PlanCatalogService.updatePlan(plan.id, patch, "en", tx);
+        const updated = await PlanCatalogService.updatePlan(plan.id, patch, "en", undefined, tx);
 
         expect(updated.id).toBe(plan.id);
         expect(updated.isActive).toBe(true);
@@ -536,7 +586,7 @@ describe("PlanCatalogService", () => {
         );
 
         const error = await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount: 200 }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ sessionCount: 200 }), "en", undefined, tx),
           null,
           "PLAN_SESSION_COUNT_INVALID",
           "PLAN_SESSION_COUNT_INVALID"
@@ -561,7 +611,7 @@ describe("PlanCatalogService", () => {
         );
 
         const priceError = await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ price: "200.00" }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ price: "200.00" }), "en", undefined, tx),
           null,
           "PLAN_PRICE_INVALID",
           "PLAN_PRICE_INVALID"
@@ -577,7 +627,7 @@ describe("PlanCatalogService", () => {
         );
 
         const intervalError = await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 200 }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ intervalDays: 200 }), "en", undefined, tx),
           null,
           "PLAN_INTERVAL_DAYS_INVALID",
           "PLAN_INTERVAL_DAYS_INVALID"
@@ -598,7 +648,7 @@ describe("PlanCatalogService", () => {
         const errorSpy = spyOn(logger, "error");
         try {
           const constraintError = await expectRepoError(() =>
-            PlanCatalogService.createPlan(planSubmitInput({ currency: "ZZZ" }), "en", tx)
+            PlanCatalogService.createPlan(planSubmitInput({ currency: "ZZZ" }), "en", undefined, tx)
           );
           expect(constraintError).not.toBeInstanceOf(ValidationError);
           expect(constraintError).not.toBeInstanceOf(NotFoundError);
@@ -616,12 +666,12 @@ describe("PlanCatalogService", () => {
         // (return null) and the error must surface as-is via logger.error.
         await tx.execute(sql`CREATE UNIQUE INDEX plans_title_service_probe_unique ON plans (title)`);
         const title = `Untranslated ${randomUUID()}`;
-        await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx);
+        await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", undefined, tx);
 
         const errorSpy = spyOn(logger, "error");
         try {
           const uniqueError = await expectRepoError(() =>
-            PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx)
+            PlanCatalogService.createPlan(planSubmitInput({ title }), "en", undefined, tx)
           );
           expect(uniqueError).not.toBeInstanceOf(ValidationError);
           expect(errorSpy).toHaveBeenCalled();
@@ -634,8 +684,8 @@ describe("PlanCatalogService", () => {
     test("duplicate titles both succeed — double-submit tolerance", async () => {
       await runInRollback(async tx => {
         const title = `Double Submit ${randomUUID()}`;
-        const first = await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx);
-        const second = await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", tx);
+        const first = await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", undefined, tx);
+        const second = await PlanCatalogService.createPlan(planSubmitInput({ title }), "en", undefined, tx);
 
         expect(first.id).not.toBe(second.id);
         expect(second.title).toBe(title);
@@ -645,12 +695,12 @@ describe("PlanCatalogService", () => {
     test("localized rejections switch between English and Arabic", async () => {
       await runInRollback(async tx => {
         const enError = await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "en", undefined, tx),
           "title",
           "PLAN_TITLE_REQUIRED"
         );
         const arError = await expectValidationError(
-          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "ar", tx),
+          () => PlanCatalogService.createPlan(planSubmitInput({ title: "" }), "ar", undefined, tx),
           "title",
           "PLAN_TITLE_REQUIRED"
         );
@@ -659,13 +709,13 @@ describe("PlanCatalogService", () => {
         expect(arError.message).not.toBe(enError.message);
 
         await expectNotFoundError(
-          () => PlanCatalogService.updatePlan(999_999_999, { title: "Ghost" }, "ar", tx),
+          () => PlanCatalogService.updatePlan(999_999_999, { title: "Ghost" }, "ar", undefined, tx),
           arErrors.planNotFound
         );
 
         const activePlan = await createTestPlan(tx);
         await expectConflictError(
-          () => PlanCatalogService.setPlanActiveStatus(activePlan.id, true, "ar", tx),
+          () => PlanCatalogService.setPlanActiveStatus(activePlan.id, true, "ar", undefined, tx),
           "PLAN_ALREADY_ACTIVE",
           arErrors.planAlreadyActive
         );
