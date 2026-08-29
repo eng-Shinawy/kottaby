@@ -477,49 +477,49 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 5.1 — Deactivation Preservation Proof (REQ-075)
 
-- [ ] 5.1 Prove deactivation/edit preserves existing subscriptions and credited balances byte-identically
+- [x] 5.1 Prove deactivation/edit preserves existing subscriptions and credited balances byte-identically
   - Files to create:
     - `backend/db/test/logic/billing/plan-catalog-preservation.test.ts`
   - _Requirements: REQ-017, REQ-018, REQ-075_
-  - [ ] 5.1.1 Fixture: plan + linked subscription (via entity-setup helpers) + student balance lanes inside `runInRollback`; snapshot rows
-  - [ ] 5.1.2 Execute `setPlanActiveStatus(id, false)` → assert subscription row (status/dates) and balance fixtures byte-identical
-  - [ ] 5.1.3 Execute `updatePlan` with changed price/sessionCount/intervalDays → assert the same byte-identical invariance (forward-only semantics, INV-B2/B3 shield)
-  - [ ] 5.1.QL **Quality Loop**: sub-loop on the test file (exit 0)
-  - [ ] 5.1.TE **Test Engineering**: executed via `bun run test/scripts/run-test.ts`; `expectRepoError` discipline for any failure probes; `tx` propagation verified
-  - [ ] 5.1.SEC **Security & Tenancy Audit**: confirms zero cross-entity writes (A.9 lifecycle independence)
-  - [ ] 5.1.SR **Semantic Review**: assertions on full row shape, not selected columns
-  - [ ] 5.1.IV **Instruction Verification**: test AGENTS.md fixtures-only rule
-  - [ ] 5.1.OD **Outcome**: `outcome/5.1-preservation-proof-outcome.md`
+  - [x] 5.1.1 Fixture: plan + linked subscription (via entity-setup helpers) + student balance lanes inside `runInRollback`; snapshot rows
+  - [x] 5.1.2 Execute `setPlanActiveStatus(id, false)` → assert subscription row (status/dates) and balance fixtures byte-identical
+  - [x] 5.1.3 Execute `updatePlan` with changed price/sessionCount/intervalDays → assert the same byte-identical invariance (forward-only semantics, INV-B2/B3 shield)
+  - [x] 5.1.QL **Quality Loop**: sub-loop on the test file (exit 0)
+  - [x] 5.1.TE **Test Engineering**: executed via `bun run test/scripts/run-test.ts`; `expectRepoError` discipline for any failure probes; `tx` propagation verified
+  - [x] 5.1.SEC **Security & Tenancy Audit**: confirms zero cross-entity writes (A.9 lifecycle independence)
+  - [x] 5.1.SR **Semantic Review**: assertions on full row shape, not selected columns
+  - [x] 5.1.IV **Instruction Verification**: test AGENTS.md fixtures-only rule
+  - [x] 5.1.OD **Outcome**: `outcome/5.1-preservation-proof-outcome.md`
 
 ### Task 5.2 — Concurrency & Chaos Probes (REQ-074)
 
-- [ ] 5.2 Implement the Tier-3 chaos/concurrency suite end-to-end through the GraphQL boundary
+- [x] 5.2 Implement the Tier-3 chaos/concurrency suite end-to-end through the GraphQL boundary
   - Files to create:
     - `backend/graphql/test/plan-catalog.concurrency.test.ts`
   - _Requirements: REQ-040, REQ-074, REQ-045_
-  - [ ] 5.2.1 `Promise.allSettled` double-deactivation of the same plan via testClient → exactly one fulfilled + one rejected with `PLAN_ALREADY_INACTIVE`; final row transitioned exactly once (`deactivated_at` set once)
-  - [ ] 5.2.2 Deactivate/reactivate interleave converges to a consistent final state
-  - [ ] 5.2.3 Concurrent `updatePlan` patches → last-write-wins; no errors; final row equals the chronologically-last patch
-  - [ ] 5.2.QL **Quality Loop**: sub-loop on the test file (exit 0)
-  - [ ] 5.2.TE **Test Engineering**: all concurrency inside `runInRollback`-compatible harness per integration-suite conventions; deterministic assertions on outcome classes (not timing)
-  - [ ] 5.2.SEC **Security & Tenancy Audit**: proves TOCTOU window = 0 under the guarded-UPDATE primitive (D2)
-  - [ ] 5.2.SR **Semantic Review**: no flaky timing sleeps; race orchestration via `Promise.allSettled` only
-  - [ ] 5.2.IV **Instruction Verification**: chaos-tier conventions per test-layer AGENTS.md
-  - [ ] 5.2.OD **Outcome**: `outcome/5.2-concurrency-outcome.md`
+  - [x] 5.2.1 `Promise.allSettled` double-deactivation of the same plan via testClient → exactly one fulfilled + one rejected with `PLAN_ALREADY_INACTIVE`; final row transitioned exactly once (`deactivated_at` set once)
+  - [x] 5.2.2 Deactivate/reactivate interleave converges to a consistent final state
+  - [x] 5.2.3 Concurrent `updatePlan` patches → last-write-wins; no errors; final row equals the chronologically-last patch
+  - [x] 5.2.QL **Quality Loop**: sub-loop on the test file (exit 0)
+  - [x] 5.2.TE **Test Engineering**: all concurrency inside `runInRollback`-compatible harness per integration-suite conventions; deterministic assertions on outcome classes (not timing)
+  - [x] 5.2.SEC **Security & Tenancy Audit**: proves TOCTOU window = 0 under the guarded-UPDATE primitive (D2)
+  - [x] 5.2.SR **Semantic Review**: no flaky timing sleeps; race orchestration via `Promise.allSettled` only
+  - [x] 5.2.IV **Instruction Verification**: chaos-tier conventions per test-layer AGENTS.md
+  - [x] 5.2.OD **Outcome**: `outcome/5.2-concurrency-outcome.md`
 
 ### Task 5.3 — Coverage Gate & Full-Suite Differential Run
 
-- [ ] 5.3 Close the REQ-070 coverage target and run the full differential test + lint baseline comparison
+- [x] 5.3 Close the REQ-070 coverage target and run the full differential test + lint baseline comparison
   - _Requirements: REQ-070, REQ-077, REQ-083 (partial), REQ-023_
-  - [ ] 5.3.1 `bun test --coverage` on ALL new/modified backend suites — assert 100% statements/branches on new service/repo files (incl. both zero-row guard branches)
-  - [ ] 5.3.2 Run full impacted suites: `bun run test/scripts/run-test.ts` for every new test file; assert DEV1-002/DEV2-001 auth suites REMAIN GREEN (registration/refresh contract untouched, REQ-023)
-  - [ ] 5.3.3 Run `bun tsgo`, `bun biome:check` — compare to Phase 0 baseline: zero NEW errors
-  - [ ] 5.3.4 Re-run REQ-020 no-delete grep + REQ-016 single-predicate grep + REQ-031 no-spread grep as the verification bundle
-  - [ ] 5.3.QL **Quality Loop**: sub-loop across every created/modified file in the change set (final sweep, exit 0 each)
-  - [ ] 5.3.TE **Test Engineering**: differential report written (baseline counts vs final counts) into the outcome
-  - [ ] 5.3.SR **Semantic Review**: any coverage gap is either closed or explicitly justified + deferred with owner
-  - [ ] 5.3.IV **Instruction Verification**: quality-gate rules per root AGENTS.md
-  - [ ] 5.3.OD **Outcome**: `outcome/5.3-coverage-differential-outcome.md`
+  - [x] 5.3.1 `bun test --coverage` on ALL new/modified backend suites — assert 100% statements/branches on new service/repo files (incl. both zero-row guard branches)
+  - [x] 5.3.2 Run full impacted suites: `bun run test/scripts/run-test.ts` for every new test file; assert DEV1-002/DEV2-001 auth suites REMAIN GREEN (registration/refresh contract untouched, REQ-023)
+  - [x] 5.3.3 Run `bun tsgo`, `bun biome:check` — compare to Phase 0 baseline: zero NEW errors
+  - [x] 5.3.4 Re-run REQ-020 no-delete grep + REQ-016 single-predicate grep + REQ-031 no-spread grep as the verification bundle
+  - [x] 5.3.QL **Quality Loop**: sub-loop across every created/modified file in the change set (final sweep, exit 0 each)
+  - [x] 5.3.TE **Test Engineering**: differential report written (baseline counts vs final counts) into the outcome
+  - [x] 5.3.SR **Semantic Review**: any coverage gap is either closed or explicitly justified + deferred with owner
+  - [x] 5.3.IV **Instruction Verification**: quality-gate rules per root AGENTS.md
+  - [x] 5.3.OD **Outcome**: `outcome/5.3-coverage-differential-outcome.md`
 
 ---
 
@@ -527,44 +527,44 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 6.1 — Review Wave: review-types
 
-- [ ] 6.1 Parallel review wave: canonical types & GraphQL artifacts
+- [x] 6.1 Parallel review wave: canonical types & GraphQL artifacts
   - _Requirements: REQ-003, REQ-042, REQ-060_
-  - [ ] 6.1.1 Verify `backend/types/billing/plan.types.ts` canonical naming + BOPLA-construction; no local types in Pothos files; no service `.types.ts`; `DBTransaction` from `@/backend/types` only
-  - [ ] 6.1.2 Verify codegen artifacts committed, no drift, no manual edits
-  - [ ] 6.1.QL/IV: sub-loop + AGENTS.md verification on any finding-fix files
-  - [ ] 6.1.OD **Outcome**: `outcome/6.1-review-types-outcome.md` (findings resolved or deferred with owner)
+  - [x] 6.1.1 Verify `backend/types/billing/plan.types.ts` canonical naming + BOPLA-construction; no local types in Pothos files; no service `.types.ts`; `DBTransaction` from `@/backend/types` only
+  - [x] 6.1.2 Verify codegen artifacts committed, no drift, no manual edits
+  - [x] 6.1.QL/IV: sub-loop + AGENTS.md verification on any finding-fix files
+  - [x] 6.1.OD **Outcome**: `outcome/6.1-review-types-outcome.md` (findings resolved or deferred with owner)
 
 ### Task 6.2 — Review Wave: review-backend
 
-- [ ] 6.2 Parallel review wave: repository, service, resolvers, error contracts
+- [x] 6.2 Parallel review wave: repository, service, resolvers, error contracts
   - _Requirements: REQ-011..018, REQ-040..045, REQ-050..053_
-  - [ ] 6.2.1 Verify guarded-UPDATE primitive is the only state-transition mechanism; single-predicate active filter; whitelist mapping; no-cascade physical guarantee; error `extensions.code` map; localization paths; logging discipline (`logDomainError` vs `logger.error`; no `console.*`)
-  - [ ] 6.2.2 Verify `runInRollback`/`tx`/helper/`expectRepoError` discipline across every DB test
-  - [ ] 6.2.QL/IV: sub-loop + instruction verification on any fix files
-  - [ ] 6.2.OD **Outcome**: `outcome/6.2-review-backend-outcome.md`
+  - [x] 6.2.1 Verify guarded-UPDATE primitive is the only state-transition mechanism; single-predicate active filter; whitelist mapping; no-cascade physical guarantee; error `extensions.code` map; localization paths; logging discipline (`logDomainError` vs `logger.error`; no `console.*`)
+  - [x] 6.2.2 Verify `runInRollback`/`tx`/helper/`expectRepoError` discipline across every DB test
+  - [x] 6.2.QL/IV: sub-loop + instruction verification on any fix files
+  - [x] 6.2.OD **Outcome**: `outcome/6.2-review-backend-outcome.md`
 
 ### Task 6.3 — Review Wave: review-frontend
 
-- [ ] 6.3 Parallel review wave: page, container, dialogs, navigation, documents
+- [x] 6.3 Parallel review wave: page, container, dialogs, navigation, documents
   - _Requirements: REQ-054, REQ-060..064_
-  - [ ] 6.3.1 Verify: sx-only styling; theme-palette-only colors; `*Outlined` icons; `React.SubmitEvent` discipline; translation property-access only; documents naming/barrel compliance; SSR-guard boundary; screenshot archives from 4.3.BS/4.4.BS/4.5.BS complete for all viewport×locale cells
-  - [ ] 6.3.QL/IV: sub-loop + instruction verification on any fix files
-  - [ ] 6.3.OD **Outcome**: `outcome/6.3-review-frontend-outcome.md`
+  - [x] 6.3.1 Verify: sx-only styling; theme-palette-only colors; `*Outlined` icons; `React.SubmitEvent` discipline; translation property-access only; documents naming/barrel compliance; SSR-guard boundary; screenshot archives from 4.3.BS/4.4.BS/4.5.BS complete for all viewport×locale cells
+  - [x] 6.3.QL/IV: sub-loop + instruction verification on any fix files
+  - [x] 6.3.OD **Outcome**: `outcome/6.3-review-frontend-outcome.md`
 
 ### Task 6.4 — Review Wave: pentester
 
-- [ ] 6.4 Parallel review wave: security posture audit
+- [x] 6.4 Parallel review wave: security posture audit
   - _Requirements: REQ-030..035, REQ-052_
-  - [ ] 6.4.1 BFLA: matrix proof that all 4 admin surfaces reject non-admin BEFORE resolver body; BOPLA: grep + smuggle-test evidence; BOLA: catalog-ID non-sensitivity ruling documented (REQ-032 caveat for future sensitive resources); error-disclosure: no SQL/constraint leakage on `23514` fallback; wildcard-escaping N/A ruling documented
-  - [ ] 6.4.QL/IV: sub-loop + instruction verification on any fix files
-  - [ ] 6.4.OD **Outcome**: `outcome/6.4-pentester-outcome.md`
+  - [x] 6.4.1 BFLA: matrix proof that all 4 admin surfaces reject non-admin BEFORE resolver body; BOPLA: grep + smuggle-test evidence; BOLA: catalog-ID non-sensitivity ruling documented (REQ-032 caveat for future sensitive resources); error-disclosure: no SQL/constraint leakage on `23514` fallback; wildcard-escaping N/A ruling documented
+  - [x] 6.4.QL/IV: sub-loop + instruction verification on any fix files
+  - [x] 6.4.OD **Outcome**: `outcome/6.4-pentester-outcome.md`
 
 ### Task 6.5 — Deferred-Items Gate Check
 
-- [ ] 6.5 Audit the deferred-items ledger against the REQ-083 close gate
+- [x] 6.5 Audit the deferred-items ledger against the REQ-083 close gate
   - _Requirements: REQ-001, REQ-083_
-  - [ ] 6.5.1 Run `grep -c "❌\|⚠️" ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` — MUST equal exactly the pre-seeded entries (D1 → DEV3-020, D2 → DEV1-006), both non-blocking with documented owners; any additional open marker MUST be resolved first (scope the count to `| D…` ledger-table rows — the template's Status-Values legend also contains the marker glyphs, so a raw whole-file count over-counts by 2)
-  - [ ] 6.5.OD **Outcome**: `outcome/6.5-deferred-gate-outcome.md`
+  - [x] 6.5.1 Run `grep -c "❌\|⚠️" ai/plans/sprint_1/dev1-005-plan-catalog-crud-admin-only/deferred-items.md` — MUST equal exactly the pre-seeded entries (D1 → DEV3-020, D2 → DEV1-006), both non-blocking with documented owners; any additional open marker MUST be resolved first (scope the count to `| D…` ledger-table rows — the template's Status-Values legend also contains the marker glyphs, so a raw whole-file count over-counts by 2)
+  - [x] 6.5.OD **Outcome**: `outcome/6.5-deferred-gate-outcome.md`
 
 ---
 
