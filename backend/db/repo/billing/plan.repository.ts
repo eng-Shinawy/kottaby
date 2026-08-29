@@ -2,7 +2,8 @@
  * PlanRepository — data-access layer for the `plans` subscription-catalog
  * table.
  *
- * The `plans` row is pure catalog data: `title` (unique) plus the commercial
+ * The `plans` row is pure catalog data: `title` (deliberately NOT unique —
+ * duplicate-title tolerance ruling, REQ-040) plus the commercial
  * shape (`session_count`, `price`, `currency`, `interval_days`) and the
  * server-controlled lifecycle pair (`is_active`, `deactivated_at`).
  *
