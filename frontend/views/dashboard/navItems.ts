@@ -46,7 +46,8 @@ export interface DashboardNavItem {
  *
  * Routes that don't have a real page yet resolve to the `app/(dashboard)/[feature]/page.tsx`
  * catch-all, which renders the `ComingSoonView`. Real routes (Dashboard,
- * Profile) take precedence over the catch-all per Next.js route resolution.
+ * Profile, the admin `/admin/plans` catalog) take precedence over the
+ * catch-all per Next.js route resolution.
  */
 const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
   [UserRole.Student]: [
@@ -73,7 +74,7 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     { route: "/users", labelKey: "users", Icon: UsersIcon },
     { route: "/teachers", labelKey: "teachers", Icon: TeachersIcon },
     { route: "/students", labelKey: "students", Icon: StudentsIcon },
-    { route: "/plans", labelKey: "plans", Icon: PlansIcon },
+    { route: "/admin/plans", labelKey: "plans", Icon: PlansIcon },
     { route: "/audit", labelKey: "audit", Icon: AuditIcon },
     { route: "/profile", labelKey: "profile", Icon: ProfileIcon },
   ],
