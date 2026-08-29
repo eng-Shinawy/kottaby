@@ -24,6 +24,15 @@
  * when a further page exists (pagination derives from the SERVER total,
  * never local row counts).
  *
+ * Details-popover cells (style-polish round):
+ *  - the details cell renders a TRUNCATED single-line preview beside an
+ *    icon-only expand trigger whose accessible name resolves the dedicated
+ *    `detailsExpandAriaLabel` key (both locales), and rows WITHOUT details
+ *    render no trigger at all;
+ *  - clicking the trigger opens the table's ONE shared popover carrying the
+ *    titled panel + the FULL pretty-printed JSON (a known payload's id is
+ *    asserted visible) — never one popover per row.
+ *
  * Translation discipline (mirrors `PaymentVerificationContainer.test.tsx`):
  * assertions reference ONLY label objects resolved through
  * `Audit.getLabels(getTranslations(locale))` — zero hardcoded
@@ -41,6 +50,7 @@ import { AuditLogContainer, AuditTrailTable } from "@/frontend/views/admin/audit
 import type { AppLocale } from "@/shared/locale/AppLocale";
 import { Audit as AuditNs } from "@/shared/locale/namespaces/audit";
 import { getTranslations } from "@/shared/locale/server";
+import type { AuditLabels } from "@/shared/locale/types/audit";
 import { renderWithWrapper } from "@/test/ui/components/TestWrapper";
 
 // ----------------------------------------------------------------------------
@@ -73,6 +83,24 @@ const ROW_B = entryFixture({
   createdAt: "2026-08-25T11:30:00.000Z",
   actor: { id: "10", fullName: "Admin Two", email: "admin.two@test.local" },
 });
+
+/** The raw serialized blob (call sites assert detail-BEARING fixtures — null fails loudly). */
+function rawDetailsOf(details: string | null): string {
+  if (details === null) {
+    throw new Error("rawDetailsOf: fixture details must be non-null");
+  }
+  return details;
+}
+
+/** The in-cell truncated preview (mirrors the table's 24-char + ellipsis). */
+function detailsPreviewOf(details: string | null): string {
+  // Call sites only assert detail-BEARING fixtures; a null here is a test
+  // bug and must fail loudly, not masquerade as a preview string.
+  if (details === null) {
+    throw new Error("detailsPreviewOf: fixture details must be non-null");
+  }
+  return `${details.slice(0, 24)}…`;
+}
 
 /**
  * `adminAuditLogs` mock answering with the page envelope for the given
@@ -176,10 +204,14 @@ describe("AuditLogContainer — settled states (ar, the default RTL surface)", (
     // The localized action chip + entity family (machine codes localized).
     expect(screen.getAllByText(t.actionCreate).length).toBeGreaterThan(0);
     expect(screen.getAllByText(t.entityPlans).length).toBeGreaterThan(0);
-    // The LTR details JSON rides the row.
-    expect(screen.getByText('{"code":"PLAN_CREATED","planId":42}')).toBeDefined();
-    // A null details cell renders the locale-neutral dash.
+    // The LTR details JSON rides the row as a TRUNCATED preview (the full
+    // blob moved into the expand popover — style-polish round).
+    expect(screen.queryByText(rawDetailsOf(ROW_A.details))).toBeNull();
+    expect(screen.getByText(detailsPreviewOf(ROW_A.details))).toBeDefined();
+    // A null details cell renders the locale-neutral dash (no trigger).
     expect(screen.getAllByText(t.detailsEmpty).length).toBeGreaterThan(0);
+    // Exactly ONE trigger — only the detail-bearing row carries it.
+    expect(screen.getAllByRole("button", { name: t.detailsExpandAriaLabel })).toHaveLength(1);
     // The truthful pagination window: 1–2 of 2.
     expect(screen.getByText(t.pageInfo(1, 2, 2))).toBeDefined();
   });
@@ -344,5 +376,93 @@ describe("AuditTrailTable — delegation tier", () => {
     }
     fireEvent.click(next);
     expect(onNext).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Details popover — truncated preview + shared expand popover (style polish)
+// ----------------------------------------------------------------------------
+
+/** Renders the table directly with the given rows (delegation-tier style). */
+function renderTable(items: AdminAuditLogsQuery_adminAuditLogs_items[], labels: AuditLabels, locale: AppLocale): void {
+  renderWithWrapper(
+    <AuditTrailTable
+      items={items}
+      labels={labels}
+      locale={locale}
+      offset={0}
+      limit={20}
+      total={items.length}
+      onPrev={() => {}}
+      onNext={() => {}}
+      busy={false}
+    />,
+    { locale }
+  );
+}
+
+describe("AuditTrailTable — details column popover (style-polish round)", () => {
+  test("truncated preview + accessible expand trigger (ar, the default RTL surface)", () => {
+    const t = AuditNs.getLabels(getTranslations("ar"));
+    renderTable([ROW_A, ROW_B], t, "ar");
+
+    // The raw blob is gone from the row; the 24-char preview rides it instead.
+    expect(screen.queryByText(rawDetailsOf(ROW_A.details))).toBeNull();
+    expect(screen.getByText(detailsPreviewOf(ROW_A.details))).toBeDefined();
+    // The icon-only trigger resolves the dedicated aria-label key.
+    const trigger = screen.getByRole("button", { name: t.detailsExpandAriaLabel });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    // Only the detail-bearing row carries a trigger (null details → dash only).
+    expect(screen.getAllByRole("button", { name: t.detailsExpandAriaLabel })).toHaveLength(1);
+    expect(screen.getAllByText(t.detailsEmpty).length).toBeGreaterThan(0);
+  });
+
+  test("truncated preview + accessible expand trigger (en)", () => {
+    const t = AuditNs.getLabels(getTranslations("en"));
+    renderTable([ROW_A, ROW_B], t, "en");
+
+    expect(screen.queryByText(rawDetailsOf(ROW_A.details))).toBeNull();
+    expect(screen.getByText(detailsPreviewOf(ROW_A.details))).toBeDefined();
+    expect(screen.getByRole("button", { name: t.detailsExpandAriaLabel })).toBeDefined();
+  });
+
+  test("clicking the trigger opens ONE shared popover with the pretty-printed payload", async () => {
+    const t = AuditNs.getLabels(getTranslations("en"));
+    const rowC = entryFixture({
+      id: "503",
+      actionType: "update",
+      details: '{"code":"PLAN_UPDATED","planId":42,"titleChanged":true}',
+    });
+    renderTable([ROW_A, rowC, ROW_B], t, "en");
+
+    // Two detail-bearing rows → two triggers, zero popovers before the click.
+    const triggers = screen.getAllByRole("button", { name: t.detailsExpandAriaLabel });
+    expect(triggers).toHaveLength(2);
+    expect(screen.queryByText(t.detailsPopoverTitle)).toBeNull();
+
+    fireEvent.click(triggers[0] ?? document.body);
+
+    // The titled panel opens with the FULL pretty-printed JSON — the known
+    // payload's id value is visible inside it.
+    await waitFor(() => {
+      expect(screen.getByText(t.detailsPopoverTitle)).toBeDefined();
+    });
+    expect(screen.getByText(/"planId":\s*42/)).toBeDefined();
+    // ONE popover instance for the whole table (never one per row).
+    expect(screen.getAllByText(t.detailsPopoverTitle)).toHaveLength(1);
+    // aria-expanded flips on the triggered row only. NOTE: role queries can
+    // no longer see the triggers after the popover opens (MUI's Modal
+    // aria-hides the app container) — the pre-click node references stay
+    // valid because React updates the same DOM nodes in place.
+    expect(triggers[0]?.getAttribute("aria-expanded")).toBe("true");
+    expect(triggers[1]?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("rows without details render no trigger at all", () => {
+    const t = AuditNs.getLabels(getTranslations("en"));
+    renderTable([ROW_B], t, "en");
+
+    expect(screen.queryByRole("button", { name: t.detailsExpandAriaLabel })).toBeNull();
+    expect(screen.getByText(t.detailsEmpty)).toBeDefined();
   });
 });

@@ -38,6 +38,8 @@ export const auditAr: AuditLabels = {
   colEntityId: "معرّف الكيان",
   colDetails: "التفاصيل",
   detailsEmpty: "—",
+  detailsExpandAriaLabel: "عرض تفاصيل الإجراء",
+  detailsPopoverTitle: "تفاصيل الإجراء",
 
   // Action verbs
   actionCreate: "إنشاء",

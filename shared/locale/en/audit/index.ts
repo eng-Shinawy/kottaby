@@ -38,6 +38,8 @@ export const auditEn: AuditLabels = {
   colEntityId: "Entity ID",
   colDetails: "Details",
   detailsEmpty: "—",
+  detailsExpandAriaLabel: "View action details",
+  detailsPopoverTitle: "Action details",
 
   // Action verbs
   actionCreate: "Create",

@@ -36,7 +36,7 @@ import type { AuditLabels } from "@/shared/locale/types/audit";
 
 const INTERPOLATING_KEYS = ["pageInfo"] as const;
 
-const EXPECTED_KEY_COUNT = 41;
+const EXPECTED_KEY_COUNT = 43;
 
 describe("audit namespace — locale parity", () => {
   test("en and ar expose the SAME key sets", () => {

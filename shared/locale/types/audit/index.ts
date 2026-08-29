@@ -79,6 +79,10 @@ export interface AuditLabels {
   readonly colDetails: string;
   /** Placeholder for rows whose details column is NULL. */
   readonly detailsEmpty: string;
+  /** Accessible name for the icon-only details-expand trigger. */
+  readonly detailsExpandAriaLabel: string;
+  /** Title of the details popover panel. */
+  readonly detailsPopoverTitle: string;
 
   // ── Action verbs (audit_action_type enum display names) ─────────────────
   /** The `create` action. */

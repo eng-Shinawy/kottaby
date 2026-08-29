@@ -225,7 +225,21 @@ export function PaymentVerificationContainer({ labels }: Readonly<PaymentVerific
         sx={{ alignItems: "center", textAlign: "center", py: 8 }}
         data-testid="admin-verifications-empty"
       >
-        <EmptyStateIcon sx={theme => ({ fontSize: 48, color: theme.palette.text.secondary })} aria-hidden />
+        {/* Decorative icon inside a tinted circular well — the shared admin
+            empty-state composition (token-only colors, RTL-safe). */}
+        <Box
+          aria-hidden
+          sx={theme => ({
+            width: 88,
+            height: 88,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            bgcolor: theme.palette.surfaceContainerHighest,
+          })}
+        >
+          <EmptyStateIcon sx={theme => ({ fontSize: 48, color: theme.palette.text.secondary })} />
+        </Box>
         <Typography variant="h6" component="p" sx={{ fontWeight: 700 }}>
           {t.emptyStateTitle}
         </Typography>

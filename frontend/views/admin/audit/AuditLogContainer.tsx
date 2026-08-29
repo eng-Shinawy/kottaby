@@ -53,11 +53,13 @@ const DEFAULT_PAGE_SIZE = 20;
 
 /**
  * The RSC-serializable slice of {@link AuditLabels} the server shell hands
- * down — every member is a plain string; the single formatter key
- * (`pageInfo`) is structurally excluded (it cannot cross the server/client
- * boundary and is only consumed client-side).
+ * down — plain strings. Three members are structurally excluded and always
+ * resolve through the client handle below: the `pageInfo` formatter (it
+ * cannot cross the server/client boundary) and the two details-popover keys
+ * (`detailsExpandAriaLabel` / `detailsPopoverTitle` — consumed ONLY inside
+ * the trail table's client-side popover, never by the server shell).
  */
-export type AuditStaticLabels = Omit<AuditLabels, "pageInfo">;
+export type AuditStaticLabels = Omit<AuditLabels, "pageInfo" | "detailsExpandAriaLabel" | "detailsPopoverTitle">;
 
 export interface AuditLogContainerProps {
   /**
@@ -213,7 +215,21 @@ export function AuditLogContainer({ labels }: Readonly<AuditLogContainerProps>):
   } else if (page === undefined || page.adminAuditLogs.items.length === 0) {
     surface = (
       <Stack spacing={2} sx={{ alignItems: "center", textAlign: "center", py: 8 }} data-testid="audit-trail-empty">
-        <EmptyStateIcon sx={theme => ({ fontSize: 48, color: theme.palette.text.secondary })} aria-hidden />
+        {/* Decorative icon inside a tinted circular well — the shared admin
+            empty-state composition (token-only colors, RTL-safe). */}
+        <Box
+          aria-hidden
+          sx={theme => ({
+            width: 88,
+            height: 88,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            bgcolor: theme.palette.surfaceContainerHighest,
+          })}
+        >
+          <EmptyStateIcon sx={theme => ({ fontSize: 48, color: theme.palette.text.secondary })} />
+        </Box>
         <Typography variant="h6" component="p" sx={{ fontWeight: 700 }}>
           {t.emptyStateTitle}
         </Typography>

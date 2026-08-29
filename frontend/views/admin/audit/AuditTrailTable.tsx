@@ -1,12 +1,15 @@
 "use client";
 
+import { ExpandMoreOutlined } from "@mui/icons-material";
 import {
   Box,
   Button,
   Card,
   CardContent,
   Chip,
+  IconButton,
   Paper,
+  Popover,
   Stack,
   Table,
   TableBody,
@@ -19,7 +22,7 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { type Palette, useTheme } from "@mui/material/styles";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import type { AdminAuditLogsQuery_adminAuditLogs_items } from "@/frontend/graphql/generated/gql/graphql";
 import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
 import type { AuditLabels } from "@/shared/locale/types/audit";
@@ -51,7 +54,12 @@ import type { AuditLabels } from "@/shared/locale/types/audit";
  *    token-only, zero hardcoded hex, contrast preserved in light+dark;
  *  - the `details` JSON renders LTR monospace regardless of document
  *    direction (JSON is a machine artifact — bending it into RTL would
- *    scramble its punctuation), with a Tooltip carrying the full payload;
+ *    scramble its punctuation): the cell shows a TRUNCATED single-line
+ *    preview beside an icon-only expand trigger that opens ONE shared
+ *    popover (table-owned state — never one popover per row) carrying a
+ *    titled panel with the FULL pretty-printed payload (JSON.parse-safe,
+ *    raw-string fallback) in a copyable `pre` block; the popover chrome
+ *    stays RTL — only the JSON block is forced LTR;
  *  - a null `details`/`entityId` renders a locale-neutral em dash
  *    (punctuation, not copy).
  *
@@ -116,6 +124,31 @@ function actionChipPair(code: string, palette: Palette): { readonly background: 
  * System monospace stack for the details JSON (no theme mono token exists).
  */
 const MONO_FONT_STACK = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+
+/**
+ * Maximum characters of the raw details payload shown as the in-cell
+ * single-line preview — the FULL payload lives in the expand popover, so the
+ * trail row can never bloat under a long machine blob.
+ */
+const DETAILS_PREVIEW_MAX = 24;
+
+/** Truncated single-line preview (ellipsis-terminated when clipped). */
+function detailsPreview(details: string): string {
+  return details.length > DETAILS_PREVIEW_MAX ? `${details.slice(0, DETAILS_PREVIEW_MAX)}…` : details;
+}
+
+/**
+ * Pretty-prints the serialized details payload for the popover. The wire
+ * value is JSON produced by the audit service; a malformed payload (never
+ * expected) degrades to the raw string instead of crashing the table.
+ */
+function prettyPrintDetails(details: string): string {
+  try {
+    return JSON.stringify(JSON.parse(details), null, 2);
+  } catch {
+    return details;
+  }
+}
 
 /** Localized display name for an action code (unknown codes show raw). */
 function actionDisplay(code: string, labels: AuditLabels): string {
@@ -203,42 +236,89 @@ function ActorCell({
   );
 }
 
-/** LTR monospace details JSON (or a neutral dash) — machine artifact styling. */
+/**
+ * Icon-only expand trigger — opens the table's ONE shared details popover.
+ * Keyboard-focusable with MUI's visible focus ring; `aria-expanded` reflects
+ * the row's popover state and the label resolves the dedicated i18n key.
+ */
+function DetailsExpandButton({
+  expanded,
+  labels,
+  onExpand,
+}: {
+  readonly expanded: boolean;
+  readonly labels: AuditLabels;
+  readonly onExpand: (anchor: HTMLElement) => void;
+}): ReactNode {
+  return (
+    <IconButton
+      size="small"
+      aria-label={labels.detailsExpandAriaLabel}
+      aria-expanded={expanded}
+      aria-haspopup="dialog"
+      onClick={event => onExpand(event.currentTarget)}
+      sx={theme => ({
+        color: theme.palette.text.secondary,
+        // A quiet affordance cue: the chevron flips while this row's popover
+        // is the open one (token-only transition timing).
+        transform: expanded ? "rotate(180deg)" : "none",
+        transition: theme.transitions.create("transform"),
+      })}
+    >
+      <ExpandMoreOutlined fontSize="small" />
+    </IconButton>
+  );
+}
+
+/**
+ * Details cell — a TRUNCATED single-line monospace preview (LTR, secondary
+ * text on the surface token, ellipsis-clipped) beside the expand trigger
+ * that opens the shared popover with the FULL payload. Null details keep the
+ * locale-neutral dash (punctuation, not copy) and render NO trigger.
+ */
 function DetailsCell({
   details,
   labels,
+  expanded,
+  onExpand,
 }: {
   readonly details: string | null;
   readonly labels: AuditLabels;
+  readonly expanded: boolean;
+  readonly onExpand: (payload: string, anchor: HTMLElement) => void;
 }): ReactNode {
   if (details === null) {
     return (
-      <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
+      <Typography variant="body2" aria-hidden sx={theme => ({ color: theme.palette.text.secondary })}>
         {labels.detailsEmpty}
       </Typography>
     );
   }
   return (
-    <Typography
-      variant="caption"
-      dir="ltr"
-      component="code"
-      sx={theme => ({
-        fontFamily: MONO_FONT_STACK,
-        bgcolor: theme.palette.surfaceContainerHighest,
-        borderRadius: 1,
-        px: 0.75,
-        py: 0.25,
-        display: "inline-block",
-        maxWidth: 320,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        verticalAlign: "middle",
-      })}
-    >
-      {details}
-    </Typography>
+    <Stack sx={{ flexDirection: "row", alignItems: "center", gap: 0.75 }}>
+      <Typography
+        variant="caption"
+        dir="ltr"
+        component="code"
+        sx={theme => ({
+          fontFamily: MONO_FONT_STACK,
+          color: theme.palette.text.secondary,
+          bgcolor: theme.palette.surfaceContainerHighest,
+          borderRadius: 1,
+          px: 0.75,
+          py: 0.25,
+          display: "inline-block",
+          maxWidth: 320,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          verticalAlign: "middle",
+        })}
+      >
+        {detailsPreview(details)}
+      </Typography>
+      <DetailsExpandButton expanded={expanded} labels={labels} onExpand={anchor => onExpand(details, anchor)} />
+    </Stack>
   );
 }
 
@@ -280,6 +360,83 @@ export function AuditTrailTable({
     </Stack>
   );
 
+  // ── Details popover: ONE instance owned by the table ──────────────────────
+  // `activeDetails` carries the expanded row's id (drives every row's
+  // `aria-expanded`), the raw payload string, and the trigger element (the
+  // popover anchor). Rows NEVER mount their own popovers.
+  const [activeDetails, setActiveDetails] = useState<{
+    readonly rowId: string;
+    readonly payload: string;
+    readonly anchor: HTMLElement;
+  } | null>(null);
+
+  const openDetails = useCallback((rowId: string, payload: string, anchor: HTMLElement) => {
+    setActiveDetails({ rowId, payload, anchor });
+  }, []);
+
+  const closeDetails = useCallback(() => {
+    setActiveDetails(null);
+  }, []);
+
+  const detailsPopover = (
+    <Popover
+      open={activeDetails !== null}
+      anchorEl={activeDetails?.anchor ?? null}
+      onClose={closeDetails}
+      anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      transformOrigin={{ vertical: "top", horizontal: "center" }}
+      slotProps={{
+        paper: {
+          role: "dialog",
+          elevation: 0,
+          sx: theme => ({
+            borderRadius: 2,
+            border: "1px solid",
+            borderColor: theme.palette.outlineVariant,
+            bgcolor: theme.palette.surfaceContainerLow,
+            boxShadow: theme.palette.shadow.card,
+          }),
+        },
+      }}
+    >
+      {/* Titled panel — the chrome follows the document direction (RTL-safe);
+          only the machine payload below is forced LTR. */}
+      <Box sx={{ p: 2, display: "grid", gap: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          {labels.detailsPopoverTitle}
+        </Typography>
+        <Box
+          component="pre"
+          sx={theme => ({
+            // The machine artifact: LTR + left-aligned INSIDE the RTL chrome,
+            // monospace, wrapped and scrollable, fully selectable so admins
+            // can copy ids verbatim.
+            m: 0,
+            p: 1.5,
+            fontFamily: MONO_FONT_STACK,
+            fontSize: theme.typography.caption.fontSize,
+            lineHeight: 1.6,
+            color: theme.palette.text.primary,
+            bgcolor: theme.palette.surfaceContainerHighest,
+            border: "1px solid",
+            borderColor: theme.palette.outlineVariant,
+            borderRadius: 2,
+            direction: "ltr",
+            textAlign: "left",
+            maxWidth: 420,
+            maxHeight: 320,
+            overflow: "auto",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            userSelect: "all",
+          })}
+        >
+          {activeDetails === null ? "" : prettyPrintDetails(activeDetails.payload)}
+        </Box>
+      </Box>
+    </Popover>
+  );
+
   if (!isDesktop) {
     return (
       <Stack spacing={2} data-testid="audit-trail-cards">
@@ -312,110 +469,132 @@ export function AuditTrailTable({
                 />
                 <MobileSpecRow
                   label={labels.colDetails}
-                  value={entry.details ?? labels.detailsEmpty}
+                  value={entry.details === null ? labels.detailsEmpty : detailsPreview(entry.details)}
                   monospace={entry.details !== null}
+                  trailing={
+                    // Same popover contract as the table cell — the card shows
+                    // the truncated preview and delegates to the shared popover.
+                    entry.details === null ? null : (
+                      <DetailsExpandButton
+                        expanded={activeDetails?.rowId === entry.id}
+                        labels={labels}
+                        // `entry.details` is non-null on this branch; the
+                        // fallback only satisfies the callback's closure.
+                        onExpand={anchor => openDetails(entry.id, entry.details ?? "", anchor)}
+                      />
+                    )
+                  }
                 />
               </CardContent>
             </Card>
           ))}
         </Box>
         {paginationBar}
+        {detailsPopover}
       </Stack>
     );
   }
 
   return (
-    <TableContainer
-      component={Paper}
-      elevation={0}
-      data-testid="audit-trail-table"
-      sx={theme => ({
-        borderRadius: 3,
-        border: "1px solid",
-        borderColor: theme.palette.outlineVariant,
-        bgcolor: theme.palette.surfaceContainerLow,
-        boxShadow: theme.palette.shadow.card,
-      })}
-    >
-      <Table
-        size="medium"
-        aria-label={labels.tableSummary}
-        sx={{
-          // Compact horizontal rhythm — the six-column trail fits a 1280px
-          // viewport without the last column spilling into a heavy scroll
-          // (QA-round-2 catalog lesson carried over); narrower viewports
-          // still scroll gracefully through the TableContainer.
-          "& th, & td": { px: 1.5 },
-        }}
+    <>
+      <TableContainer
+        component={Paper}
+        elevation={0}
+        data-testid="audit-trail-table"
+        sx={theme => ({
+          borderRadius: 3,
+          border: "1px solid",
+          borderColor: theme.palette.outlineVariant,
+          bgcolor: theme.palette.surfaceContainerLow,
+          boxShadow: theme.palette.shadow.card,
+        })}
       >
-        <TableHead
-          sx={theme => ({
-            // Sticky header — the trail stays readable while scrolling;
-            // background must be OPAQUE (rows slide beneath otherwise).
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
-            bgcolor: theme.palette.surfaceContainerLow,
-          })}
+        <Table
+          size="medium"
+          aria-label={labels.tableSummary}
+          sx={{
+            // Compact horizontal rhythm — the six-column trail fits a 1280px
+            // viewport without the last column spilling into a heavy scroll
+            // (QA-round-2 catalog lesson carried over); narrower viewports
+            // still scroll gracefully through the TableContainer.
+            "& th, & td": { px: 1.5 },
+          }}
         >
-          <TableRow>
-            <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
-              {labels.colTimestamp}
-            </TableCell>
-            <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
-              {labels.colActor}
-            </TableCell>
-            <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
-              {labels.colAction}
-            </TableCell>
-            <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
-              {labels.colEntity}
-            </TableCell>
-            <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
-              {labels.colDetails}
-            </TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {items.map(entry => (
-            <TableRow key={entry.id} hover sx={{ "&:last-child td": { borderBottom: 0 } }}>
-              <TableCell>
-                <TimestampText iso={entry.createdAt} locale={locale} />
+          <TableHead
+            sx={theme => ({
+              // Sticky header — the trail stays readable while scrolling;
+              // background must be OPAQUE (rows slide beneath otherwise).
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+              bgcolor: theme.palette.surfaceContainerLow,
+            })}
+          >
+            <TableRow>
+              <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
+                {labels.colTimestamp}
               </TableCell>
-              <TableCell>
-                <ActorCell actor={entry.actor} />
+              <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
+                {labels.colActor}
               </TableCell>
-              <TableCell>
-                <ActionChip code={entry.actionType} labels={labels} />
+              <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
+                {labels.colAction}
               </TableCell>
-              <TableCell>
-                <Stack spacing={0.25}>
-                  <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-                    {entityDisplay(entry.entityType, labels)}
-                  </Typography>
-                  {entry.entityId === null ? null : (
-                    <Typography
-                      variant="caption"
-                      sx={theme => ({ color: theme.palette.text.secondary })}
-                    >{`${labels.colEntityId}: ${entry.entityId}`}</Typography>
-                  )}
-                </Stack>
+              <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
+                {labels.colEntity}
               </TableCell>
-              <TableCell>
-                <DetailsCell details={entry.details} labels={labels} />
+              <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
+                {labels.colDetails}
               </TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-        <TableFooter>
-          <TableRow>
-            <TableCell colSpan={5} sx={{ borderBottom: 0, pt: 2 }}>
-              {paginationBar}
-            </TableCell>
-          </TableRow>
-        </TableFooter>
-      </Table>
-    </TableContainer>
+          </TableHead>
+          <TableBody>
+            {items.map(entry => (
+              <TableRow key={entry.id} hover sx={{ "&:last-child td": { borderBottom: 0 } }}>
+                <TableCell>
+                  <TimestampText iso={entry.createdAt} locale={locale} />
+                </TableCell>
+                <TableCell>
+                  <ActorCell actor={entry.actor} />
+                </TableCell>
+                <TableCell>
+                  <ActionChip code={entry.actionType} labels={labels} />
+                </TableCell>
+                <TableCell>
+                  <Stack spacing={0.25}>
+                    <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+                      {entityDisplay(entry.entityType, labels)}
+                    </Typography>
+                    {entry.entityId === null ? null : (
+                      <Typography
+                        variant="caption"
+                        sx={theme => ({ color: theme.palette.text.secondary })}
+                      >{`${labels.colEntityId}: ${entry.entityId}`}</Typography>
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell>
+                  <DetailsCell
+                    details={entry.details}
+                    labels={labels}
+                    expanded={activeDetails?.rowId === entry.id}
+                    onExpand={(payload, anchor) => openDetails(entry.id, payload, anchor)}
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+          <TableFooter>
+            <TableRow>
+              <TableCell colSpan={5} sx={{ borderBottom: 0, pt: 2 }}>
+                {paginationBar}
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </TableContainer>
+      {detailsPopover}
+    </>
   );
 }
 
@@ -441,38 +620,44 @@ function MobileSpecRow({
   label,
   value,
   monospace = false,
+  trailing = null,
 }: {
   readonly label: string;
   readonly value: string | number;
   readonly monospace?: boolean;
+  /** Optional trailing slot (the details expand trigger rides it). */
+  readonly trailing?: ReactNode;
 }): ReactNode {
   return (
     <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 2 }}>
       <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
         {label}
       </Typography>
-      {monospace ? (
-        <Typography
-          variant="body2"
-          component="code"
-          dir="ltr"
-          sx={theme => ({
-            fontWeight: 400,
-            textAlign: "end",
-            fontFamily: MONO_FONT_STACK,
-            bgcolor: theme.palette.surfaceContainerHighest,
-            borderRadius: 1,
-            px: 0.75,
-            py: 0.25,
-          })}
-        >
-          {value}
-        </Typography>
-      ) : (
-        <Typography variant="body2" sx={{ fontWeight: 600, textAlign: "end" }}>
-          {value}
-        </Typography>
-      )}
+      <Stack sx={{ flexDirection: "row", alignItems: "center", gap: 0.75 }}>
+        {monospace ? (
+          <Typography
+            variant="body2"
+            component="code"
+            dir="ltr"
+            sx={theme => ({
+              fontWeight: 400,
+              textAlign: "end",
+              fontFamily: MONO_FONT_STACK,
+              bgcolor: theme.palette.surfaceContainerHighest,
+              borderRadius: 1,
+              px: 0.75,
+              py: 0.25,
+            })}
+          >
+            {value}
+          </Typography>
+        ) : (
+          <Typography variant="body2" sx={{ fontWeight: 600, textAlign: "end" }}>
+            {value}
+          </Typography>
+        )}
+        {trailing}
+      </Stack>
     </Box>
   );
 }

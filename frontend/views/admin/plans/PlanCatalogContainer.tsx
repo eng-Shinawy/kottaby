@@ -297,8 +297,10 @@ interface EmptyStateProps {
 }
 
 /**
- * Empty catalog — localized copy + icon + create CTA (the same intent
- * handler the page-header button uses; opens the create dialog).
+ * Empty catalog — localized copy inside the shared admin empty-state
+ * composition (decorative icon in a tinted circular well, token-only
+ * colors) + create CTA (the same intent handler the page-header button
+ * uses; opens the create dialog).
  */
 function PlanCatalogEmptyState({ t, onCreate }: Readonly<EmptyStateProps>): ReactNode {
   return (
@@ -317,7 +319,19 @@ function PlanCatalogEmptyState({ t, onCreate }: Readonly<EmptyStateProps>): Reac
         boxShadow: theme.palette.shadow.card,
       })}
     >
-      <EmptyStateIcon sx={theme => ({ fontSize: 48, color: theme.palette.text.secondary })} />
+      <Box
+        aria-hidden
+        sx={theme => ({
+          width: 88,
+          height: 88,
+          borderRadius: "50%",
+          display: "grid",
+          placeItems: "center",
+          bgcolor: theme.palette.surfaceContainerHighest,
+        })}
+      >
+        <EmptyStateIcon sx={theme => ({ fontSize: 48, color: theme.palette.text.secondary })} />
+      </Box>
       <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
         {t.emptyStateTitle}
       </Typography>
