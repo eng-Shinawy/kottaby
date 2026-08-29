@@ -212,9 +212,12 @@ export function PlanCatalogContainer({ labels }: Readonly<PlanCatalogContainerPr
     <>
       {surface}
       {/* Dialogs + success toast mount in EVERY state — the empty-state create
-          CTA and the table row actions share the same wiring. */}
+          CTA and the table row actions share the same wiring. Keys are
+          kind-prefixed: the two dialog nonces start at (and reset to) 0, and
+          bare numeric keys collided across siblings (React duplicate-key
+          warning — audit-CR2). */}
       <PlanFormDialog
-        key={formDialog.nonce}
+        key={`form-${formDialog.nonce}`}
         open={formDialog.open}
         plan={formDialog.plan}
         labels={t}
@@ -222,7 +225,7 @@ export function PlanCatalogContainer({ labels }: Readonly<PlanCatalogContainerPr
         onSaved={handlePlanSaved}
       />
       <PlanStatusConfirmDialog
-        key={statusDialogNonce}
+        key={`status-${statusDialogNonce}`}
         open={statusDialogOpen}
         plan={statusPlan}
         labels={t}
@@ -230,7 +233,7 @@ export function PlanCatalogContainer({ labels }: Readonly<PlanCatalogContainerPr
         onStatusChanged={handleStatusChanged}
       />
       <Snackbar
-        key={snackbar?.id}
+        key={snackbar === null ? "toast-idle" : `toast-${snackbar.id}`}
         open={snackbar !== null}
         autoHideDuration={6000}
         onClose={dismissSnackbar}
