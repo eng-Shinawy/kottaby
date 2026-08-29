@@ -14,6 +14,7 @@ export const dashboardAr: DashboardLabels = {
   students: "الطلاب",
   plans: "الباقات",
   audit: "سجل التدقيق",
+  verificationQueue: "التحقق من المدفوعات",
   profile: "الملف الشخصي",
   children: "الأبناء",
   comingSoon: "قريباً",

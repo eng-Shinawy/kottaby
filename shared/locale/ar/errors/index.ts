@@ -36,4 +36,9 @@ export const errorsAr: ErrorsLabels = {
   // Subscription-request domain errors (DEV1-006 Phase A).
   planInactive: "هذه الباقة لم تعد متاحة للاشتراك.",
   subscriptionRequestExists: "لديك طلب قيد المعالجة لهذه الباقة بالفعل.",
+  // Subscription payment-verification domain errors (DEV1-006 Phase B).
+  subscriptionNotFound: "طلب الاشتراك المطلوب غير موجود.",
+  subscriptionAlreadyResolved: "تمت معالجة طلب الاشتراك هذا بالفعل.",
+  paymentMethodInvalid: "طريقة الدفع المختارة غير مدعومة.",
+  paymentReferenceInvalid: "يرجى إدخال مرجع الدفع (من ١ إلى ٢٥٥ حرفاً).",
 };

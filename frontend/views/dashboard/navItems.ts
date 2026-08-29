@@ -16,6 +16,7 @@ import {
   type SvgIconComponent,
   PersonOutlined as TeachersIcon,
   SupervisedUserCircleOutlined as UsersIcon,
+  FactCheckOutlined as VerificationIcon,
   PaymentsOutlined as WalletIcon,
 } from "@mui/icons-material";
 import { UserRole } from "@/frontend/graphql/generated/gql/graphql";
@@ -80,6 +81,7 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     { route: "/teachers", labelKey: "teachers", Icon: TeachersIcon },
     { route: "/students", labelKey: "students", Icon: StudentsIcon },
     { route: "/admin/plans", labelKey: "plans", Icon: PlansIcon },
+    { route: "/admin/verifications", labelKey: "verificationQueue", Icon: VerificationIcon },
     { route: "/audit", labelKey: "audit", Icon: AuditIcon },
     { route: "/profile", labelKey: "profile", Icon: ProfileIcon },
   ],

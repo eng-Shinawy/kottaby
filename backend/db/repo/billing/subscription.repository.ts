@@ -1,13 +1,16 @@
 /**
  * SubscriptionRepository — data-access layer for the `subscriptions` table
- * (DEV1-006 Phase A: the subscription-request groundwork).
+ * (DEV1-006 Phase A: the subscription-request groundwork; Phase B: the
+ * admin payment-verification transition).
  *
  * A subscription row is created PENDING by construction: `status` rides the
  * schema default (`subscription_status` = 'pending'), `start_date` /
  * `end_date` / `payment_*` columns stay NULL until the payment-confirmation
- * stage activates the subscription (later DEV1-006 phases own that
- * transition). No UPDATE/DELETE surface exists at this phase — activation,
- * expiry, and cancellation land with the payment flow.
+ * stage activates the subscription. DEV1-006 Phase B owns the FIRST
+ * transition: `verifyAndActivatePending` — the guarded `pending → active`
+ * write that stamps the offline-payment columns (decision B.9). Cancellation,
+ * expiry, and admin rejection land with later phases (the guarded-predicate
+ * discipline established here is their template).
  *
  * Conventions per `backend/db/repo/AGENTS.md`:
  *  - Writes are single statements (INSERT … RETURNING) — no read-then-write.
@@ -22,11 +25,18 @@
  *    purchase-time re-validation closes INV-PC1 against a deactivate racing
  *    a checkout; the row lock serializes the two).
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
-import type { DBTransaction, PlanSelectType, SubscriptionInsertType, SubscriptionSelectType } from "@/backend/types";
+import { users } from "@/backend/db/schema/users/users";
+import type {
+  DBTransaction,
+  PlanSelectType,
+  SubscriptionInsertType,
+  SubscriptionSelectType,
+  SubscriptionUserSummary,
+} from "@/backend/types";
 
 /**
  * Shared read projection for the raw non-transactional branch. Column aliases
@@ -54,6 +64,39 @@ LIMIT 1`;
 const LIST_BY_USER_SQL = `${SUBSCRIPTION_READ_COLUMNS_SQL}
 WHERE user_id = $1
 ORDER BY created_at DESC, id DESC`;
+
+const FIND_STATUS_BY_ID_SQL = `SELECT id,
+       user_id AS "userId",
+       plan_id AS "planId",
+       status,
+       start_date AS "startDate",
+       end_date AS "endDate",
+       payment_method AS "paymentMethod",
+       payment_reference AS "paymentReference",
+       payment_verified_at AS "paymentVerifiedAt",
+       created_at AS "createdAt",
+       updated_at AS "updatedAt"
+FROM subscriptions
+WHERE id = $1
+LIMIT 1`;
+
+/**
+ * The two offline payment methods the admin verification stage records
+ * (decision B.9 posture — DEV1-006 Phase B). The `payment_gateway` pgEnum
+ * carries the wider gateway universe; the verification surface intentionally
+ * records ONLY these two until an online-gateway phase widens it.
+ */
+export type OfflineVerificationPaymentMethod = "offline_cash" | "bank_transfer";
+
+/** Guarded-activation write shape for {@link verifyAndActivatePending}. */
+export interface VerifyAndActivateInput {
+  readonly subscriptionId: number;
+  readonly paymentMethod: OfflineVerificationPaymentMethod;
+  readonly paymentReference: string;
+  readonly startDate: Date;
+  readonly endDate: Date;
+  readonly verifiedAt: Date;
+}
 
 export namespace SubscriptionRepository {
   /**
@@ -153,4 +196,113 @@ export namespace SubscriptionRepository {
     const result = await queryDb<SubscriptionSelectType>(LIST_BY_USER_SQL, [userId]);
     return result.rows;
   }
+
+  /**
+   * The ADMIN verification-queue read (DEV1-006 Phase B): every PENDING
+   * subscription joined with its plan row AND a narrow purchaser summary
+   * (id / fullName / email — never the full `users` row), oldest first
+   * (`created_at ASC`, `id ASC` tiebreak — FIFO verification: the request
+   * that has been waiting longest surfaces first).
+   *
+   * The plan join is a PLAIN read with NO active predicate: an admin must
+   * see pending requests even when their plan was deactivated AFTER the
+   * request (REQ-017 — deactivation preserves existing subscriptions; the
+   * verification decision itself is the service's concern, not this read's).
+   *
+   * Drizzle join for BOTH paths — the projection is a nested shape, which
+   * the raw `queryDb` aliasing pattern cannot express without a fragile
+   * flat-alias mapping; the pool-backed `db` client carries the same
+   * camelCase mapping as the transaction client.
+   *
+   * @returns Pending subscriptions with `plan` + `user` embedded, oldest first.
+   */
+  export async function listPendingForVerification(tx?: DBTransaction): Promise<SubscriptionWithPlanAndUserRow[]> {
+    const rows = await (tx ?? db)
+      .select({
+        subscription: subscriptions,
+        plan: plans,
+        userId: users.id,
+        userFullName: users.fullName,
+        userEmail: users.email,
+      })
+      .from(subscriptions)
+      .innerJoin(plans, eq(subscriptions.planId, plans.id))
+      .innerJoin(users, eq(subscriptions.userId, users.id))
+      .where(eq(subscriptions.status, "pending"))
+      .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id));
+    return rows.map(row => ({
+      ...row.subscription,
+      plan: row.plan,
+      user: { id: row.userId, fullName: row.userFullName, email: row.userEmail } satisfies SubscriptionUserSummary,
+    }));
+  }
+
+  /**
+   * Existence + status probe for the verification flow: resolves the
+   * not-found vs already-resolved ambiguity BEFORE the guarded write (the
+   * write's zero-row outcome alone cannot distinguish the two).
+   *
+   * @returns The subscription's identity columns, or `null` when the id
+   *          references no row.
+   */
+  export async function findStatusById(
+    id: number,
+    tx?: DBTransaction
+  ): Promise<Pick<SubscriptionSelectType, "id" | "planId" | "status"> | null> {
+    if (tx) {
+      const rows = await tx
+        .select({ id: subscriptions.id, planId: subscriptions.planId, status: subscriptions.status })
+        .from(subscriptions)
+        .where(eq(subscriptions.id, id))
+        .limit(1);
+      return rows[0] ?? null;
+    }
+    const result = await queryDb<Pick<SubscriptionSelectType, "id" | "planId" | "status">>(FIND_STATUS_BY_ID_SQL, [id]);
+    return result.rows[0] ?? null;
+  }
+
+  /**
+   * The payment-verification transition as ONE guarded statement (the
+   * repo-layer twin of `PlanRepository.setActiveStatusOnce`): stamps the
+   * offline-payment columns and flips `pending → active` ONLY when the row
+   * is still pending — a verification racing another admin's verification
+   * (or a future cancellation surface) serializes on this predicate, and
+   * exactly one caller's UPDATE matches.
+   *
+   * No read-then-write: the status probe lives in the service; this method
+   * is the single conditional write whose zero-row outcome the service
+   * re-probes.
+   *
+   * @returns The activated row, or `null` when the guarded predicate
+   *          matched nothing (id missing or status no longer pending —
+   *          callers disambiguate via {@link findStatusById}).
+   */
+  export async function verifyAndActivatePending(
+    input: VerifyAndActivateInput,
+    tx?: DBTransaction
+  ): Promise<SubscriptionSelectType | null> {
+    const rows = await (tx ?? db)
+      .update(subscriptions)
+      .set({
+        status: "active",
+        startDate: input.startDate,
+        endDate: input.endDate,
+        paymentMethod: input.paymentMethod,
+        paymentReference: input.paymentReference,
+        paymentVerifiedAt: input.verifiedAt,
+      })
+      .where(and(eq(subscriptions.id, input.subscriptionId), eq(subscriptions.status, "pending")))
+      .returning();
+    return rows[0] ?? null;
+  }
+}
+
+/**
+ * The admin verification-queue projection: the raw subscription row with its
+ * plan row AND the narrow purchaser summary embedded (both INNER-JOIN
+ * guaranteed non-null by {@link listPendingForVerification}).
+ */
+export interface SubscriptionWithPlanAndUserRow extends SubscriptionSelectType {
+  readonly plan: PlanSelectType;
+  readonly user: SubscriptionUserSummary;
 }

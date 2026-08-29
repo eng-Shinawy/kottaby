@@ -1,0 +1,30 @@
+import type { PaymentVerificationLabels } from "@/shared/locale/types/paymentVerification";
+
+export const paymentVerificationEn: PaymentVerificationLabels = {
+  pageTitle: "Payment Verification",
+  pageSubtitle: "Review pending subscription requests and confirm offline payments.",
+  loading: "Loading pending requests…",
+  emptyStateTitle: "No pending payment requests",
+  emptyStateBody: "When a subscriber submits a subscription request, it appears here for payment confirmation.",
+  errorStateTitle: "Couldn't load the verification queue",
+  errorStateBody: "Something went wrong while fetching the pending requests. You can try again.",
+  errorStateRetry: "Try again",
+  labelRequestedBy: "Requested by",
+  labelPlan: "Plan",
+  labelSessions: "Sessions",
+  labelPrice: "Price",
+  labelRequestedAt: "Requested",
+  verifyCta: "Verify payment",
+  verifyDialogTitle: "Confirm payment",
+  verifyDialogBody: planTitle =>
+    `Record the offline payment for «${planTitle}». Confirming activates the subscription immediately.`,
+  labelPaymentMethod: "Payment method",
+  methodOfflineCash: "Cash (offline)",
+  methodBankTransfer: "Bank transfer",
+  labelPaymentReference: "Payment reference",
+  paymentReferencePlaceholder: "e.g. receipt no. 00123",
+  verifyDialogConfirm: "Confirm & activate",
+  verifyDialogCancel: "Cancel",
+  verifySuccessToast: "Payment verified — subscription activated.",
+  verifyFailedToast: "Couldn't verify the payment. Please try again.",
+};

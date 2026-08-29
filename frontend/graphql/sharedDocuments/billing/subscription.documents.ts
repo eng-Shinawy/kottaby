@@ -1,12 +1,15 @@
 import { gql, type TypedDocumentNode } from "@apollo/client";
 import type {
+  AdminPendingSubscriptionRequestsQuery,
   MySubscriptionsQuery,
   RequestPlanSubscriptionMutation,
   RequestPlanSubscriptionMutationVariables,
+  VerifySubscriptionPaymentMutation,
+  VerifySubscriptionPaymentMutationVariables,
 } from "@/frontend/graphql/generated/gql/graphql";
 
 /**
- * Subscription shared documents (DEV1-006 Phase A).
+ * Subscription shared documents (DEV1-006: Phase A storefront + Phase B admin verification).
  *
  * Selection sets take the canonical `Subscription` shape (id, status, plan,
  * lifecycle dates, offline-payment tracking columns, timestamps) with the
@@ -66,6 +69,83 @@ export const requestPlanSubscriptionMutationDocument: TypedDocumentNode<
 > = gql`
   mutation RequestPlanSubscription($planId: ID!) {
     requestPlanSubscription(planId: $planId) {
+      id
+      status
+      plan {
+        id
+        title
+        sessionCount
+        price
+        currency
+        intervalDays
+        isActive
+        deactivatedAt
+        createdAt
+        updatedAt
+      }
+      startDate
+      endDate
+      paymentMethod
+      paymentReference
+      paymentVerifiedAt
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+/**
+ * `adminPendingSubscriptionRequests` — the ADMIN verification queue
+ * (DEV1-006 Phase B, server-enforced admin gate): every PENDING
+ * subscription request, oldest first, with its plan and the narrow
+ * purchaser summary (id / fullName / email). No payment columns — they are
+ * guaranteed NULL pre-verification; the verify dialog COLLECTS them.
+ */
+export const adminPendingSubscriptionRequestsQueryDocument: TypedDocumentNode<AdminPendingSubscriptionRequestsQuery> = gql`
+    query AdminPendingSubscriptionRequests {
+      adminPendingSubscriptionRequests {
+        id
+        status
+        plan {
+          id
+          title
+          sessionCount
+          price
+          currency
+          intervalDays
+        }
+        user {
+          id
+          fullName
+          email
+        }
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+
+/**
+ * `verifySubscriptionPayment` — the admin payment-verification transition
+ * (DEV1-006 Phase B, server-enforced admin gate). Returns the ACTIVATED
+ * subscription in the FULL canonical `Subscription` selection (status
+ * active, payment columns stamped, plan embedded) so Apollo overwrites the
+ * normalized `Subscription:<id>` entry the moment the mutation settles.
+ */
+export const verifySubscriptionPaymentMutationDocument: TypedDocumentNode<
+  VerifySubscriptionPaymentMutation,
+  VerifySubscriptionPaymentMutationVariables
+> = gql`
+  mutation VerifySubscriptionPayment(
+    $subscriptionId: ID!
+    $paymentMethod: String!
+    $paymentReference: String!
+  ) {
+    verifySubscriptionPayment(
+      subscriptionId: $subscriptionId
+      paymentMethod: $paymentMethod
+      paymentReference: $paymentReference
+    ) {
       id
       status
       plan {

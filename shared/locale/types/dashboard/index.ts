@@ -39,6 +39,8 @@ export interface DashboardLabels {
   readonly plans: string;
   /** Sidebar nav: Audit link (admin) */
   readonly audit: string;
+  /** Sidebar nav: Payment-verification queue link (admin, DEV1-006 Phase B) */
+  readonly verificationQueue: string;
   /** Sidebar nav: Profile link */
   readonly profile: string;
   /** Sidebar nav: Children link (parent) */

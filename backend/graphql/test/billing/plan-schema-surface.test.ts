@@ -147,9 +147,7 @@ describe("DateTime scalar — Task 3.1 gate amendment", () => {
       throw new Error("DateTime must be a registered GraphQL scalar");
     }
 
-    expect((scalar.parseValue("2025-01-15T09:30:00.000Z") as Date).toISOString()).toBe(
-      "2025-01-15T09:30:00.000Z",
-    );
+    expect((scalar.parseValue("2025-01-15T09:30:00.000Z") as Date).toISOString()).toBe("2025-01-15T09:30:00.000Z");
     expect(() => scalar.parseValue("not-a-date")).toThrow();
     expect(() => scalar.parseValue("2025-13-45T99:00:00.000Z")).toThrow();
   });

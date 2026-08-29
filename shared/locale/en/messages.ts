@@ -4,6 +4,7 @@ import { commonEn } from "@/shared/locale/en/common";
 import { dashboardEn } from "@/shared/locale/en/dashboard";
 import { errorsEn } from "@/shared/locale/en/errors";
 import { landingEn } from "@/shared/locale/en/landing";
+import { paymentVerificationEn } from "@/shared/locale/en/paymentVerification";
 import { plansEn } from "@/shared/locale/en/plans";
 import { recitationEn } from "@/shared/locale/en/recitation";
 import { studentPlansEn } from "@/shared/locale/en/studentPlans";
@@ -19,4 +20,5 @@ export const enMessages: Translations = {
   applicantTranslations: applicantEn,
   plansTranslations: plansEn,
   studentPlansTranslations: studentPlansEn,
+  paymentVerificationTranslations: paymentVerificationEn,
 };

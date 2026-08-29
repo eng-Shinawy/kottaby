@@ -36,4 +36,9 @@ export const errorsEn: ErrorsLabels = {
   // Subscription-request domain errors (DEV1-006 Phase A).
   planInactive: "This plan is no longer available for subscription.",
   subscriptionRequestExists: "You already have a pending request for this plan.",
+  // Subscription payment-verification domain errors (DEV1-006 Phase B).
+  subscriptionNotFound: "The requested subscription request was not found.",
+  subscriptionAlreadyResolved: "This subscription request has already been resolved.",
+  paymentMethodInvalid: "The selected payment method is not supported.",
+  paymentReferenceInvalid: "Please enter the payment reference (1-255 characters).",
 };

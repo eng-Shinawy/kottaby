@@ -1,6 +1,9 @@
 /**
- * Subscription queries — `mySubscriptions` (DEV1-006 Phase A: the
- * owner-scoped read behind the storefront's pending-request state).
+ * Subscription queries — DEV1-006:
+ *  - `mySubscriptions` (Phase A): the owner-scoped read behind the
+ *    storefront's pending-request state.
+ *  - `adminPendingSubscriptionRequests` (Phase B): the admin verification
+ *    queue read.
  *
  *  - `mySubscriptions: [Subscription!]!` — every subscription owned by the
  *    calling user (ANY status, newest first), each with its plan row
@@ -12,6 +15,13 @@
  *    may deactivate AFTER a pending request exists — hiding it would
  *    orphan the request UI-side).
  *
+ *  - `adminPendingSubscriptionRequests: [AdminSubscriptionRequest!]!` —
+ *    every PENDING subscription with its plan and a narrow purchaser
+ *    summary, oldest first (FIFO). Admin-gated: verification is an
+ *    administrative act; subscribers never see the queue. The projection
+ *    carries no payment columns (guaranteed NULL pre-verification) and no
+ *    identity fields beyond the verification workflow's needs.
+ *
  * authScopes 401/403 split (verified against @pothos/plugin-scope-auth@4.1.7
  * and documented in `query/teachers/applicant.query.ts` and
  * `mutation/plan-catalog.mutation.ts`):
@@ -21,7 +31,7 @@
  *    EXPLICIT with `$all`: anonymous callers hit the `authenticated`
  *    scope's UnauthorizedError throw (extensions.code UNAUTHORIZED / 401 —
  *    explicit throws pass through builder.ts's unauthorizedError mapping
- *    VERBATIM), while authenticated non-members (admins) fail the `role`
+ *    VERBATIM), while authenticated non-members fail the `role`
  *    scope into the canonical localized ForbiddenError (FORBIDDEN / 403).
  *
  * Per backend/graphql/query/AGENTS.md:
@@ -35,6 +45,7 @@
  *    `SubscriptionPothosObject`, registered transitively by this import.
  */
 import { UserRole } from "@/backend/enum/users/user-role.enum";
+import { AdminSubscriptionRequestPothosObject } from "@/backend/graphql/pothos/billing/admin-subscription-request.pothos";
 import { SubscriptionPothosObject } from "@/backend/graphql/pothos/billing/subscription.pothos";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { UnauthorizedError } from "@/backend/lib/errors";
@@ -42,6 +53,9 @@ import { SubscriptionService } from "@/backend/services";
 
 /** The storefront's subscriber roles (admins manage the catalog, never subscribe). */
 const SUBSCRIBER_ROLES = [UserRole.Student, UserRole.Parent, UserRole.Teacher];
+
+/** The verification queue's gate: admins only. */
+const ADMIN_ROLE = [UserRole.Admin];
 
 // Side-effect: register the `mySubscriptions` owner-scoped query field.
 gqlSchemaBuilder.queryField("mySubscriptions", t =>
@@ -67,6 +81,29 @@ gqlSchemaBuilder.queryField("mySubscriptions", t =>
         throw new UnauthorizedError("Authentication required.");
       }
       return SubscriptionService.listMySubscriptions(ctx.user.id, ctx.locale);
+    },
+  })
+);
+
+// Side-effect: register the `adminPendingSubscriptionRequests` admin-gated
+// query field (DEV1-006 Phase B verification queue).
+gqlSchemaBuilder.queryField("adminPendingSubscriptionRequests", t =>
+  t.field({
+    type: [AdminSubscriptionRequestPothosObject],
+    nullable: false,
+    // Explicit `$all` conjunction — admins only (same 401/403 split).
+    authScopes: {
+      $all: {
+        authenticated: true,
+        role: ADMIN_ROLE,
+      },
+    },
+    resolve: async (_root, _args, ctx) => {
+      // TS narrowing only — unreachable behind `$all { authenticated: true }`.
+      if (!ctx.user) {
+        throw new UnauthorizedError("Authentication required.");
+      }
+      return SubscriptionService.listPendingSubscriptionRequests(ctx.locale);
     },
   })
 );

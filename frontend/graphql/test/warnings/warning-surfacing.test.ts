@@ -287,6 +287,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "updatePlan",
   "setPlanActiveStatus",
   "requestPlanSubscription",
+  "verifySubscriptionPayment",
 ];
 /** Documented precedent surfaces that must ADOPT Rules #6/#7 when wired. */
 const DOCUMENTED_WARNING_SURFACES_PENDING = ["releaseQuotaIfDeducted", "deleteClassInstance"];

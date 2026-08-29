@@ -11,3 +11,16 @@ export type SubscriptionInsertType = typeof subscriptions.$inferInsert;
  * be mutated in place.
  */
 export type SubscriptionReturnType = Readonly<SubscriptionSelectType>;
+
+/**
+ * Narrow purchaser summary embedded in the ADMIN verification-queue
+ * projection (`SubscriptionWithPlanAndUser`). Deliberately limited to the
+ * three fields the verification workflow needs to identify WHO paid —
+ * never the full `users` row (no phone, no role internals, no governance
+ * columns): the admin surface shows a payment queue, not a directory.
+ */
+export type SubscriptionUserSummary = {
+  readonly id: number;
+  readonly fullName: string;
+  readonly email: string;
+};

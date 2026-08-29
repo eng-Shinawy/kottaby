@@ -11,5 +11,6 @@
  * Registration-only: no value exports. Consumers import the canonical refs
  * (e.g. `PlanPothosObject`) directly from their owning modules.
  */
+import "./admin-subscription-request.pothos";
 import "./plan.pothos";
 import "./subscription.pothos";

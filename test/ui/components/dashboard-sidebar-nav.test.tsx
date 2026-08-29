@@ -126,6 +126,8 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
       "/teachers",
       "/students",
       "/admin/plans",
+      // DEV1-006 Phase B — the admin payment-verification queue.
+      "/admin/verifications",
       "/audit",
       "/profile",
     ]);
@@ -135,6 +137,10 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
     // The *Outlined icon convention: the PlansIcon component is attached
     // (MUI icon components are exotic objects — forwardRef/ lazy wrappers).
     expect(plans?.Icon).toBeDefined();
+
+    const verification = adminItems.find(item => item.route === "/admin/verifications");
+    expect(verification?.labelKey).toBe("verificationQueue");
+    expect(verification?.Icon).toBeDefined();
   });
 
   test("student/parent/teacher navs carry the consumer /plans storefront; admin surface stays admin-only (role-visibility 4.5.3, storefront amendment r2)", () => {
@@ -142,15 +148,17 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
     // applicants acquire the New Teacher Verification & Evaluation plan
     // there (the ApplicantStatusCard pending/re-apply CTAs link to it).
     // NOBODY but the admin sees the management surface /admin/plans in
-    // their nav.
+    // their nav — and the same hold for the verification queue (DEV1-006
+    // Phase B): verification is an administrative act.
     for (const role of [UserRole.Student, UserRole.Parent, UserRole.Teacher]) {
       const items = getNavItemsForRole(role);
       const storefront = items.find(item => item.route === "/plans");
       expect(storefront, `role ${role} carries the /plans storefront`).toBeDefined();
       expect(storefront?.labelKey).toBe("plans");
       expect(storefront?.Icon).toBeDefined();
-      // The management surface stays admin-only in every non-admin nav.
+      // The management surfaces stay admin-only in every non-admin nav.
       expect(items.some(item => item.route === "/admin/plans")).toBe(false);
+      expect(items.some(item => item.route === "/admin/verifications")).toBe(false);
     }
   });
 

@@ -80,4 +80,28 @@ export interface ErrorsLabels {
    * still pending).
    */
   readonly subscriptionRequestExists: string;
+
+  // ── Subscription payment-verification domain errors (DEV1-006 Phase B) ──
+  /**
+   * "The requested subscription request was not found." — the verification
+   * mutation's id references no row (or a non-positive integer — the same
+   * "cannot reference the entity" posture as `planNotFound`).
+   */
+  readonly subscriptionNotFound: string;
+  /**
+   * "This subscription request has already been resolved." — the row is no
+   * longer pending (already verified, cancelled, …) or another admin's
+   * verification won the guarded-write race.
+   */
+  readonly subscriptionAlreadyResolved: string;
+  /**
+   * "The selected payment method is not supported." — the method is outside
+   * the offline verification set (offline_cash / bank_transfer).
+   */
+  readonly paymentMethodInvalid: string;
+  /**
+   * "Please enter the payment reference (1-255 characters)." — the offline
+   * receipt reference failed the trim/length validation.
+   */
+  readonly paymentReferenceInvalid: string;
 }

@@ -1,3 +1,18 @@
+type AdminSubscriptionRequest {
+  createdAt: DateTime!
+  id: ID!
+  plan: Plan!
+  status: String!
+  updatedAt: DateTime!
+  user: AdminSubscriptionUser!
+}
+
+type AdminSubscriptionUser {
+  email: String!
+  fullName: String!
+  id: ID!
+}
+
 type ApplicantProfile {
   canPurchaseVerification: Boolean!
   cooldownActive: Boolean!
@@ -79,6 +94,7 @@ type Mutation {
   requestPlanSubscription(planId: ID!): Subscription!
   setPlanActiveStatus(id: ID!, isActive: Boolean!): Plan!
   updatePlan(id: ID!, input: UpdatePlanInput!): Plan!
+  verifySubscriptionPayment(paymentMethod: String!, paymentReference: String!, subscriptionId: ID!): Subscription!
 }
 
 type Plan {
@@ -96,6 +112,7 @@ type Plan {
 
 type Query {
   _health: HealthCheck!
+  adminPendingSubscriptionRequests: [AdminSubscriptionRequest!]!
   adminPlans(includeInactive: Boolean = true): [Plan!]!
 
   """

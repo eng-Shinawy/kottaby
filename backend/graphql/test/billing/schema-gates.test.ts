@@ -363,6 +363,8 @@ describe("SEC — root-field authScopes audit (runtime config, not SDL)", () => 
         "updatePlan",
         // DEV1-006 Phase A — the storefront's real subscribe action.
         "requestPlanSubscription",
+        // DEV1-006 Phase B — the admin payment-verification transition.
+        "verifySubscriptionPayment",
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -370,5 +372,10 @@ describe("SEC — root-field authScopes audit (runtime config, not SDL)", () => 
   test("requestPlanSubscription carries the EXPLICIT subscriber $all conjunction", () => {
     expect(authScopesOf("mutation", "requestPlanSubscription")).toEqual(SUBSCRIBER_GATE);
     expect(authScopesOf("query", "mySubscriptions")).toEqual(SUBSCRIBER_GATE);
+  });
+
+  test("verifySubscriptionPayment + adminPendingSubscriptionRequests carry the EXPLICIT admin $all conjunction (DEV1-006 Phase B)", () => {
+    expect(authScopesOf("mutation", "verifySubscriptionPayment")).toEqual(ADMIN_GATE);
+    expect(authScopesOf("query", "adminPendingSubscriptionRequests")).toEqual(ADMIN_GATE);
   });
 });
