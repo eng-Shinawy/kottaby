@@ -59,6 +59,8 @@ const eslintConfig = defineConfig([
     "frontend/graphql/generated/**",
     "**/unRefactored_tests/**",
     "*storybook.log",
+    // Sandbox-provided skills directory (gitignored, not part of the project).
+    "skills/**",
   ]),
   eslint.configs.recommended,
   sonarjsConfigs.recommended,
