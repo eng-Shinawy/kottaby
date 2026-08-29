@@ -9,6 +9,7 @@ import { paymentVerificationAr } from "@/shared/locale/ar/paymentVerification";
 import { plansAr } from "@/shared/locale/ar/plans";
 import { recitationAr } from "@/shared/locale/ar/recitation";
 import { studentPlansAr } from "@/shared/locale/ar/studentPlans";
+import { subscriptionManagementAr } from "@/shared/locale/ar/subscriptionManagement";
 import type { Translations } from "@/shared/locale/types/message";
 
 export const arMessages: Translations = {
@@ -23,4 +24,5 @@ export const arMessages: Translations = {
   plansTranslations: plansAr,
   studentPlansTranslations: studentPlansAr,
   paymentVerificationTranslations: paymentVerificationAr,
+  subscriptionManagementTranslations: subscriptionManagementAr,
 };

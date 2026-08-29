@@ -128,6 +128,8 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
       "/admin/plans",
       // DEV1-006 Phase B — the admin payment-verification queue.
       "/admin/verifications",
+      // DEV1-009 — the admin subscription lifecycle manager.
+      "/admin/subscriptions",
       "/audit",
       "/profile",
     ]);
@@ -141,6 +143,13 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
     const verification = adminItems.find(item => item.route === "/admin/verifications");
     expect(verification?.labelKey).toBe("verificationQueue");
     expect(verification?.Icon).toBeDefined();
+
+    // DEV1-009 — the lifecycle manager rides the pre-existing dashboard
+    // namespace key `subscriptions` (the SAME key the student/parent/teacher
+    // consumer /subscriptions entries use).
+    const subscriptions = adminItems.find(item => item.route === "/admin/subscriptions");
+    expect(subscriptions?.labelKey).toBe("subscriptions");
+    expect(subscriptions?.Icon).toBeDefined();
   });
 
   test("student/parent/teacher navs carry the consumer /plans storefront; admin surface stays admin-only (role-visibility 4.5.3, storefront amendment r2)", () => {
@@ -159,6 +168,10 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
       // The management surfaces stay admin-only in every non-admin nav.
       expect(items.some(item => item.route === "/admin/plans")).toBe(false);
       expect(items.some(item => item.route === "/admin/verifications")).toBe(false);
+      // DEV1-009 — lifecycle management (including cancellation) is an
+      // administrative act; the manager route never leaks into a non-admin
+      // nav (their /subscriptions entry, when present, is the CONSUMER one).
+      expect(items.some(item => item.route === "/admin/subscriptions")).toBe(false);
     }
   });
 
@@ -188,6 +201,19 @@ describe("DashboardSidebar render — role-aware Plans link", () => {
     expect(plansLinks).toHaveLength(1);
     for (const link of plansLinks) {
       expect(link.getAttribute("href")).toBe("/admin/plans");
+    }
+  });
+
+  test("admin fixture renders a translated 'Subscriptions' link pointing at /admin/subscriptions", () => {
+    const dashboardLabels = Dashboard.getLabels(getTranslations("en"));
+    renderSidebar(ADMIN_AUTH, "en");
+
+    // The ADMIN manager route — one link, resolved through the SAME shared
+    // `subscriptions` dashboard key the consumer roles' entries use.
+    const subscriptionsLinks = screen.getAllByRole("link", { name: dashboardLabels.subscriptions });
+    expect(subscriptionsLinks).toHaveLength(1);
+    for (const link of subscriptionsLinks) {
+      expect(link.getAttribute("href")).toBe("/admin/subscriptions");
     }
   });
 

@@ -9,6 +9,7 @@ import { PaymentVerification } from "@/shared/locale/namespaces/paymentVerificat
 import { Plans } from "@/shared/locale/namespaces/plans";
 import { Recitation } from "@/shared/locale/namespaces/recitation";
 import { StudentPlans } from "@/shared/locale/namespaces/studentPlans";
+import { SubscriptionManagement } from "@/shared/locale/namespaces/subscriptionManagement";
 
 export * from "./applicant";
 export * from "./audit";
@@ -22,6 +23,7 @@ export * from "./paymentVerification";
 export * from "./plans";
 export * from "./recitation";
 export * from "./studentPlans";
+export * from "./subscriptionManagement";
 export * from "./translation";
 
 export const namespaces = {
@@ -36,4 +38,5 @@ export const namespaces = {
   Plans,
   Recitation,
   StudentPlans,
+  SubscriptionManagement,
 } as const;

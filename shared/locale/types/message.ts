@@ -9,6 +9,7 @@ import type { PaymentVerificationLabels } from "@/shared/locale/types/paymentVer
 import type { PlansLabels } from "@/shared/locale/types/plans";
 import type { RecitationLabels } from "@/shared/locale/types/recitation";
 import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
+import type { SubscriptionManagementLabels } from "@/shared/locale/types/subscriptionManagement";
 
 export interface Translations {
   auditTranslations: AuditLabels;
@@ -22,4 +23,5 @@ export interface Translations {
   plansTranslations: PlansLabels;
   studentPlansTranslations: StudentPlansLabels;
   paymentVerificationTranslations: PaymentVerificationLabels;
+  subscriptionManagementTranslations: SubscriptionManagementLabels;
 }

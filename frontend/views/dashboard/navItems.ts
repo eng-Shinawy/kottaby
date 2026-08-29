@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  SubscriptionsOutlined as AdminSubscriptionsIcon,
   AssessmentOutlined as AuditIcon,
   FamilyRestroomOutlined as ChildrenIcon,
   DashboardOutlined as DashboardIcon,
@@ -49,7 +50,8 @@ export interface DashboardNavItem {
  * Routes that don't have a real page yet resolve to the `app/(dashboard)/[feature]/page.tsx`
  * catch-all, which renders the `ComingSoonView`. Real routes (Dashboard,
  * Profile, the consumer `/plans` storefront for students/parents/teachers,
- * the admin `/admin/plans` catalog) take precedence over the
+ * and the admin management surfaces `/admin/plans`, `/admin/verifications`,
+ * `/admin/subscriptions`, `/audit`) take precedence over the
  * catch-all per Next.js route resolution.
  */
 const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
@@ -82,6 +84,8 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     { route: "/students", labelKey: "students", Icon: StudentsIcon },
     { route: "/admin/plans", labelKey: "plans", Icon: PlansIcon },
     { route: "/admin/verifications", labelKey: "verificationQueue", Icon: VerificationIcon },
+    // DEV1-009 — the admin subscription lifecycle manager.
+    { route: "/admin/subscriptions", labelKey: "subscriptions", Icon: AdminSubscriptionsIcon },
     { route: "/audit", labelKey: "audit", Icon: AuditIcon },
     { route: "/profile", labelKey: "profile", Icon: ProfileIcon },
   ],
