@@ -10,6 +10,7 @@ import {
   AccountCircleOutlined as ProfileIcon,
   CalendarMonthOutlined as ScheduleIcon,
   SchoolOutlined as SessionsIcon,
+  CardMembershipOutlined as StorefrontPlansIcon,
   GroupsOutlined as StudentsIcon,
   CardMembershipOutlined as SubscriptionsIcon,
   type SvgIconComponent,
@@ -52,6 +53,7 @@ export interface DashboardNavItem {
 const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
   [UserRole.Student]: [
     { route: "/student/dashboard", labelKey: "dashboard", Icon: DashboardIcon },
+    { route: "/plans", labelKey: "plans", Icon: StorefrontPlansIcon },
     { route: "/sessions", labelKey: "sessions", Icon: SessionsIcon },
     { route: "/subscriptions", labelKey: "subscriptions", Icon: SubscriptionsIcon },
     { route: "/homework", labelKey: "homework", Icon: HomeworkIcon },
@@ -66,6 +68,7 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
   ],
   [UserRole.Parent]: [
     { route: "/parent/dashboard", labelKey: "dashboard", Icon: DashboardIcon },
+    { route: "/plans", labelKey: "plans", Icon: StorefrontPlansIcon },
     { route: "/children", labelKey: "children", Icon: ChildrenIcon },
     { route: "/profile", labelKey: "profile", Icon: ProfileIcon },
   ],

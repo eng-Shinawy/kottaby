@@ -6,6 +6,7 @@ import type { ErrorsLabels } from "@/shared/locale/types/errors";
 import type { LandingLabels } from "@/shared/locale/types/landing";
 import type { PlansLabels } from "@/shared/locale/types/plans";
 import type { RecitationLabels } from "@/shared/locale/types/recitation";
+import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
 
 export interface Translations {
   commonTranslations: CommonLabels;
@@ -16,4 +17,5 @@ export interface Translations {
   landingTranslations: LandingLabels;
   applicantTranslations: ApplicantLabels;
   plansTranslations: PlansLabels;
+  studentPlansTranslations: StudentPlansLabels;
 }

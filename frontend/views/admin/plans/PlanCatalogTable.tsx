@@ -151,8 +151,28 @@ function PlanCatalogDesktopTable({
         boxShadow: theme.palette.shadow.card,
       })}
     >
-      <Table size="medium" aria-label={labels.pageTitle}>
-        <TableHead>
+      <Table
+        size="medium"
+        aria-label={labels.pageTitle}
+        sx={{
+          // Compact horizontal rhythm — the nine-column catalog fits a
+          // 1280px viewport WITHOUT the last column spilling into a
+          // ~150px scroll (QA round 2 finding); narrower viewports still
+          // scroll gracefully through the TableContainer.
+          "& th, & td": { px: 1 },
+        }}
+      >
+        <TableHead
+          sx={theme => ({
+            // Sticky header — the catalog stays readable while scrolling a
+            // long list; background must be OPAQUE (the sticky header would
+            // otherwise show rows sliding beneath it).
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            bgcolor: theme.palette.surfaceContainerLow,
+          })}
+        >
           <TableRow>
             <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
               {labels.columnTitle}
@@ -188,10 +208,10 @@ function PlanCatalogDesktopTable({
         </TableHead>
         <TableBody>
           {plans.map(plan => (
-            <TableRow key={plan.id} sx={{ "&:last-child td": { borderBottom: 0 } }}>
+            <TableRow key={plan.id} hover sx={{ "&:last-child td": { borderBottom: 0 } }}>
               {/* Title — admin-authored content, ellipsis-truncated so a
                   runaway name cannot blow out the row layout. */}
-              <TableCell sx={{ maxWidth: 280 }}>
+              <TableCell sx={{ maxWidth: 240 }}>
                 <Typography variant="body1" noWrap sx={{ fontWeight: 600 }}>
                   {plan.title}
                 </Typography>

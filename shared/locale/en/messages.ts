@@ -6,6 +6,7 @@ import { errorsEn } from "@/shared/locale/en/errors";
 import { landingEn } from "@/shared/locale/en/landing";
 import { plansEn } from "@/shared/locale/en/plans";
 import { recitationEn } from "@/shared/locale/en/recitation";
+import { studentPlansEn } from "@/shared/locale/en/studentPlans";
 import type { Translations } from "@/shared/locale/types/message";
 
 export const enMessages: Translations = {
@@ -17,4 +18,5 @@ export const enMessages: Translations = {
   landingTranslations: landingEn,
   applicantTranslations: applicantEn,
   plansTranslations: plansEn,
+  studentPlansTranslations: studentPlansEn,
 };

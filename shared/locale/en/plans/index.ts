@@ -21,7 +21,8 @@ export const plansEn: PlansLabels = {
   createDialogTitle: "Create plan",
   editDialogTitle: "Edit plan",
   formSubtitleCreate: "Define a new subscription plan — fields validate on save and errors appear under each input.",
-  formSubtitleEdit: "Update the commercial fields of this plan — existing subscriptions and balances are never affected.",
+  formSubtitleEdit:
+    "Update the commercial fields of this plan — existing subscriptions and balances are never affected.",
   fieldTitle: "Plan name",
   fieldTitlePlaceholder: "e.g. Tajweed twice a week",
   fieldSessionCount: "Session count",

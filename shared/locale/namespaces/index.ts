@@ -6,6 +6,7 @@ import { Errors } from "@/shared/locale/namespaces/errors";
 import { Landing } from "@/shared/locale/namespaces/landing";
 import { Plans } from "@/shared/locale/namespaces/plans";
 import { Recitation } from "@/shared/locale/namespaces/recitation";
+import { StudentPlans } from "@/shared/locale/namespaces/studentPlans";
 
 export * from "./applicant";
 export * from "./auth";
@@ -16,6 +17,7 @@ export * from "./errors";
 export * from "./landing";
 export * from "./plans";
 export * from "./recitation";
+export * from "./studentPlans";
 export * from "./translation";
 
 export const namespaces = {
@@ -27,4 +29,5 @@ export const namespaces = {
   Landing,
   Plans,
   Recitation,
+  StudentPlans,
 } as const;

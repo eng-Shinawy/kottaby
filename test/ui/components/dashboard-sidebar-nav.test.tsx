@@ -137,13 +137,26 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
     expect(plans?.Icon).toBeDefined();
   });
 
-  test("student/teacher/parent navs carry NO plans entry (role-visibility 4.5.3)", () => {
-    for (const role of [UserRole.Student, UserRole.Teacher, UserRole.Parent]) {
+  test("student + parent navs carry the consumer /plans storefront; teacher carries none (role-visibility 4.5.3, consumer-storefront amendment)", () => {
+    // Consumer storefront amendment (this round): students and parents get
+    // a /plans entry (the planCatalog read is server-gated to authenticated
+    // callers and returns the ACTIVE slice only). Teachers have no buying
+    // journey — no plans entry. NOBODY but the admin sees the management
+    // surface /admin/plans in their nav.
+    for (const role of [UserRole.Student, UserRole.Parent]) {
       const items = getNavItemsForRole(role);
-      const routeHit = items.some(item => item.route === "/admin/plans" || item.route === "/plans");
-      const labelHit = items.some(item => item.labelKey === "plans");
-      expect(routeHit).toBe(false);
-      expect(labelHit).toBe(false);
+      const storefront = items.find(item => item.route === "/plans");
+      expect(storefront, `role ${role} carries the /plans storefront`).toBeDefined();
+      expect(storefront?.labelKey).toBe("plans");
+      expect(storefront?.Icon).toBeDefined();
+      // The management surface stays admin-only in every non-admin nav.
+      expect(items.some(item => item.route === "/admin/plans")).toBe(false);
+    }
+    for (const role of [UserRole.Teacher]) {
+      const items = getNavItemsForRole(role);
+      expect(items.some(item => item.route === "/plans")).toBe(false);
+      expect(items.some(item => item.route === "/admin/plans")).toBe(false);
+      expect(items.some(item => item.labelKey === "plans")).toBe(false);
     }
   });
 
@@ -176,11 +189,16 @@ describe("DashboardSidebar render — role-aware Plans link", () => {
     }
   });
 
-  test("student fixture renders NO Plans link", () => {
+  test("student fixture renders a translated 'Plans' link pointing at the /plans storefront", () => {
     const dashboardLabels = Dashboard.getLabels(getTranslations("en"));
     renderSidebar(STUDENT_AUTH, "en");
 
-    expect(screen.queryByRole("link", { name: dashboardLabels.plans })).toBeNull();
+    const plansLinks = screen.getAllByRole("link", { name: dashboardLabels.plans });
+    expect(plansLinks).toHaveLength(1);
+    for (const link of plansLinks) {
+      // The STUDENT storefront route — not the admin management surface.
+      expect(link.getAttribute("href")).toBe("/plans");
+    }
   });
 
   test("arabic locale: the Plans link uses the translated dashboard label", () => {
