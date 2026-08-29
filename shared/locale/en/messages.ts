@@ -1,4 +1,5 @@
 import { applicantEn } from "@/shared/locale/en/applicant";
+import { auditEn } from "@/shared/locale/en/audit";
 import { authEn } from "@/shared/locale/en/auth";
 import { commonEn } from "@/shared/locale/en/common";
 import { dashboardEn } from "@/shared/locale/en/dashboard";
@@ -11,6 +12,7 @@ import { studentPlansEn } from "@/shared/locale/en/studentPlans";
 import type { Translations } from "@/shared/locale/types/message";
 
 export const enMessages: Translations = {
+  auditTranslations: auditEn,
   commonTranslations: commonEn,
   authTranslations: authEn,
   errorsTranslations: errorsEn,

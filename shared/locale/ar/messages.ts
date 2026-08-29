@@ -1,4 +1,5 @@
 import { applicantAr } from "@/shared/locale/ar/applicant";
+import { auditAr } from "@/shared/locale/ar/audit";
 import { authAr } from "@/shared/locale/ar/auth";
 import { commonAr } from "@/shared/locale/ar/common";
 import { dashboardAr } from "@/shared/locale/ar/dashboard";
@@ -11,6 +12,7 @@ import { studentPlansAr } from "@/shared/locale/ar/studentPlans";
 import type { Translations } from "@/shared/locale/types/message";
 
 export const arMessages: Translations = {
+  auditTranslations: auditAr,
   commonTranslations: commonAr,
   authTranslations: authAr,
   errorsTranslations: errorsAr,

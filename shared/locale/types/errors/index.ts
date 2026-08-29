@@ -104,4 +104,9 @@ export interface ErrorsLabels {
    * receipt reference failed the trim/length validation.
    */
   readonly paymentReferenceInvalid: string;
+  /**
+   * "The selected action filter is not supported." — the audit-trail
+   * viewer's action filter narrowed to nothing in the sanctioned enum set.
+   */
+  readonly auditActionTypeInvalid: string;
 }

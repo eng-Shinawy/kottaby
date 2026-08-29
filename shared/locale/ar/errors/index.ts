@@ -41,4 +41,6 @@ export const errorsAr: ErrorsLabels = {
   subscriptionAlreadyResolved: "تمت معالجة طلب الاشتراك هذا بالفعل.",
   paymentMethodInvalid: "طريقة الدفع المختارة غير مدعومة.",
   paymentReferenceInvalid: "يرجى إدخال مرجع الدفع (من ١ إلى ٢٥٥ حرفاً).",
+  // Audit-trail domain errors (DEV3-020 Phase 1).
+  auditActionTypeInvalid: "مرشّح نوع الإجراء المختار غير مدعوم.",
 };

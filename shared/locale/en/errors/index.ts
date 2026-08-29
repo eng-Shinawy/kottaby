@@ -41,4 +41,6 @@ export const errorsEn: ErrorsLabels = {
   subscriptionAlreadyResolved: "This subscription request has already been resolved.",
   paymentMethodInvalid: "The selected payment method is not supported.",
   paymentReferenceInvalid: "Please enter the payment reference (1-255 characters).",
+  // Audit-trail domain errors (DEV3-020 Phase 1).
+  auditActionTypeInvalid: "The selected action filter is not supported.",
 };
