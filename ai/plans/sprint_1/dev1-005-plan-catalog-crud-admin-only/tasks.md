@@ -366,110 +366,110 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 4.1 — Apollo Documents & Barrels
 
-- [ ] 4.1 Author the plan-catalog frontend GraphQL documents
+- [x] 4.1 Author the plan-catalog frontend GraphQL documents
   - Files to create:
     - `frontend/graphql/sharedDocuments/billing/plan-catalog.documents.ts` (NEW — billing/ sub-directory mirrors the existing `teachers/` layout)
     - `frontend/graphql/sharedDocuments/billing/index.ts` (NEW — `export * from "./plan-catalog.documents";` sub-directory barrel per AGENTS.md)
     - `frontend/graphql/sharedDocuments/index.ts` (MODIFY — top-level barrel currently exports only `./auth` + `./teachers`; add `export * from "./billing";` — 0.3 gate correction)
   - Applicable AGENTS.md: `frontend/graphql/sharedDocuments/AGENTS.md`
   - _Requirements: REQ-061_
-  - [ ] 4.1.1 Author `planCatalogQueryDocument`, `adminPlansQueryDocument` (with `AdminPlansQueryVariables`), `createPlanMutationDocument`, `updatePlanMutationDocument`, `setPlanActiveStatusMutationDocument` as `TypedDocumentNode<…>` (from `@apollo/client`, codegen types only)
-  - [ ] 4.1.2 `id` present in EVERY `Plan` selection set (Apollo normalization)
-  - [ ] 4.1.3 No `useLazyQuery`; hooks will be consumed from `@apollo/client/react` in Phase 4.2
-  - [ ] 4.1.QL **Quality Loop**: sub-loop on the documents file (exit 0)
-  - [ ] 4.1.TE **Test Engineering**: document-shape assertion (selection sets contain `id`; variables typing aligns with codegen); codegen green (`bun codegen`)
-  - [ ] 4.1.SEC **Security & Tenancy Audit**: no client-side active-filtering logic planned anywhere — deactivation exclusion is server-side only
-  - [ ] 4.1.SR **Semantic Review**: codegen types only (no inline literals, no mapping layers); barrel discipline per subdirectory rules
-  - [ ] 4.1.IV **Instruction Verification**: `frontend/graphql/sharedDocuments/AGENTS.md` naming + barrel conventions
-  - [ ] 4.1.OD **Outcome**: `outcome/4.1-frontend-documents-outcome.md`
+  - [x] 4.1.1 Author `planCatalogQueryDocument`, `adminPlansQueryDocument` (with `AdminPlansQueryVariables`), `createPlanMutationDocument`, `updatePlanMutationDocument`, `setPlanActiveStatusMutationDocument` as `TypedDocumentNode<…>` (from `@apollo/client`, codegen types only)
+  - [x] 4.1.2 `id` present in EVERY `Plan` selection set (Apollo normalization)
+  - [x] 4.1.3 No `useLazyQuery`; hooks will be consumed from `@apollo/client/react` in Phase 4.2
+  - [x] 4.1.QL **Quality Loop**: sub-loop on the documents file (exit 0)
+  - [x] 4.1.TE **Test Engineering**: document-shape assertion (selection sets contain `id`; variables typing aligns with codegen); codegen green (`bun codegen`)
+  - [x] 4.1.SEC **Security & Tenancy Audit**: no client-side active-filtering logic planned anywhere — deactivation exclusion is server-side only
+  - [x] 4.1.SR **Semantic Review**: codegen types only (no inline literals, no mapping layers); barrel discipline per subdirectory rules
+  - [x] 4.1.IV **Instruction Verification**: `frontend/graphql/sharedDocuments/AGENTS.md` naming + barrel conventions
+  - [x] 4.1.OD **Outcome**: `outcome/4.1-frontend-documents-outcome.md`
 
 ### Task 4.2 — Server Component Page & SSR Guard (`/admin/plans`)
 
-- [ ] 4.2 Implement `app/(dashboard)/admin/plans/page.tsx` with `withPageAuth` admin guard
+- [x] 4.2 Implement `app/(dashboard)/admin/plans/page.tsx` with `withPageAuth` admin guard
   - Files to create:
     - `app/(dashboard)/admin/plans/page.tsx` (NEW — Server Component)
   - Applicable AGENTS.md: `app/AGENTS.md`
   - _Requirements: REQ-002, REQ-062, REQ-064_
-  - [ ] 4.2.1 Apply `withPageAuth({ roles: [UserRole.Admin], redirectTo: "/admin/plans" })` (UserRole as value import): anonymous → `/login?redirect=/admin/plans`; role mismatch → caller's role-specific dashboard via `roleDashboardPath` (never bare `/dashboard` — REDIRECT_LOOP_FIX rule; verified `frontend/lib/auth/withPageAuth.ts` + `roleDashboardRoute.ts`)
-  - [ ] 4.2.2 Server Component resolves `await getTranslations(locale)` (single argument) and passes shell labels via property access (`t.plansTranslations.*`) as props to the client container
-  - [ ] 4.2.3 Server component contains ZERO data-fetching through GraphQL (server layer consumes services directly if needed — here it delegates everything to the client container)
-  - [ ] 4.2.QL **Quality Loop**: sub-loop on the page file (exit 0)
-  - [ ] 4.2.TE **Unit / Component Tests**: guard behavior tests — anonymous redirect, student/parent/teacher redirect to their role-specific dashboards (`/student/dashboard`, `/parent/dashboard`, `/teacher/dashboard`), admin renders (SSR-level harness per established app-layer test patterns)
-  - [ ] 4.2.SR **Semantic Review**: server/client boundary clean (no client hooks in server file); `UserRole` value import; no hardcoded strings
-  - [ ] 4.2.IV **Instruction Verification**: `app/AGENTS.md` (SSR guard = security boundary; client gating is UX-only)
-  - [ ] 4.2.OD **Outcome**: `outcome/4.2-admin-page-outcome.md`
+  - [x] 4.2.1 Apply `withPageAuth({ roles: [UserRole.Admin], redirectTo: "/admin/plans" })` (UserRole as value import): anonymous → `/login?redirect=/admin/plans`; role mismatch → caller's role-specific dashboard via `roleDashboardPath` (never bare `/dashboard` — REDIRECT_LOOP_FIX rule; verified `frontend/lib/auth/withPageAuth.ts` + `roleDashboardRoute.ts`)
+  - [x] 4.2.2 Server Component resolves `await getTranslations(locale)` (single argument) and passes shell labels via property access (`t.plansTranslations.*`) as props to the client container
+  - [x] 4.2.3 Server component contains ZERO data-fetching through GraphQL (server layer consumes services directly if needed — here it delegates everything to the client container)
+  - [x] 4.2.QL **Quality Loop**: sub-loop on the page file (exit 0)
+  - [x] 4.2.TE **Unit / Component Tests**: guard behavior tests — anonymous redirect, student/parent/teacher redirect to their role-specific dashboards (`/student/dashboard`, `/parent/dashboard`, `/teacher/dashboard`), admin renders (SSR-level harness per established app-layer test patterns)
+  - [x] 4.2.SR **Semantic Review**: server/client boundary clean (no client hooks in server file); `UserRole` value import; no hardcoded strings
+  - [x] 4.2.IV **Instruction Verification**: `app/AGENTS.md` (SSR guard = security boundary; client gating is UX-only)
+  - [x] 4.2.OD **Outcome**: `outcome/4.2-admin-page-outcome.md`
 
 ### Task 4.3 — Client Container: `PlanCatalogContainer` + Table
 
-- [ ] 4.3 Implement the client container and catalog table
+- [x] 4.3 Implement the client container and catalog table
   - Files to create:
     - `frontend/views/admin/plans/PlanCatalogContainer.tsx` (NEW — client)
     - `frontend/views/admin/plans/PlanCatalogTable.tsx` (NEW — client)
     - `frontend/views/admin/plans/index.ts` (barrel per views conventions, if applicable)
   - Applicable AGENTS.md: `frontend/AGENTS.md` + convention docs `frontend/COMPONENT_PATTERNS.md` + `frontend/THEME_PALETTE.md` (no `frontend/views/AGENTS.md` / `frontend/components/ui/AGENTS.md` exist — corrected by 0.3 gate)
   - _Requirements: REQ-054, REQ-060, REQ-062, REQ-063, REQ-064, REQ-076_
-  - [ ] 4.3.1 Container: `useAppTranslation(Plans)` with property access only; `useQuery(adminPlansQueryDocument, { variables: { includeInactive: true } })` from `@apollo/client/react`
-  - [ ] 4.3.2 Table columns: title, sessionCount, price + currency (string rendering — no number coercion), intervalDays, isActive status chip (Active/Inactive via `theme.palette.success.*` / `theme.palette.grey.*` — theme-callback pattern, NO hex), deactivatedAt, createdAt; per-row edit + activate/deactivate actions
-  - [ ] 4.3.3 Mutation wiring here (create/edit/status dialogs in 4.4); success path: localized snackbar + Apollo cache convergence via `id`-normalized `Plan!` payloads (no manual refetch unless cache update insufficient); row action buttons disabled during their in-flight transition
-  - [ ] 4.3.4 Loading: skeleton rows per dashboard conventions; empty: localized empty state (icon + translated copy + create CTA)
-  - [ ] 4.3.QL **Quality Loop**: sub-loop on each created file (exit 0)
-  - [ ] 4.3.TE **Unit / Component Tests** (REQ-076 discipline): Happy DOM + Apollo `MockedProvider` + `translation-preload.ts` + `readTranslation(handle, locale)` + `TestWrapper locale`; translation-driven matchers ONLY (zero hardcoded UI strings); assert: active/inactive chip rendering from query data, empty state, skeleton state, table row fields
-  - [ ] 4.3.BF **Agent-Browser Functional Self-Loop**:
+  - [x] 4.3.1 Container: `useAppTranslation(Plans)` with property access only; `useQuery(adminPlansQueryDocument, { variables: { includeInactive: true } })` from `@apollo/client/react`
+  - [x] 4.3.2 Table columns: title, sessionCount, price + currency (string rendering — no number coercion), intervalDays, isActive status chip (Active/Inactive via `theme.palette.success.*` / `theme.palette.grey.*` — theme-callback pattern, NO hex), deactivatedAt, createdAt; per-row edit + activate/deactivate actions
+  - [x] 4.3.3 Mutation wiring here (create/edit/status dialogs in 4.4); success path: localized snackbar + Apollo cache convergence via `id`-normalized `Plan!` payloads (no manual refetch unless cache update insufficient); row action buttons disabled during their in-flight transition
+  - [x] 4.3.4 Loading: skeleton rows per dashboard conventions; empty: localized empty state (icon + translated copy + create CTA)
+  - [x] 4.3.QL **Quality Loop**: sub-loop on each created file (exit 0)
+  - [x] 4.3.TE **Unit / Component Tests** (REQ-076 discipline): Happy DOM + Apollo `MockedProvider` + `translation-preload.ts` + `readTranslation(handle, locale)` + `TestWrapper locale`; translation-driven matchers ONLY (zero hardcoded UI strings); assert: active/inactive chip rendering from query data, empty state, skeleton state, table row fields
+  - [x] 4.3.BF **Agent-Browser Functional Self-Loop**:
     - Launch dev server; connect via agent-browser (Playwright)
     - Anonymous `GET /admin/plans` → assert redirect to `/login?redirect=/admin/plans`; non-admin login → `/admin/plans` → redirect to the role-specific dashboard (no table render); admin login → table renders with seeded catalog
     - Navigate tabs/rows; trigger per-row edit/status actions; assert GraphQL request payloads (`adminPlans` issued; mutations carry whitelisted fields only) and error toast / inline alert states for conflict cases
     - Iterative self-loop: any interaction or state failure → patch → re-test until clean
-  - [ ] 4.3.BS **Agent-Browser Visual & Styling Self-Loop (Screenshot Analysis)**:
+  - [x] 4.3.BS **Agent-Browser Visual & Styling Self-Loop (Screenshot Analysis)**:
     - Capture high-resolution screenshots across viewports (Desktop 1440×900, Tablet 768×1024, Mobile 375×812 — card-stacked layout) and locales (English LTR + Arabic RTL)
     - Inspect screenshots for: MUI v9 theme-palette compliance (zero hardcoded hex/rgb visible in computed styles), typography hierarchy, padding/margin rhythm, chip contrast in dark/light modes, text truncation/overflows (Arabic copy), RTL mirroring (action column at inline-end, logical properties only), table-to-card responsive switch
     - Iterative self-loop: inspect screenshot → identify defect → patch `sx` tokens → re-capture → repeat until visually polished
-  - [ ] 4.3.SR **Semantic Review**: zero direct style props (sx only); `*Outlined` icons; `theme.palette.*` only; property-access i18n; no Zustand store introduced (server state = Apollo cache only)
-  - [ ] 4.3.IV **Instruction Verification**: `frontend/AGENTS.md`, `frontend/THEME_PALETTE.md`, `frontend/COMPONENT_PATTERNS.md` (the repo has no `frontend.instructions.md` / `mobile-desktop.instructions.md` — corrected by 0.3 gate)
-  - [ ] 4.3.OD **Outcome**: `outcome/4.3-catalog-container-outcome.md`
+  - [x] 4.3.SR **Semantic Review**: zero direct style props (sx only); `*Outlined` icons; `theme.palette.*` only; property-access i18n; no Zustand store introduced (server state = Apollo cache only)
+  - [x] 4.3.IV **Instruction Verification**: `frontend/AGENTS.md`, `frontend/THEME_PALETTE.md`, `frontend/COMPONENT_PATTERNS.md` (the repo has no `frontend.instructions.md` / `mobile-desktop.instructions.md` — corrected by 0.3 gate)
+  - [x] 4.3.OD **Outcome**: `outcome/4.3-catalog-container-outcome.md`
 
 ### Task 4.4 — Dialogs: `PlanFormDialog` (Create/Edit) + `PlanStatusConfirmDialog`
 
-- [ ] 4.4 Implement the create/edit form dialog and status confirmation dialog
+- [x] 4.4 Implement the create/edit form dialog and status confirmation dialog
   - Files to create:
     - `frontend/views/admin/plans/PlanFormDialog.tsx` (NEW)
     - `frontend/views/admin/plans/PlanStatusConfirmDialog.tsx` (NEW)
   - Applicable AGENTS.md: `frontend/AGENTS.md` + convention docs `frontend/COMPONENT_PATTERNS.md` + `frontend/THEME_PALETTE.md`
   - _Requirements: REQ-012, REQ-043, REQ-050, REQ-063_
-  - [ ] 4.4.1 `PlanFormDialog`: shared create/edit scaffold; fields title/sessionCount/price/currency/intervalDays; submit via `React.SubmitEvent` / `React.SyntheticEvent<HTMLFormElement>` (never `FormEvent`); per-field error mapping from `extensions.fields[]` → `TextField error` + localized `helperText` + `aria-invalid={!!error}`; price entered/rendered as a string
-  - [ ] 4.4.2 Submit button disabled while mutation in flight (`loading`) — REQ-043 double-submit UX mitigation; spinner adornment
-  - [ ] 4.4.3 `PlanStatusConfirmDialog`: localized confirm copy for deactivate AND reactivate flows; `PLAN_ALREADY_*` / `PLAN_NOT_FOUND` → localized inline `Alert` (severity via theme tokens) + list convergence
-  - [ ] 4.4.4 `FORBIDDEN`/`UNAUTHORIZED` handled via global errorLink posture; masked `INTERNAL_SERVER_ERROR` → generic localized toast with correlation guidance
-  - [ ] 4.4.QL **Quality Loop**: sub-loop on each file (exit 0)
-  - [ ] 4.4.TE **Unit / Component Tests** (REQ-076 discipline): Happy DOM + MockedProvider: (a) create happy path creates via mocked mutation; (b) server `VALIDATION` + `fields[]` renders localized per-field errors; (c) `PLAN_ALREADY_INACTIVE` renders localized inline alert; (d) disabled-during-flight asserted; (e) `React.SubmitEvent` submit handling proven
-  - [ ] 4.4.BF **Agent-Browser Functional Self-Loop**:
+  - [x] 4.4.1 `PlanFormDialog`: shared create/edit scaffold; fields title/sessionCount/price/currency/intervalDays; submit via `React.SubmitEvent` / `React.SyntheticEvent<HTMLFormElement>` (never `FormEvent`); per-field error mapping from `extensions.fields[]` → `TextField error` + localized `helperText` + `aria-invalid={!!error}`; price entered/rendered as a string
+  - [x] 4.4.2 Submit button disabled while mutation in flight (`loading`) — REQ-043 double-submit UX mitigation; spinner adornment
+  - [x] 4.4.3 `PlanStatusConfirmDialog`: localized confirm copy for deactivate AND reactivate flows; `PLAN_ALREADY_*` / `PLAN_NOT_FOUND` → localized inline `Alert` (severity via theme tokens) + list convergence
+  - [x] 4.4.4 `FORBIDDEN`/`UNAUTHORIZED` handled via global errorLink posture; masked `INTERNAL_SERVER_ERROR` → generic localized toast with correlation guidance
+  - [x] 4.4.QL **Quality Loop**: sub-loop on each file (exit 0)
+  - [x] 4.4.TE **Unit / Component Tests** (REQ-076 discipline): Happy DOM + MockedProvider: (a) create happy path creates via mocked mutation; (b) server `VALIDATION` + `fields[]` renders localized per-field errors; (c) `PLAN_ALREADY_INACTIVE` renders localized inline alert; (d) disabled-during-flight asserted; (e) `React.SubmitEvent` submit handling proven
+  - [x] 4.4.BF **Agent-Browser Functional Self-Loop**:
     - Admin: open create dialog → submit valid payload → new row appears with Active chip; submit invalid payloads (price `"19.999"`, sessionCount `0`, currency `"egp"`) → localized field-level errors under the CORRECT fields
     - Edit flow: partial patch applies; status flow: deactivate → confirm → Inactive chip; reactivate → Active chip
     - Double-click submit rapidly → exactly ONE mutation issued (button disabled while pending — assert network count = 1)
     - Iterative self-loop until every flow is clean
-  - [ ] 4.4.BS **Agent-Browser Visual & Styling Self-Loop (Screenshot Analysis)**:
+  - [x] 4.4.BS **Agent-Browser Visual & Styling Self-Loop (Screenshot Analysis)**:
     - Screenshot dialogs at 1440×900 / 768×1024 / 375×812 in EN (LTR) and AR (RTL), including error-rendered states and disabled-submit state
     - Inspect: dialog sizing to content (Arabic copy not truncated), field error placement/alignment under RTL, button width behavior on mobile (full-width), severity-color token usage on chips/alerts/snackbars, focus rings and contrast
     - Iterative self-loop: screenshot → defect → `sx` token patch → re-capture → polish
-  - [ ] 4.4.SR **Semantic Review**: sx-only styling; `*Outlined` icons; property-access translations; no hardcoded strings/colors; `aria-invalid` present
-  - [ ] 4.4.IV **Instruction Verification**: `frontend/AGENTS.md`, `frontend/THEME_PALETTE.md`, `frontend/COMPONENT_PATTERNS.md`
-  - [ ] 4.4.OD **Outcome**: `outcome/4.4-dialogs-outcome.md`
+  - [x] 4.4.SR **Semantic Review**: sx-only styling; `*Outlined` icons; property-access translations; no hardcoded strings/colors; `aria-invalid` present
+  - [x] 4.4.IV **Instruction Verification**: `frontend/AGENTS.md`, `frontend/THEME_PALETTE.md`, `frontend/COMPONENT_PATTERNS.md`
+  - [x] 4.4.OD **Outcome**: `outcome/4.4-dialogs-outcome.md`
 
 ### Task 4.5 — Sidebar Navigation Integration (Admin Group)
 
-- [ ] 4.5 Add the "Plans" entry to the admin navigation group
+- [x] 4.5 Add the "Plans" entry to the admin navigation group
   - Files to modify: existing admin sidebar/navigation config (locate per `frontend/` layout conventions before editing)
   - Applicable AGENTS.md: `frontend/AGENTS.md`
   - _Requirements: REQ-054, REQ-064_
-  - [ ] 4.5.1 Add translated "Plans" nav item (label from `plans` namespace) in the Admin/Management group, ordered after existing admin entries; icon `Inventory2Outlined`-class (`*Outlined` naming)
-  - [ ] 4.5.2 NO mobile bottom-nav addition (admin-only surface)
-  - [ ] 4.5.3 Role-visibility: item hidden/never reachable for non-admin roles (SSR guard remains the security boundary; nav hiding is UX only)
-  - [ ] 4.5.QL **Quality Loop**: sub-loop on modified nav file (exit 0)
-  - [ ] 4.5.TE **Unit / Component Tests**: nav renders the item for admin fixture with translated label; absent for student fixture
-  - [ ] 4.5.BF **Agent-Browser Functional Self-Loop**: admin login → click "Plans" in sidebar → `/admin/plans` loads; verify nav item absent for student session
-  - [ ] 4.5.BS **Agent-Browser Visual & Styling Self-Loop (Screenshot Analysis)**: capture sidebar in EN/AR desktop + mobile drawer; verify RTL item alignment, icon mirroring, label truncation
-  - [ ] 4.5.SR **Semantic Review**: translated label only; `*Outlined` icon; no hardcoded colors
-  - [ ] 4.5.IV **Instruction Verification**: nav conventions per `frontend/AGENTS.md`
-  - [ ] 4.5.OD **Outcome**: `outcome/4.5-navigation-outcome.md`
+  - [x] 4.5.1 Add translated "Plans" nav item (label from `plans` namespace) in the Admin/Management group, ordered after existing admin entries; icon `Inventory2Outlined`-class (`*Outlined` naming)
+  - [x] 4.5.2 NO mobile bottom-nav addition (admin-only surface)
+  - [x] 4.5.3 Role-visibility: item hidden/never reachable for non-admin roles (SSR guard remains the security boundary; nav hiding is UX only)
+  - [x] 4.5.QL **Quality Loop**: sub-loop on modified nav file (exit 0)
+  - [x] 4.5.TE **Unit / Component Tests**: nav renders the item for admin fixture with translated label; absent for student fixture
+  - [x] 4.5.BF **Agent-Browser Functional Self-Loop**: admin login → click "Plans" in sidebar → `/admin/plans` loads; verify nav item absent for student session
+  - [x] 4.5.BS **Agent-Browser Visual & Styling Self-Loop (Screenshot Analysis)**: capture sidebar in EN/AR desktop + mobile drawer; verify RTL item alignment, icon mirroring, label truncation
+  - [x] 4.5.SR **Semantic Review**: translated label only; `*Outlined` icon; no hardcoded colors
+  - [x] 4.5.IV **Instruction Verification**: nav conventions per `frontend/AGENTS.md`
+  - [x] 4.5.OD **Outcome**: `outcome/4.5-navigation-outcome.md`
 
 ---
 
