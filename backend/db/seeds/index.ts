@@ -1,3 +1,4 @@
+import { seedOrGetPlanCatalog } from "@/backend/db/seeds/billing";
 import {
   loadSeedConfig,
   logFailedSeedSteps,
@@ -17,6 +18,11 @@ export async function runAllSeeds(config?: SeedConfig): Promise<void> {
   // Step 1: Users (Admin, Teacher Applicant, Parent, Student)
   const usersStep = await runSeedStep("users", () => seedOrGetUsers(seedConfig));
   stepResults.push(usersStep);
+
+  // Step 2: Billing plan catalog (demo plans — no user/role dependency;
+  // bootstraps exclusively through PlanCatalogService, idempotent by title)
+  const planCatalogStep = await runSeedStep("plan-catalog", () => seedOrGetPlanCatalog(seedConfig));
+  stepResults.push(planCatalogStep);
 
   logFailedSeedSteps(stepResults);
 
