@@ -77,7 +77,10 @@ gqlSchemaBuilder.mutationField("createPlan", t =>
           currency: args.input.currency,
           intervalDays: args.input.intervalDays,
         },
-        ctx.locale
+        ctx.locale,
+        // DEV3-020: the acting admin rides into the service so the audit
+        // row commits INSIDE the mutation's transaction (fail-closed).
+        ctx.user.id
       );
     },
   })
@@ -124,7 +127,7 @@ gqlSchemaBuilder.mutationField("updatePlan", t =>
       // `ID` arrives as a string — the service validates positive-integer
       // semantics and rejects anything else with the localized not-found
       // validation error.
-      return PlanCatalogService.updatePlan(Number(args.id), patch, ctx.locale);
+      return PlanCatalogService.updatePlan(Number(args.id), patch, ctx.locale, ctx.user.id);
     },
   })
 );
@@ -149,7 +152,9 @@ gqlSchemaBuilder.mutationField("setPlanActiveStatus", t =>
       }
       // The ONLY lifecycle state-transition surface — idempotency conflicts
       // (PLAN_ALREADY_ACTIVE / PLAN_ALREADY_INACTIVE) are service-owned.
-      return PlanCatalogService.setPlanActiveStatus(Number(args.id), args.isActive, ctx.locale);
+      // DEV3-020: the acting admin rides into the service so the audit row
+      // commits INSIDE the mutation's transaction (fail-closed).
+      return PlanCatalogService.setPlanActiveStatus(Number(args.id), args.isActive, ctx.locale, ctx.user.id);
     },
   })
 );

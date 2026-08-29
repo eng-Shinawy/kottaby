@@ -47,6 +47,7 @@ import type { OfflineVerificationPaymentMethod } from "@/backend/db/repo/billing
 import { plans } from "@/backend/db/schema/billing/plans";
 import { ConflictError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { AuditLogService } from "@/backend/services/audit/audit-log.service";
 import type { DBTransaction, PlanReturnType, SubscriptionReturnType, SubscriptionUserSummary } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
@@ -94,19 +95,42 @@ function logSubscriptionRejection(
 }
 
 /**
- * Emits the audit hook seam after a successful subscription transition. The
- * DEV3-020 audit-log integration attaches here (sanctioned deferral D1) —
- * this marker is structured, id-limited, and performs NO audit_logs writes.
- * `extras` carries transition-specific id references only (e.g. the
- * verifying admin's id — no field values, no messages).
+ * Emits the audit seam after a successful subscription transition.
+ *
+ * DEV3-020 Phase 1 semantics: when `actorId` is provided the transition is
+ * recorded in the immutable audit trail INSIDE the caller's transaction
+ * (fail-closed — the action and its audit row commit or roll back together;
+ * currently only the payment-verification transition carries an acting
+ * admin). Actorless transitions (the subscriber's own request) keep the
+ * structured logger marker alone — they are user acts, not admin actions,
+ * and audit rows require a real actor.
+ *
+ * `extras` carries transition-specific id references only (no field values,
+ * no messages).
  */
-function emitSubscriptionAuditSeam(
+async function emitSubscriptionAuditSeam(
   code: string,
   subscriptionId: number,
   planId: number,
-  extras: Record<string, number> = {}
-): void {
-  logger.info(`Subscription transition: ${code}`, { code, entityId: subscriptionId, planId, ...extras });
+  tx: DBTransaction,
+  actorId?: number,
+  extras: Record<string, string | number> = {}
+): Promise<void> {
+  if (actorId === undefined) {
+    logger.info(`Subscription transition: ${code}`, { code, entityId: subscriptionId, planId, ...extras });
+    return;
+  }
+  await AuditLogService.recordAdminAction(
+    {
+      actorId,
+      actionType: "update",
+      entityType: "subscriptions",
+      entityId: subscriptionId,
+      actionCode: code,
+      details: { subscriptionId, planId, ...extras },
+    },
+    tx
+  );
 }
 
 /**
@@ -268,7 +292,9 @@ export namespace SubscriptionService {
       }
 
       const row = await SubscriptionRepository.insertPending({ userId, planId: validatedPlanId }, tx);
-      emitSubscriptionAuditSeam("SUBSCRIPTION_REQUESTED", row.id, row.planId);
+      // Actorless user act — logger marker only, no audit row (DEV3-020
+      // scope: ADMIN actions; the request's owner is not an admin).
+      await emitSubscriptionAuditSeam("SUBSCRIPTION_REQUESTED", row.id, row.planId, tx);
       return { ...row, plan: activePlan };
     });
   }
@@ -371,7 +397,8 @@ export namespace SubscriptionService {
    *
    * @param input  `subscriptionId`, `paymentMethod` (offline set),
    *     `paymentReference` (trimmed 1..255), and `verifiedBy` (the
-   *     verified session's admin id — audit seam only).
+   *     verifying session's admin id — rides into the immutable audit row,
+   *     DEV3-020).
    * @param outerTx  Optional outer transaction — when provided (test path),
    *     the flow runs inside a SAVEPOINT on it; otherwise a top-level
    *     transaction opens.
@@ -469,9 +496,16 @@ export namespace SubscriptionService {
         throw new ConflictError("SUBSCRIPTION_ALREADY_RESOLVED", t.subscriptionAlreadyResolved);
       }
 
-      emitSubscriptionAuditSeam("SUBSCRIPTION_PAYMENT_VERIFIED", activated.id, activated.planId, {
-        verifiedBy: input.verifiedBy,
-      });
+      await emitSubscriptionAuditSeam(
+        "SUBSCRIPTION_PAYMENT_VERIFIED",
+        activated.id,
+        activated.planId,
+        tx,
+        input.verifiedBy,
+        {
+          verifiedBy: input.verifiedBy,
+        }
+      );
       return { ...activated, plan };
     });
   }

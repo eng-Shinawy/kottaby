@@ -6,6 +6,7 @@
  *   - No monolithic services.
  *   - All user-facing error messages resolve through `getServerTranslations`.
  */
+export * from "./audit";
 export * from "./auth";
 export * from "./billing";
 export * from "./shared";

@@ -41,9 +41,11 @@
  *    transaction tables — the catalog layer cannot cascade into any
  *    commercial ledger (grep-verifiable).
  */
+import { db } from "@/backend/db";
 import { type PlanFieldPatch, PlanRepository } from "@/backend/db/repo";
 import { ConflictError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { AuditLogService } from "@/backend/services/audit/audit-log.service";
 import type {
   ApiFieldErrorType,
   DBTransaction,
@@ -118,13 +120,66 @@ function logPlanRejection(code: string, message: string, entityId?: number): voi
 }
 
 /**
- * Emits the audit hook seam after a successful catalog mutation. The DEV3-020
- * audit-log integration attaches here (sanctioned deferral D1): this ticket
- * emits the structured transition marker only and performs NO audit_logs
- * writes.
+ * Records one catalog mutation in the immutable audit trail (DEV3-020 Phase
+ * 1 — the integration the deferral-D1 seam reserved). The write rides the
+ * CALLER's transaction: the mutation and its audit row commit or roll back
+ * TOGETHER (fail-closed — an admin action can never land unlogged).
+ *
+ * `actorId` is optional ONLY for actorless system callers (catalog seeding):
+ * they have no admin session to attribute, so they keep the structured
+ * logger marker alone and no audit row is written. The GraphQL resolvers
+ * ALWAYS pass the session admin's id.
+ *
+ * Details stay id-limited + machine-code-only (no field values, no
+ * messages) per the logging privacy posture; `changedFields` names the
+ * mutated columns — names, never values.
  */
-function emitPlanAuditSeam(code: string, planId: number): void {
-  logger.info(`Plan catalog transition: ${code}`, { code, entityId: planId });
+async function recordPlanAudit(
+  tx: DBTransaction,
+  actorId: number | undefined,
+  actionType: "create" | "update",
+  actionCode: string,
+  planId: number,
+  changedFields?: readonly string[]
+): Promise<void> {
+  if (actorId === undefined) {
+    logger.info(`Plan catalog transition (system, unaudited): ${actionCode}`, {
+      code: actionCode,
+      entityId: planId,
+    });
+    return;
+  }
+  await AuditLogService.recordAdminAction(
+    {
+      actorId,
+      actionType,
+      entityType: "plans",
+      entityId: planId,
+      actionCode,
+      details: {
+        planId,
+        ...(changedFields !== undefined && changedFields.length > 0 ? { fields: changedFields } : {}),
+      },
+    },
+    tx
+  );
+}
+
+/**
+ * Runs `fn` inside a transaction. If `outerTx` is provided (test path),
+ * opens a SAVEPOINT on the outer transaction; otherwise opens a top-level
+ * `db.transaction` (production path — the audit row must join the action's
+ * transaction, and when no outer transaction exists the service opens one).
+ * Mirrors the `SubscriptionService` helper of the same name.
+ */
+async function withTransaction<T>(
+  outerTx: DBTransaction | undefined,
+  fn: (tx: DBTransaction) => Promise<T>
+): Promise<T> {
+  if (outerTx) {
+    return outerTx.transaction(fn);
+  }
+  return db.transaction(fn);
 }
 
 /**
@@ -383,6 +438,7 @@ export namespace PlanCatalogService {
   export async function createPlan(
     input: PlanSubmitInput,
     locale: string,
+    actorId?: number,
     tx?: DBTransaction
   ): Promise<PlanReturnType> {
     const t = getServerTranslations(locale).errorsTranslations;
@@ -402,15 +458,17 @@ export namespace PlanCatalogService {
       intervalDays: input.intervalDays,
     };
 
-    let row: PlanSelectType;
-    try {
-      row = await PlanRepository.insertPlan(insert, tx);
-    } catch (error) {
-      throw translatePlanPersistenceError(error, t);
-    }
+    return withTransaction(tx, async scopedTx => {
+      let row: PlanSelectType;
+      try {
+        row = await PlanRepository.insertPlan(insert, scopedTx);
+      } catch (error) {
+        throw translatePlanPersistenceError(error, t);
+      }
 
-    emitPlanAuditSeam("PLAN_CREATED", row.id);
-    return row;
+      await recordPlanAudit(scopedTx, actorId, "create", "PLAN_CREATED", row.id);
+      return row;
+    });
   }
 
   /**
@@ -429,6 +487,7 @@ export namespace PlanCatalogService {
     id: number,
     patch: PlanUpdateInput,
     locale: string,
+    actorId?: number,
     tx?: DBTransaction
   ): Promise<PlanReturnType> {
     const t = getServerTranslations(locale).errorsTranslations;
@@ -451,16 +510,20 @@ export namespace PlanCatalogService {
       throwPlanFieldErrors(fieldErrors);
     }
 
-    const updated = await PlanRepository.updatePlanFields(planId, whitelistPlanPatch(patch), tx);
-    if (!updated) {
-      // The UPDATE carries no state guard, so zero rows can only mean the
-      // plan does not exist — no further probe needed.
-      logPlanRejection("PLAN_NOT_FOUND", "Plan update rejected: plan does not exist", planId);
-      throw new NotFoundError(PLAN_ENTITY, t.planNotFound);
-    }
+    const whitelisted = whitelistPlanPatch(patch);
+    return withTransaction(tx, async scopedTx => {
+      const updated = await PlanRepository.updatePlanFields(planId, whitelisted, scopedTx);
+      if (!updated) {
+        // The UPDATE carries no state guard, so zero rows can only mean the
+        // plan does not exist — no further probe needed.
+        logPlanRejection("PLAN_NOT_FOUND", "Plan update rejected: plan does not exist", planId);
+        throw new NotFoundError(PLAN_ENTITY, t.planNotFound);
+      }
 
-    emitPlanAuditSeam("PLAN_UPDATED", updated.id);
-    return updated;
+      // Field NAMES (never values) ride the audit details.
+      await recordPlanAudit(scopedTx, actorId, "update", "PLAN_UPDATED", updated.id, Object.keys(whitelisted));
+      return updated;
+    });
   }
 
   /**
@@ -482,25 +545,34 @@ export namespace PlanCatalogService {
     id: number,
     isActive: boolean,
     locale: string,
+    actorId?: number,
     tx?: DBTransaction
   ): Promise<PlanReturnType> {
     const t = getServerTranslations(locale).errorsTranslations;
     const planId = parsePlanId(id, t);
 
-    const transitioned = await PlanRepository.setActiveStatusOnce(planId, isActive, tx);
-    if (!transitioned) {
-      const exists = await PlanRepository.existsById(planId, tx);
-      if (!exists) {
-        logPlanRejection("PLAN_NOT_FOUND", "Plan status change rejected: plan does not exist", planId);
-        throw new NotFoundError(PLAN_ENTITY, t.planNotFound);
+    return withTransaction(tx, async scopedTx => {
+      const transitioned = await PlanRepository.setActiveStatusOnce(planId, isActive, scopedTx);
+      if (!transitioned) {
+        const exists = await PlanRepository.existsById(planId, scopedTx);
+        if (!exists) {
+          logPlanRejection("PLAN_NOT_FOUND", "Plan status change rejected: plan does not exist", planId);
+          throw new NotFoundError(PLAN_ENTITY, t.planNotFound);
+        }
+        const conflictCode = isActive ? "PLAN_ALREADY_ACTIVE" : "PLAN_ALREADY_INACTIVE";
+        logPlanRejection(conflictCode, "Plan status change rejected: plan already in target state", planId);
+        throw new ConflictError(conflictCode, isActive ? t.planAlreadyActive : t.planAlreadyInactive);
       }
-      const conflictCode = isActive ? "PLAN_ALREADY_ACTIVE" : "PLAN_ALREADY_INACTIVE";
-      logPlanRejection(conflictCode, "Plan status change rejected: plan already in target state", planId);
-      throw new ConflictError(conflictCode, isActive ? t.planAlreadyActive : t.planAlreadyInactive);
-    }
 
-    emitPlanAuditSeam(isActive ? "PLAN_ACTIVATED" : "PLAN_DEACTIVATED", transitioned.id);
-    return transitioned;
+      await recordPlanAudit(
+        scopedTx,
+        actorId,
+        "update",
+        isActive ? "PLAN_ACTIVATED" : "PLAN_DEACTIVATED",
+        transitioned.id
+      );
+      return transitioned;
+    });
   }
 
   /**

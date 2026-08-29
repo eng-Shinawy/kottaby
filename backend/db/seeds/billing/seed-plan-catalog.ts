@@ -127,12 +127,17 @@ export async function seedOrGet(_config?: SeedConfig, tx?: DBTransaction): Promi
         currency: spec.currency,
         intervalDays: spec.intervalDays,
       };
-      const created = await PlanCatalogService.createPlan(submission, locale, tx);
+      // System seeding is ACTORLESS (no admin session to attribute): the
+      // undefined actorId keeps the catalog service's logger marker alone
+      // and writes NO audit row — DEV3-020 audit rows require a real actor.
+      const created = await PlanCatalogService.createPlan(submission, locale, undefined, tx);
       createdCount += 1;
 
       // An inactive fixture deactivates through the same guarded transition
       // admin actions use — there is no create-pre-deactivated service path.
-      results.push(spec.active ? created : await PlanCatalogService.setPlanActiveStatus(created.id, false, locale, tx));
+      results.push(
+        spec.active ? created : await PlanCatalogService.setPlanActiveStatus(created.id, false, locale, undefined, tx)
+      );
     }
   }, Promise.resolve());
 
