@@ -10,10 +10,12 @@ import {
   HistoryEduOutlined as ReapplyIcon,
   ScheduleOutlined as ScheduleIcon,
   SchoolOutlined as SchoolIcon,
+  CardMembershipOutlined as StorefrontIcon,
   type SvgIconComponent,
 } from "@mui/icons-material";
 import { Alert, Box, Button, Card, CardContent, Chip, Skeleton, Stack, Typography } from "@mui/material";
 import type { Palette } from "@mui/material/styles";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { PermissionDeniedFallback } from "@/frontend/components/ui/PermissionDeniedFallback";
 import {
@@ -57,17 +59,18 @@ const reapplyButtonSx = { minHeight: 44, px: 3 } as const;
  * | 2 | error code `UNAUTHORIZED` / `FORBIDDEN` | shared `PermissionDeniedFallback` — never bare `null` |
  * | 3 | any other transport error | inline `Alert` carrying `errors.internalServerError` |
  * | 4 | `myApplicantProfile === null` (one answer for never-applied + certified) | certified summary + informational teaching-surfaces hint |
- * | 5 | `Pending` | pending chip + awaiting-purchase prompt (purchase flow not yet implemented) |
+ * | 5 | `Pending` | pending chip + awaiting-purchase prompt + storefront CTA → `/plans` (the verification plan lives there) |
  * | 6 | `InEvaluation` | info chip + attempt counter + progress hint |
  * | 7 | `Failed` + `cooldownActive` | warning chip + `{cooldownUntil}` expanded via {@link formatApplicantDate} + DISABLED re-apply CTA; `eligibleToReapply` deliberately suppressed — the truthful message is WHEN re-application unlocks |
- * | 8 | `Failed` + `canPurchaseVerification` | success affordance + ENABLED re-apply CTA (intentional no-op until the purchase route ships) |
+ * | 8 | `Failed` + `canPurchaseVerification` | success affordance + ENABLED re-apply CTA navigating to `/plans` (re-application begins by purchasing the verification plan on the storefront) |
  * | 9 | `Passed` (explicit truthfulness branch) | passed chip + certified-summary narrative |
  * | — | unknown status value (defensive; server fails closed) | inline `Alert` carrying `errors.applicantStatusCorrupt` — never crashes |
  *
- * The enabled re-apply CTA is an informational AFFORDANCE only: it renders
- * truthful localized copy with a ≥44px hit area but navigates nowhere until
- * the verification purchase surface exists; no branch claims an action the
- * product cannot perform yet.
+ * The re-apply CTA on the eligible branch navigates to the `/plans`
+ * storefront — re-application begins by acquiring the verification plan
+ * (DEV1-005 storefront; the DEV1-006 purchase flow will take over the
+ * checkout step itself). No branch claims an action the product cannot
+ * perform yet.
  *
  * MUI v9 discipline: `sx`-only styling (no direct style props), colors
  * exclusively through `theme.palette.*` callbacks, `*Outlined` icons only,
@@ -171,7 +174,7 @@ function resolveStatusBody(
         chipIcon: PendingIcon,
         tone: "pending",
         accent: palette => palette.status.pendingContainer,
-        content: <PromptPanel>{t.pendingPrompt}</PromptPanel>,
+        content: <PendingZone prompt={t.pendingPrompt} ctaLabel={t.pendingPlansCta} />,
       };
     case ApplicantStatus.InEvaluation:
       return {
@@ -255,14 +258,8 @@ function expandCooldownUntil(cooldownUntil: string, t: ApplicantLabels, locale: 
   return t.cooldownExpiryLine.replace(COOLDOWN_PLACEHOLDER, formatApplicantDate(cooldownUntil, locale));
 }
 
-/**
- * Re-apply click intent — INTENTIONAL no-op placeholder. The verification
- * purchase route does not exist yet; until it ships, clicking must not
- * navigate anywhere or claim an action the product cannot perform yet.
- */
-function handleReapplyIntent(): void {
-  // No navigation, no state change — affordance only (purchase route pending).
-}
+/** The `/plans` storefront route — the verification plan's consumer home. */
+const PLANS_STOREFRONT_ROUTE = "/plans";
 
 // ----------------------------------------------------------------------------
 // Zone compositions + branch sub-components
@@ -312,15 +309,53 @@ interface EligibleZoneProps {
 
 /**
  * Failed + eligible body (branch 8): success-tinted explanatory copy plus
- * the ENABLED re-apply CTA whose click stays a documented intentional no-op
- * until the purchase surface ships.
+ * the ENABLED re-apply CTA — a real navigation into the `/plans` storefront
+ * (re-application begins by acquiring the verification plan).
  */
 function EligibleZone({ eligibleText, reapplyLabel }: Readonly<EligibleZoneProps>): ReactNode {
   return (
     <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
       <PromptPanel icon={<CheckCircleIcon fontSize="small" />}>{eligibleText}</PromptPanel>
-      <Button variant="contained" startIcon={<ReapplyIcon />} onClick={handleReapplyIntent} sx={{ ...reapplyButtonSx }}>
+      {/* Re-application begins on the storefront: acquire the verification
+          plan (DEV1-006 will own the checkout step itself). */}
+      <Button
+        variant="contained"
+        startIcon={<ReapplyIcon />}
+        component={Link}
+        href={PLANS_STOREFRONT_ROUTE}
+        sx={{ ...reapplyButtonSx }}
+      >
         {reapplyLabel}
+      </Button>
+    </Stack>
+  );
+}
+
+interface PendingZoneProps {
+  /** `pendingPrompt` — awaiting-purchase copy from the applicant namespace. */
+  readonly prompt: string;
+  /** `pendingPlansCta` — storefront navigation label. */
+  readonly ctaLabel: string;
+}
+
+/**
+ * Pending body (branch 5): the awaiting-purchase prompt panel PLUS a real
+ * destination — the storefront CTA navigates to `/plans`, where the
+ * verification plan (and every other active plan) is browsable. Replaces
+ * the former dead-end copy-only panel now that the storefront ships.
+ */
+function PendingZone({ prompt, ctaLabel }: Readonly<PendingZoneProps>): ReactNode {
+  return (
+    <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
+      <PromptPanel>{prompt}</PromptPanel>
+      <Button
+        variant="contained"
+        startIcon={<StorefrontIcon />}
+        component={Link}
+        href={PLANS_STOREFRONT_ROUTE}
+        sx={{ ...reapplyButtonSx }}
+      >
+        {ctaLabel}
       </Button>
     </Stack>
   );

@@ -25,6 +25,8 @@ export interface ApplicantLabels {
   readonly statusCardTitle: string;
   /** Pending-branch prompt — awaiting purchase of a verification session (the purchase flow itself lives outside this namespace). */
   readonly pendingPrompt: string;
+  /** Pending-branch storefront CTA — navigates to the /plans storefront where the verification plan lives. */
+  readonly pendingPlansCta: string;
   /** Attempts-count row label on the status card. */
   readonly attemptCountLabel: string;
   /**

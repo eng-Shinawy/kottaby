@@ -9,13 +9,16 @@ import { getLocaleFromCookie } from "@/shared/locale/server-cookies";
  * `/plans` route — the consumer subscription-plans storefront.
  *
  * Server Component shell guarded by
- * `withPageAuth({ roles: [UserRole.Student, UserRole.Parent] })`:
+ * `withPageAuth({ roles: [UserRole.Student, UserRole.Parent, UserRole.Teacher] })`:
  *  - anonymous callers → `/login?redirect=%2Fplans` (return path preserved
  *    so login can bounce straight back here);
- *  - staff roles (admin / teacher) → their OWN role-specific dashboards via
- *    `roleDashboardPath` — admins browse the catalog through the
- *    management-geared `/admin/plans` surface instead;
- *  - students and parents → the shell below renders.
+ *  - admins → their OWN role-specific dashboard via `roleDashboardPath` —
+ *    admins browse the catalog through the management-geared `/admin/plans`
+ *    surface instead;
+ *  - students, parents AND teachers → the shell below renders. Teachers
+ *    need the storefront to acquire the New Teacher Verification &
+ *    Evaluation plan (the ApplicantStatusCard pending/re-apply CTAs link
+ *    here directly).
  *
  * The server layer performs ZERO GraphQL data fetching — the storefront is
  * entirely client-owned and mounts as `StudentPlansContainer` (Apollo
@@ -52,8 +55,12 @@ const STUDENT_PLANS_ROUTE = "/plans";
 
 export default async function StudentPlansPage(): Promise<React.ReactElement> {
   // Security boundary FIRST — redirects abort the render before any other
-  // work (consumer storefront: students + their parents only).
-  await withPageAuth({ roles: [UserRole.Student, UserRole.Parent], redirectTo: STUDENT_PLANS_ROUTE });
+  // work (consumer storefront: students, their parents, and teacher
+  // applicants acquiring the verification plan).
+  await withPageAuth({
+    roles: [UserRole.Student, UserRole.Parent, UserRole.Teacher],
+    redirectTo: STUDENT_PLANS_ROUTE,
+  });
 
   // Locale-aware labels — single-argument `getTranslations` returns the
   // message tree synchronously (see `app/AGENTS.md` → Translations in

@@ -7,6 +7,7 @@ export const applicantAr: ApplicantLabels = {
   statusPassed: "ناجح",
   statusCardTitle: "حالة الطلب",
   pendingPrompt: "تم تسجيل طلبك بنجاح، ويمكنك شراء جلسات التحقق متى شئت لبدء التقييم.",
+  pendingPlansCta: "استعرض باقات الاشتراك",
   attemptCountLabel: "عدد محاولات التحقق",
   cooldownExpiryLine: "يمكنك إعادة التقديم بعد {cooldownUntil}.",
   eligibleToReapply: "انتهت فترة الانتظار، وأنت الآن مؤهل لإعادة التقديم للتحقق كمعلم قرآن.",

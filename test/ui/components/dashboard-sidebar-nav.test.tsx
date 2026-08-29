@@ -137,13 +137,13 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
     expect(plans?.Icon).toBeDefined();
   });
 
-  test("student + parent navs carry the consumer /plans storefront; teacher carries none (role-visibility 4.5.3, consumer-storefront amendment)", () => {
-    // Consumer storefront amendment (this round): students and parents get
-    // a /plans entry (the planCatalog read is server-gated to authenticated
-    // callers and returns the ACTIVE slice only). Teachers have no buying
-    // journey — no plans entry. NOBODY but the admin sees the management
-    // surface /admin/plans in their nav.
-    for (const role of [UserRole.Student, UserRole.Parent]) {
+  test("student/parent/teacher navs carry the consumer /plans storefront; admin surface stays admin-only (role-visibility 4.5.3, storefront amendment r2)", () => {
+    // Storefront amendment r2: teachers ALSO get the /plans entry — teacher
+    // applicants acquire the New Teacher Verification & Evaluation plan
+    // there (the ApplicantStatusCard pending/re-apply CTAs link to it).
+    // NOBODY but the admin sees the management surface /admin/plans in
+    // their nav.
+    for (const role of [UserRole.Student, UserRole.Parent, UserRole.Teacher]) {
       const items = getNavItemsForRole(role);
       const storefront = items.find(item => item.route === "/plans");
       expect(storefront, `role ${role} carries the /plans storefront`).toBeDefined();
@@ -151,12 +151,6 @@ describe("navItems — admin Plans entry targets the real /admin/plans page", ()
       expect(storefront?.Icon).toBeDefined();
       // The management surface stays admin-only in every non-admin nav.
       expect(items.some(item => item.route === "/admin/plans")).toBe(false);
-    }
-    for (const role of [UserRole.Teacher]) {
-      const items = getNavItemsForRole(role);
-      expect(items.some(item => item.route === "/plans")).toBe(false);
-      expect(items.some(item => item.route === "/admin/plans")).toBe(false);
-      expect(items.some(item => item.labelKey === "plans")).toBe(false);
     }
   });
 

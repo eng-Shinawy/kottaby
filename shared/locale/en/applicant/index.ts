@@ -8,6 +8,7 @@ export const applicantEn: ApplicantLabels = {
   statusCardTitle: "Application Status",
   pendingPrompt:
     "Your application is registered. Purchase your verification sessions whenever you are ready to begin the evaluation.",
+  pendingPlansCta: "Browse subscription plans",
   attemptCountLabel: "Verification attempts",
   cooldownExpiryLine: "You can re-apply after {cooldownUntil}.",
   eligibleToReapply: "Your waiting period has ended — you are now eligible to re-apply for teacher verification.",

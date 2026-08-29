@@ -186,13 +186,17 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
       expect(container.textContent?.includes(t.statusPassed)).toBe(false);
     });
 
-    test("branch 5 — Pending chip + awaiting-purchase prompt", async () => {
+    test("branch 5 — Pending chip + awaiting-purchase prompt + storefront CTA", async () => {
       const { container } = renderCard([profileSuccessMock()], locale);
 
       await waitFor(() => {
         expect(screen.getByText(t.pendingPrompt)).toBeDefined();
       });
       expect(screen.getByText(t.statusPending)).toBeDefined();
+      // The storefront CTA is a REAL navigation now — /plans hosts the
+      // verification plan the applicant must acquire.
+      const storefrontCta = screen.getByRole("link", { name: t.pendingPlansCta });
+      expect(storefrontCta.getAttribute("href")).toBe("/plans");
       expect(container.textContent?.includes(t.certifiedSummary)).toBe(false);
       expect(container.textContent?.includes(t.eligibleToReapply)).toBe(false);
     });
@@ -246,7 +250,7 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
       expect(container.textContent?.includes("{cooldownUntil}")).toBe(false);
     });
 
-    test("branch 8 — Failed+eligible: ENABLED re-apply affordance with truthful offer copy", async () => {
+    test("branch 8 — Failed+eligible: ENABLED re-apply CTA navigating to the /plans storefront", async () => {
       const { container } = renderCard(
         [profileSuccessMock({ overrides: { status: ApplicantStatus.Failed, verificationAttempts: 3 } })],
         locale
@@ -255,8 +259,11 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
       await waitFor(() => {
         expect(screen.getByText(t.eligibleToReapply)).toBeDefined();
       });
-      const reapplyButton = screen.getByRole("button", { name: t.reapplyCta });
-      expect(reapplyButton.getAttribute("disabled")).toBeNull();
+      // Re-apply is now a REAL navigation (next/link → /plans): the CTA
+      // renders as a link carrying the reapply label, pointing at the
+      // storefront where the verification plan lives.
+      const reapplyLink = screen.getByRole("link", { name: t.reapplyCta });
+      expect(reapplyLink.getAttribute("href")).toBe("/plans");
       expect(screen.getByText(t.statusFailed)).toBeDefined();
       // Cooldown-line copy belongs exclusively to branch 7 — the static
       // prefix of the ICU template must NOT leak into the eligible story.
