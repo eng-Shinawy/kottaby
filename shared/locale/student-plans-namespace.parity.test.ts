@@ -39,7 +39,7 @@ import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
 
 const INTERPOLATING_KEYS = ["intervalDays", "purchaseDialogBody"] as const;
 
-const EXPECTED_KEY_COUNT = 15;
+const EXPECTED_KEY_COUNT = 19;
 
 const TITLE_SENTINEL = "SENTINEL";
 const DAYS_SENTINEL = 30;

@@ -76,6 +76,7 @@ type Mutation {
   """
   refreshToken(refreshToken: String!): RefreshTokenPayload!
   registerUser(input: RegisterUserInput!): User!
+  requestPlanSubscription(planId: ID!): Subscription!
   setPlanActiveStatus(id: ID!, isActive: Boolean!): Plan!
   updatePlan(id: ID!, input: UpdatePlanInput!): Plan!
 }
@@ -102,6 +103,7 @@ type Query {
   """
   me: User
   myApplicantProfile: ApplicantProfile
+  mySubscriptions: [Subscription!]!
   planCatalog: [Plan!]!
 
   """
@@ -148,6 +150,19 @@ input RegisterUserInput {
   phone: String!
   preferredRecitation: RecitationReading
   role: RegisterPublicRole!
+}
+
+type Subscription {
+  createdAt: DateTime!
+  endDate: DateTime
+  id: ID!
+  paymentMethod: String
+  paymentReference: String
+  paymentVerifiedAt: DateTime
+  plan: Plan!
+  startDate: DateTime
+  status: String!
+  updatedAt: DateTime!
 }
 
 input UpdatePlanInput {

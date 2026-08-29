@@ -33,4 +33,7 @@ export const errorsEn: ErrorsLabels = {
   planCurrencyInvalid: "The selected currency is not supported.",
   planIntervalDaysInvalid: "The interval must be a positive number of days.",
   planPatchEmpty: "No changes were provided.",
+  // Subscription-request domain errors (DEV1-006 Phase A).
+  planInactive: "This plan is no longer available for subscription.",
+  subscriptionRequestExists: "You already have a pending request for this plan.",
 };

@@ -85,13 +85,24 @@ const PRE_3_1_TYPE_NAMES = [
 // tuple is the EXACT, CLOSED set of names its plan was authorized to add —
 // anything else on top of `PRE_3_1_* + POST_BASELINE_*` is a regression.
 
-/** Query root fields: the `_health` probe (DEV1-001), the DEV2-004 applicant profile read, the DEV1-005 catalog reads. */
-const POST_BASELINE_QUERY_ADDITIONS = ["_health", "adminPlans", "myApplicantProfile", "planCatalog"] as const;
-/** Mutation root fields: the DEV1-005 admin plan-catalog trio (admin-gated; NO delete surface — INV-PC3). */
-const POST_BASELINE_MUTATION_ADDITIONS = ["createPlan", "setPlanActiveStatus", "updatePlan"] as const;
+/** Query root fields: the `_health` probe (DEV1-001), the DEV2-004 applicant profile read, the DEV1-005 catalog reads, the DEV1-006 Phase A owner-scoped subscription read. */
+const POST_BASELINE_QUERY_ADDITIONS = [
+  "_health",
+  "adminPlans",
+  "myApplicantProfile",
+  "mySubscriptions",
+  "planCatalog",
+] as const;
+/** Mutation root fields: the DEV1-005 admin plan-catalog trio (admin-gated; NO delete surface — INV-PC3) + the DEV1-006 Phase A subscriber request (subscriber-gated, D2-enforced). */
+const POST_BASELINE_MUTATION_ADDITIONS = [
+  "createPlan",
+  "requestPlanSubscription",
+  "setPlanActiveStatus",
+  "updatePlan",
+] as const;
 /** Enum types: the DEV2-004 applicant status enum. */
 const POST_BASELINE_ENUM_ADDITIONS = ["ApplicantStatus"] as const;
-/** Non-root SDL type names: the DEV2-004 applicant surface, the DEV1-005 billing surface, and the probe's `HealthCheck` VO. */
+/** Non-root SDL type names: the DEV2-004 applicant surface, the DEV1-005 billing surface, the DEV1-006 subscription surface, and the probe's `HealthCheck` VO. */
 const POST_BASELINE_TYPE_ADDITIONS = [
   "ApplicantProfile",
   "ApplicantStatus",
@@ -99,6 +110,7 @@ const POST_BASELINE_TYPE_ADDITIONS = [
   "DateTime",
   "HealthCheck",
   "Plan",
+  "Subscription",
   "UpdatePlanInput",
 ] as const;
 
@@ -134,9 +146,7 @@ describe("Query._health — retyped probe surface", () => {
     // …and the ONLY additions beyond them are the sanctioned post-baseline
     // fields (probe + DEV2-004 applicant profile + DEV1-005 catalog reads).
     const additions = fieldNames.filter(name => !(PRE_3_1_QUERY_FIELDS as readonly string[]).includes(name));
-    expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual([
-      ...POST_BASELINE_QUERY_ADDITIONS,
-    ]);
+    expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual([...POST_BASELINE_QUERY_ADDITIONS]);
   });
 
   test("`_health` is NON-NULLABLE `HealthCheck!` (retyped from the String! placeholder)", () => {

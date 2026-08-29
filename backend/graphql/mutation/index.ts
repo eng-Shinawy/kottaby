@@ -16,3 +16,4 @@
  */
 import "./auth.mutation";
 import "./plan-catalog.mutation";
+import "./subscription.mutation";

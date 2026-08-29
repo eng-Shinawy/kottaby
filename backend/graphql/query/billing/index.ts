@@ -13,3 +13,4 @@
  *    its `PlanPothosObject` import).
  */
 import "./plan-catalog.query";
+import "./subscription.query";

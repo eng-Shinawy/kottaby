@@ -13,8 +13,12 @@ export const studentPlansAr: StudentPlansLabels = {
   labelInterval: "التجديد",
   intervalDays: days => `كل ${days} يومًا`,
   subscribeCta: "اشترك",
-  purchaseDialogTitle: "الاشتراك الإلكتروني قريبًا",
+  purchasePendingCta: "تم الطلب",
+  purchaseDialogTitle: "أكّد طلب الاشتراك",
   purchaseDialogBody: planTitle =>
-    `نُجهّز حاليًا إمكانية الدفع الإلكتروني. حتى ذلك الحين، تواصل مع إدارة الأكاديمية للاشتراك في باقة «${planTitle}».`,
+    `أنت تطلب الاشتراك في باقة «${planTitle}». ستؤكد إدارة الأكاديمية الدفع — وتُفعّل الباقة بمجرد إتمام ذلك.`,
+  purchaseRequestCta: "إرسال الطلب",
   purchaseDialogClose: "إغلاق",
+  purchaseRequestSuccessToast: "تم إرسال الطلب — بانتظار تأكيد الدفع.",
+  purchaseRequestFailedToast: "تعذّر إرسال طلبك. يُرجى المحاولة مرة أخرى.",
 };

@@ -272,8 +272,22 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
   }
 `;
 
-/** The exhaustive live root-mutation inventory (ground truth at lock time). */
-const KNOWN_LIVE_MUTATION_FIELDS = ["login", "logout", "refreshToken", "registerUser"];
+/**
+ * The exhaustive live root-mutation inventory (ground truth, reconciled):
+ * the auth baseline + the DEV1-005 admin plan-catalog trio + the DEV1-006
+ * Phase A subscriber request. New sanctioned root mutations MUST be
+ * appended here AND in schema-surface.test.ts's POST_BASELINE_MUTATION_ADDITIONS.
+ */
+const KNOWN_LIVE_MUTATION_FIELDS = [
+  "login",
+  "logout",
+  "refreshToken",
+  "registerUser",
+  "createPlan",
+  "updatePlan",
+  "setPlanActiveStatus",
+  "requestPlanSubscription",
+];
 /** Documented precedent surfaces that must ADOPT Rules #6/#7 when wired. */
 const DOCUMENTED_WARNING_SURFACES_PENDING = ["releaseQuotaIfDeducted", "deleteClassInstance"];
 

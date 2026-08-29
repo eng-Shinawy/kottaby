@@ -190,6 +190,12 @@ function spawnTestServer(port: number, logStream: NodeJS.WritableStream): ChildP
     cwd: process.cwd(),
     env: serverEnv,
     stdio: ["ignore", "pipe", "pipe"],
+    // Own process group: `next dev` spawns a `next-server` child that owns
+    // the listen socket. In the DEFAULT group the child would SURVIVE the
+    // wrapper's SIGKILL (orphaned, still bound to the port) and the NEXT
+    // runner invocation dies with EADDRINUSE — cleanup signals the whole
+    // group via negative pid (see cleanup below).
+    detached: true,
   });
 
   proc.stdout?.pipe(logStream, { end: false });
@@ -619,12 +625,25 @@ async function main(): Promise<void> {
     } catch {
       // ignore
     }
+    // Kill the server's WHOLE process group first (negative pid — covers
+    // the detached `next dev` wrapper AND its `next-server` socket owner);
+    // the direct-pid kill is the fallback when the group already vanished.
+    if (serverProc.pid !== undefined) {
+      try {
+        process.kill(-serverProc.pid, "SIGKILL");
+      } catch {
+        // group already gone
+      }
+    }
     try {
       serverProc.kill("SIGKILL");
     } catch {
       // ignore
     }
     logStream.end();
+    // lsof-based sweep: resolves nothing in sandboxes that hide the
+    // socket→pid map (the group kill above is the real mechanism there),
+    // and guarantees a free port on CI where lsof works.
     killListenersOnPort(port);
   };
 

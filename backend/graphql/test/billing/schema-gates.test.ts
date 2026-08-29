@@ -97,6 +97,14 @@ const REQ_060_COMMITTED_BLOCKS = {
 /** Sanctioned authScopes conjunctions (runtime config, not SDL — see SEC note). */
 const ADMIN_GATE = { $all: { authenticated: true, role: [UserRole.Admin] } };
 const AUTHENTICATED_GATE = { $all: { authenticated: true } };
+/**
+ * DEV1-006 Phase A — the storefront subscriber gate: authenticated members
+ * of the THREE subscriber roles (admins manage the catalog, never
+ * subscribe). Same explicit-$all conjunction discipline as the admin gate.
+ */
+const SUBSCRIBER_GATE = {
+  $all: { authenticated: true, role: [UserRole.Student, UserRole.Parent, UserRole.Teacher] },
+};
 
 /** Pre-existing mutations whose scopeless posture predates DEV1-005 (unchanged). */
 const PRE_EXISTING_MUTATIONS = ["login", "logout", "refreshToken", "registerUser"] as const;
@@ -342,15 +350,25 @@ describe("SEC — root-field authScopes audit (runtime config, not SDL)", () => 
     }
   });
 
-  test("mutation root set is EXACTLY baseline + the three sanctioned plan mutations", () => {
+  test("mutation root set is EXACTLY baseline + the three plan mutations + the subscription request", () => {
     const names = Object.keys(graphQLSchema.getMutationType()?.getFields() ?? {}).toSorted((a, b) =>
       a.localeCompare(b)
     );
 
     expect(names).toEqual(
-      [...PRE_EXISTING_MUTATIONS, "createPlan", "setPlanActiveStatus", "updatePlan"].toSorted((a, b) =>
-        a.localeCompare(b)
-      )
+      [
+        ...PRE_EXISTING_MUTATIONS,
+        "createPlan",
+        "setPlanActiveStatus",
+        "updatePlan",
+        // DEV1-006 Phase A — the storefront's real subscribe action.
+        "requestPlanSubscription",
+      ].toSorted((a, b) => a.localeCompare(b))
     );
+  });
+
+  test("requestPlanSubscription carries the EXPLICIT subscriber $all conjunction", () => {
+    expect(authScopesOf("mutation", "requestPlanSubscription")).toEqual(SUBSCRIBER_GATE);
+    expect(authScopesOf("query", "mySubscriptions")).toEqual(SUBSCRIBER_GATE);
   });
 });

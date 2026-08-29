@@ -33,4 +33,7 @@ export const errorsAr: ErrorsLabels = {
   planCurrencyInvalid: "العملة المختارة غير مدعومة.",
   planIntervalDaysInvalid: "يجب أن تكون الفترة عدداً موجباً من الأيام.",
   planPatchEmpty: "لا توجد تغييرات لحفظها.",
+  // Subscription-request domain errors (DEV1-006 Phase A).
+  planInactive: "هذه الباقة لم تعد متاحة للاشتراك.",
+  subscriptionRequestExists: "لديك طلب قيد المعالجة لهذه الباقة بالفعل.",
 };

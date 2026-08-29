@@ -6,3 +6,5 @@
  * directly.
  */
 export * from "./plan-catalog.service";
+
+export * from "./subscription.service";

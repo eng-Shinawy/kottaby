@@ -68,4 +68,16 @@ export interface ErrorsLabels {
   readonly planIntervalDaysInvalid: string;
   /** "No changes were provided." — empty update payload reject. */
   readonly planPatchEmpty: string;
+  /**
+   * "This plan is no longer available for subscription." — purchase-time
+   * re-validation reject (decision D2): the plan is missing or deactivated
+   * at checkout. Deliberately indistinguishable outcomes — one copy.
+   */
+  readonly planInactive: string;
+  /**
+   * "You already have a pending request for this plan." — unresolved
+   * duplicate subscription-request reject (same user + same plan, status
+   * still pending).
+   */
+  readonly subscriptionRequestExists: string;
 }

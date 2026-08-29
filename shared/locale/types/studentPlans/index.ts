@@ -1,12 +1,15 @@
 /**
- * `studentPlans` namespace labels — the consumer (student / parent)
- * subscription-plans storefront.
+ * `studentPlans` namespace labels — the consumer (student / parent /
+ * teacher) subscription-plans storefront.
  *
  * Used by:
  *  - `/plans` storefront page header (title + subtitle).
  *  - Plan cards (price / sessions / interval specs + subscribe CTA).
- *  - Purchase-notice dialog (honest "coming soon" posture until DEV1-006
- *    lands the real purchase flow).
+ *  - Purchase-request dialog (DEV1-006 Phase A: submits a PENDING
+ *    subscription request; the academy administration confirms the
+ *    offline payment to activate it — decision B.9 posture).
+ *  - Request feedback (success / failure toasts) and the pending-request
+ *    card state (disabled CTA + chip).
  *  - Empty + error states (with retry).
  *
  * All keys MUST have both `en` and `ar` implementations; the parity suite
@@ -49,17 +52,31 @@ export interface StudentPlansLabels {
    * verified by the parity suite).
    */
   readonly intervalDays: (days: number) => string;
-  /** Card primary action: open the subscribe notice. */
+  /** Card primary action: open the subscribe request dialog. */
   readonly subscribeCta: string;
+  /**
+   * Disabled card CTA + chip label for a plan with an unresolved PENDING
+   * request from the current user.
+   */
+  readonly purchasePendingCta: string;
 
-  // ── Purchase-notice dialog ───────────────────────────────────────────────
-  /** Notice dialog title (online purchase not available yet). */
+  // ── Purchase-request dialog ─────────────────────────────────────────────
+  /** Request dialog title. */
   readonly purchaseDialogTitle: string;
   /**
-   * Notice dialog body — interpolates ONLY the plan title (single sentinel,
-   * verified by the parity suite).
+   * Request dialog body — interpolates ONLY the plan title (single
+   * sentinel, verified by the parity suite). Carries the offline-payment
+   * posture: the academy administration confirms the payment to activate.
    */
   readonly purchaseDialogBody: (planTitle: string) => string;
-  /** Notice dialog dismiss button. */
+  /** Request dialog submit button (fires the mutation). */
+  readonly purchaseRequestCta: string;
+  /** Request dialog dismiss button. */
   readonly purchaseDialogClose: string;
+
+  // ── Request feedback ─────────────────────────────────────────────────────
+  /** Success toast after the request is accepted (status pending). */
+  readonly purchaseRequestSuccessToast: string;
+  /** Failure toast when the mutation errors (generic, retryable copy). */
+  readonly purchaseRequestFailedToast: string;
 }

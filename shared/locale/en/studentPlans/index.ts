@@ -13,8 +13,12 @@ export const studentPlansEn: StudentPlansLabels = {
   labelInterval: "Renewal",
   intervalDays: days => `Every ${days} days`,
   subscribeCta: "Subscribe",
-  purchaseDialogTitle: "Online subscription is coming soon",
+  purchasePendingCta: "Requested",
+  purchaseDialogTitle: "Confirm your subscription request",
   purchaseDialogBody: planTitle =>
-    `We're putting the finishing touches on online payments. For now, contact the academy administration to subscribe to «${planTitle}».`,
+    `You are requesting a subscription to «${planTitle}». The academy administration will confirm your payment — the plan activates once that's done.`,
+  purchaseRequestCta: "Submit request",
   purchaseDialogClose: "Close",
+  purchaseRequestSuccessToast: "Request submitted — pending payment confirmation.",
+  purchaseRequestFailedToast: "Couldn't submit your request. Please try again.",
 };

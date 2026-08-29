@@ -512,13 +512,21 @@ describe("error-contract matrix — wire tier over live HTTP", () => {
     const result = await testClient.query({
       query: gql`
         query HealthProbe {
-          _health
+          _health {
+            status
+          }
         }
       `,
       fetchPolicy: "no-cache",
     });
-    expect(result.data).toEqual({ _health: "ok" });
+    // `_health` is the `HealthCheck!` value object (DEV1-001 retype) — the
+    // probe selects its `status` subfield; a bare `_health` leaf selection
+    // now fails validation (see test/helpers/test-lifecycle.ts pollOnce).
+    // Field-level assertion — Apollo's HttpLink adds `__typename` to the
+    // object payload, and this tier pins DATA INTEGRITY, not cache shape.
     expect(result.error).toBeUndefined();
+    const healthPayload = result.data as { _health?: { status?: string } } | undefined;
+    expect(healthPayload?._health?.status).toBe("ok");
   });
 
   test("malformed GraphQL document over raw HTTP crosses as GRAPHQL_PARSE_FAILED preset (correlated)", async () => {

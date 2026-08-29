@@ -1,44 +1,60 @@
 "use client";
 
-import { useQuery } from "@apollo/client/react";
+import { useMutation, useQuery } from "@apollo/client/react";
 import { Inventory2Outlined as EmptyStateIcon, ErrorOutlineOutlined as ErrorStateIcon } from "@mui/icons-material";
 import {
+  Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
   Skeleton,
+  Snackbar,
   Stack,
   Typography,
 } from "@mui/material";
-import { type ReactNode, useCallback, useState } from "react";
-import type { PlanCatalogQuery_planCatalog } from "@/frontend/graphql/generated/gql/graphql";
-import { planCatalogQueryDocument } from "@/frontend/graphql/sharedDocuments";
+import type { SnackbarCloseReason } from "@mui/material/Snackbar";
+import { type ReactNode, useCallback, useRef, useState } from "react";
+import type {
+  PlanCatalogQuery_planCatalog,
+  RequestPlanSubscriptionMutation,
+  RequestPlanSubscriptionMutationVariables,
+} from "@/frontend/graphql/generated/gql/graphql";
+import {
+  mySubscriptionsQueryDocument,
+  planCatalogQueryDocument,
+  requestPlanSubscriptionMutationDocument,
+} from "@/frontend/graphql/sharedDocuments";
 import { StudentPlanCard } from "@/frontend/views/student/plans/StudentPlanCard";
 import { StudentPlans, useAppTranslation } from "@/shared/locale";
 import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
 
 /**
  * `StudentPlansContainer` — the client-owned consumer storefront (mounted by
- * the `/plans` server shell; the FIRST consumer-facing DEV1-005 artifact and
- * the DEV1-006 purchase-flow landing strip).
+ * the `/plans` server shell) and the DEV1-006 Phase A purchase-flow landing
+ * strip.
  *
  * Responsibilities:
- *  - DATA: `useQuery(planCatalogQueryDocument)` from `@apollo/client/react` —
- *    the server-enforced consumer read (ANY authenticated role, ACTIVE slice
- *    only; visibility is owned by the service predicate, not this container);
+ *  - DATA: `useQuery(planCatalogQueryDocument)` (server-enforced consumer
+ *    read: ANY subscriber role, ACTIVE slice only) PLUS
+ *    `useQuery(mySubscriptionsQueryDocument)` — the owner-scoped read whose
+ *    PENDING rows derive the per-plan requested state;
  *  - COPY: `useAppTranslation(StudentPlans)` — property access ONLY, no
  *    `t("key")` string lookups anywhere on this surface;
  *  - STATES: skeleton cards while in flight → localized empty state →
  *    localized error state with retry → the responsive card grid;
- *  - SUBSCRIBE INTENT: card CTAs open ONE shared purchase-notice dialog —
- *    the honest "online subscription coming soon" posture until DEV1-006
- *    lands the real purchase flow. The dialog body interpolates the plan
- *    title through the namespace formatter; its React `key` is kind-prefixed
- *    (audit-CR2 lesson: bare numeric keys collided across sibling mounts).
+ *  - SUBSCRIBE FLOW (real, Phase A): card CTAs open ONE shared
+ *    purchase-request dialog; submitting fires the
+ *    `requestPlanSubscription` mutation (server-side D2 re-validation +
+ *    PENDING insert). Success → toast + dialog close + `mySubscriptions`
+ *    refetch (the card flips to its pending posture from the refreshed
+ *    owner-scoped read). Failure → failure toast, dialog stays open for a
+ *    retry. The pending CTA posture lives in the card (chip + disabled
+ *    button), derived here and handed down as `hasPendingRequest`.
  *
  * Server hand-off (`labels` prop): the `/plans` shell resolves
  * `getTranslations(locale).studentPlansTranslations` server-side and passes
@@ -72,8 +88,12 @@ export type StudentPlansStaticLabels = Pick<
   | "labelSessions"
   | "labelInterval"
   | "subscribeCta"
+  | "purchasePendingCta"
   | "purchaseDialogTitle"
+  | "purchaseRequestCta"
   | "purchaseDialogClose"
+  | "purchaseRequestSuccessToast"
+  | "purchaseRequestFailedToast"
 >;
 
 export interface StudentPlansContainerProps {
@@ -109,20 +129,79 @@ function PlanCardSkeleton(): ReactNode {
   );
 }
 
+/** Toast state — copy is pre-resolved from the namespace (no live refs). */
+interface RequestToast {
+  readonly id: number;
+  readonly copy: string;
+  readonly severity: "success" | "error";
+}
+
 export function StudentPlansContainer({ labels }: Readonly<StudentPlansContainerProps>): ReactNode {
   const translated = useAppTranslation(StudentPlans);
   const { data, loading, error, refetch } = useQuery(planCatalogQueryDocument);
+  const { data: mySubscriptionsData, refetch: refetchMySubscriptions } = useQuery(mySubscriptionsQueryDocument);
 
   // Server hand-off wins where provided (byte-identical copy to the server
   // shell); the client handle supplies every remaining key — including the
-  // two formatters the cards + notice dialog interpolate.
+  // two formatters the cards + request dialog interpolate.
   const t: StudentPlansLabels = { ...translated, ...labels };
 
-  // ── Subscribe-notice dialog state ─────────────────────────────────────────
-  const [noticePlan, setNoticePlan] = useState<PlanCatalogQuery_planCatalog | null>(null);
+  // ── Subscribe-request flow state ──────────────────────────────────────────
+  const [requestPlan, setRequestPlan] = useState<PlanCatalogQuery_planCatalog | null>(null);
+  const [toast, setToast] = useState<RequestToast | null>(null);
+  // Monotonic toast ids — re-opened toasts restart the autohide timer
+  // (audit-R4 lesson, mirrored from the admin catalog container).
+  const nextToastIdRef = useRef(0);
 
-  const openNotice = useCallback((plan: PlanCatalogQuery_planCatalog) => setNoticePlan(plan), []);
-  const closeNotice = useCallback(() => setNoticePlan(null), []);
+  const [submitRequest, { loading: submitting }] = useMutation<
+    RequestPlanSubscriptionMutation,
+    RequestPlanSubscriptionVariablesAlias
+  >(requestPlanSubscriptionMutationDocument, {
+    onError: () => {
+      // The masking boundary owns unexpected failures; expected domain
+      // conflicts (PLAN_INACTIVE, SUBSCRIPTION_REQUEST_EXISTS) surface with
+      // localized copy server-side. The toast stays generic + retryable —
+      // the dialog remains open so the user can retry in place.
+      setToast({ id: ++nextToastIdRef.current, copy: t.purchaseRequestFailedToast, severity: "error" });
+    },
+    onCompleted: () => {
+      setToast({ id: ++nextToastIdRef.current, copy: t.purchaseRequestSuccessToast, severity: "success" });
+      setRequestPlan(null);
+      // Refresh the owner-scoped read — the requested plan's card flips to
+      // its pending posture from REAL server state, never optimistic local
+      // guessing (a duplicate race is settled by the server's conflict).
+      void refetchMySubscriptions();
+    },
+  });
+
+  const openRequest = useCallback((plan: PlanCatalogQuery_planCatalog) => setRequestPlan(plan), []);
+  const closeRequest = useCallback(() => {
+    if (!submitting) {
+      setRequestPlan(null);
+    }
+  }, [submitting]);
+  const confirmRequest = useCallback(() => {
+    if (requestPlan === null || submitting) {
+      return;
+    }
+    void submitRequest({ variables: { planId: requestPlan.id } });
+  }, [requestPlan, submitRequest, submitting]);
+  const dismissToast = useCallback((_event: Event | React.SyntheticEvent, reason: SnackbarCloseReason): void => {
+    if (reason === "clickaway") {
+      return;
+    }
+    setToast(null);
+  }, []);
+
+  // Pending-request plan ids — the set of plan ids with an UNRESOLVED
+  // pending subscription from the current user. Apollo normalizes both
+  // reads' plan rows onto `Plan:<id>`, so the plain string id comparison
+  // is the correct join key.
+  const pendingPlanIds = new Set(
+    (mySubscriptionsData?.mySubscriptions ?? [])
+      .filter(subscription => subscription.status === "pending")
+      .map(subscription => subscription.plan.id)
+  );
 
   // ── State branches (error → loading → empty → populated) ──────────────────
   let surface: ReactNode;
@@ -195,7 +274,13 @@ export function StudentPlansContainer({ labels }: Readonly<StudentPlansContainer
         data-testid="student-plans-grid"
       >
         {data.planCatalog.map(plan => (
-          <StudentPlanCard key={plan.id} plan={plan} labels={t} onSubscribe={openNotice} />
+          <StudentPlanCard
+            key={plan.id}
+            plan={plan}
+            labels={t}
+            hasPendingRequest={pendingPlanIds.has(plan.id)}
+            onSubscribe={openRequest}
+          />
         ))}
       </Box>
     );
@@ -204,32 +289,66 @@ export function StudentPlansContainer({ labels }: Readonly<StudentPlansContainer
   return (
     <>
       {surface}
-      {/* ONE shared purchase-notice dialog — every card CTA routes here.
+      {/* ONE shared purchase-request dialog — every card CTA routes here.
           Kind-prefixed key (audit-CR2): the nonce starts at (and resets to)
-          0, and bare numeric keys collided across sibling mounts. */}
+          "idle", and bare numeric keys collided across sibling mounts.
+          Confirming fires the REAL Phase A mutation; the dialog is
+          submit-locked while the request is in flight. */}
       <Dialog
-        key={`notice-${noticePlan?.id ?? "idle"}`}
-        open={noticePlan !== null}
-        onClose={closeNotice}
-        aria-labelledby="student-plans-notice-title"
-        aria-describedby="student-plans-notice-body"
+        key={`request-${requestPlan?.id ?? "idle"}`}
+        open={requestPlan !== null}
+        onClose={closeRequest}
+        aria-labelledby="student-plans-request-title"
+        aria-describedby="student-plans-request-body"
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle id="student-plans-notice-title" sx={{ fontWeight: 700 }}>
+        <DialogTitle id="student-plans-request-title" sx={{ fontWeight: 700 }}>
           {t.purchaseDialogTitle}
         </DialogTitle>
         <DialogContent>
-          <DialogContentText id="student-plans-notice-body">
-            {noticePlan === null ? null : t.purchaseDialogBody(noticePlan.title)}
+          <DialogContentText id="student-plans-request-body">
+            {requestPlan === null ? null : t.purchaseDialogBody(requestPlan.title)}
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={closeNotice} variant="contained" sx={{ borderRadius: 2 }}>
+          <Button onClick={closeRequest} disabled={submitting} variant="text" sx={{ borderRadius: 2 }}>
             {t.purchaseDialogClose}
+          </Button>
+          <Button
+            onClick={confirmRequest}
+            disabled={submitting}
+            variant="contained"
+            data-testid="student-plans-request-submit"
+            sx={{ borderRadius: 2 }}
+            startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            {t.purchaseRequestCta}
           </Button>
         </DialogActions>
       </Dialog>
+      <Snackbar
+        key={toast === null ? "toast-idle" : `toast-${toast.id}`}
+        open={toast !== null}
+        autoHideDuration={6000}
+        onClose={dismissToast}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity={toast?.severity ?? "success"}
+          variant="filled"
+          data-testid="student-plans-toast"
+          sx={theme => ({ borderRadius: 2, boxShadow: theme.palette.shadow.card })}
+        >
+          {toast?.copy}
+        </Alert>
+      </Snackbar>
     </>
   );
 }
+
+/**
+ * Local alias for the mutation variables shape — keeps the useMutation
+ * generic readable without importing the codegen variables type twice.
+ */
+type RequestPlanSubscriptionVariablesAlias = RequestPlanSubscriptionMutationVariables;

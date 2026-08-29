@@ -85,8 +85,12 @@ export default async function StudentPlansPage(): Promise<React.ReactElement> {
           labelSessions: t.labelSessions,
           labelInterval: t.labelInterval,
           subscribeCta: t.subscribeCta,
+          purchasePendingCta: t.purchasePendingCta,
           purchaseDialogTitle: t.purchaseDialogTitle,
+          purchaseRequestCta: t.purchaseRequestCta,
           purchaseDialogClose: t.purchaseDialogClose,
+          purchaseRequestSuccessToast: t.purchaseRequestSuccessToast,
+          purchaseRequestFailedToast: t.purchaseRequestFailedToast,
         }}
       />
     </main>

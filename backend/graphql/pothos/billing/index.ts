@@ -12,3 +12,4 @@
  * (e.g. `PlanPothosObject`) directly from their owning modules.
  */
 import "./plan.pothos";
+import "./subscription.pothos";

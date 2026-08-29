@@ -1,20 +1,31 @@
 /**
  * StudentPlansContainer + StudentPlanCard — component suite (consumer /plans
- * storefront, DEV1-005 follow-on round).
+ * storefront, DEV1-006 Phase A round).
  *
  * Happy DOM + Apollo `MockedProvider` tier (`test/ui/components`): the
  * container's settled-state matrix is rendered across BOTH locales (Arabic
  * RTL first — the app's default), with the catalog data supplied by
  * `planCatalog` mocks carrying NO variables exactly as the container issues
- * them:
+ * them, and the owner-scoped `mySubscriptions` read mocked alongside every
+ * catalog response (the pending-request state derives from it):
  *
  *   skeleton (in flight) · populated card grid · empty catalog ·
  *   load failure + retry
  *
+ * DEV1-006 Phase A purchase-flow cells:
+ *  - REQUEST HAPPY PATH — open dialog → submit → mutation mock resolves →
+ *    success toast + dialog closes + `mySubscriptions` refetch (second
+ *    ordered mock carries the new pending row) → the card flips to its
+ *    pending posture (disabled CTA + pending chip);
+ *  - REQUEST FAILURE — mutation rejects → failure toast, dialog stays open;
+ *  - PENDING POSTURE — a pre-existing PENDING row disables that plan's CTA
+ *    and renders the chip; an ACTIVE row does not (renewals stay free).
+ *
  * Plus two single-tier cells:
  *  - CARD delegation tier — `StudentPlanCard` rendered directly with a
  *    spied callback: the subscribe CTA forwards the EXACT plan object to
- *    `onSubscribe` (the container's notice-dialog boundary);
+ *    `onSubscribe` (the container's request-dialog boundary); the pending
+ *    prop disables the CTA and drops the delegation;
  *  - SERVER HAND-OFF tier — the container's `labels` prop (the RSC-safe
  *    string subset the `/plans` page passes) overrides the client-side
  *    `useAppTranslation(StudentPlans)` handle.
@@ -31,8 +42,15 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { MockLink } from "@apollo/client/testing";
 import { MockedProvider } from "@apollo/client/testing/react";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
-import type { PlanCatalogQuery_planCatalog } from "@/frontend/graphql/generated/gql/graphql";
-import { planCatalogQueryDocument } from "@/frontend/graphql/sharedDocuments";
+import type {
+  MySubscriptionsQuery_mySubscriptions,
+  PlanCatalogQuery_planCatalog,
+} from "@/frontend/graphql/generated/gql/graphql";
+import {
+  mySubscriptionsQueryDocument,
+  planCatalogQueryDocument,
+  requestPlanSubscriptionMutationDocument,
+} from "@/frontend/graphql/sharedDocuments";
 import { StudentPlanCard, StudentPlansContainer } from "@/frontend/views/student/plans";
 import type { AppLocale } from "@/shared/locale/AppLocale";
 import { StudentPlans as StudentPlansNs } from "@/shared/locale/namespaces/studentPlans";
@@ -60,6 +78,25 @@ function planFixture(overrides?: Partial<PlanCatalogQuery_planCatalog>): PlanCat
   };
 }
 
+/** Deterministic owner-scoped subscription row builder (DEV1-006 shape). */
+function subscriptionFixture(
+  overrides?: Partial<MySubscriptionsQuery_mySubscriptions>
+): MySubscriptionsQuery_mySubscriptions {
+  return {
+    id: "701",
+    status: "pending",
+    plan: planFixture(),
+    startDate: null,
+    endDate: null,
+    paymentMethod: null,
+    paymentReference: null,
+    paymentVerifiedAt: null,
+    createdAt: "2026-02-01T09:00:00.000Z",
+    updatedAt: "2026-02-01T09:00:00.000Z",
+    ...overrides,
+  };
+}
+
 const FIRST_ROW = planFixture();
 const SECOND_ROW = planFixture({
   id: "2",
@@ -74,6 +111,41 @@ function planCatalogMock(rows: PlanCatalogQuery_planCatalog[]): MockLink.MockedR
   return {
     request: { query: planCatalogQueryDocument },
     result: { data: { planCatalog: rows } },
+  };
+}
+
+/** `mySubscriptions` mock — one answer per identical request, in order. */
+function mySubscriptionsMock(rows: MySubscriptionsQuery_mySubscriptions[]): MockLink.MockedResponse {
+  return {
+    request: { query: mySubscriptionsQueryDocument },
+    result: { data: { mySubscriptions: rows } },
+  };
+}
+
+/** Convenience alias — identical to the base mock, kept for call-site readability. */
+function mySubscriptionsOnce(rows: MySubscriptionsQuery_mySubscriptions[]): MockLink.MockedResponse {
+  return mySubscriptionsMock(rows);
+}
+
+/** `requestPlanSubscription` mock resolving with the created pending row. */
+function requestSubscriptionMock(planId: string, createdId: string): MockLink.MockedResponse {
+  return {
+    request: { query: requestPlanSubscriptionMutationDocument, variables: { planId } },
+    result: {
+      data: {
+        requestPlanSubscription: subscriptionFixture({ id: createdId, plan: FIRST_ROW }),
+      },
+    },
+  };
+}
+
+/** `requestPlanSubscription` mock rejecting with a localized domain conflict. */
+function deniedRequestSubscriptionMock(planId: string): MockLink.MockedResponse {
+  return {
+    request: { query: requestPlanSubscriptionMutationDocument, variables: { planId } },
+    result: {
+      errors: [{ message: "PLAN_INACTIVE (localized transport surface)", extensions: { code: "PLAN_INACTIVE" } }],
+    },
   };
 }
 
@@ -122,7 +194,7 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
     });
 
     test("populated storefront renders one card per active plan with verbatim commerce fields", async () => {
-      renderContainer([planCatalogMock([FIRST_ROW, SECOND_ROW])], locale);
+      renderContainer([planCatalogMock([FIRST_ROW, SECOND_ROW]), mySubscriptionsOnce([])], locale);
 
       await waitFor(() => {
         expect(screen.getByTestId("student-plans-grid")).toBeDefined();
@@ -148,8 +220,8 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
       expect(screen.queryByTestId("student-plans-error")).toBeNull();
     });
 
-    test("subscribe CTA opens the purchase-notice dialog with the plan title interpolated once", async () => {
-      renderContainer([planCatalogMock([FIRST_ROW])], locale);
+    test("subscribe CTA opens the purchase-request dialog with the plan title interpolated once", async () => {
+      renderContainer([planCatalogMock([FIRST_ROW]), mySubscriptionsOnce([])], locale);
 
       await waitFor(() => {
         expect(screen.getByTestId("student-plans-grid")).toBeDefined();
@@ -161,11 +233,13 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
         expect(el).toBeDefined();
         return el;
       });
-      expect(dialog.getAttribute("id")).toBe("student-plans-notice-title");
+      expect(dialog.getAttribute("id")).toBe("student-plans-request-title");
       // Body interpolates the plan title exactly once through the formatter.
       const expectedBody = t.purchaseDialogBody(FIRST_ROW.title);
       expect(screen.getByText(expectedBody)).toBeDefined();
       expect(expectedBody.split(FIRST_ROW.title).length - 1).toBe(1);
+      // Submit + dismiss actions are present.
+      expect(screen.getByRole("button", { name: t.purchaseRequestCta })).toBeDefined();
       // Dismiss returns the storefront to its steady state.
       fireEvent.click(screen.getByRole("button", { name: t.purchaseDialogClose }));
       await waitFor(() => {
@@ -173,8 +247,97 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
       });
     });
 
+    test("request happy path: submit fires the mutation, success toast shows, card flips to pending", async () => {
+      renderContainer(
+        [
+          planCatalogMock([FIRST_ROW, SECOND_ROW]),
+          // Ordered owner-scoped answers: first read = no requests; the
+          // post-success refetch = the new PENDING row.
+          mySubscriptionsOnce([]),
+          mySubscriptionsOnce([subscriptionFixture({ id: "901", plan: FIRST_ROW })]),
+          // The mutation itself.
+          requestSubscriptionMock(FIRST_ROW.id, "901"),
+        ],
+        locale
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("student-plans-grid")).toBeDefined();
+      });
+      fireEvent.click(screen.getByRole("button", { name: `${t.subscribeCta} — ${FIRST_ROW.title}` }));
+      fireEvent.click(await screen.findByRole("button", { name: t.purchaseRequestCta }));
+
+      // Success toast — the pre-interpolated namespace copy.
+      const toast = await screen.findByTestId("student-plans-toast");
+      expect(toast.textContent).toContain(t.purchaseRequestSuccessToast);
+      // Dialog closed after success.
+      await waitFor(() => {
+        expect(screen.queryByText(t.purchaseDialogTitle)).toBeNull();
+      });
+      // Refetched owner read flips the card: disabled CTA + pending chip.
+      await waitFor(() => {
+        expect(screen.getByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeDefined();
+      });
+      const pendingCta = screen.getByRole("button", {
+        name: `${t.purchasePendingCta} — ${FIRST_ROW.title}`,
+      });
+      expect(pendingCta.hasAttribute("disabled")).toBe(true);
+      // The untouched plan keeps its live subscribe CTA.
+      expect(screen.getAllByRole("button", { name: `${t.subscribeCta} — ${SECOND_ROW.title}` })).toHaveLength(1);
+    });
+
+    test("request failure: mutation reject shows the failure toast and keeps the dialog open", async () => {
+      renderContainer(
+        [planCatalogMock([FIRST_ROW]), mySubscriptionsOnce([]), deniedRequestSubscriptionMock(FIRST_ROW.id)],
+        locale
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("student-plans-grid")).toBeDefined();
+      });
+      fireEvent.click(screen.getByRole("button", { name: `${t.subscribeCta} — ${FIRST_ROW.title}` }));
+      fireEvent.click(await screen.findByRole("button", { name: t.purchaseRequestCta }));
+
+      await screen.findByTestId("student-plans-toast");
+      expect(screen.getByText(t.purchaseRequestFailedToast)).toBeDefined();
+      // Dialog stays open for an in-place retry.
+      expect(screen.getByText(t.purchaseDialogTitle)).toBeDefined();
+      // The storefront never flipped to the pending posture.
+      expect(screen.queryByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeNull();
+    });
+
+    test("pre-existing PENDING request disables that plan's CTA; ACTIVE history does not", async () => {
+      renderContainer(
+        [
+          planCatalogMock([FIRST_ROW, SECOND_ROW]),
+          mySubscriptionsOnce([
+            subscriptionFixture({ id: "701", plan: FIRST_ROW, status: "pending" }),
+            subscriptionFixture({ id: "702", plan: SECOND_ROW, status: "active" }),
+          ]),
+        ],
+        locale
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("student-plans-grid")).toBeDefined();
+      });
+      // Pending plan: chip + disabled relabeled CTA; no live subscribe CTA.
+      // findBy* — the owner-scoped read settles independently of the catalog
+      // read, so the pending posture may land a tick after the grid mounts.
+      const pendingCta = await screen.findByRole("button", {
+        name: `${t.purchasePendingCta} — ${FIRST_ROW.title}`,
+      });
+      expect(await screen.findByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeDefined();
+      expect(pendingCta.hasAttribute("disabled")).toBe(true);
+      expect(screen.queryByRole("button", { name: `${t.subscribeCta} — ${FIRST_ROW.title}` })).toBeNull();
+      // Active-history plan: NOT pending — renewals stay open until the
+      // payment phase owns them.
+      expect(screen.queryByTestId(`student-plan-pending-chip-${SECOND_ROW.id}`)).toBeNull();
+      expect(screen.getAllByRole("button", { name: `${t.subscribeCta} — ${SECOND_ROW.title}` })).toHaveLength(1);
+    });
+
     test("empty catalog renders the localized empty state", async () => {
-      renderContainer([planCatalogMock([])], locale);
+      renderContainer([planCatalogMock([]), mySubscriptionsOnce([])], locale);
 
       await waitFor(() => {
         expect(screen.getByTestId("student-plans-empty")).toBeDefined();
@@ -212,14 +375,31 @@ describe("StudentPlanCard — subscribe CTA delegates the exact plan to the call
     const t = StudentPlansNs.getLabels(getTranslations("en"));
     const onSubscribe = mock((_plan: PlanCatalogQuery_planCatalog) => undefined);
 
-    renderWithWrapper(<StudentPlanCard plan={FIRST_ROW} labels={t} onSubscribe={onSubscribe} />, {
-      locale: "en",
-    });
+    renderWithWrapper(
+      <StudentPlanCard plan={FIRST_ROW} labels={t} hasPendingRequest={false} onSubscribe={onSubscribe} />,
+      { locale: "en" }
+    );
 
     expect(screen.getByText(FIRST_ROW.title)).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: `${t.subscribeCta} — ${FIRST_ROW.title}` }));
     expect(onSubscribe).toHaveBeenCalledTimes(1);
     expect(onSubscribe).toHaveBeenCalledWith(FIRST_ROW);
+  });
+
+  test("pending posture: CTA disabled with the pending relabel and NO delegation", () => {
+    const t = StudentPlansNs.getLabels(getTranslations("en"));
+    const onSubscribe = mock((_plan: PlanCatalogQuery_planCatalog) => undefined);
+
+    renderWithWrapper(
+      <StudentPlanCard plan={FIRST_ROW} labels={t} hasPendingRequest={true} onSubscribe={onSubscribe} />,
+      { locale: "en" }
+    );
+
+    expect(screen.getByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeDefined();
+    const pendingCta = screen.getByRole("button", { name: `${t.purchasePendingCta} — ${FIRST_ROW.title}` });
+    expect(pendingCta.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(pendingCta);
+    expect(onSubscribe).not.toHaveBeenCalled();
   });
 });
 
@@ -231,7 +411,7 @@ describe("StudentPlansContainer — labels prop overrides the client handle", ()
   test("server-resolved strings win over the client-side namespace", async () => {
     const t = StudentPlansNs.getLabels(getTranslations("en"));
     renderWithWrapper(
-      <MockedProvider mocks={[planCatalogMock([])]}>
+      <MockedProvider mocks={[planCatalogMock([]), mySubscriptionsOnce([])]}>
         <StudentPlansContainer labels={{ ...t, emptyStateTitle: "SERVER EMPTY TITLE", subscribeCta: "SERVER CTA" }} />
       </MockedProvider>,
       { locale: "en" }
