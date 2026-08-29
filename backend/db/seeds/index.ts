@@ -22,7 +22,7 @@ export async function runAllSeeds(config?: SeedConfig): Promise<void> {
   // Step 2: Demo student trial-grant reconcile. Runs after the user seeder so
   // the demo student row exists; applies the production grant entry point
   // only to rows whose trial marker is still null.
-  const studentsStep = await runSeedStep("students", () => seedOrGetStudents(seedConfig));
+  const studentsStep = await runSeedStep("students", () => seedOrGetStudents());
   stepResults.push(studentsStep);
 
   logFailedSeedSteps(stepResults);

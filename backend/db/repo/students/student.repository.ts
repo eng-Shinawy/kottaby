@@ -12,13 +12,19 @@
  * back on any child-insert failure (atomicity). The trial grant method
  * (`grantFreeTrialOnce`) accepts an optional `tx` so it can run either inside
  * the registration transaction or standalone against the global handle.
- * Read methods (`findById`) accept an optional `tx` for in-tx reads and fall
- * back to the global Drizzle handle when called standalone.
+ * Read methods (`findById`) use `queryDb` (raw parameterized SQL) on the
+ * non-transactional branch for the Neon HTTP fast path, and Drizzle's query
+ * builder on the transactional branch — per `backend/db/repo/AGENTS.md`.
  */
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { db } from "@/backend/db";
+import { db, queryDb } from "@/backend/db";
 import { students } from "@/backend/db/schema/students/students";
-import type { DBTransaction, StudentSelectType } from "@/backend/types";
+import type { DBQueryExecutor, DBTransaction, StudentSelectType } from "@/backend/types";
+
+/** Type guard — narrows `DBQueryExecutor` to `DBTransaction`. */
+function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
+  return typeof tx === "object" && "select" in tx;
+}
 
 export namespace StudentRepository {
   /**
@@ -65,10 +71,22 @@ export namespace StudentRepository {
    *
    * @returns The matching student row, or `null` if no student carries that id.
    */
-  export async function findById(studentId: number, tx?: DBTransaction): Promise<StudentSelectType | null> {
-    const executor = tx ?? db;
-    const rows = await executor.select().from(students).where(eq(students.id, studentId)).limit(1);
-    return rows[0] ?? null;
+  export async function findById(studentId: number, tx?: DBQueryExecutor): Promise<StudentSelectType | null> {
+    if (tx && isDBTransaction(tx)) {
+      const rows = await tx.select().from(students).where(eq(students.id, studentId)).limit(1);
+      return rows[0] ?? null;
+    }
+    const result = await queryDb<StudentSelectType>(
+      `SELECT id, balance_hifz AS "balanceHifz", balance_reviews AS "balanceReviews",
+              balance_tajweed AS "balanceTajweed", balance_trial AS "balanceTrial",
+              trial_granted_at AS "trialGrantedAt",
+              primary_language AS "primaryLanguage", another_language AS "anotherLanguage",
+              handshake_code AS "handshakeCode", parent_id AS "parentId",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM students WHERE id = $1 LIMIT 1`,
+      [studentId]
+    );
+    return result.rows[0] ?? null;
   }
 
   /**
@@ -86,8 +104,8 @@ export namespace StudentRepository {
     trialCount: number,
     tx?: DBTransaction
   ): Promise<boolean> {
-    const queryDb = tx ?? db;
-    const updated = await queryDb
+    const executor = tx ?? db;
+    const updated = await executor
       .update(students)
       .set({
         balanceTrial: sql`${students.balanceTrial} + ${trialCount}`,
