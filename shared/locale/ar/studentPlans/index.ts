@@ -13,6 +13,8 @@ export const studentPlansAr: StudentPlansLabels = {
   labelInterval: "التجديد",
   intervalDays: days => `كل ${days} يومًا`,
   subscribeCta: "اشترك",
+  activeChip: "نشط",
+  renewCta: "تجديد",
   purchasePendingCta: "تم الطلب",
   purchaseDialogTitle: "أكّد طلب الاشتراك",
   purchaseDialogBody: planTitle =>

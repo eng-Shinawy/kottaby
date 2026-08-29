@@ -13,6 +13,8 @@ export const studentPlansEn: StudentPlansLabels = {
   labelInterval: "Renewal",
   intervalDays: days => `Every ${days} days`,
   subscribeCta: "Subscribe",
+  activeChip: "Active",
+  renewCta: "Renew",
   purchasePendingCta: "Requested",
   purchaseDialogTitle: "Confirm your subscription request",
   purchaseDialogBody: planTitle =>

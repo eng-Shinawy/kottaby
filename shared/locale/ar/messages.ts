@@ -5,6 +5,7 @@ import { commonAr } from "@/shared/locale/ar/common";
 import { dashboardAr } from "@/shared/locale/ar/dashboard";
 import { errorsAr } from "@/shared/locale/ar/errors";
 import { landingAr } from "@/shared/locale/ar/landing";
+import { mySubscriptionsAr } from "@/shared/locale/ar/mySubscriptions";
 import { paymentVerificationAr } from "@/shared/locale/ar/paymentVerification";
 import { plansAr } from "@/shared/locale/ar/plans";
 import { recitationAr } from "@/shared/locale/ar/recitation";
@@ -23,6 +24,7 @@ export const arMessages: Translations = {
   applicantTranslations: applicantAr,
   plansTranslations: plansAr,
   studentPlansTranslations: studentPlansAr,
+  mySubscriptionsTranslations: mySubscriptionsAr,
   paymentVerificationTranslations: paymentVerificationAr,
   subscriptionManagementTranslations: subscriptionManagementAr,
 };

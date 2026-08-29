@@ -1,45 +1,45 @@
 /**
- * `studentPlans`-namespace locale-parity verification.
+ * `mySubscriptions`-namespace locale-parity verification (DEV1-010).
  *
  * WHAT THIS LOCKS
- *   1. RUNTIME PARITY BELT — the ar/en `studentPlans` leaf maps expose
+ *   1. RUNTIME PARITY BELT — the ar/en `mySubscriptions` leaf maps expose
  *      IDENTICAL key sets with shape-matched values (belt #2: the PRIMARY
  *      parity gate is compile-time typing where BOTH leaf consts are typed
- *      `StudentPlansLabels`; any missing key fails `bun tsgo`. This suite
+ *      `MySubscriptionsLabels`; any missing key fails `bun tsgo`. This suite
  *      keeps the guarantee enforced even if someone loosens that typing
  *      later).
  *   2. TYPE-SHAPE PARITY — per key, the value kind (string vs formatter
  *      function) is identical across ar/en; plain strings are non-empty and
  *      carry no ICU braces; every interpolating key expands its single
  *      argument EXACTLY once in BOTH locales.
- *   3. REGISTRY + SERVER WIRING — the `StudentPlans` handle is registered
+ *   3. REGISTRY + SERVER WIRING — the `MySubscriptions` handle is registered
  *      in `shared/locale/namespaces/index.ts` under the conventional
  *      `<group>.<ns>` id, its getter resolves the composed bundle slice on
  *      both message bundles, and `getTranslations(locale)` exposes
- *      `studentPlansTranslations.*` (the server `getServerTranslations`
- *      path). Client-hook `useAppTranslation(StudentPlans)` consumes the
+ *      `mySubscriptionsTranslations.*` (the server `getServerTranslations`
+ *      path). Client-hook `useAppTranslation(MySubscriptions)` consumes the
  *      same handle + getter — wiring proof is the consumer view's job;
  *      this stays structural.
  *
- * Mirrors the structure of `shared/locale/plans-namespace.parity.test.ts`.
+ * Mirrors the structure of `shared/locale/student-plans-namespace.parity.test.ts`.
  *
  * Pure unit tier — NO server boot, NO network, NO DB. Runs via the mandated
- * runner: `bun run test/scripts/run-test.ts shared/locale/student-plans-namespace.parity.test.ts`.
+ * runner: `bun run test/scripts/run-test.ts shared/locale/my-subscriptions-namespace.parity.test.ts`.
  */
 
 import { describe, expect, test } from "bun:test";
 import { arMessages } from "@/shared/locale/ar/messages";
-import { studentPlansAr } from "@/shared/locale/ar/studentPlans";
+import { mySubscriptionsAr } from "@/shared/locale/ar/mySubscriptions";
 import { enMessages } from "@/shared/locale/en/messages";
-import { studentPlansEn } from "@/shared/locale/en/studentPlans";
+import { mySubscriptionsEn } from "@/shared/locale/en/mySubscriptions";
 import { namespaces } from "@/shared/locale/namespaces/index";
-import { StudentPlans } from "@/shared/locale/namespaces/studentPlans";
+import { MySubscriptions } from "@/shared/locale/namespaces/mySubscriptions";
 import { getTranslations } from "@/shared/locale/server";
-import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
+import type { MySubscriptionsLabels } from "@/shared/locale/types/mySubscriptions";
 
-const INTERPOLATING_KEYS = ["intervalDays", "purchaseDialogBody"] as const;
+const INTERPOLATING_KEYS = ["intervalDays", "renewDialogBody"] as const;
 
-const EXPECTED_KEY_COUNT = 21;
+const EXPECTED_KEY_COUNT = 39;
 
 const TITLE_SENTINEL = "SENTINEL";
 const DAYS_SENTINEL = 30;
@@ -58,22 +58,22 @@ function titleFormatterOf(
   return typeof value === "function" ? value : undefined;
 }
 
-describe("studentPlans namespace — locale parity", () => {
+describe("mySubscriptions namespace — locale parity", () => {
   test("en and ar expose the SAME key sets", () => {
-    const enKeys = Object.keys(studentPlansEn).sort();
-    const arKeys = Object.keys(studentPlansAr).sort();
+    const enKeys = Object.keys(mySubscriptionsEn).sort();
+    const arKeys = Object.keys(mySubscriptionsAr).sort();
     expect(arKeys).toEqual(enKeys);
   });
 
   test(`every key is present — exactly ${EXPECTED_KEY_COUNT} keys`, () => {
-    expect(Object.keys(studentPlansEn).length).toBe(EXPECTED_KEY_COUNT);
-    expect(Object.keys(studentPlansAr).length).toBe(EXPECTED_KEY_COUNT);
+    expect(Object.keys(mySubscriptionsEn).length).toBe(EXPECTED_KEY_COUNT);
+    expect(Object.keys(mySubscriptionsAr).length).toBe(EXPECTED_KEY_COUNT);
   });
 
   test("plain strings are non-empty and carry no ICU braces (both locales)", () => {
     for (const [locale, labels] of [
-      ["en", studentPlansEn],
-      ["ar", studentPlansAr],
+      ["en", mySubscriptionsEn],
+      ["ar", mySubscriptionsAr],
     ] as const) {
       for (const [key, value] of Object.entries(labels)) {
         if (typeof value !== "string") continue;
@@ -85,17 +85,17 @@ describe("studentPlans namespace — locale parity", () => {
   });
 
   test("type-shape parity — formatter keys are formatters in BOTH locales, strings in BOTH", () => {
-    for (const key of Object.keys(studentPlansEn) as Array<keyof StudentPlansLabels>) {
-      const enIsFunction = typeof studentPlansEn[key] === "function";
-      const arIsFunction = typeof studentPlansAr[key] === "function";
+    for (const key of Object.keys(mySubscriptionsEn) as Array<keyof MySubscriptionsLabels>) {
+      const enIsFunction = typeof mySubscriptionsEn[key] === "function";
+      const arIsFunction = typeof mySubscriptionsAr[key] === "function";
       expect(enIsFunction, `${key}: en kind`).toBe(arIsFunction);
     }
   });
 
   test("intervalDays expands its single day-count argument EXACTLY once (both locales)", () => {
     for (const [locale, labels] of [
-      ["en", studentPlansEn],
-      ["ar", studentPlansAr],
+      ["en", mySubscriptionsEn],
+      ["ar", mySubscriptionsAr],
     ] as const) {
       const formatter = dayFormatterOf(labels.intervalDays);
       expect(formatter, `${locale}.intervalDays must be a function`).toBeDefined();
@@ -108,16 +108,16 @@ describe("studentPlans namespace — locale parity", () => {
     }
   });
 
-  test("purchaseDialogBody expands its single plan-title argument EXACTLY once (both locales)", () => {
+  test("renewDialogBody expands its single plan-title argument EXACTLY once (both locales)", () => {
     for (const [locale, labels] of [
-      ["en", studentPlansEn],
-      ["ar", studentPlansAr],
+      ["en", mySubscriptionsEn],
+      ["ar", mySubscriptionsAr],
     ] as const) {
-      const formatter = titleFormatterOf(labels.purchaseDialogBody);
-      expect(formatter, `${locale}.purchaseDialogBody must be a function`).toBeDefined();
+      const formatter = titleFormatterOf(labels.renewDialogBody);
+      expect(formatter, `${locale}.renewDialogBody must be a function`).toBeDefined();
       const rendered = formatter?.(TITLE_SENTINEL);
       if (rendered === undefined) {
-        throw new Error(`${locale}.purchaseDialogBody must be a plan-title formatter`);
+        throw new Error(`${locale}.renewDialogBody must be a plan-title formatter`);
       }
       expect(rendered).toContain(TITLE_SENTINEL);
       expect(rendered.split(TITLE_SENTINEL).length - 1).toBe(1);
@@ -125,30 +125,30 @@ describe("studentPlans namespace — locale parity", () => {
   });
 
   test("INTERPOLATING_KEYS covers exactly the formatter members of the namespace", () => {
-    const formatterKeys = (Object.keys(studentPlansEn) as Array<keyof StudentPlansLabels>).filter(
-      key => typeof studentPlansEn[key] === "function"
+    const formatterKeys = (Object.keys(mySubscriptionsEn) as Array<keyof MySubscriptionsLabels>).filter(
+      key => typeof mySubscriptionsEn[key] === "function"
     );
     expect([...formatterKeys].sort()).toEqual([...INTERPOLATING_KEYS].sort());
   });
 });
 
-describe("studentPlans namespace — registry + server wiring", () => {
+describe("mySubscriptions namespace — registry + server wiring", () => {
   test("handle is registered under the conventional `<group>.<ns>` id", () => {
-    expect(StudentPlans.id).toBe("plans.studentPlans");
-    expect(Object.values(namespaces)).toContain(StudentPlans);
+    expect(MySubscriptions.id).toBe("student.mySubscriptions");
+    expect(Object.values(namespaces)).toContain(MySubscriptions);
   });
 
   test("getter resolves the composed bundle slice on BOTH message bundles", () => {
-    const enSlice = StudentPlans.getLabels(enMessages);
-    const arSlice = StudentPlans.getLabels(arMessages);
-    expect(enSlice).toBe(enMessages.studentPlansTranslations);
-    expect(arSlice).toBe(arMessages.studentPlansTranslations);
+    const enSlice = MySubscriptions.getLabels(enMessages);
+    const arSlice = MySubscriptions.getLabels(arMessages);
+    expect(enSlice).toBe(enMessages.mySubscriptionsTranslations);
+    expect(arSlice).toBe(arMessages.mySubscriptionsTranslations);
   });
 
-  test("server getTranslations exposes studentPlansTranslations for both locales", () => {
-    const en = getTranslations("en").studentPlansTranslations;
-    const ar = getTranslations("ar").studentPlansTranslations;
-    expect(en.pageTitle).toBe(studentPlansEn.pageTitle);
-    expect(ar.pageTitle).toBe(studentPlansAr.pageTitle);
+  test("server getTranslations exposes mySubscriptionsTranslations for both locales", () => {
+    const en = getTranslations("en").mySubscriptionsTranslations;
+    const ar = getTranslations("ar").mySubscriptionsTranslations;
+    expect(en.pageTitle).toBe(mySubscriptionsEn.pageTitle);
+    expect(ar.pageTitle).toBe(mySubscriptionsAr.pageTitle);
   });
 });

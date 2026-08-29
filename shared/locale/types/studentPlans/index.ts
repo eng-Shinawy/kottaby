@@ -55,6 +55,19 @@ export interface StudentPlansLabels {
   /** Card primary action: open the subscribe request dialog. */
   readonly subscribeCta: string;
   /**
+   * Chip + CTA label for a plan the current user ALREADY holds an ACTIVE
+   * subscription to — informational (the service allows an early
+   * re-request), so the CTA relabels to the renew intent instead of
+   * blocking.
+   */
+  readonly activeChip: string;
+  /**
+   * Card CTA label when the user's latest subscription for the plan is in a
+   * TERMINAL state (expired / cancelled / suspended) — same request flow,
+   * renewal intent.
+   */
+  readonly renewCta: string;
+  /**
    * Disabled card CTA + chip label for a plan with an unresolved PENDING
    * request from the current user.
    */
