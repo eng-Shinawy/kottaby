@@ -65,6 +65,8 @@
     // Source subtrees deliberately excluded from type-checking.
     "Kottaby",
     "frontend/graphql/generated",
-    "**/unRefactored_tests"
+    "**/unRefactored_tests",
+    // Sandbox-provided skills directory (gitignored, not part of the project).
+    "skills"
   ]
 }
