@@ -259,106 +259,106 @@ The executing agent MUST follow this protocol for **every task** — no exceptio
 
 ### Task 3.1 — Canonical `PlanPothosObject`
 
-- [ ] 3.1 Implement the single canonical Pothos object for `Plan`
+- [x] 3.1 Implement the single canonical Pothos object for `Plan`
   - Files to create:
     - `backend/graphql/pothos/billing/plan.pothos.ts` (NEW)
     - `backend/graphql/pothos/billing/index.ts` (create-or-extend barrel)
   - Applicable AGENTS.md: `backend/graphql/AGENTS.md`
   - _Requirements: REQ-003, REQ-022, REQ-060_
-  - [ ] 3.1.1 Define `PlanPothosObject = gqlSchemaBuilder.objectRef<PlanReturnType>("Plan").implement(...)` with explicit `t.expose*` fields: `id` (exposed as `ID!` — CRITICAL for Apollo normalization), `title`, `sessionCount` (Int), `price` (**String!** — no Float anywhere), `currency`, `intervalDays`, `isActive` (Boolean!), `deactivatedAt` (DateTime, nullable), `createdAt`, `updatedAt` (DateTime!)
-  - [ ] 3.1.2 Back the object EXCLUSIVELY by `PlanReturnType` from `@/backend/types` — zero resolver-local types
-  - [ ] 3.1.3 Top-level static imports only (Bun ESM rule — no `await import()`)
-  - [ ] 3.1.QL **Quality Loop**: sub-loop on the new file (exit 0)
-  - [ ] 3.1.TE **Test Engineering**: schema-shape assertion (post-codegen) that `Plan` SDL matches REQ-060 exactly, including `price: String!` and nullable `deactivatedAt`
-  - [ ] 3.1.SEC **Security & Tenancy Audit**: object exposes NO user/financial/governance joins (least-privilege payload, REQ-033)
-  - [ ] 3.1.SR **Semantic Review**: DateTime scalars consistent with existing billing Pothos objects; no field-level business logic in the object
-  - [ ] 3.1.IV **Instruction Verification**: `backend/graphql/AGENTS.md` object-definition rules (id exposure, canonical-type backing)
-  - [ ] 3.1.OD **Outcome**: `outcome/3.1-plan-pothos-outcome.md`
+  - [x] 3.1.1 Define `PlanPothosObject = gqlSchemaBuilder.objectRef<PlanReturnType>("Plan").implement(...)` with explicit `t.expose*` fields: `id` (exposed as `ID!` — CRITICAL for Apollo normalization), `title`, `sessionCount` (Int), `price` (**String!** — no Float anywhere), `currency`, `intervalDays`, `isActive` (Boolean!), `deactivatedAt` (DateTime, nullable), `createdAt`, `updatedAt` (DateTime!)
+  - [x] 3.1.2 Back the object EXCLUSIVELY by `PlanReturnType` from `@/backend/types` — zero resolver-local types
+  - [x] 3.1.3 Top-level static imports only (Bun ESM rule — no `await import()`)
+  - [x] 3.1.QL **Quality Loop**: sub-loop on the new file (exit 0)
+  - [x] 3.1.TE **Test Engineering**: schema-shape assertion (post-codegen) that `Plan` SDL matches REQ-060 exactly, including `price: String!` and nullable `deactivatedAt`
+  - [x] 3.1.SEC **Security & Tenancy Audit**: object exposes NO user/financial/governance joins (least-privilege payload, REQ-033)
+  - [x] 3.1.SR **Semantic Review**: DateTime scalars consistent with existing billing Pothos objects; no field-level business logic in the object
+  - [x] 3.1.IV **Instruction Verification**: `backend/graphql/AGENTS.md` object-definition rules (id exposure, canonical-type backing)
+  - [x] 3.1.OD **Outcome**: `outcome/3.1-plan-pothos-outcome.md`
 
 ### Task 3.2 — Catalog Queries (`planCatalog`, `adminPlans`)
 
-- [ ] 3.2 Implement `backend/graphql/query/plan-catalog.query.ts`
+- [x] 3.2 Implement `backend/graphql/query/plan-catalog.query.ts`
   - Files to create:
     - `backend/graphql/query/plan-catalog.query.ts` (NEW)
     - Update the query domain barrel with a side-effect import per existing `backend/graphql` layout
   - Applicable AGENTS.md: `backend/graphql/AGENTS.md`
   - _Requirements: REQ-016, REQ-030, REQ-033, REQ-034, REQ-060_
-  - [ ] 3.2.1 `planCatalog: [Plan!]!` with `authScopes: { authenticated: true }` → `PlanCatalogService.listActiveCatalog(ctx.locale)` — anonymous receives `UNAUTHORIZED` via scopeAuth
-  - [ ] 3.2.2 `adminPlans(includeInactive: Boolean = true): [Plan!]!` with `authScopes: { authenticated: true, role: [UserRole.Admin] }` (`UserRole` as VALUE import) → `PlanCatalogService.listForAdmin(includeInactive ?? true, ctx.locale)`; nullable-hardened arg handling per Pothos input rules
-  - [ ] 3.2.3 Resolvers remain thin: resolve args → service call → return; zero business logic, zero repository calls
-  - [ ] 3.2.QL **Quality Loop**: sub-loop on the new file (exit 0)
-  - [ ] 3.2.TE **Test Engineering**: integration tests via `setupTestServerLifecycle` + `testClient`: active-only filtering proven (deactivated fixture absent from `planCatalog`, present in `adminPlans`); `includeInactive: false` path on `adminPlans`; role cells per REQ-064 matrix
-  - [ ] 3.2.SEC **Security & Tenancy Audit**: visibility gate at FIELD level (structurally impossible for non-admin to reach full catalog — D5); no LIKE/search input (escapeLikeWildcards documented N/A); BFLA pre-check proven before resolver body
-  - [ ] 3.2.SR **Semantic Review**: enum value imports; ctx-context usage only (no service-locator antipatterns); fail-closed posture
-  - [ ] 3.2.IV **Instruction Verification**: `backend/graphql/AGENTS.md` query conventions + DEV2-002 authScopes contract per `docs/auth/jwt-authentication-service.md`
-  - [ ] 3.2.OD **Outcome**: `outcome/3.2-catalog-queries-outcome.md`
+  - [x] 3.2.1 `planCatalog: [Plan!]!` with `authScopes: { authenticated: true }` → `PlanCatalogService.listActiveCatalog(ctx.locale)` — anonymous receives `UNAUTHORIZED` via scopeAuth
+  - [x] 3.2.2 `adminPlans(includeInactive: Boolean = true): [Plan!]!` with `authScopes: { authenticated: true, role: [UserRole.Admin] }` (`UserRole` as VALUE import) → `PlanCatalogService.listForAdmin(includeInactive ?? true, ctx.locale)`; nullable-hardened arg handling per Pothos input rules
+  - [x] 3.2.3 Resolvers remain thin: resolve args → service call → return; zero business logic, zero repository calls
+  - [x] 3.2.QL **Quality Loop**: sub-loop on the new file (exit 0)
+  - [x] 3.2.TE **Test Engineering**: integration tests via `setupTestServerLifecycle` + `testClient`: active-only filtering proven (deactivated fixture absent from `planCatalog`, present in `adminPlans`); `includeInactive: false` path on `adminPlans`; role cells per REQ-064 matrix
+  - [x] 3.2.SEC **Security & Tenancy Audit**: visibility gate at FIELD level (structurally impossible for non-admin to reach full catalog — D5); no LIKE/search input (escapeLikeWildcards documented N/A); BFLA pre-check proven before resolver body
+  - [x] 3.2.SR **Semantic Review**: enum value imports; ctx-context usage only (no service-locator antipatterns); fail-closed posture
+  - [x] 3.2.IV **Instruction Verification**: `backend/graphql/AGENTS.md` query conventions + DEV2-002 authScopes contract per `docs/auth/jwt-authentication-service.md`
+  - [x] 3.2.OD **Outcome**: `outcome/3.2-catalog-queries-outcome.md`
 
 ### Task 3.3 — Catalog Mutations (`createPlan`, `updatePlan`, `setPlanActiveStatus`)
 
-- [ ] 3.3 Implement `backend/graphql/mutation/plan-catalog.mutation.ts`
+- [x] 3.3 Implement `backend/graphql/mutation/plan-catalog.mutation.ts`
   - Files to create:
     - `backend/graphql/mutation/plan-catalog.mutation.ts` (NEW)
     - Update the mutation domain barrel with a side-effect import per existing layout
   - Applicable AGENTS.md: `backend/graphql/AGENTS.md`
   - _Requirements: REQ-011, REQ-013, REQ-014, REQ-015, REQ-020, REQ-030, REQ-031, REQ-050, REQ-060_
-  - [ ] 3.3.1 Define `CreatePlanInput` input object (five required fields; `price: String!`) and `UpdatePlanInput` (five optional fields) — input types structurally omit server-controlled fields (BOPLA at the SDL layer)
-  - [ ] 3.3.2 `createPlan(input): Plan!` — `authScopes: { authenticated: true, role: [UserRole.Admin] }` → `PlanCatalogService.createPlan(input, ctx.locale)` → returns `RETURNING *` row for Apollo cache convergence
-  - [ ] 3.3.3 `updatePlan(id: ID!, input): Plan!` — same authScopes → service
-  - [ ] 3.3.4 `setPlanActiveStatus(id: ID!, isActive: Boolean!): Plan!` — same authScopes → service
-  - [ ] 3.3.5 Confirm NO `deletePlan`/`removePlan` mutation exists by construction (INV-PC3)
-  - [ ] 3.3.QL **Quality Loop**: sub-loop on the new file (exit 0)
-  - [ ] 3.3.TE **Test Engineering**: integration tests asserting every REQ-064 mutation matrix cell (`UNAUTHORIZED` anonymous / `FORBIDDEN` student·parent·teacher·supervisor / success admin); `extensions.code` asserted per failure class (`VALIDATION` + `fields[]`, `PLAN_NOT_FOUND`, `PLAN_ALREADY_INACTIVE`, `PLAN_ALREADY_ACTIVE`); BOPLA integration smuggle on the wire
-  - [ ] 3.3.SEC **Security & Tenancy Audit**: BFLA enforced before resolver body executes for non-admin roles (proven via tests); actor identity exclusively from `ctx.user`; rate posture inherits global fail-open stub (no new limiter, REQ-034)
-  - [ ] 3.3.SR **Semantic Review**: mutations return `Plan!` (non-null) backed by `RETURNING *` authoritative rows; canonical types only
-  - [ ] 3.3.IV **Instruction Verification**: `backend/graphql/AGENTS.md` mutation conventions + `docs/graphql/domain-error-extensions-code.md` mapping
-  - [ ] 3.3.OD **Outcome**: `outcome/3.3-catalog-mutations-outcome.md`
+  - [x] 3.3.1 Define `CreatePlanInput` input object (five required fields; `price: String!`) and `UpdatePlanInput` (five optional fields) — input types structurally omit server-controlled fields (BOPLA at the SDL layer)
+  - [x] 3.3.2 `createPlan(input): Plan!` — `authScopes: { authenticated: true, role: [UserRole.Admin] }` → `PlanCatalogService.createPlan(input, ctx.locale)` → returns `RETURNING *` row for Apollo cache convergence
+  - [x] 3.3.3 `updatePlan(id: ID!, input): Plan!` — same authScopes → service
+  - [x] 3.3.4 `setPlanActiveStatus(id: ID!, isActive: Boolean!): Plan!` — same authScopes → service
+  - [x] 3.3.5 Confirm NO `deletePlan`/`removePlan` mutation exists by construction (INV-PC3)
+  - [x] 3.3.QL **Quality Loop**: sub-loop on the new file (exit 0)
+  - [x] 3.3.TE **Test Engineering**: integration tests asserting every REQ-064 mutation matrix cell (`UNAUTHORIZED` anonymous / `FORBIDDEN` student·parent·teacher·supervisor / success admin); `extensions.code` asserted per failure class (`VALIDATION` + `fields[]`, `PLAN_NOT_FOUND`, `PLAN_ALREADY_INACTIVE`, `PLAN_ALREADY_ACTIVE`); BOPLA integration smuggle on the wire
+  - [x] 3.3.SEC **Security & Tenancy Audit**: BFLA enforced before resolver body executes for non-admin roles (proven via tests); actor identity exclusively from `ctx.user`; rate posture inherits global fail-open stub (no new limiter, REQ-034)
+  - [x] 3.3.SR **Semantic Review**: mutations return `Plan!` (non-null) backed by `RETURNING *` authoritative rows; canonical types only
+  - [x] 3.3.IV **Instruction Verification**: `backend/graphql/AGENTS.md` mutation conventions + `docs/graphql/domain-error-extensions-code.md` mapping
+  - [x] 3.3.OD **Outcome**: `outcome/3.3-catalog-mutations-outcome.md`
 
 ### Task 3.4 — Codegen, SDL Verification & No-Delete-Surface Assertion
 
-- [ ] 3.4 Generate schema + client artifacts and run static schema gates
+- [x] 3.4 Generate schema + client artifacts and run static schema gates
   - Files affected: generated schema artifact (`schema.graphql` or per-repo convention), codegen outputs under `frontend/graphql/` generated types
   - _Requirements: REQ-020, REQ-060, REQ-077_
-  - [ ] 3.4.1 Run `bun run generate:gqlSchema && bun codegen`; commit ALL generated artifacts in the same change set
-  - [ ] 3.4.2 REQ-020 static assertion: case-insensitive grep of generated SDL for `deletePlan`/`removePlan` — MUST be absent; encode as a persistent test so future diffs can't regress INV-PC3
-  - [ ] 3.4.3 Assert SDL matches the REQ-060 contract byte-for-byte on field names/types/nullability (`price: String!`, `deactivatedAt: DateTime` nullable, etc.)
-  - [ ] 3.4.QL **Quality Loop**: sub-loop on any hand-authored touched files; codegen outputs verified via tsgo
-  - [ ] 3.4.TE **Test Engineering**: the no-delete grep is a committed test (`backend/graphql/test` or established schema-assertion location); SDL-shape snapshot assertion
-  - [ ] 3.4.SEC **Security & Tenancy Audit**: confirm no ungated mutation leaked into SDL (every mutation field carries the role scope)
-  - [ ] 3.4.SR **Semantic Review**: no manual edits to generated files; no drift between Pothos definitions and committed SDL
-  - [ ] 3.4.IV **Instruction Verification**: codegen workflow per `backend/graphql/AGENTS.md`
-  - [ ] 3.4.OD **Outcome**: `outcome/3.4-codegen-gates-outcome.md`
+  - [x] 3.4.1 Run `bun run generate:gqlSchema && bun codegen`; commit ALL generated artifacts in the same change set
+  - [x] 3.4.2 REQ-020 static assertion: case-insensitive grep of generated SDL for `deletePlan`/`removePlan` — MUST be absent; encode as a persistent test so future diffs can't regress INV-PC3
+  - [x] 3.4.3 Assert SDL matches the REQ-060 contract byte-for-byte on field names/types/nullability (`price: String!`, `deactivatedAt: DateTime` nullable, etc.)
+  - [x] 3.4.QL **Quality Loop**: sub-loop on any hand-authored touched files; codegen outputs verified via tsgo
+  - [x] 3.4.TE **Test Engineering**: the no-delete grep is a committed test (`backend/graphql/test` or established schema-assertion location); SDL-shape snapshot assertion
+  - [x] 3.4.SEC **Security & Tenancy Audit**: confirm no ungated mutation leaked into SDL (every mutation field carries the role scope)
+  - [x] 3.4.SR **Semantic Review**: no manual edits to generated files; no drift between Pothos definitions and committed SDL
+  - [x] 3.4.IV **Instruction Verification**: codegen workflow per `backend/graphql/AGENTS.md`
+  - [x] 3.4.OD **Outcome**: `outcome/3.4-codegen-gates-outcome.md`
 
 ### Task 3.5 — Seed Parity (Demo Catalog via Service Bootstrap)
 
-- [ ] 3.5 Implement idempotent demo catalog seeding through the service layer
+- [x] 3.5 Implement idempotent demo catalog seeding through the service layer
   - Files to create/modify:
     - `backend/db/seeds/` plan-catalog seed module (create or extend per `backend/db/seeds/AGENTS.md` existing structure)
   - Applicable AGENTS.md: `backend/db/seeds/AGENTS.md`
   - _Requirements: REQ-019, REQ-021_
-  - [ ] 3.5.1 Implement find-or-create bootstrap via `PlanCatalogService` (NEVER raw `@/backend/db/**` imports): Hifz Jadid plan; Tajweed plan; "New Teacher Verification & Evaluation Plan" with `sessionCount = 5` (FR-2.3); one deactivated demo plan
-  - [ ] 3.5.2 Stable title lookup as the idempotency key (safe re-run)
-  - [ ] 3.5.QL **Quality Loop**: sub-loop on the seed module (exit 0)
-  - [ ] 3.5.TE **Test Engineering**: seed idempotency test — run bootstrap twice inside `runInRollback`, assert row counts stable and verification plan has `sessionCount = 5`
-  - [ ] 3.5.SEC **Security & Tenancy Audit**: seeder carries no credentials/user data; goes through service validation like any caller
-  - [ ] 3.5.SR **Semantic Review**: no business-logic duplication with the service; seed module consumes the public service contract
-  - [ ] 3.5.IV **Instruction Verification**: `backend/db/seeds/AGENTS.md` service-bootstrap rule
-  - [ ] 3.5.OD **Outcome**: `outcome/3.5-seed-parity-outcome.md`
+  - [x] 3.5.1 Implement find-or-create bootstrap via `PlanCatalogService` (NEVER raw `@/backend/db/**` imports): Hifz Jadid plan; Tajweed plan; "New Teacher Verification & Evaluation Plan" with `sessionCount = 5` (FR-2.3); one deactivated demo plan
+  - [x] 3.5.2 Stable title lookup as the idempotency key (safe re-run)
+  - [x] 3.5.QL **Quality Loop**: sub-loop on the seed module (exit 0)
+  - [x] 3.5.TE **Test Engineering**: seed idempotency test — run bootstrap twice inside `runInRollback`, assert row counts stable and verification plan has `sessionCount = 5`
+  - [x] 3.5.SEC **Security & Tenancy Audit**: seeder carries no credentials/user data; goes through service validation like any caller
+  - [x] 3.5.SR **Semantic Review**: no business-logic duplication with the service; seed module consumes the public service contract
+  - [x] 3.5.IV **Instruction Verification**: `backend/db/seeds/AGENTS.md` service-bootstrap rule
+  - [x] 3.5.OD **Outcome**: `outcome/3.5-seed-parity-outcome.md`
 
 ### Task 3.6 — Full GraphQL Role-Matrix Integration Proof (REQ-072)
 
-- [ ] 3.6 Implement the complete REQ-064 permission-matrix integration suite
+- [x] 3.6 Implement the complete REQ-064 permission-matrix integration suite
   - Files to create:
     - `backend/graphql/test/plan-catalog.roles.test.ts` (path per established integration-test layout)
   - _Requirements: REQ-030, REQ-064, REQ-072_
-  - [ ] 3.6.1 For EVERY surface (`planCatalog`, `adminPlans`, `createPlan`, `updatePlan`, `setPlanActiveStatus`) assert: anonymous → `UNAUTHORIZED`; student → active-only / `FORBIDDEN`; parent → active-only / `FORBIDDEN`; teacher → active-only / `FORBIDDEN`; supervisor → consistent with matrix / `FORBIDDEN`; admin → success
-  - [ ] 3.6.2 Assert `extensions.code` per cell — never message-text-coupled for the matrix (messages asserted separately as localized substrings)
-  - [ ] 3.6.3 Visibility split assertion: deactivated plan absent from `planCatalog` for every authenticated role, present in `adminPlans` for admin
-  - [ ] 3.6.QL **Quality Loop**: sub-loop on the test file (exit 0)
-  - [ ] 3.6.TE **Test Engineering**: suite executed via `bun run test/scripts/run-test.ts <path>`; fixtures exclusively via `entity-setup.ts`; token fixtures per established auth-fixture patterns
-  - [ ] 3.6.SEC **Security & Tenancy Audit**: this suite IS the BFLA proof — confirm no matrix cell is skipped or soft-asserted
-  - [ ] 3.6.SR **Semantic Review**: assertions translation-agnostic at the matrix layer; no dead helpers
-  - [ ] 3.6.IV **Instruction Verification**: integration-test conventions per graphql test-layer AGENTS.md
-  - [ ] 3.6.OD **Outcome**: `outcome/3.6-role-matrix-outcome.md`
+  - [x] 3.6.1 For EVERY surface (`planCatalog`, `adminPlans`, `createPlan`, `updatePlan`, `setPlanActiveStatus`) assert: anonymous → `UNAUTHORIZED`; student → active-only / `FORBIDDEN`; parent → active-only / `FORBIDDEN`; teacher → active-only / `FORBIDDEN`; supervisor → consistent with matrix / `FORBIDDEN`; admin → success
+  - [x] 3.6.2 Assert `extensions.code` per cell — never message-text-coupled for the matrix (messages asserted separately as localized substrings)
+  - [x] 3.6.3 Visibility split assertion: deactivated plan absent from `planCatalog` for every authenticated role, present in `adminPlans` for admin
+  - [x] 3.6.QL **Quality Loop**: sub-loop on the test file (exit 0)
+  - [x] 3.6.TE **Test Engineering**: suite executed via `bun run test/scripts/run-test.ts <path>`; fixtures exclusively via `entity-setup.ts`; token fixtures per established auth-fixture patterns
+  - [x] 3.6.SEC **Security & Tenancy Audit**: this suite IS the BFLA proof — confirm no matrix cell is skipped or soft-asserted
+  - [x] 3.6.SR **Semantic Review**: assertions translation-agnostic at the matrix layer; no dead helpers
+  - [x] 3.6.IV **Instruction Verification**: integration-test conventions per graphql test-layer AGENTS.md
+  - [x] 3.6.OD **Outcome**: `outcome/3.6-role-matrix-outcome.md`
 
 ---
 
