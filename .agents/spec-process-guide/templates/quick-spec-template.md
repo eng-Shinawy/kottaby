@@ -94,6 +94,7 @@ Ready-to-use template for 1-3 day features that need requirements and tasks but 
   - Verify BOLA / IDOR cross-tenant data isolation
   - Probe GraphQL operations for complexity / batching abuse
   - Verify webhook HMAC signature verification (`timingSafeEqual`)
+- [ ] **Journey test (cross-actor workflows, if any actor interacts with another's state):** write `test/workflows/<domain>/<journey>.test.ts` test-first per `docs/testing/workflow-journey-tests.md`; omit only when the change is strictly single-actor
 - [ ] **Manual & Verification:** [What needs manual verification]
 
 ### Documentation Tasks

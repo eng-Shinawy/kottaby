@@ -160,6 +160,9 @@ This document provides comprehensive checklists for each phase of the spec-drive
 - [ ] **Core Logic Tasks**: Business logic implementation is covered
 - [ ] **Integration Tasks**: System integration work is planned
 - [ ] **Testing Tasks**: Comprehensive testing tasks are included
+- [ ] **4-Tier test enforcement**: Every implementation task carries the X.Y.TE subtask (Tier 1–4 framework applied per task) — not a generic "write tests" bullet
+- [ ] **Journey tasks for cross-actor workflows**: Every multi-role flow in the requirements has a test-first `test/workflows/<domain>/<journey>.test.ts` task (see `docs/testing/workflow-journey-tests.md`)
+- [ ] **Penetration/E2E tasks present where applicable** (not silently omitted for backend-heavy features)
 - [ ] **Documentation Tasks**: Documentation updates are planned
 - [ ] **Knowledge Propagation Task**: Final task to propagate outcome learnings into AGENTS.md, skills, instructions, and docs is included
 

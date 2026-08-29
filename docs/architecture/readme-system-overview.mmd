@@ -1,0 +1,30 @@
+%%{init: {"theme": "dark"}}%%
+flowchart LR
+    subgraph Client["🖥️ Client"]
+        UI["React 19 · MUI v9"]
+        AC["Apollo Client"]
+    end
+
+    subgraph Server["⚙️ Server"]
+        API["GraphQL API"]
+        RSLV["Pothos Resolvers"]
+        SVC["Domain Services"]
+        REPO["Repositories"]
+    end
+
+    subgraph Data["🗄️ Data"]
+        DB[("PostgreSQL")]
+        CACHE[("Redis")]
+    end
+
+    subgraph Integrations["🔌 Integrations"]
+        MTG["Zoom · Google Meet"]
+        MSG["WhatsApp · Email · SMS"]
+        PAY["Billing & Wallets"]
+    end
+
+    UI --> AC --> API --> RSLV --> SVC --> REPO --> DB
+    SVC --> CACHE
+    SVC --> MTG
+    SVC --> MSG
+    SVC --> PAY

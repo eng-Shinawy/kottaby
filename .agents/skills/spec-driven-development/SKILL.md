@@ -102,6 +102,21 @@ WHEN [event] AND [condition] THEN [system] SHALL [response]
 4. WHEN account creation succeeds THEN system SHALL send confirmation email
 ```
 
+**Cross-Actor Workflow Scenarios (Journeys) — REQUIRED when a feature spans 2+ actors:**
+
+When a feature involves multiple roles interacting over shared state (e.g. teacher submits → manager approves → parent is notified), requirements MUST additionally capture:
+
+1. **Actor Table**: every actor, their role/permission group, and what each can and cannot do.
+2. **Ordered Step List**: `actor → action → expected shared-state change + side effects` per step (including negative steps: which actor is DENIED the action).
+3. **Cross-Actor EARS Criteria**: phrase criteria from the perspective of the actor who OBSERVES the outcome, not only the actor who acts:
+   ```
+   WHEN teacher submits a lesson report THEN system SHALL set status PENDING_REVIEW AND surface it in the manager's review queue
+   WHEN manager approves the report THEN system SHALL create a teacher-due entry AND notify the teacher
+   IF the teacher did not teach the class THEN system SHALL reject the submission
+   ```
+
+These journeys map 1:1 onto `test/workflows/` journey tests (service-level, multi-actor, real DB). See `docs/testing/workflow-journey-tests.md` for the layer conventions.
+
 ### Phase 1.5: Plan Review Gate (MANDATORY)
 
 **Purpose:** Catch plan-to-reality mismatches BEFORE implementation begins
@@ -164,6 +179,16 @@ Every feature plan MUST include a UX/Navigation section defining:
 - **Role-Based Access Matrix**: Which roles (superadmin, admin, parent, student, teacher, supervisor, staff, etc.) access each route
 - **Per-Audience Rendering**: How pages/tabs differ for each audience (student vs parent vs teacher vs supervisor)
 - **Permission Mapping**: Exact permission strings required for each route/component
+
+### Cross-Actor Journey Design (REQUIRED when the requirements contain journeys)
+
+For every cross-actor workflow captured in the requirements, the design MUST specify:
+
+- **Shared-Entity State Machine**: the states and allowed transitions of the entity the actors interact over (e.g. `PENDING_REVIEW → APPROVED | REJECTED`), including which actor/permission may drive each transition.
+- **Side-Effect Matrix**: per transition, the rows created/updated (ledger entries, dues, quotas), the notifications dispatched (channel + recipient actor), and any idempotency keys.
+- **Cross-Actor Visibility**: what each actor can read/observe after each step (which queries/queues surface the new state to whom — and who must NOT see it).
+
+This state machine + side-effect matrix becomes the journey test's assertion set.
 
 ### Outcome & Knowledge Transfer Protocol (`ai/plans/<feature-name>/outcome/`)
 - **BEFORE Execution:** Executing agents MUST read ALL existing files in `ai/plans/<feature-name>/outcome/` to avoid re-analysis.
@@ -250,6 +275,7 @@ Every implementation task (X.Y) in `trackable-tasks.md` must follow the 5-stage 
     • Tier 3: Monkey & chaos cases (randomized fuzz payloads, concurrency races via Promise.allSettled)
     • Tier 4: Security & abuse tests (payload injection, invalid roles, error handling)
     • Layer constraints: DB tests wrapped in `runInRollback` + `tx`; Service tests mock all external adapters
+    • Cross-actor journey tests (`test/workflows/`): real services + real DB, committed fixtures + tracked `afterAll` cleanup, NO `runInRollback`; permission checks resolve honestly; run via `bun test test/workflows` — see `docs/testing/workflow-journey-tests.md` and `test/workflows/AGENTS.md`
   - [ ] X.Y.SEC **Security & Tenancy Audit** ([.agents/skills/idor-testing/SKILL.md](file:///home/ahmed/Projects/kottaby/.agents/skills/idor-testing/SKILL.md) & [.agents/skills/pentester/SKILL.md](file:///home/ahmed/Projects/kottaby/.agents/skills/pentester/SKILL.md)):
     • BOLA / IDOR Defense: Assert caller ownership (`ctx.user.id`), verify tenant isolation
     • BOPLA Defense: Strict DTO mapping; ensure no `{ ...input }` spread into DB updates
@@ -264,6 +290,7 @@ Every implementation task (X.Y) in `trackable-tasks.md` must follow the 5-stage 
 - Service layer tasks (always)
 - Repository layer tasks (always — 100% coverage via `runInRollback` + `tx` propagation)
 - GraphQL resolvers & mutation tasks (always — test via `setupTestServerLifecycle` + `testClient`)
+- Cross-actor workflow journeys (always — write the `test/workflows/<domain>/<journey>.test.ts` journey **first**, then implement the service surface until the journey passes)
 - Complex business logic tasks (always)
 
 **When to defer tests:**
@@ -290,6 +317,7 @@ The official process templates for generating feature specifications are located
 - [ ] Requirements are testable and measurable
 - [ ] No conflicting requirements
 - [ ] EARS format used consistently
+- [ ] **Cross-actor workflow journeys captured** (actor table + ordered step list + observer-perspective EARS criteria) for every flow spanning 2+ roles
 
 ### Design Checklist
 - [ ] All requirements addressed in design
@@ -298,6 +326,7 @@ The official process templates for generating feature specifications are located
 - [ ] Error handling covers expected failures
 - [ ] Security considerations addressed
 - [ ] **UX/Navigation Specification complete** (routes, sidebar, roles, per-audience, mobile/desktop, permissions)
+- [ ] **Cross-actor journey design complete** (shared-entity state transitions + per-transition side-effect matrix + cross-actor visibility) for every journey captured in requirements
 
 ### Tasks Checklist
 - [ ] All design components have implementation tasks
@@ -308,6 +337,7 @@ The official process templates for generating feature specifications are located
 - [ ] **Quality loop task per file** (`bun run scripts/health/sub-loop.ts <file> --lifecycle duplicates`)
 - [ ] **Instruction verification task per subtask** (sub-loop.ts auto-discovers & prints applicable AGENTS.md + .agents/instructions files)
 - [ ] **Drizzle schema handled correctly** (push for schema, migrate for custom SQL only)
+- [ ] **Journey test task per captured cross-actor workflow** (`test/workflows/<domain>/<journey>.test.ts`, written test-first)
 
 ## Integration with AI Workflows
 
@@ -710,6 +740,7 @@ Every task in the plan MUST specify:
 8. **Missing quality loop:** Every file must pass `bun run scripts/health/sub-loop.ts <file> --lifecycle duplicates` before moving on
 9. **Missing instruction verification:** Every file must be validated against layer rules (sub-loop.ts auto-discovers applicable rule files)
 10. **Confusing migrate vs push:** Use push for Drizzle schema, migrate for custom SQL only
+11. **Single-actor-only requirements:** A feature spanning 2+ roles without journey capture ships with no proof the actors actually interoperate — capture the actor table + ordered steps in requirements and a test-first journey in `test/workflows/`
 
 ## Next Steps
 

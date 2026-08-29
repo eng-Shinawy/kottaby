@@ -145,6 +145,30 @@ Every feature MUST define its navigation, sidebar, tabs, and permissions for ALL
 ### Sidebar Navigation Placement
 Feature pages appear as **sub-items under [Parent Group]** in the **[Group Name] (grp_xxx)** group.
 
+## Cross-Actor Workflow Scenarios (Journeys)
+
+**Include this section whenever the feature spans 2+ actors interacting over shared state** (e.g. teacher submits → supervisor approves → parent notified, or any chat-like/approval-like exchange). Each journey maps 1:1 onto a `test/workflows/<domain>/<journey>.test.ts` test.
+
+### Actor Table
+| Actor | Role | Can Do | Cannot Do |
+|-------|------|--------|-----------|
+| Teacher | `teacher` | submit lesson report | approve reports, submit for others' classes |
+| Supervisor | `supervisor` | approve/reject reports | submit reports |
+
+### Ordered Step List
+Per journey, an ordered `actor → action → expected shared-state change + side effects` list:
+1. Teacher → submits report for completed class → report created, status `PENDING_REVIEW`
+2. Supervisor → views pending review queue → sees the report
+3. Supervisor → approves → status `APPROVED` + teacher-due entry created + teacher notified
+
+### Cross-Actor EARS Criteria
+Phrase acceptance criteria from the perspective of the actor who OBSERVES the outcome, and always include the denial cases:
+- WHEN [actor A] [action] THEN system SHALL [shared-state change] AND [side effect observed by actor B]
+- WHEN [actor B] [responds] THEN system SHALL [transition] AND notify [actor A]
+- IF [unauthorized actor] attempts [action] THEN system SHALL reject it
+
+See `docs/testing/workflow-journey-tests.md` for how these map onto the journey test layer.
+
 ## Non-Functional Requirements
 
 ### Performance Requirements
@@ -212,6 +236,7 @@ Use this checklist to validate your requirements document:
 - [ ] Success criteria are defined and measurable
 - [ ] **Navigation/sidebar/tabs defined for all user types**
 - [ ] **Permissions mapped to all new routes/pages**
+- [ ] **Cross-actor workflow journeys captured** (actor table + ordered steps + observer-perspective EARS criteria) for every flow spanning 2+ roles
 
 ### Quality
 - [ ] Requirements are written in active voice

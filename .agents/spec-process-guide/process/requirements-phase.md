@@ -245,6 +245,7 @@ Before moving to the design phase, verify:
 - [ ] Success criteria are observable and measurable
 - [ ] Requirements specify both inputs and expected outputs
 - [ ] Acceptance criteria are specific enough to guide test creation
+- [ ] Cross-actor workflows are captured as journeys (actor table + ordered steps + observer-perspective EARS criteria) — see `docs/testing/workflow-journey-tests.md`
 
 ## Troubleshooting Common Issues
 

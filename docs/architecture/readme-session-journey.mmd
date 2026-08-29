@@ -1,0 +1,17 @@
+%%{init: {"theme": "dark"}}%%
+sequenceDiagram
+    actor S as Student
+    actor T as Teacher
+    participant K as Kottaby
+    participant W as Wallet
+    actor P as Parent
+
+    S->>K: Browse & book session
+    K->>K: Lock presence, confirm slot
+    K->>W: Escrow payment
+    K->>T: Notify new session
+    T->>K: Join live meeting
+    S->>K: Join live meeting
+    T->>K: Submit session report
+    K->>W: Release escrow to teacher
+    K->>P: Notify progress update

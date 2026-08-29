@@ -71,6 +71,9 @@ Before executing any task, verify:
 2. **Tasks have checkboxes**: Every task in `trackable-tasks.md` must have `[ ]` checkboxes.
 3. **Tasks reference requirements**: Each task should have `_Requirements: REQ-N_` traceability tags.
 4. **No stale in-progress markers**: No `[-]` markers from a previous incomplete run (if found, resume from that point).
+5. **Journey coverage (cross-actor workflows)**: If `specs.md` contains a "Cross-Actor Workflow Scenarios" / journeys section, every captured journey MUST have a corresponding `test/workflows/<domain>/<journey>.test.ts` task (see `docs/testing/workflow-journey-tests.md`). If missing, pause and flag it to the user before executing — the plan is incomplete.
+6. **Test-kind inventory**: Scan the plan for which test layers it mandates (repo `test:db`, services `test:services`, journeys `bun test test/workflows`, GraphQL `test:graphql`, UI components, E2E). Record the inventory in memory — the Test-Layer Coverage Gate (below) verifies all of them ran before completion.
+7. **X.Y subtask pipeline presence (PLAN-INDEPENDENT MANDATE)**: Check whether implementation tasks carry the mandatory `X.Y.QL` / `X.Y.TE` / `X.Y.SEC` / `X.Y.SR` / `X.Y.IV` subtask pipeline. **If the plan text omits it, that is a plan deficiency, not permission to skip**: the orchestrator MUST inject the pipeline into every per-subagent prompt at dispatch time (see Per-Task Execution Flow). Same rule for the 4-Tier framework in `X.Y.TE` — it applies to every implementation task even when the plan never mentions it.
 
 ### Step 3: Establish the Plan Inventory
 
@@ -211,6 +214,8 @@ For each task in the execution queue:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+**This flow is mandatory even when the plan text omits it.** Plans that lack the `X.Y.QL/TE/SEC/SR/IV` subtasks (common in older plans) are executed with the pipeline injected at dispatch time: the orchestrator appends the full pipeline — including the 4-Tier test framework, journey-test verification, and security audit — to every implementation subagent's prompt. An implementation task is incomplete until its tests exist and pass, not merely until the code compiles.
+
 ### Dispatch Model
 
 **Pool-based parallel dispatch** (proven by fix-oxlint):
@@ -230,6 +235,7 @@ For each task in the execution queue:
 - Applicable AGENTS.md file paths (from the task's `Files/components` section)
 - Applicable `.agents/instructions/*.md` file paths
 - Requirement references for traceability
+- The mandatory subtask pipeline (QL → TE → SEC → SR → IV) **in full, injected by the orchestrator** when the plan text lacks it — including the 4-Tier test requirements for any implementation task
 - Outcome directory path: `.ai/plans/<feature-name>/outcome/`
 - Instruction: "Read ALL existing outcome files first, then execute the task, then run quality verification, then write your outcome file, then update the checkbox"
 
@@ -344,10 +350,11 @@ The task-to-instructions mapping:
 | `backend/db/repo/` | `backend/db/repo/AGENTS.md`, `backend/AGENTS.md` |
 | `backend/db/seeds/` | `backend/db/seeds/AGENTS.md`, `backend/AGENTS.md` |
 | `backend/types/` | `backend/types/AGENTS.md`, `backend/AGENTS.md` |
+| `test/workflows/` | `test/workflows/AGENTS.md` |
 
 ## Interleaved Test Execution
 
-Each builder/adapter/service task should include paired tests as subtasks using [.agents/skills/write-tests/SKILL.md](file://../.agents/skills/write-tests/SKILL.md) and [.agents/skills/test-expert/SKILL.md](file://../.agents/skills/test-expert/SKILL.md):
+Each builder/adapter/service task MUST include paired tests as subtasks. This is not advisory: whether or not the plan text spells it out, every implementation task leaves behind working tests, and the 4-Tier framework below is applied to each one (Tier depth scales with task complexity, but Tier 1 coverage and Tier 4 abuse/permission cases are never optional).
 
 ```
 - [ ] 5. Implement MetaCloudApiAdapter
@@ -371,6 +378,7 @@ Each builder/adapter/service task should include paired tests as subtasks using 
 - Builder/adapter tasks — always
 - Service layer tasks — recommended
 - Repository layer tasks — recommended (100% coverage target, `runInRollback` + `tx` propagation)
+- Cross-actor journey tasks — always, and **test-first**: write `test/workflows/<domain>/<journey>.test.ts` before the service surface, then implement until the journey passes. Real services + real DB, committed fixtures + tracked `afterAll` cleanup, NO `runInRollback`, honest role/authorization resolution, notification dispatch spied. Run via `bun run test/scripts/run-test.ts <path>` then `bun test test/workflows`. See `docs/testing/workflow-journey-tests.md` and `test/workflows/AGENTS.md`.
 - Complex business logic tasks — recommended
 
 **When to defer tests:**
@@ -490,6 +498,21 @@ Dispatch these review subagents via the `task` tool in a **single response** (pa
 - Write outcome: `.ai/plans/<feature-name>/outcome/post-implementation-review.md`
 
 **Evidence:** All four implementations required 5-12 post-implementation review rounds because this pattern was ad-hoc. Formalizing it reduces rounds to 2-3.
+
+## Test-Layer Coverage Gate (MANDATORY before completion)
+
+Before the Knowledge Propagation task, verify every test layer the plan mandated actually ran green — a plan that never executed a prescribed layer is NOT complete, even if all tasks are `[x]`:
+
+| Layer | Verify | Command |
+|---|---|---|
+| Repository / DB logic | plan's `backend/db/test/**` tasks ran green | `bun run test:db` (or scoped `run-test.ts`) |
+| Service unit | plan's `backend/services/**/*.test.ts` tasks ran green | `bun run test:services` |
+| **Cross-actor journeys** | every journey from the specs' journeys section ran green | `bun test test/workflows` |
+| GraphQL integration | plan's resolver/mutation test tasks ran green | `bun run test:graphql` |
+| UI components | plan's component test tasks ran green | `bun run test:ui:components` |
+| E2E | only if the plan mandated it | `bun run test:ui:e2e` |
+
+If a prescribed layer has no tasks or never ran, stop and either execute it or get an explicit user decision to defer (with a `deferred-items.md` row). Do not silently skip.
 
 ## Deferred-Items Enforcement
 
@@ -684,6 +707,8 @@ After each phase or logical task group completes:
 
 14. **Batch-loading prototype images (`ReadMediaFile`)**: Reading all prototype screenshots (e.g. 5–11+ images) simultaneously in a single turn blows up prompt/vision payloads to 8MB+ and causes upstream inference timeouts or stream connection drops (`Error: Stream ended before producing a non-ping SSE event`). Always inspect screenshots sequentially or 1–2 at a time strictly as needed for the active subtask.
 
+15. **Silently skipping journey tests**: When the specs define cross-actor journeys, a green unit/repo/GraphQL suite does NOT prove the actors interoperate — the `test/workflows/` journeys must be executed (test-first) and verified at the Test-Layer Coverage Gate. Treating them as optional because "the service tests pass" is how cross-actor regressions ship.
+
 ## Execution Summary Template
 
 At the end of implementation, provide the user with:
@@ -705,6 +730,14 @@ At the end of implementation, provide the user with:
 ### Review Waves
 - Mid-point review: N rounds, M findings fixed
 - Post-implementation review: N rounds, M findings fixed
+
+### Test-Layer Coverage
+- Repo/DB logic: ✅ / ❌ (command: test:db)
+- Service unit: ✅ / ❌ (test:services)
+- Cross-actor journeys: ✅ / ❌ / N/A (bun test test/workflows — N/A only when specs define no journeys)
+- GraphQL integration: ✅ / ❌ (test:graphql)
+- UI components: ✅ / ❌ (test:ui:components)
+- E2E: ✅ / ❌ / N/A (only if mandated)
 
 ### Knowledge Propagation
 - Doc created: docs/<domain>/<topic>.md

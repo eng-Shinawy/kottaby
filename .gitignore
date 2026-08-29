@@ -131,7 +131,7 @@ shared/locale/**/*.js
 /download/
 /worklog.md
 __pycache__
-scripts/run_spec_plan_kimi.py
+# scripts/run_spec_plan_kimi.py
 # QA screenshots & analysis scripts (ephemeral)
 qa-shots/
 # Plan-task throwaway probe outputs (5.5-outcome.md: "throwaway; gitignored scratch")
@@ -141,3 +141,5 @@ tool-results/
 db/app.sqlite
 skills/
 node_modules/
+/.zscripts
+/agent-ctx

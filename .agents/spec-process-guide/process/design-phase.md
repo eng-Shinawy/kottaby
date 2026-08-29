@@ -152,6 +152,7 @@ The design phase serves to:
 2. **Test Coverage**: What aspects of the system will be tested
 3. **Testing Tools**: Frameworks and tools for different types of testing
 4. **Quality Gates**: Criteria for determining when testing is sufficient
+5. **Cross-Actor Journeys**: For workflows spanning 2+ actors, define the shared-entity state machine + per-transition side-effect matrix that the `test/workflows/` journey test (written test-first) will assert — see `docs/testing/workflow-journey-tests.md`
 
 ## Design Document Structure
 

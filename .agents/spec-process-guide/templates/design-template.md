@@ -166,6 +166,35 @@ List all repository methods that require row-level locking:
 **TOCTOU Windows:**
 Document any read-then-write sequences and their atomicity guarantees.
 
+### Cross-Actor Journey Design (CONDITIONAL)
+
+**Include this section for every cross-actor workflow (journey) captured in the requirements.** The state machine and side-effect matrix defined here become the assertion set of the corresponding `test/workflows/<domain>/<journey>.test.ts` journey test.
+
+**Shared-Entity State Machine:**
+| Current State | Trigger (actor + action) | Next State | Guard / Permission |
+|---------------|--------------------------|------------|--------------------|
+| `PENDING_REVIEW` | supervisor approves | `APPROVED` | supervisor role |
+| `PENDING_REVIEW` | supervisor rejects | `REJECTED` | supervisor role |
+
+```mermaid
+stateDiagram-v2
+    [*] --> PendingReview: teacher submits
+    PendingReview --> Approved: supervisor approves
+    PendingReview --> Rejected: supervisor rejects
+```
+
+**Side-Effect Matrix (per transition):**
+| Transition | Rows Created/Updated | Notifications (channel → recipient actor) | Idempotency Key |
+|------------|----------------------|-------------------------------------------|-----------------|
+| submit → PENDING_REVIEW | `lesson_reports` row | review request → supervisors | `lesson-report:{classInstanceId}` |
+| → APPROVED | `teacher_dues` row | approval → teacher | unique `(class_instance_id)` index |
+
+**Cross-Actor Visibility:**
+| State | Teacher sees | Supervisor sees | Parent/Student sees |
+|-------|--------------|-----------------|--------------------|
+| PENDING_REVIEW | own report | report in review queue | nothing |
+| APPROVED | approved status + due entry | removed from queue | approved report details |
+
 ### Drizzle SQL Template Anti-Patterns (CRITICAL)
 
 **NEVER use inline `--` comments inside `sql`` templates** — they break parameter binding.
@@ -537,6 +566,7 @@ Use this checklist to validate your design document:
 - [ ] Non-functional requirements are considered
 - [ ] Success criteria can be met with this design
 - [ ] Constraints and assumptions are addressed
+- [ ] **Every cross-actor journey has a state machine + side-effect matrix + cross-actor visibility table**
 
 ### Technical Quality
 - [ ] Design follows established patterns and principles

@@ -40,6 +40,7 @@ The tasks phase serves to:
 - **NEW: Include Task 0 (baseline) and Phase 1.5 (plan review gate)**
 - **NEW: Define semantic review subtasks (race conditions, env-config, cross-layer, enums)**
 - **NEW: Establish interleaved test structure (pair tests with implementation)**
+- **NEW: Enforce test kinds, not just "tests exist"** — every implementation task carries the X.Y.QL/TE/SEC/SR/IV pipeline and the 4-Tier framework; every cross-actor workflow gets a test-first journey task in `test/workflows/` (see `docs/testing/workflow-journey-tests.md`). A plan that lists implementation tasks without these is incomplete and must be revised.
 - **NEW: Enforce deferred-items ledger tracking**
 
 ## Step-by-Step Process
@@ -185,6 +186,24 @@ The tasks phase serves to:
   - Create session management functionality
   - Write tests for authentication flows
   - _Requirements: 1.2, 4.1_
+```
+
+### Journey Test Tasks (Cross-Actor Workflows)
+**Purpose**: Prove that multiple actors/roles interoperate over shared state — written TEST-FIRST before the service surface exists
+**Examples**:
+- Teacher submits → supervisor approves → teacher notified + due entry created
+- Student books class → credit deducted → cancel triggers refund
+- One journey test file per workflow under `test/workflows/<domain>/`, run via `bun test test/workflows`
+
+**Pattern**:
+```markdown
+- [ ] 3.X Write [workflow name] journey test (test-first)
+  - Create `test/workflows/<domain>/<workflow-name>.test.ts` from the requirements' journey (actor table + ordered steps)
+  - Provision the actor cast via a per-domain helper in `test/workflows/helpers/` (real role/authorization state — never monkey-patched)
+  - Assert shared-state transitions, cross-actor visibility, side effects, and denial paths
+  - Committed fixtures in `beforeAll` + tracked hard-delete in `afterAll` — never `runInRollback` around service calls
+  - Reference: `docs/testing/workflow-journey-tests.md` + `test/workflows/AGENTS.md`
+  - _Requirements: [the journey's cross-actor EARS criteria]_
 ```
 
 ### API/Interface Tasks

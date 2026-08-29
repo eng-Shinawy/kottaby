@@ -73,6 +73,7 @@ Use this template to create actionable implementation plans that break down your
     • Database tests: Wrapped in `runInRollback` + `tx` propagation to every repository method (`expectRepoError` try/catch).
     • Service tests: Mock all external channels (WhatsApp, Resend, Twilio, Fixer, Upstash Redis).
     • GraphQL tests: Setup via `setupTestServerLifecycle()` + execute via `testClient`.
+    • Journey tests (`test/workflows/`): Real services + real DB, committed fixtures + tracked `afterAll` cleanup, NO `runInRollback`; authorization resolves honestly via real user roles; side effects (notifications) spied — see `docs/testing/workflow-journey-tests.md` and `test/workflows/AGENTS.md`.
 ```
 
 ### 3. Security & Tenancy Audit Subtask (X.Y.SEC) — [.agents/skills/idor-testing/SKILL.md](file:///home/ahmed/Projects/kottaby/.agents/skills/idor-testing/SKILL.md) & [.agents/skills/pentester/SKILL.md](file:///home/ahmed/Projects/kottaby/.agents/skills/pentester/SKILL.md)
@@ -134,6 +135,7 @@ Use this template to create actionable implementation plans that break down your
 | Frontend Desktop | `/home/ahmed/Projects/kottaby/frontend/desktop/AGENTS.md`, `/home/ahmed/Projects/kottaby/frontend/views/AGENTS.md`, `/home/ahmed/Projects/kottaby/frontend/AGENTS.md` | `/home/ahmed/Projects/kottaby/.agents/instructions/frontend.instructions.md`, `/home/ahmed/Projects/kottaby/.agents/instructions/mobile-desktop.instructions.md` |
 | Frontend Mobile | `/home/ahmed/Projects/kottaby/frontend/mobile/AGENTS.md`, `/home/ahmed/Projects/kottaby/frontend/views/AGENTS.md`, `/home/ahmed/Projects/kottaby/frontend/AGENTS.md` | `/home/ahmed/Projects/kottaby/.agents/instructions/frontend.instructions.md`, `/home/ahmed/Projects/kottaby/.agents/instructions/mobile-desktop.instructions.md` |
 | Test UI | `/home/ahmed/Projects/kottaby/test/ui/AGENTS.md` | `/home/ahmed/Projects/kottaby/.agents/instructions/tests.instructions.md` |
+| Journey/Workflow Tests | `/home/ahmed/Projects/kottaby/test/workflows/AGENTS.md` | `/home/ahmed/Projects/kottaby/.agents/instructions/tests.instructions.md` |
 
 ### Drizzle Schema Convention (Reference)
 - **Schema changes** (new tables, columns, indexes): `bun run db push` — creates schema automatically
@@ -585,6 +587,22 @@ Use this checklist when executing each task:
   - **Quality Loop**: `bun run scripts/health/sub-loop.ts <file> --lifecycle duplicates` (exit code 0)
   - **Instruction Verification**: sub-loop.ts auto-discovers & prints applicable AGENTS.md + .agents/instructions; read & validate against them
   - _Requirements: [X.X]_
+```
+
+### Journey Test Tasks (Cross-Actor Workflows)
+```markdown
+- [ ] X. Write [workflow name] journey test (TEST-FIRST, before implementing the service surface)
+  - Create `test/workflows/<domain>/<workflow-name>.test.ts` — one file per cross-actor workflow
+  - Provision the actor cast via a per-domain cast helper in `test/workflows/helpers/` (real user roles; authorization never monkey-patched)
+  - Encode each requirement step as: `actor → action → expected shared-state change + side effects`
+  - Assert cross-actor visibility (who sees what after each step) and denial paths (unauthorized actor rejected)
+  - Spy on the notification dispatch boundary — NEVER hit real channels
+  - Committed fixtures in `beforeAll` + tracked hard-delete in `afterAll` — NEVER wrap service calls in `runInRollback`
+  - Run: `bun run test/scripts/run-test.ts test/workflows/<domain>/<workflow-name>.test.ts` until green, then `bun test test/workflows`
+  - **Quality Loop**: `bun run scripts/health/sub-loop.ts <file> --lifecycle duplicates` (exit code 0)
+  - **Instruction Verification**: sub-loop.ts auto-discovers & prints applicable AGENTS.md + .agents/instructions; read & validate against them
+  - Reference: `docs/testing/workflow-journey-tests.md` + `test/workflows/AGENTS.md`
+  - _Requirements: [X.X — the journey's cross-actor EARS criteria]_
 ```
 
 ---
