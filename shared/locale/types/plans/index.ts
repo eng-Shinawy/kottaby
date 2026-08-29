@@ -58,8 +58,12 @@ export interface PlansLabels {
   // ── Create + edit dialogs ────────────────────────────────────────────────
   /** Create dialog title. */
   readonly createDialogTitle: string;
+  /** Create dialog subtitle — purpose + validation posture. */
+  readonly formSubtitleCreate: string;
   /** Edit dialog title. */
   readonly editDialogTitle: string;
+  /** Edit dialog subtitle — forward-only safety assurance. */
+  readonly formSubtitleEdit: string;
   /** Field label: plan name (admin-authored content, NOT a translation key). */
   readonly fieldTitle: string;
   /** Field placeholder: plan-name example. */
@@ -72,10 +76,14 @@ export interface PlansLabels {
   readonly fieldPrice: string;
   /** Field placeholder: price example. */
   readonly fieldPricePlaceholder: string;
+  /** Static hint under the price field while it carries no error. */
+  readonly helperPrice: string;
   /** Field label: currency code. */
   readonly fieldCurrency: string;
   /** Field placeholder: currency-code example. */
   readonly fieldCurrencyPlaceholder: string;
+  /** Static hint under the currency field while it carries no error. */
+  readonly helperCurrency: string;
   /** Field label: renewal interval in days. */
   readonly fieldIntervalDays: string;
   /** Field placeholder: interval example. */
@@ -84,6 +92,8 @@ export interface PlansLabels {
   readonly save: string;
   /** Dialog dismiss button. */
   readonly cancel: string;
+  /** Accessible label for the dialog header close (X) icon button. */
+  readonly close: string;
   /** In-flight dialog submit-state copy. */
   readonly submitting: string;
 

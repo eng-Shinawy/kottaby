@@ -3,17 +3,20 @@
 import { useMutation } from "@apollo/client/react";
 import {
   PublishedWithChangesOutlined as ActivateIcon,
+  CloseOutlined as CloseIcon,
   UnpublishedOutlined as DeactivateIcon,
   type SvgIconComponent,
 } from "@mui/icons-material";
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
+  IconButton,
   Stack,
 } from "@mui/material";
 import { type ReactNode, useState } from "react";
@@ -143,8 +146,15 @@ export function PlanStatusConfirmDialog({
       maxWidth="xs"
       slotProps={{ paper: { sx: theme => ({ borderRadius: 3, boxShadow: theme.palette.shadow.card }) } }}
     >
-      <DialogTitle component="h2" sx={{ fontWeight: 700 }}>
-        {confirmTitleOf(plan, labels)}
+      <DialogTitle component="h2" sx={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 1 }}>
+        <Box component="span" sx={{ flex: 1, minWidth: 0 }}>
+          {confirmTitleOf(plan, labels)}
+        </Box>
+        {/* Header close affordance (X) — mirrors PlanFormDialog; disabled while
+            the transition mutation is in flight so the row state stays coherent. */}
+        <IconButton aria-label={labels.close} onClick={onClose} disabled={loading} sx={{ mr: -1 }}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2} useFlexGap>

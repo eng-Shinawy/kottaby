@@ -18,6 +18,7 @@ import {
   createErrorLinkHandler,
   sha256,
 } from "@/frontend/providers/apollo/utils";
+import { useAppLocale } from "@/frontend/providers/localeContext";
 import { Common, useAppTranslation } from "@/shared/locale";
 
 /**
@@ -31,6 +32,12 @@ import { Common, useAppTranslation } from "@/shared/locale";
 const apolloLinkState = {
   authToken: null as string | null,
   isConnected: false,
+  /** Active UI locale — propagated as `Accept-Language` so the GraphQL
+   *  context localizes server-side messages (e.g. `fields[].message`) to the
+   *  SAME locale the UI renders (server default is `en`; the UI default is
+   *  `ar` — without this header the two disagree until the user explicitly
+   *  switches locale). Synced from LocaleContext in an effect. */
+  locale: "ar" as string,
   checkConnectivity: (): Promise<boolean> => Promise.resolve(true),
   notifyIfDisconnected: (): void => undefined,
   setConnected: (_v: boolean): void => undefined,
@@ -56,6 +63,16 @@ const apolloClient = new ApolloClient({
       () => apolloLinkState.serverNotAvailableMessage
     ),
     createAuthLink(() => apolloLinkState.authToken),
+    // Locale propagation: every request carries the active UI locale so the
+    // server's `extractLocale` (cookie → Accept-Language → default) resolves
+    // the SAME locale the UI renders — server-localized error copy
+    // (`fields[].message`, transport-tier preflight text) matches the UI.
+    new ApolloLink((operation, forward) => {
+      operation.setContext(({ headers }: { headers?: Record<string, string> }) => ({
+        headers: { ...headers, "Accept-Language": apolloLinkState.locale },
+      }));
+      return forward(operation);
+    }),
     new PersistedQueryLink({ sha256 }),
     // Use split to send mutations individually (non-batched) while batching
     // queries. Mutations must NOT be batched because:
@@ -80,6 +97,10 @@ const apolloClient = new ApolloClient({
 
 export function AppApolloProvider({ children }: { readonly children: React.ReactNode }) {
   const t = useAppTranslation(Common);
+  // Active UI locale — synced into the module-level link state (effect below,
+  // never during render) so the locale-propagation link sends the CURRENT
+  // locale with every request.
+  const locale = useAppLocale();
   const {
     isConnected,
     isChecking,
@@ -93,6 +114,10 @@ export function AppApolloProvider({ children }: { readonly children: React.React
   const [authToken, setAuthToken] = useState<string | null>(null);
 
   // Sync component state into the module-level link state (in effects, not during render)
+  useEffect(() => {
+    apolloLinkState.locale = locale;
+  }, [locale]);
+
   useEffect(() => {
     apolloLinkState.isConnected = isConnected;
   }, [isConnected]);

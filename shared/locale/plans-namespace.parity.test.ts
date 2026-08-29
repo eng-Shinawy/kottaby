@@ -45,7 +45,7 @@ const INTERPOLATING_KEYS = [
   "toastDeactivated",
 ] as const;
 
-const EXPECTED_KEY_COUNT = 47;
+const EXPECTED_KEY_COUNT = 52;
 
 const TITLE_SENTINEL = "PLAN_TITLE_SENTINEL";
 

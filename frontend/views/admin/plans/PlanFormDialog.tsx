@@ -1,8 +1,20 @@
 "use client";
 
 import { useMutation } from "@apollo/client/react";
-import { SaveOutlined as SaveIcon } from "@mui/icons-material";
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField } from "@mui/material";
+import { CloseOutlined as CloseIcon, SaveOutlined as SaveIcon } from "@mui/icons-material";
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { type ReactNode, useMemo, useState } from "react";
 import type {
   AdminPlansQuery,
@@ -279,8 +291,29 @@ export function PlanFormDialog({ open, plan, labels, onClose, onSaved }: Readonl
       // Arabic copy never truncates.
       slotProps={{ paper: { sx: theme => ({ borderRadius: 3, boxShadow: theme.palette.shadow.card }) } }}
     >
-      <DialogTitle component="h2" sx={{ fontWeight: 700 }}>
-        {isEdit ? labels.editDialogTitle : labels.createDialogTitle}
+      <DialogTitle component="h2" sx={{ fontWeight: 700, display: "flex", alignItems: "flex-start", gap: 1, pb: 0 }}>
+        <Box component="span" sx={{ flex: 1, minWidth: 0 }}>
+          {isEdit ? labels.editDialogTitle : labels.createDialogTitle}
+          {/* Purpose subtitle: create = validation posture; edit = forward-only
+              safety assurance (INV-PC2 echo). Muted, wraps on narrow viewports. */}
+          <Typography
+            component="div"
+            variant="body2"
+            sx={theme => ({ mt: 0.5, fontWeight: 400, color: theme.palette.text.secondary })}
+          >
+            {isEdit ? labels.formSubtitleEdit : labels.formSubtitleCreate}
+          </Typography>
+        </Box>
+        {/* Header close affordance (X) — escape/backdrop remain available; this
+            is the visible counterpart, RTL-mirrored automatically by the flex row. */}
+        <IconButton
+          aria-label={labels.close}
+          onClick={onClose}
+          disabled={pending}
+          sx={{ mt: -0.5, mr: -1, ms: { sm: 1 } }}
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
       </DialogTitle>
       <Box component="form" noValidate onSubmit={handleSubmit}>
         <DialogContent sx={{ pt: 1 }}>
@@ -319,7 +352,7 @@ export function PlanFormDialog({ open, plan, labels, onClose, onSaved }: Readonl
                 value={form.price}
                 onChange={event => setForm(previous => ({ ...previous, price: event.target.value }))}
                 error={fieldErrors.price !== undefined}
-                helperText={fieldErrors.price}
+                helperText={fieldErrors.price ?? labels.helperPrice}
                 inputMode="decimal"
                 sx={fieldSx}
               />
@@ -329,7 +362,7 @@ export function PlanFormDialog({ open, plan, labels, onClose, onSaved }: Readonl
                 value={form.currency}
                 onChange={event => setForm(previous => ({ ...previous, currency: event.target.value }))}
                 error={fieldErrors.currency !== undefined}
-                helperText={fieldErrors.currency}
+                helperText={fieldErrors.currency ?? labels.helperCurrency}
                 slotProps={{ htmlInput: { maxLength: 3 } }}
                 sx={fieldSx}
               />
