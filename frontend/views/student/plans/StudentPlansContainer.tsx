@@ -29,7 +29,7 @@ import {
   planCatalogQueryDocument,
   requestPlanSubscriptionMutationDocument,
 } from "@/frontend/graphql/sharedDocuments";
-import { StudentPlanCard } from "@/frontend/views/student/plans/StudentPlanCard";
+import { StudentPlanCard, type StudentPlanCardPosture } from "@/frontend/views/student/plans/StudentPlanCard";
 import { StudentPlans, useAppTranslation } from "@/shared/locale";
 import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
 
@@ -88,6 +88,8 @@ export type StudentPlansStaticLabels = Pick<
   | "labelSessions"
   | "labelInterval"
   | "subscribeCta"
+  | "activeChip"
+  | "renewCta"
   | "purchasePendingCta"
   | "purchaseDialogTitle"
   | "purchaseRequestCta"
@@ -203,6 +205,46 @@ export function StudentPlansContainer({ labels }: Readonly<StudentPlansContainer
       .map(subscription => subscription.plan.id)
   );
 
+  // DEV1-010 posture derivation — one posture per catalog plan, priority
+  // `pending > active > renew > subscribe`:
+  //  - pending: an unresolved request exists (the server fences a
+  //    duplicate) → chip + disabled CTA;
+  //  - active: the user holds an ACTIVE subscription for the plan →
+  //    informational chip + live renew CTA (the service deliberately
+  //    allows an early re-request — renewal semantics belong to the
+  //    payment-activation phase);
+  //  - renew: the user's history for the plan includes a TERMINAL row
+  //    (expired / cancelled / suspended) and nothing blocks a new request
+  //    → live renew CTA, no chip;
+  //  - subscribe: no history at all → the default CTA.
+  const activePlanIds = new Set(
+    (mySubscriptionsData?.mySubscriptions ?? [])
+      .filter(subscription => subscription.status === "active")
+      .map(subscription => subscription.plan.id)
+  );
+  const terminalPlanIds = new Set(
+    (mySubscriptionsData?.mySubscriptions ?? [])
+      .filter(
+        subscription =>
+          subscription.status === "expired" ||
+          subscription.status === "cancelled" ||
+          subscription.status === "suspended"
+      )
+      .map(subscription => subscription.plan.id)
+  );
+  const postureOf = (planId: string): StudentPlanCardPosture => {
+    if (pendingPlanIds.has(planId)) {
+      return "pending";
+    }
+    if (activePlanIds.has(planId)) {
+      return "active";
+    }
+    if (terminalPlanIds.has(planId)) {
+      return "renew";
+    }
+    return "subscribe";
+  };
+
   // ── State branches (error → loading → empty → populated) ──────────────────
   let surface: ReactNode;
   if (error) {
@@ -278,7 +320,7 @@ export function StudentPlansContainer({ labels }: Readonly<StudentPlansContainer
             key={plan.id}
             plan={plan}
             labels={t}
-            hasPendingRequest={pendingPlanIds.has(plan.id)}
+            posture={postureOf(plan.id)}
             onSubscribe={openRequest}
           />
         ))}

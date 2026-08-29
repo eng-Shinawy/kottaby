@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CheckCircleOutlined as ActiveIcon,
   EventRepeatOutlined as IntervalIcon,
   HourglassTopOutlined as PendingIcon,
   SchoolOutlined as SessionsIcon,
@@ -27,15 +28,25 @@ import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
  *    the consumer read (`planCatalog`) only ever carries the ACTIVE slice,
  *    so a status chip would be noise on this surface.
  *
- * DEV1-006 Phase A pending state: `hasPendingRequest` (derived
- * container-side from the owner-scoped `mySubscriptions` read) switches the
- * card into its requested posture — a pending chip near the title and a
- * DISABLED CTA relabeled `purchasePendingCta`. A disabled button carries
- * the plan title in its aria-label for screen readers (the visible label
- * alone — "Requested" — is not identifying).
+ * DEV1-006 Phase A pending state → DEV1-010 full posture map: the
+ * container derives ONE posture per plan from the owner-scoped
+ * `mySubscriptions` read and the card renders it —
+ *  - `pending`  → pending chip + DISABLED CTA relabeled `purchasePendingCta`
+ *    (the server fences an unresolved duplicate request);
+ *  - `active`   → "Active" chip (informational) + live `renewCta` CTA —
+ *    the service deliberately allows an early re-request (renewal
+ *    semantics belong to the payment-activation phase), so the card
+ *    signals ownership without blocking;
+ *  - `renew`    → live `renewCta` CTA (the user's latest history for the
+ *    plan is terminal: expired / cancelled / suspended — no chip, the
+ *    storefront sells the next cycle);
+ *  - `subscribe`→ the default `subscribeCta` CTA, no chip.
+ * A disabled button carries the plan title in its aria-label for screen
+ * readers (the visible label alone — "Requested" — is not identifying).
  *
- * The subscribe CTA delegates to the container's `onSubscribe` callback —
- * the card never opens dialogs and never mutates.
+ * The CTA delegates to the container's `onSubscribe` callback in EVERY
+ * posture — the card never opens dialogs and never mutates; the
+ * subscribe + renew flows share the container's request dialog.
  *
  * MUI v9 discipline: `sx`-only styling through theme-palette tokens
  * (zero hardcoded hex), `*Outlined` icons, RTL-safe logical composition
@@ -44,18 +55,21 @@ import type { StudentPlansLabels } from "@/shared/locale/types/studentPlans";
  * access.
  */
 
+/**
+ * The per-plan request posture the container derives from the
+ * owner-scoped read. Priority order lives container-side:
+ * `pending > active > renew > subscribe`.
+ */
+export type StudentPlanCardPosture = "subscribe" | "pending" | "active" | "renew";
+
 export interface StudentPlanCardProps {
   /** Canonical ten-field plan row (container-owned `planCatalog` payload). */
   readonly plan: PlanCatalogQuery_planCatalog;
   /** Full studentPlans-namespace labels (property access ONLY inside). */
   readonly labels: StudentPlansLabels;
-  /**
-   * Whether the current user has an UNRESOLVED PENDING subscription request
-   * for this plan (container-derived from `mySubscriptions`). Renders the
-   * pending chip and disables the CTA.
-   */
-  readonly hasPendingRequest: boolean;
-  /** Card intent: open the subscribe request dialog for this plan. */
+  /** The derived request posture for this plan (see the type's doc). */
+  readonly posture: StudentPlanCardPosture;
+  /** Card intent: open the subscribe/renew request dialog for this plan. */
   readonly onSubscribe: (plan: PlanCatalogQuery_planCatalog) => void;
 }
 
@@ -81,19 +95,31 @@ function CardSpecRow({
   );
 }
 
-export function StudentPlanCard({
-  plan,
-  labels,
-  hasPendingRequest,
-  onSubscribe,
-}: Readonly<StudentPlanCardProps>): ReactNode {
+/** The card's CTA label per posture. */
+function ctaLabelOf(posture: StudentPlanCardPosture, labels: StudentPlansLabels): string {
+  switch (posture) {
+    case "pending":
+      return labels.purchasePendingCta;
+    case "active":
+    case "renew":
+      return labels.renewCta;
+    default:
+      return labels.subscribeCta;
+  }
+}
+
+export function StudentPlanCard({ plan, labels, posture, onSubscribe }: Readonly<StudentPlanCardProps>): ReactNode {
+  const ctaLabel = ctaLabelOf(posture, labels);
+  const isPending = posture === "pending";
+  const isActive = posture === "active";
+
   return (
     <Card
       elevation={0}
       sx={theme => ({
         borderRadius: 3,
         border: "1px solid",
-        borderColor: hasPendingRequest ? theme.palette.tertiary : theme.palette.outlineVariant,
+        borderColor: isPending ? theme.palette.tertiary : theme.palette.outlineVariant,
         bgcolor: theme.palette.surfaceContainerLow,
         boxShadow: theme.palette.shadow.card,
         display: "flex",
@@ -119,7 +145,8 @@ export function StudentPlanCard({
       >
         {/* Title row — admin-authored content; the grid keeps equal-height
             cards and the title wraps naturally (no ellipsis). A plan with an
-            unresolved pending request carries the pending chip INLINE. */}
+            unresolved pending request carries the pending chip INLINE, an
+            already-active plan carries the informational Active chip. */}
         <Stack
           spacing={1}
           sx={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 1 }}
@@ -127,7 +154,7 @@ export function StudentPlanCard({
           <Typography variant="h6" component="h3" sx={{ fontWeight: 700 }}>
             {plan.title}
           </Typography>
-          {hasPendingRequest ? (
+          {isPending ? (
             <Chip
               icon={<PendingIcon />}
               label={labels.purchasePendingCta}
@@ -138,6 +165,19 @@ export function StudentPlanCard({
                 "& .MuiChip-icon": { color: theme.palette.onTertiaryContainer },
               })}
               data-testid={`student-plan-pending-chip-${plan.id}`}
+            />
+          ) : isActive ? (
+            <Chip
+              icon={<ActiveIcon />}
+              label={labels.activeChip}
+              size="small"
+              aria-label={`${labels.activeChip} — ${plan.title}`}
+              sx={theme => ({
+                bgcolor: theme.palette.successContainer,
+                color: theme.palette.onSuccessContainer,
+                "& .MuiChip-icon": { color: theme.palette.onSuccessContainer },
+              })}
+              data-testid={`student-plan-active-chip-${plan.id}`}
             />
           ) : null}
         </Stack>
@@ -165,18 +205,19 @@ export function StudentPlanCard({
           />
         </Box>
 
-        {/* CTA — delegates to the container (request dialog). Disabled with
-            the pending relabel while an unresolved request exists; the
-            aria-label keeps the plan title identifying for screen readers. */}
+        {/* CTA — delegates to the container (request dialog) in EVERY
+            posture; only the pending posture disables (the server fences
+            the duplicate request). The aria-label keeps the plan title
+            identifying for screen readers. */}
         <Button
           variant="contained"
           fullWidth
-          disabled={hasPendingRequest}
+          disabled={isPending}
           onClick={() => onSubscribe(plan)}
-          aria-label={`${hasPendingRequest ? labels.purchasePendingCta : labels.subscribeCta} — ${plan.title}`}
+          aria-label={`${ctaLabel} — ${plan.title}`}
           sx={{ borderRadius: 2, py: 1 }}
         >
-          {hasPendingRequest ? labels.purchasePendingCta : labels.subscribeCta}
+          {ctaLabel}
         </Button>
       </CardContent>
     </Card>

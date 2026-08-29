@@ -19,7 +19,15 @@
  *    pending posture (disabled CTA + pending chip);
  *  - REQUEST FAILURE — mutation rejects → failure toast, dialog stays open;
  *  - PENDING POSTURE — a pre-existing PENDING row disables that plan's CTA
- *    and renders the chip; an ACTIVE row does not (renewals stay free).
+ *    and renders the chip.
+ *
+ * DEV1-010 posture-map cells (the container derives ONE posture per plan,
+ * priority `pending > active > renew > subscribe`):
+ *  - ACTIVE POSTURE — an ACTIVE owner row renders the informational Active
+ *    chip + a LIVE Renew CTA (the service allows an early re-request);
+ *  - RENEW POSTURE — a TERMINAL owner row (expired/cancelled/suspended)
+ *    renders the live Renew CTA (no chip) and it opens the SAME request
+ *    dialog (renewal is the same mutation with renewal intent).
  *
  * Plus two single-tier cells:
  *  - CARD delegation tier — `StudentPlanCard` rendered directly with a
@@ -306,7 +314,7 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
       expect(screen.queryByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeNull();
     });
 
-    test("pre-existing PENDING request disables that plan's CTA; ACTIVE history does not", async () => {
+    test("pre-existing PENDING request disables that plan's CTA; ACTIVE history flips to the active posture", async () => {
       renderContainer(
         [
           planCatalogMock([FIRST_ROW, SECOND_ROW]),
@@ -330,10 +338,36 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
       expect(await screen.findByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeDefined();
       expect(pendingCta.hasAttribute("disabled")).toBe(true);
       expect(screen.queryByRole("button", { name: `${t.subscribeCta} — ${FIRST_ROW.title}` })).toBeNull();
-      // Active-history plan: NOT pending — renewals stay open until the
-      // payment phase owns them.
-      expect(screen.queryByTestId(`student-plan-pending-chip-${SECOND_ROW.id}`)).toBeNull();
-      expect(screen.getAllByRole("button", { name: `${t.subscribeCta} — ${SECOND_ROW.title}` })).toHaveLength(1);
+      // Active-history plan: informational Active chip + LIVE renew CTA
+      // (the service allows an early re-request — renewal semantics belong
+      // to the payment-activation phase).
+      expect(await screen.findByTestId(`student-plan-active-chip-${SECOND_ROW.id}`)).toBeDefined();
+      expect(screen.getAllByRole("button", { name: `${t.renewCta} — ${SECOND_ROW.title}` })).toHaveLength(1);
+      expect(screen.queryByRole("button", { name: `${t.subscribeCta} — ${SECOND_ROW.title}` })).toBeNull();
+    });
+
+    test("TERMINAL history (expired/cancelled/suspended) flips the card to the live renew posture", async () => {
+      renderContainer(
+        [
+          planCatalogMock([FIRST_ROW]),
+          mySubscriptionsOnce([subscriptionFixture({ id: "703", plan: FIRST_ROW, status: "cancelled" })]),
+        ],
+        locale
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("student-plans-grid")).toBeDefined();
+      });
+      // No chip (terminal rows carry no storefront chip) — but the CTA
+      // relabels to the renewal intent and STAYS live.
+      const renewCta = await screen.findByRole("button", { name: `${t.renewCta} — ${FIRST_ROW.title}` });
+      expect(renewCta.hasAttribute("disabled")).toBe(false);
+      expect(screen.queryByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeNull();
+      expect(screen.queryByTestId(`student-plan-active-chip-${FIRST_ROW.id}`)).toBeNull();
+      // The renew CTA opens the SAME shared request dialog.
+      fireEvent.click(renewCta);
+      expect(await screen.findByText(t.purchaseDialogTitle)).toBeDefined();
+      expect(screen.getByText(t.purchaseDialogBody(FIRST_ROW.title))).toBeDefined();
     });
 
     test("empty catalog renders the localized empty state", async () => {
@@ -370,18 +404,30 @@ for (const locale of ["ar", "en"] as AppLocale[]) {
 // CARD delegation tier — the container's subscribe boundary
 // ============================================================================
 
-describe("StudentPlanCard — subscribe CTA delegates the exact plan to the callback", () => {
-  test("CTA forwards the clicked plan object", () => {
+describe("StudentPlanCard — CTA delegates the exact plan to the callback", () => {
+  test("subscribe posture: CTA forwards the clicked plan object", () => {
     const t = StudentPlansNs.getLabels(getTranslations("en"));
     const onSubscribe = mock((_plan: PlanCatalogQuery_planCatalog) => undefined);
 
-    renderWithWrapper(
-      <StudentPlanCard plan={FIRST_ROW} labels={t} hasPendingRequest={false} onSubscribe={onSubscribe} />,
-      { locale: "en" }
-    );
+    renderWithWrapper(<StudentPlanCard plan={FIRST_ROW} labels={t} posture="subscribe" onSubscribe={onSubscribe} />, {
+      locale: "en",
+    });
 
     expect(screen.getByText(FIRST_ROW.title)).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: `${t.subscribeCta} — ${FIRST_ROW.title}` }));
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
+    expect(onSubscribe).toHaveBeenCalledWith(FIRST_ROW);
+  });
+
+  test("renew posture: the relabeled CTA still delegates the exact plan", () => {
+    const t = StudentPlansNs.getLabels(getTranslations("en"));
+    const onSubscribe = mock((_plan: PlanCatalogQuery_planCatalog) => undefined);
+
+    renderWithWrapper(<StudentPlanCard plan={FIRST_ROW} labels={t} posture="renew" onSubscribe={onSubscribe} />, {
+      locale: "en",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: `${t.renewCta} — ${FIRST_ROW.title}` }));
     expect(onSubscribe).toHaveBeenCalledTimes(1);
     expect(onSubscribe).toHaveBeenCalledWith(FIRST_ROW);
   });
@@ -390,16 +436,30 @@ describe("StudentPlanCard — subscribe CTA delegates the exact plan to the call
     const t = StudentPlansNs.getLabels(getTranslations("en"));
     const onSubscribe = mock((_plan: PlanCatalogQuery_planCatalog) => undefined);
 
-    renderWithWrapper(
-      <StudentPlanCard plan={FIRST_ROW} labels={t} hasPendingRequest={true} onSubscribe={onSubscribe} />,
-      { locale: "en" }
-    );
+    renderWithWrapper(<StudentPlanCard plan={FIRST_ROW} labels={t} posture="pending" onSubscribe={onSubscribe} />, {
+      locale: "en",
+    });
 
     expect(screen.getByTestId(`student-plan-pending-chip-${FIRST_ROW.id}`)).toBeDefined();
     const pendingCta = screen.getByRole("button", { name: `${t.purchasePendingCta} — ${FIRST_ROW.title}` });
     expect(pendingCta.hasAttribute("disabled")).toBe(true);
     fireEvent.click(pendingCta);
     expect(onSubscribe).not.toHaveBeenCalled();
+  });
+
+  test("active posture: informational chip renders; the renew CTA stays live", () => {
+    const t = StudentPlansNs.getLabels(getTranslations("en"));
+    const onSubscribe = mock((_plan: PlanCatalogQuery_planCatalog) => undefined);
+
+    renderWithWrapper(<StudentPlanCard plan={FIRST_ROW} labels={t} posture="active" onSubscribe={onSubscribe} />, {
+      locale: "en",
+    });
+
+    expect(screen.getByTestId(`student-plan-active-chip-${FIRST_ROW.id}`)).toBeDefined();
+    const renewCta = screen.getByRole("button", { name: `${t.renewCta} — ${FIRST_ROW.title}` });
+    expect(renewCta.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(renewCta);
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
   });
 });
 
