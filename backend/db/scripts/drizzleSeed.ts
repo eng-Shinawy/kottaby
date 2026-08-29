@@ -1,3 +1,4 @@
+import { closePool } from "@/backend/db";
 import { runAllSeeds } from "@/backend/db/seeds";
 import { loadSeedConfig } from "@/backend/db/seeds/lib";
 import { logger } from "@/backend/lib/logger";
@@ -16,7 +17,13 @@ async function runSeed(): Promise<void> {
   logger.info("Database seed completed successfully.");
 }
 
-runSeed().catch((err: unknown) => {
-  logger.error("Database seed failed:", err);
-  process.exit(1);
-});
+runSeed()
+  .then(async () => {
+    await closePool();
+    process.exit(0);
+  })
+  .catch(async (err: unknown) => {
+    logger.error("Database seed failed:", err);
+    await closePool();
+    process.exit(1);
+  });
