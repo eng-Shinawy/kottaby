@@ -54,14 +54,12 @@ import type { PlansLabels } from "@/shared/locale/types/plans";
  *  - timestamps pass through {@link formatApplicantDate} (the established
  *    locale-aware frontend date util — Arabic-Indic digits under `ar`);
  *  - a null `deactivatedAt` renders a locale-neutral em dash (punctuation,
- *    not copy — the 45-key `plans` namespace has no absent-instant label).
+ *    not copy — labeled only by the {@link PlansLabels.columnDeactivatedAt}
+ *    header key added in the 4.4 namespace amendment).
  *
- * Namespace-gap note (documented in outcome/4.3): `PlansLabels` carries
- * header keys for the five primary columns only — the two timestamp columns
- * render as UNLABELED data columns (empty `th` cells) rather than inventing
- * hardcoded copy against the zero-hardcoded-strings gate. Follow-up: add
- * `columnCreatedAt` / `columnDeactivatedAt` keys when the namespace next
- * changes (Task 4.4 dialog work touches adjacent copy).
+ * Namespace note (Task 4.4 amendment): the timestamp column headers resolve
+ * `columnCreatedAt` / `columnDeactivatedAt` (added to the 47-key `plans`
+ * namespace) — previously the two columns rendered unlabeled.
  *
  * MUI v9 discipline: `sx`-only styling with theme-palette tokens exclusively
  * (chip colors: success / grey families through `sx` theme callbacks — zero
@@ -171,11 +169,14 @@ function PlanCatalogDesktopTable({
             <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
               {labels.columnStatus}
             </TableCell>
-            {/* Namespace gap (see module doc): the timestamp columns carry no
-                header keys — they render as unlabeled data columns instead of
-                hardcoded header copy. */}
-            <TableCell scope="col" />
-            <TableCell scope="col" />
+            {/* Timestamp headers — resolved from the plans namespace (4.4
+                amendment); no hardcoded header copy. */}
+            <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
+              {labels.columnDeactivatedAt}
+            </TableCell>
+            <TableCell scope="col" sx={theme => ({ color: theme.palette.text.secondary, fontWeight: 700 })}>
+              {labels.columnCreatedAt}
+            </TableCell>
             <TableCell
               scope="col"
               align="right"
@@ -282,8 +283,8 @@ function PlanCatalogMobileCards({
             {/* price string rendered verbatim next to its currency code. */}
             <SpecRow label={labels.columnPrice} value={`${plan.price} ${plan.currency}`} />
             <SpecRow label={labels.columnIntervalDays} value={plan.intervalDays} />
-            {/* Lifecycle stamps — muted metadata footer (namespace gap: no
-                per-stamp label keys exist; see module doc). */}
+            {/* Lifecycle stamps — labeled metadata footer (labels from the
+                4.4 namespace amendment; null deactivatedAt stays unlabeled). */}
             <Box
               sx={theme => ({
                 display: "flex",
@@ -295,11 +296,11 @@ function PlanCatalogMobileCards({
               })}
             >
               <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
-                {formatApplicantDate(plan.createdAt, locale)}
+                {`${labels.columnCreatedAt}: ${formatApplicantDate(plan.createdAt, locale)}`}
               </Typography>
               {plan.deactivatedAt === null ? null : (
                 <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
-                  {formatApplicantDate(plan.deactivatedAt, locale)}
+                  {`${labels.columnDeactivatedAt}: ${formatApplicantDate(plan.deactivatedAt, locale)}`}
                 </Typography>
               )}
             </Box>

@@ -34,6 +34,10 @@ export interface PlansLabels {
   readonly columnIntervalDays: string;
   /** Column header: lifecycle status chip. */
   readonly columnStatus: string;
+  /** Column header: deactivation timestamp (em-dash when the plan is active). */
+  readonly columnDeactivatedAt: string;
+  /** Column header: creation timestamp. */
+  readonly columnCreatedAt: string;
   /** Column header: row actions. */
   readonly columnActions: string;
   /** Row action: edit the plan (opens the edit dialog). */

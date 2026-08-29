@@ -239,6 +239,63 @@ describe("PlanCatalogTable — row actions delegate the exact plan to the 4.4 ca
 });
 
 // ============================================================================
+// 4.4 DIALOG WIRING — the container's intents open the real dialogs (en)
+// ============================================================================
+
+describe("PlanCatalogContainer — 4.4 dialog wiring (create / edit / status intents)", () => {
+  const t = PlansNs.getLabels(getTranslations("en"));
+
+  test("create CTA opens PlanFormDialog in create mode; cancel closes it", async () => {
+    renderContainer([adminPlansMock([])], "en");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-catalog-empty")).toBeDefined();
+    });
+    fireEvent.click(screen.getByRole("button", { name: t.createButton }));
+
+    const dialog = await waitFor(() => {
+      const el = screen.getByText(t.createDialogTitle);
+      expect(el).toBeDefined();
+      return el;
+    });
+    // Create mode: the title field starts BLANK (no seed row).
+    const title = screen.getByLabelText(t.fieldTitle);
+    if (!(title instanceof HTMLInputElement)) throw new Error("title field must be an input");
+    expect(title.value).toBe("");
+    expect(dialog).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: t.cancel }));
+    await waitFor(() => {
+      expect(screen.queryByText(t.createDialogTitle)).toBeNull();
+    });
+  });
+
+  test("row edit opens a PREFILLED edit dialog; toggle opens the status confirm", async () => {
+    renderContainer([adminPlansMock([ACTIVE_ROW])], "en");
+
+    await waitFor(() => {
+      expect(screen.getByText(ACTIVE_ROW.title)).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: t.actionEdit }));
+    const title = screen.getByLabelText(t.fieldTitle);
+    if (!(title instanceof HTMLInputElement)) throw new Error("title field must be an input");
+    expect(title.value).toBe(ACTIVE_ROW.title);
+    expect(screen.getByText(t.editDialogTitle)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: t.cancel }));
+
+    fireEvent.click(screen.getByRole("button", { name: t.actionDeactivate }));
+    const confirmTitle = await waitFor(() => {
+      const el = screen.getByText(t.deactivateConfirmTitle);
+      expect(el).toBeDefined();
+      return el;
+    });
+    expect(screen.getByText(t.deactivateConfirmBody(ACTIVE_ROW.title))).toBeDefined();
+    expect(confirmTitle).toBeDefined();
+  });
+});
+
+// ============================================================================
 // SERVER HAND-OFF tier — the RSC-safe labels prop from the Task 4.2 page
 // ============================================================================
 

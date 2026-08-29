@@ -2,11 +2,14 @@
 
 import { useQuery } from "@apollo/client/react";
 import { AddOutlined as AddIcon, Inventory2Outlined as EmptyStateIcon } from "@mui/icons-material";
-import { Alert, Box, Button, Skeleton, Stack, Typography } from "@mui/material";
-import { type ReactNode, useCallback } from "react";
+import { Alert, Box, Button, Skeleton, Snackbar, Stack, Typography } from "@mui/material";
+import type { SnackbarCloseReason } from "@mui/material/Snackbar";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 import type { AdminPlansQuery_adminPlans } from "@/frontend/graphql/generated/gql/graphql";
 import { adminPlansQueryDocument } from "@/frontend/graphql/sharedDocuments";
 import { PlanCatalogTable } from "@/frontend/views/admin/plans/PlanCatalogTable";
+import { PlanFormDialog } from "@/frontend/views/admin/plans/PlanFormDialog";
+import { PlanStatusConfirmDialog } from "@/frontend/views/admin/plans/PlanStatusConfirmDialog";
 import { Plans, useAppLocale, useAppTranslation } from "@/shared/locale";
 import type { PlansLabels } from "@/shared/locale/types/plans";
 
@@ -14,7 +17,7 @@ import type { PlansLabels } from "@/shared/locale/types/plans";
  * `PlanCatalogContainer` — the client-owned admin plan catalog (DEV1-005
  * REQ-054/REQ-062, mounted by the Task 4.2 server shell at `/admin/plans`).
  *
- * Responsibilities (deliberately FINAL for Task 4.4):
+ * Responsibilities:
  *  - DATA: `useQuery(adminPlansQueryDocument, { variables: { includeInactive:
  *    true } })` from `@apollo/client/react` — the admin listing (server-enforced
  *    Admin role) including deactivated plans (REQ-064: the lifecycle toggle
@@ -23,18 +26,24 @@ import type { PlansLabels } from "@/shared/locale/types/plans";
  *    string lookups anywhere on this surface;
  *  - STATES: skeleton rows while in flight → localized empty state with the
  *    create CTA → localized error state with retry → the catalog table;
- *  - INTENTS: `onEditPlan(plan)` / `onTogglePlanStatus(plan)` /
- *    create-CTA handlers are STABLE, clearly-marked placeholders. Task 4.4
- *    replaces their bodies with PlanFormDialog / PlanStatusConfirmDialog
- *    state wiring — the data layer above stays untouched.
+ *  - DIALOGS (Task 4.4): create/edit intents open {@link PlanFormDialog}
+ *    (create vs edit seeded from the row); row lifecycle intents open
+ *    {@link PlanStatusConfirmDialog}. Mutations live INSIDE the dialogs —
+ *    their canonical `Plan!` payloads converge the id-normalized cache (the
+ *    create mutation additionally appends the new row to the watched
+ *    `adminPlans` list via the dialog's cache `update`), so rows/chips update
+ *    with NO refetch. Success closes the dialog and raises the localized
+ *    Snackbar below (toasts interpolate the canonical row title).
  *
  * Server hand-off (`labels` prop): the Task 4.2 shell resolves
  * `getTranslations(locale).plansTranslations` server-side and passes the
  * STRING-KEYED subset (RSC props are serialized — the namespace's six
  * title-formatter functions cannot cross the server/client boundary, so the
  * page forwards each label via property access and the full tree — formatters
- * included — comes from the client handle below, which 4.4's dialogs consume
- * in-container). Precedent: `ProfilePage` renders `<ProfileView />` with no
+ * included — comes from the client handle below, which the dialogs consume
+ * in-container). The 4.4 `columnCreatedAt`/`columnDeactivatedAt` header keys
+ * ride the same merge (client handle supplies them; the serialized subset is
+ * unchanged). Precedent: `ProfilePage` renders `<ProfileView />` with no
  * serialized labels for the same reason.
  *
  * MUI v9 discipline: `sx`-only styling through theme-palette tokens,
@@ -46,7 +55,7 @@ import type { PlansLabels } from "@/shared/locale/types/plans";
  * The RSC-serializable slice of {@link PlansLabels} the server shell hands
  * down — every member is a plain string; the six title-formatter keys are
  * structurally excluded (they cannot cross the server/client boundary and
- * are only consumed client-side by Task 4.4's dialogs).
+ * are only consumed client-side by the dialogs).
  */
 export type PlanCatalogStaticLabels = Pick<
   PlansLabels,
@@ -79,6 +88,23 @@ export interface PlanCatalogContainerProps {
   readonly labels?: PlanCatalogStaticLabels;
 }
 
+/** Dialog-state bundle: `mode` + seed row + mount flag + remount nonce. */
+interface PlanFormDialogState {
+  readonly open: boolean;
+  readonly mode: "create" | "edit";
+  readonly plan: AdminPlansQuery_adminPlans | null;
+  /** Bumped per OPENING — the dialog's React `key` remounts it fresh. */
+  readonly nonce: number;
+}
+
+const CLOSED_FORM_DIALOG: PlanFormDialogState = { open: false, mode: "create", plan: null, nonce: 0 };
+
+/** Success-snackbar state — copy is pre-interpolated (row title resolved). */
+interface CatalogSnackbar {
+  readonly id: number;
+  readonly copy: string;
+}
+
 export function PlanCatalogContainer({ labels }: Readonly<PlanCatalogContainerProps>): ReactNode {
   const translated = useAppTranslation(Plans);
   const locale = useAppLocale();
@@ -88,65 +114,138 @@ export function PlanCatalogContainer({ labels }: Readonly<PlanCatalogContainerPr
 
   // Server hand-off wins where provided (byte-identical copy to the server
   // shell); the client handle supplies every remaining key — including the
-  // title formatters 4.4's dialogs will interpolate in-container.
+  // title formatters and the 4.4 timestamp-header keys the dialogs/table
+  // consume in-container.
   const t: PlansLabels = { ...translated, ...labels };
 
-  // ── Task 4.4 boundary — stable placeholder intent handlers ──────────────
-  // These three callbacks are the ONLY touchpoints the table/dialog layer
-  // needs. 4.4 swaps the empty bodies for dialog state (which plan is being
-  // edited / confirmed) + mutation composition; the useQuery above and the
-  // render tree below stay exactly as landed in 4.3.
+  // ── Dialog + toast state (Task 4.4) ─────────────────────────────────────
+  const [formDialog, setFormDialog] = useState<PlanFormDialogState>(CLOSED_FORM_DIALOG);
+  const [statusPlan, setStatusPlan] = useState<AdminPlansQuery_adminPlans | null>(null);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [statusDialogNonce, setStatusDialogNonce] = useState(0);
+  const [snackbar, setSnackbar] = useState<CatalogSnackbar | null>(null);
+  // Monotonic ids — dialog remount nonces reset in-dialog form state WITHOUT
+  // setState-in-effect (React remounts on `key` change); toast ids make
+  // re-opened toasts restart the autohide timer (audit-R4 lesson).
+  const nextDialogNonceRef = useRef(0);
+  const nextToastIdRef = useRef(0);
 
-  /** Create CTA (page header + empty state). 4.4: open PlanFormDialog (create mode). */
+  /** Create CTA (page header + empty state) → PlanFormDialog (create mode). */
   const onCreatePlanIntent = useCallback((): void => {
-    // Placeholder — Task 4.4 wires create-dialog state here.
+    setFormDialog({ open: true, mode: "create", plan: null, nonce: ++nextDialogNonceRef.current });
   }, []);
 
-  /** Row edit intent. 4.4: open PlanFormDialog (edit mode) seeded with `plan`. */
-  const onEditPlanIntent = useCallback((_plan: AdminPlansQuery_adminPlans): void => {
-    // Placeholder — Task 4.4 wires edit-dialog state here.
+  /** Row edit intent → PlanFormDialog (edit mode) seeded with `plan`. */
+  const onEditPlanIntent = useCallback((plan: AdminPlansQuery_adminPlans): void => {
+    setFormDialog({ open: true, mode: "edit", plan, nonce: ++nextDialogNonceRef.current });
   }, []);
 
-  /** Row lifecycle intent. 4.4: open PlanStatusConfirmDialog for `plan`. */
-  const onTogglePlanStatusIntent = useCallback((_plan: AdminPlansQuery_adminPlans): void => {
-    // Placeholder — Task 4.4 wires confirm-dialog state here.
+  /** Row lifecycle intent → PlanStatusConfirmDialog for `plan`. */
+  const onTogglePlanStatusIntent = useCallback((plan: AdminPlansQuery_adminPlans): void => {
+    setStatusPlan(plan);
+    setStatusDialogOpen(true);
+    setStatusDialogNonce(++nextDialogNonceRef.current);
   }, []);
+
+  const closeFormDialog = useCallback((): void => {
+    setFormDialog(CLOSED_FORM_DIALOG);
+  }, []);
+
+  const closeStatusDialog = useCallback((): void => {
+    setStatusDialogOpen(false);
+  }, []);
+
+  /** Create/edit success: close + localized toast (cache already converged). */
+  const handlePlanSaved = (saved: AdminPlansQuery_adminPlans): void => {
+    setFormDialog(CLOSED_FORM_DIALOG);
+    const copy = formDialog.mode === "create" ? t.toastCreated(saved.title) : t.toastUpdated(saved.title);
+    setSnackbar({ id: ++nextToastIdRef.current, copy });
+  };
+
+  /** Status success: close + localized toast driven by the row's NEW state. */
+  const handleStatusChanged = (updated: AdminPlansQuery_adminPlans): void => {
+    setStatusDialogOpen(false);
+    const copy = updated.isActive ? t.toastActivated(updated.title) : t.toastDeactivated(updated.title);
+    setSnackbar({ id: ++nextToastIdRef.current, copy });
+  };
+
+  const dismissSnackbar = (_event: Event | React.SyntheticEvent, reason: SnackbarCloseReason): void => {
+    if (reason === "clickaway") return;
+    setSnackbar(null);
+  };
 
   // Error FIRST: a settled failure arrives as (loading=false, data=undefined,
   // error set) — checking `!data` before `error` would strand the failure on
   // the skeleton branch forever.
+  let surface: ReactNode;
   if (error) {
-    return <PlanCatalogErrorState t={t} onRetry={() => void refetch()} />;
-  }
-
-  // In flight (or the narrow data-or-error guard Apollo settles with):
-  // skeleton rows announce busy semantics — no settled copy may leak.
-  if (loading || !data) {
-    return <PlanCatalogSkeleton loadingLabel={t.loading} />;
-  }
-
-  const plans = data.adminPlans;
-
-  if (plans.length === 0) {
-    return <PlanCatalogEmptyState t={t} onCreate={onCreatePlanIntent} />;
+    surface = <PlanCatalogErrorState t={t} onRetry={() => void refetch()} />;
+  } else if (loading || !data) {
+    // In flight (or the narrow data-or-error guard Apollo settles with):
+    // skeleton rows announce busy semantics — no settled copy may leak.
+    surface = <PlanCatalogSkeleton loadingLabel={t.loading} />;
+  } else {
+    const plans = data.adminPlans;
+    surface =
+      plans.length === 0 ? (
+        <PlanCatalogEmptyState t={t} onCreate={onCreatePlanIntent} />
+      ) : (
+        <Stack spacing={2}>
+          {/* Page-header action — localized create CTA (opens PlanFormDialog). */}
+          <Box sx={{ display: "flex" }}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={onCreatePlanIntent}>
+              {t.createButton}
+            </Button>
+          </Box>
+          <PlanCatalogTable
+            plans={plans}
+            labels={t}
+            locale={locale}
+            onEditPlan={onEditPlanIntent}
+            onTogglePlanStatus={onTogglePlanStatusIntent}
+          />
+        </Stack>
+      );
   }
 
   return (
-    <Stack spacing={2}>
-      {/* Page-header action — localized create CTA (dialog lands in 4.4). */}
-      <Box sx={{ display: "flex" }}>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={onCreatePlanIntent}>
-          {t.createButton}
-        </Button>
-      </Box>
-      <PlanCatalogTable
-        plans={plans}
+    <>
+      {surface}
+      {/* Dialogs + success toast mount in EVERY state — the empty-state create
+          CTA and the table row actions share the same wiring. */}
+      <PlanFormDialog
+        key={formDialog.nonce}
+        open={formDialog.open}
+        plan={formDialog.plan}
         labels={t}
-        locale={locale}
-        onEditPlan={onEditPlanIntent}
-        onTogglePlanStatus={onTogglePlanStatusIntent}
+        onClose={closeFormDialog}
+        onSaved={handlePlanSaved}
       />
-    </Stack>
+      <PlanStatusConfirmDialog
+        key={statusDialogNonce}
+        open={statusDialogOpen}
+        plan={statusPlan}
+        labels={t}
+        onClose={closeStatusDialog}
+        onStatusChanged={handleStatusChanged}
+      />
+      <Snackbar
+        key={snackbar?.id}
+        open={snackbar !== null}
+        autoHideDuration={6000}
+        onClose={dismissSnackbar}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity="success"
+          variant="filled"
+          data-testid="plan-catalog-toast"
+          sx={theme => ({ borderRadius: 2, boxShadow: theme.palette.shadow.card })}
+        >
+          {snackbar?.copy}
+        </Alert>
+      </Snackbar>
+    </>
   );
 }
 
@@ -196,7 +295,7 @@ interface EmptyStateProps {
 
 /**
  * Empty catalog — localized copy + icon + create CTA (the same intent
- * handler the page-header button uses; 4.4 opens the create dialog).
+ * handler the page-header button uses; opens the create dialog).
  */
 function PlanCatalogEmptyState({ t, onCreate }: Readonly<EmptyStateProps>): ReactNode {
   return (

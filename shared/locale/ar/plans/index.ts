@@ -9,6 +9,8 @@ export const plansAr: PlansLabels = {
   columnPrice: "السعر",
   columnIntervalDays: "فترة التجديد",
   columnStatus: "الحالة",
+  columnDeactivatedAt: "تاريخ الإيقاف",
+  columnCreatedAt: "تاريخ الإنشاء",
   columnActions: "الإجراءات",
   actionEdit: "تعديل",
   actionActivate: "تنشيط",

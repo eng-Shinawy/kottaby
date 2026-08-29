@@ -9,6 +9,8 @@ export const plansEn: PlansLabels = {
   columnPrice: "Price",
   columnIntervalDays: "Interval",
   columnStatus: "Status",
+  columnDeactivatedAt: "Deactivated at",
+  columnCreatedAt: "Created at",
   columnActions: "Actions",
   actionEdit: "Edit",
   actionActivate: "Activate",
