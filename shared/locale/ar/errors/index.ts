@@ -39,6 +39,8 @@ export const errorsAr: ErrorsLabels = {
   // Subscription payment-verification domain errors (DEV1-006 Phase B).
   subscriptionNotFound: "طلب الاشتراك المطلوب غير موجود.",
   subscriptionAlreadyResolved: "تمت معالجة طلب الاشتراك هذا بالفعل.",
+  // Admin subscription-lifecycle filter error (DEV1-009).
+  subscriptionStatusInvalid: "حالة الاشتراك المحددة للتصفية غير معروفة.",
   paymentMethodInvalid: "طريقة الدفع المختارة غير مدعومة.",
   paymentReferenceInvalid: "يرجى إدخال مرجع الدفع (من ١ إلى ٢٥٥ حرفاً).",
   // Audit-trail domain errors (DEV3-020 Phase 1).

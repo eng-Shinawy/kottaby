@@ -21,6 +21,27 @@ type AdminAuditLogConnection {
   total: Int!
 }
 
+type AdminSubscription {
+  createdAt: DateTime!
+  endDate: DateTime
+  id: ID!
+  paymentMethod: String
+  paymentReference: String
+  paymentVerifiedAt: DateTime
+  plan: Plan!
+  startDate: DateTime
+  status: String!
+  updatedAt: DateTime!
+  user: AdminSubscriptionUser!
+}
+
+type AdminSubscriptionConnection {
+  items: [AdminSubscription!]!
+  limit: Int!
+  offset: Int!
+  total: Int!
+}
+
 type AdminSubscriptionRequest {
   createdAt: DateTime!
   id: ID!
@@ -97,6 +118,7 @@ type LogoutPayload {
 }
 
 type Mutation {
+  adminCancelSubscription(subscriptionId: ID!): AdminSubscription!
   createPlan(input: CreatePlanInput!): Plan!
 
   """
@@ -138,6 +160,7 @@ type Query {
   adminAuditLogs(actionType: String, actorId: Int, createdFrom: DateTime, createdTo: DateTime, entityId: Int, entityType: String, limit: Int, offset: Int): AdminAuditLogConnection!
   adminPendingSubscriptionRequests: [AdminSubscriptionRequest!]!
   adminPlans(includeInactive: Boolean = true): [Plan!]!
+  adminSubscriptions(limit: Int, offset: Int, status: String): AdminSubscriptionConnection!
 
   """
   Returns the authenticated user (or null for anonymous). Anonymous callers receive null — the AuthProvider uses this to detect expired access tokens and silently restore the session via `refreshToken`.

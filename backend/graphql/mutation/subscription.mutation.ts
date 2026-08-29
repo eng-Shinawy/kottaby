@@ -4,6 +4,10 @@
  *    action, offline-payment groundwork.
  *  - `verifySubscriptionPayment` (Phase B): the admin payment-verification
  *    transition (`pending → active` + offline-payment columns stamped).
+ * DEV1-009:
+ *  - `adminCancelSubscription`: the admin cancel transition
+ *    (`active|pending → cancelled`, terminal states fence, in-transaction
+ *    audit row) — returns the `AdminSubscription` lifecycle object.
  *
  * Contract (both fields):
  *  - Role-gated via the EXPLICIT `$all` conjunction `authScopes: { $all:
@@ -38,6 +42,13 @@
  *    arrives as a plain `String` and is narrowed service-side to the
  *    offline set (localized validation error on anything else);
  *    `paymentReference` is trimmed and length-checked service-side.
+ *  - `adminCancelSubscription` (DEV1-009) returns the
+ *    `AdminSubscriptionPothosObject` — the cancelled row with its plan AND
+ *    the narrow purchaser summary embedded. Only `active`/`pending` rows
+ *    are cancellable: expired/cancelled/suspended are terminal and reject
+ *    with the localized already-resolved conflict; a lost guarded-write
+ *    race resolves to the same conflict (exactly one transition wins).
+ *    Cancelling refunds/credits NOTHING (DEV1-007 owns balances).
  *
  * Per `backend/graphql/mutation/AGENTS.md`:
  *  - NO named exports — the root fields register at import time via
@@ -46,6 +57,7 @@
  */
 
 import { UserRole } from "@/backend/enum/users/user-role.enum";
+import { AdminSubscriptionPothosObject } from "@/backend/graphql/pothos/billing/admin-subscription.pothos";
 import { SubscriptionPothosObject } from "@/backend/graphql/pothos/billing/subscription.pothos";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { UnauthorizedError } from "@/backend/lib/errors";
@@ -121,6 +133,39 @@ gqlSchemaBuilder.mutationField("verifySubscriptionPayment", t =>
           paymentReference: args.paymentReference,
           verifiedBy: ctx.user.id,
         },
+        ctx.locale
+      );
+    },
+  })
+);
+
+// Side-effect: register the `adminCancelSubscription` mutation field
+// (DEV1-009 — the admin cancel transition: active|pending → cancelled).
+gqlSchemaBuilder.mutationField("adminCancelSubscription", t =>
+  t.field({
+    type: AdminSubscriptionPothosObject,
+    args: {
+      subscriptionId: t.arg.id({ required: true }),
+    },
+    // Explicit `$all` conjunction — admins only (see the file header).
+    authScopes: {
+      $all: {
+        authenticated: true,
+        role: ADMIN_ROLE,
+      },
+    },
+    resolve: async (_root, args, ctx) => {
+      // TS narrowing only — unreachable behind `$all { authenticated: true }`.
+      if (!ctx.user) {
+        throw new UnauthorizedError("Authentication required.");
+      }
+      // `ID` arrives as a string — the service validates positive-integer
+      // semantics and fences terminal states + lost races with the
+      // localized already-resolved conflict. The canceller's identity is
+      // the VERIFIED session context (audit seam only — it can never ride
+      // a caller-supplied argument).
+      return SubscriptionService.cancelSubscription(
+        { subscriptionId: Number(args.subscriptionId), cancelledBy: ctx.user.id },
         ctx.locale
       );
     },

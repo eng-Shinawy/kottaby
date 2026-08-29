@@ -1,16 +1,18 @@
 /**
  * SubscriptionRepository — data-access layer for the `subscriptions` table
  * (DEV1-006 Phase A: the subscription-request groundwork; Phase B: the
- * admin payment-verification transition).
+ * admin payment-verification transition; DEV1-009: the admin lifecycle
+ * surface — the filtered all-statuses list + the cancel transition).
  *
  * A subscription row is created PENDING by construction: `status` rides the
  * schema default (`subscription_status` = 'pending'), `start_date` /
  * `end_date` / `payment_*` columns stay NULL until the payment-confirmation
  * stage activates the subscription. DEV1-006 Phase B owns the FIRST
  * transition: `verifyAndActivatePending` — the guarded `pending → active`
- * write that stamps the offline-payment columns (decision B.9). Cancellation,
- * expiry, and admin rejection land with later phases (the guarded-predicate
- * discipline established here is their template).
+ * write that stamps the offline-payment columns (decision B.9). DEV1-009
+ * owns the SECOND admin transition: `cancelById` — the guarded
+ * `active|pending → cancelled` write whose predicate leaves
+ * expired/cancelled/suspended rows (terminal states) permanently unmatched.
  *
  * Conventions per `backend/db/repo/AGENTS.md`:
  *  - Writes are single statements (INSERT … RETURNING) — no read-then-write.
@@ -25,7 +27,7 @@
  *    purchase-time re-validation closes INV-PC1 against a deactivate racing
  *    a checkout; the row lock serializes the two).
  */
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, type SQL } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
@@ -87,6 +89,20 @@ LIMIT 1`;
  * records ONLY these two until an online-gateway phase widens it.
  */
 export type OfflineVerificationPaymentMethod = "offline_cash" | "bank_transfer";
+
+/**
+ * Every filter the admin subscription-lifecycle list can express (DEV1-009).
+ * `status` is optional — when omitted the read spans ALL statuses; when
+ * present it MUST already be a sanctioned `subscription_status` value (the
+ * service narrows the wire-level string BEFORE this layer sees it).
+ */
+export interface AdminSubscriptionListFilters {
+  readonly status?: SubscriptionSelectType["status"];
+  /** Page size (the service clamps and validates; the repo does not). */
+  readonly limit: number;
+  /** Zero-based row offset. */
+  readonly offset: number;
+}
 
 /** Guarded-activation write shape for {@link verifyAndActivatePending}. */
 export interface VerifyAndActivateInput {
@@ -238,6 +254,80 @@ export namespace SubscriptionRepository {
   }
 
   /**
+   * Builds the WHERE predicate shared by the admin page read and the count
+   * read (DEV1-009) — one composition, two consumers, so the page and its
+   * total can never disagree about what is being counted.
+   */
+  function buildAdminListPredicate(filters: AdminSubscriptionListFilters): SQL | undefined {
+    const predicates: SQL[] = [];
+    if (filters.status !== undefined) {
+      predicates.push(eq(subscriptions.status, filters.status));
+    }
+    return predicates.length > 0 ? and(...predicates) : undefined;
+  }
+
+  /**
+   * The ADMIN lifecycle-list page read (DEV1-009): every subscription —
+   * ALL statuses unless a `status` filter narrows the read — joined with
+   * its plan row AND a narrow purchaser summary (id / fullName / email —
+   * never the full `users` row), newest first (`created_at DESC`, `id DESC`
+   * as the deterministic same-millisecond tiebreak — identity
+   * monotonicity).
+   *
+   * The plan join is a PLAIN read with NO active predicate (same posture as
+   * the verification queue: an admin audits real lifecycle rows, including
+   * ones whose plan was deactivated after the request — REQ-017).
+   *
+   * Drizzle join for BOTH paths (same ruling as
+   * `listPendingForVerification` — the nested projection is not expressible
+   * through the raw `queryDb` aliasing pattern without a fragile flat-alias
+   * mapping).
+   *
+   * @returns One page of subscriptions with `plan` + `user` embedded,
+   *          newest first.
+   */
+  export async function listForAdmin(
+    filters: AdminSubscriptionListFilters,
+    tx?: DBTransaction
+  ): Promise<SubscriptionWithPlanAndUserRow[]> {
+    const rows = await (tx ?? db)
+      .select({
+        subscription: subscriptions,
+        plan: plans,
+        userId: users.id,
+        userFullName: users.fullName,
+        userEmail: users.email,
+      })
+      .from(subscriptions)
+      .innerJoin(plans, eq(subscriptions.planId, plans.id))
+      .innerJoin(users, eq(subscriptions.userId, users.id))
+      .where(buildAdminListPredicate(filters))
+      .orderBy(desc(subscriptions.createdAt), desc(subscriptions.id))
+      .limit(filters.limit)
+      .offset(filters.offset);
+    return rows.map(row => ({
+      ...row.subscription,
+      plan: row.plan,
+      user: { id: row.userId, fullName: row.userFullName, email: row.userEmail } satisfies SubscriptionUserSummary,
+    }));
+  }
+
+  /**
+   * The total count for the SAME admin-list predicate `listForAdmin` used —
+   * the connection envelope's `total` comes from here, never from
+   * `rows.length` (the page is bounded by `limit`).
+   *
+   * @returns The total number of rows matching the predicate.
+   */
+  export async function countForAdmin(filters: AdminSubscriptionListFilters, tx?: DBTransaction): Promise<number> {
+    const rows = await (tx ?? db)
+      .select({ total: count() })
+      .from(subscriptions)
+      .where(buildAdminListPredicate(filters));
+    return rows[0]?.total ?? 0;
+  }
+
+  /**
    * Existence + status probe for the verification flow: resolves the
    * not-found vs already-resolved ambiguity BEFORE the guarded write (the
    * write's zero-row outcome alone cannot distinguish the two).
@@ -292,6 +382,32 @@ export namespace SubscriptionRepository {
         paymentVerifiedAt: input.verifiedAt,
       })
       .where(and(eq(subscriptions.id, input.subscriptionId), eq(subscriptions.status, "pending")))
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  /**
+   * The admin cancellation transition as ONE guarded statement (DEV1-009 —
+   * the guarded-write twin of {@link verifyAndActivatePending}): flips
+   * `active|pending → cancelled` ONLY while the row is still in a
+   * cancellable state. A cancel racing another admin's cancel (or the
+   * verification transition) serializes on this predicate — exactly one
+   * caller's UPDATE matches; expired/cancelled/suspended rows never match
+   * (terminal states, so a cancel can never resurrect or double-fire).
+   *
+   * No read-then-write: the status probe lives in the service; this method
+   * is the single conditional write whose zero-row outcome the service
+   * re-probes. `updatedAt` auto-stamps via the column's drizzle `$onUpdate`.
+   *
+   * @returns The cancelled row, or `null` when the guarded predicate
+   *          matched nothing (id missing or status already terminal —
+   *          callers disambiguate via {@link findStatusById}).
+   */
+  export async function cancelById(subscriptionId: number, tx?: DBTransaction): Promise<SubscriptionSelectType | null> {
+    const rows = await (tx ?? db)
+      .update(subscriptions)
+      .set({ status: "cancelled" })
+      .where(and(eq(subscriptions.id, subscriptionId), inArray(subscriptions.status, ["active", "pending"])))
       .returning();
     return rows[0] ?? null;
   }

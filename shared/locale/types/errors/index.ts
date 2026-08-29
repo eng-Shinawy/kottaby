@@ -95,6 +95,13 @@ export interface ErrorsLabels {
    */
   readonly subscriptionAlreadyResolved: string;
   /**
+   * "Unknown subscription status filter." — the admin lifecycle-list
+   * viewer's status filter (DEV1-009) narrowed to nothing in the sanctioned
+   * `subscription_status` set (a typo must reject loudly, never silently
+   * return an empty page).
+   */
+  readonly subscriptionStatusInvalid: string;
+  /**
    * "The selected payment method is not supported." — the method is outside
    * the offline verification set (offline_cash / bank_transfer).
    */

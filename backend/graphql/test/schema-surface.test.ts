@@ -85,18 +85,20 @@ const PRE_3_1_TYPE_NAMES = [
 // tuple is the EXACT, CLOSED set of names its plan was authorized to add —
 // anything else on top of `PRE_3_1_* + POST_BASELINE_*` is a regression.
 
-/** Query root fields: the `_health` probe (DEV1-001), the DEV2-004 applicant profile read, the DEV1-005 catalog reads, the DEV1-006 Phase A owner-scoped subscription read, the DEV1-006 Phase B admin verification-queue read, the DEV3-020 Phase 1 admin audit-trail read. */
+/** Query root fields: the `_health` probe (DEV1-001), the DEV2-004 applicant profile read, the DEV1-005 catalog reads, the DEV1-006 Phase A owner-scoped subscription read, the DEV1-006 Phase B admin verification-queue read, the DEV3-020 Phase 1 admin audit-trail read, the DEV1-009 admin lifecycle-list read. */
 const POST_BASELINE_QUERY_ADDITIONS = [
   "_health",
   "adminAuditLogs",
   "adminPendingSubscriptionRequests",
   "adminPlans",
+  "adminSubscriptions",
   "myApplicantProfile",
   "mySubscriptions",
   "planCatalog",
 ] as const;
-/** Mutation root fields: the DEV1-005 admin plan-catalog trio (admin-gated; NO delete surface — INV-PC3), the DEV1-006 Phase A subscriber request (subscriber-gated, D2-enforced), and the DEV1-006 Phase B admin verification (admin-gated, guarded transition). */
+/** Mutation root fields: the DEV1-005 admin plan-catalog trio (admin-gated; NO delete surface — INV-PC3), the DEV1-006 Phase A subscriber request (subscriber-gated, D2-enforced), the DEV1-006 Phase B admin verification (admin-gated, guarded transition), and the DEV1-009 admin cancel (admin-gated, guarded transition). */
 const POST_BASELINE_MUTATION_ADDITIONS = [
+  "adminCancelSubscription",
   "createPlan",
   "requestPlanSubscription",
   "setPlanActiveStatus",
@@ -105,15 +107,17 @@ const POST_BASELINE_MUTATION_ADDITIONS = [
 ] as const;
 /** Enum types: the DEV2-004 applicant status enum. */
 const POST_BASELINE_ENUM_ADDITIONS = ["ApplicantStatus"] as const;
-/** Non-root SDL type names: the DEV2-004 applicant surface, the DEV1-005 billing surface, the DEV1-006 subscription surface, the DEV3-020 Phase 1 audit surface, and the probe's `HealthCheck` VO. */
+/** Non-root SDL type names: the DEV2-004 applicant surface, the DEV1-005 billing surface, the DEV1-006 subscription surface, the DEV3-020 Phase 1 audit surface, the DEV1-009 admin lifecycle surface, and the probe's `HealthCheck` VO. Order is the runtime's `localeCompare` collation (Admin* sorts before Applicant*) — must match `sdlTypeNames()` verbatim. */
 const POST_BASELINE_TYPE_ADDITIONS = [
-  "ApplicantProfile",
-  "ApplicantStatus",
   "AdminAuditActor",
   "AdminAuditLog",
   "AdminAuditLogConnection",
+  "AdminSubscription",
+  "AdminSubscriptionConnection",
   "AdminSubscriptionRequest",
   "AdminSubscriptionUser",
+  "ApplicantProfile",
+  "ApplicantStatus",
   "CreatePlanInput",
   "DateTime",
   "HealthCheck",

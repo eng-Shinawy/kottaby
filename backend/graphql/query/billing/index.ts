@@ -11,6 +11,12 @@
  *  - `plan-catalog.query.ts` registers `planCatalog` and `adminPlans`
  *    (and transitively registers the canonical `Plan` object type through
  *    its `PlanPothosObject` import).
+ *  - `subscription.query.ts` registers `mySubscriptions` and
+ *    `adminPendingSubscriptionRequests` (DEV1-006).
+ *  - `admin-subscription.query.ts` registers `adminSubscriptions`
+ *    (DEV1-009 — the admin lifecycle list; transitively registers the
+ *    `AdminSubscription` / `AdminSubscriptionConnection` object types).
  */
+import "./admin-subscription.query";
 import "./plan-catalog.query";
 import "./subscription.query";

@@ -12,5 +12,6 @@
  * (e.g. `PlanPothosObject`) directly from their owning modules.
  */
 import "./admin-subscription-request.pothos";
+import "./admin-subscription.pothos";
 import "./plan.pothos";
 import "./subscription.pothos";

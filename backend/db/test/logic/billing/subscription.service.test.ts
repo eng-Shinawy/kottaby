@@ -30,11 +30,24 @@
  *    is never retro-invalidated).
  *  - Tier 4 (i18n): rejections switch between "en" and "ar" literals for
  *    every new code (PLAN_INACTIVE / SUBSCRIPTION_REQUEST_EXISTS).
+ *
+ * DEV1-006 Phase B — the admin payment-verification transition: guarded
+ * pending→active with payment stamps, queue read, race/idempotency
+ * rejects, REQ-017 deactivation survival, in-tx audit row.
+ *
+ * DEV1-009 — the admin lifecycle surface: `listAllSubscriptionsForAdmin`
+ * (newest-first ordering across ALL statuses, status filter, pagination
+ * slicing, invalid-filter i18n rejects, limit clamping, filtered total)
+ * and `cancelSubscription` (active|pending → cancelled happy paths,
+ * terminal-state + idempotency fences, not-found/validation rejects,
+ * suspend-family audit row) + the repo-level guarded-write twin
+ * (`cancelById` returns null on terminal rows).
  */
 
 import { describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
+import { SubscriptionRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
@@ -535,6 +548,302 @@ describe("SubscriptionService", () => {
           )
         );
         expect(alreadyResolved.message).toBe(arErrors.subscriptionAlreadyResolved);
+      });
+    });
+  });
+
+  // ── DEV1-009 — the admin lifecycle surface (list + cancel) ───────────────
+  describe("DEV1-009 — listAllSubscriptionsForAdmin", () => {
+    test("returns rows NEWEST-first across all statuses with plan + narrow purchaser embedded", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx, { fullName: "Lifecycle Buyer" });
+        const planA = await createTestPlan(tx, { title: `Plan A ${randomUUID().slice(0, 8)}` });
+        const planB = await createTestPlan(tx, { title: `Plan B ${randomUUID().slice(0, 8)}` });
+        const planC = await createTestPlan(tx, { title: `Plan C ${randomUUID().slice(0, 8)}` });
+
+        const first = await SubscriptionService.requestPlanSubscription(buyer.id, planA.id, "en", tx);
+        const second = await SubscriptionService.requestPlanSubscription(buyer.id, planB.id, "en", tx);
+        const third = await SubscriptionService.requestPlanSubscription(buyer.id, planC.id, "en", tx);
+
+        const page = await SubscriptionService.listAllSubscriptionsForAdmin({ limit: 10, offset: 0 }, "en", tx);
+
+        expect(page.total).toBe(3);
+        expect(page.limit).toBe(10);
+        expect(page.offset).toBe(0);
+        // Newest first — identity-monotonic tiebreak on same-millisecond rows.
+        expect(page.items.map(row => row.id)).toEqual([third.id, second.id, first.id]);
+        // Plan + narrow purchaser summary embedded and correctly joined.
+        expect(page.items[0]?.plan.id).toBe(planC.id);
+        expect(page.items[0]?.user.id).toBe(buyer.id);
+        expect(page.items[0]?.user.fullName).toBe(buyer.fullName);
+        expect(page.items[0]?.user.email).toBe(buyer.email);
+      });
+    });
+
+    test("status filter EXCLUDES other statuses in both items and total", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const planA = await createTestPlan(tx);
+        const planB = await createTestPlan(tx);
+
+        const pendingRow = await SubscriptionService.requestPlanSubscription(buyer.id, planA.id, "en", tx);
+        const activeRow = await SubscriptionService.requestPlanSubscription(buyer.id, planB.id, "en", tx);
+        await SubscriptionService.verifySubscriptionPayment(
+          {
+            subscriptionId: activeRow.id,
+            paymentMethod: "offline_cash",
+            paymentReference: "RCPT-FILTER",
+            verifiedBy: buyer.id,
+          },
+          "en",
+          tx
+        );
+
+        const activePage = await SubscriptionService.listAllSubscriptionsForAdmin(
+          { status: "active", limit: 10, offset: 0 },
+          "en",
+          tx
+        );
+        expect(activePage.total).toBe(1);
+        expect(activePage.items.map(row => row.id)).toEqual([activeRow.id]);
+        expect(activePage.items[0]?.status).toBe("active");
+
+        const pendingPage = await SubscriptionService.listAllSubscriptionsForAdmin(
+          { status: "pending", limit: 10, offset: 0 },
+          "en",
+          tx
+        );
+        expect(pendingPage.total).toBe(1);
+        expect(pendingPage.items.map(row => row.id)).toEqual([pendingRow.id]);
+        expect(pendingPage.items[0]?.status).toBe("pending");
+      });
+    });
+
+    test("pagination: limit+offset slice the newest-first ordering without dropping the total", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const planA = await createTestPlan(tx);
+        const planB = await createTestPlan(tx);
+        const planC = await createTestPlan(tx);
+
+        const first = await SubscriptionService.requestPlanSubscription(buyer.id, planA.id, "en", tx);
+        const second = await SubscriptionService.requestPlanSubscription(buyer.id, planB.id, "en", tx);
+        const third = await SubscriptionService.requestPlanSubscription(buyer.id, planC.id, "en", tx);
+
+        const firstPage = await SubscriptionService.listAllSubscriptionsForAdmin({ limit: 2, offset: 0 }, "en", tx);
+        expect(firstPage.items.map(row => row.id)).toEqual([third.id, second.id]);
+        expect(firstPage.total).toBe(3);
+
+        const secondPage = await SubscriptionService.listAllSubscriptionsForAdmin({ limit: 2, offset: 2 }, "en", tx);
+        expect(secondPage.items.map(row => row.id)).toEqual([first.id]);
+        expect(secondPage.total).toBe(3);
+        expect(secondPage.offset).toBe(2);
+      });
+    });
+
+    test("an UNKNOWN status filter rejects with the localized ValidationError — ar AND en literals, BEFORE any read", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const plan = await createTestPlan(tx);
+        await SubscriptionService.requestPlanSubscription(buyer.id, plan.id, "en", tx);
+        const domainSpy = spyOn(logger, "logDomainError");
+
+        const enError = await expectRepoError(() =>
+          SubscriptionService.listAllSubscriptionsForAdmin({ status: "archived", limit: 10, offset: 0 }, "en", tx)
+        );
+        expect(enError).toBeInstanceOf(ValidationError);
+        expect(enError.message).toBe(enErrors.subscriptionStatusInvalid);
+
+        const arError = await expectRepoError(() =>
+          SubscriptionService.listAllSubscriptionsForAdmin({ status: "PENDING", limit: 10, offset: 0 }, "ar", tx)
+        );
+        expect(arError).toBeInstanceOf(ValidationError);
+        expect(arError.message).toBe(arErrors.subscriptionStatusInvalid);
+
+        expect(domainSpy.mock.calls.some(call => String(call[1]?.code) === "SUBSCRIPTION_STATUS_INVALID")).toBe(true);
+        domainSpy.mockRestore();
+      });
+    });
+
+    test("limit clamps to the 1..100 band: 1000 → 100, 0 → 1 (default stays 50)", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const plan = await createTestPlan(tx);
+        await SubscriptionService.requestPlanSubscription(buyer.id, plan.id, "en", tx);
+
+        const ceiling = await SubscriptionService.listAllSubscriptionsForAdmin({ limit: 1000, offset: 0 }, "en", tx);
+        expect(ceiling.limit).toBe(100);
+
+        const floor = await SubscriptionService.listAllSubscriptionsForAdmin({ limit: 0, offset: 0 }, "en", tx);
+        expect(floor.limit).toBe(1);
+
+        const omitted = await SubscriptionService.listAllSubscriptionsForAdmin({}, "en", tx);
+        expect(omitted.limit).toBe(50);
+      });
+    });
+  });
+
+  describe("DEV1-009 — cancelSubscription", () => {
+    test("happy path on an ACTIVE subscription: flips to cancelled with plan + purchaser embedded and payment stamps preserved", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const admin = await createTestUser(tx, { role: "admin" });
+        const plan = await createTestPlan(tx);
+        const request = await SubscriptionService.requestPlanSubscription(buyer.id, plan.id, "en", tx);
+        await SubscriptionService.verifySubscriptionPayment(
+          {
+            subscriptionId: request.id,
+            paymentMethod: "offline_cash",
+            paymentReference: "RCPT-CANCEL-1",
+            verifiedBy: admin.id,
+          },
+          "en",
+          tx
+        );
+
+        const cancelled = await SubscriptionService.cancelSubscription(
+          { subscriptionId: request.id, cancelledBy: admin.id },
+          "en",
+          tx
+        );
+
+        expect(cancelled.status).toBe("cancelled");
+        expect(cancelled.id).toBe(request.id);
+        // Plan embedded (plain read — active predicate deliberately absent).
+        expect(cancelled.plan.id).toBe(plan.id);
+        // Narrow purchaser summary embedded.
+        expect(cancelled.user.id).toBe(buyer.id);
+        expect(cancelled.user.fullName).toBe(buyer.fullName);
+        expect(cancelled.user.email).toBe(buyer.email);
+        // Cancellation does NOT rewrite history: the verification stamps
+        // survive untouched (and nothing was refunded/credited — DEV1-007).
+        expect(cancelled.paymentMethod).toBe("offline_cash");
+        expect(cancelled.paymentReference).toBe("RCPT-CANCEL-1");
+        expect(cancelled.paymentVerifiedAt).not.toBeNull();
+      });
+    });
+
+    test("a PENDING subscription cancels symmetrically (dates/payment stay NULL)", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const plan = await createTestPlan(tx);
+        const request = await SubscriptionService.requestPlanSubscription(buyer.id, plan.id, "en", tx);
+
+        const cancelled = await SubscriptionService.cancelSubscription(
+          { subscriptionId: request.id, cancelledBy: 1 },
+          "en",
+          tx
+        );
+
+        expect(cancelled.status).toBe("cancelled");
+        expect(cancelled.startDate).toBeNull();
+        expect(cancelled.paymentMethod).toBeNull();
+        expect(cancelled.paymentReference).toBeNull();
+        expect(cancelled.plan.id).toBe(plan.id);
+      });
+    });
+
+    test("terminal states reject with SUBSCRIPTION_ALREADY_RESOLVED: expired (en) and suspended (ar) literals", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const planA = await createTestPlan(tx);
+        const planB = await createTestPlan(tx);
+        const expiredRow = await SubscriptionService.requestPlanSubscription(buyer.id, planA.id, "en", tx);
+        const suspendedRow = await SubscriptionService.requestPlanSubscription(buyer.id, planB.id, "en", tx);
+        await tx.update(subscriptions).set({ status: "expired" }).where(eq(subscriptions.id, expiredRow.id));
+        await tx.update(subscriptions).set({ status: "suspended" }).where(eq(subscriptions.id, suspendedRow.id));
+
+        const expiredError = await expectRepoError(() =>
+          SubscriptionService.cancelSubscription({ subscriptionId: expiredRow.id, cancelledBy: 1 }, "en", tx)
+        );
+        expect(expiredError).toBeInstanceOf(ConflictError);
+        expect(expiredError.message).toBe(enErrors.subscriptionAlreadyResolved);
+
+        const suspendedError = await expectRepoError(() =>
+          SubscriptionService.cancelSubscription({ subscriptionId: suspendedRow.id, cancelledBy: 1 }, "ar", tx)
+        );
+        expect(suspendedError).toBeInstanceOf(ConflictError);
+        expect(suspendedError.message).toBe(arErrors.subscriptionAlreadyResolved);
+      });
+    });
+
+    test("a second cancel of the SAME row rejects with SUBSCRIPTION_ALREADY_RESOLVED (idempotency fence)", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const plan = await createTestPlan(tx);
+        const request = await SubscriptionService.requestPlanSubscription(buyer.id, plan.id, "en", tx);
+        const domainSpy = spyOn(logger, "logDomainError");
+
+        const first = await SubscriptionService.cancelSubscription(
+          { subscriptionId: request.id, cancelledBy: 1 },
+          "en",
+          tx
+        );
+        expect(first.status).toBe("cancelled");
+
+        const error = await expectRepoError(() =>
+          SubscriptionService.cancelSubscription({ subscriptionId: request.id, cancelledBy: 1 }, "en", tx)
+        );
+        expect(error).toBeInstanceOf(ConflictError);
+        expect(error.message).toBe(enErrors.subscriptionAlreadyResolved);
+        expect(domainSpy.mock.calls.some(call => String(call[1]?.code) === "SUBSCRIPTION_ALREADY_RESOLVED")).toBe(true);
+        domainSpy.mockRestore();
+      });
+    });
+
+    test("a MISSING id rejects with SUBSCRIPTION_NOT_FOUND; a non-positive id rejects with the localized ValidationError", async () => {
+      await runInRollback(async tx => {
+        const notFound = await expectRepoError(() =>
+          SubscriptionService.cancelSubscription({ subscriptionId: 999_999_999, cancelledBy: 1 }, "en", tx)
+        );
+        expect(notFound).toBeInstanceOf(ConflictError);
+        expect(notFound.message).toBe(enErrors.subscriptionNotFound);
+
+        const invalid = await expectRepoError(() =>
+          SubscriptionService.cancelSubscription({ subscriptionId: 0, cancelledBy: 1 }, "en", tx)
+        );
+        expect(invalid).toBeInstanceOf(ValidationError);
+        expect(invalid.message).toBe(enErrors.subscriptionNotFound);
+      });
+    });
+
+    test("writes the immutable audit row: action_type 'suspend', SUBSCRIPTION_CANCELLED, attributed to cancelledBy", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const admin = await createTestUser(tx, { role: "admin" });
+        const plan = await createTestPlan(tx);
+        const request = await SubscriptionService.requestPlanSubscription(buyer.id, plan.id, "en", tx);
+
+        await SubscriptionService.cancelSubscription({ subscriptionId: request.id, cancelledBy: admin.id }, "en", tx);
+
+        const auditRows = await tx.select().from(auditLogs).where(eq(auditLogs.actorId, admin.id));
+        expect(auditRows).toHaveLength(1);
+        const auditRow = auditRows[0];
+        expect(auditRow?.actionType).toBe("suspend");
+        expect(auditRow?.entityType).toBe("subscriptions");
+        expect(auditRow?.entityId).toBe(request.id);
+        const parsed: unknown = JSON.parse(auditRow?.details ?? "{}");
+        expect((parsed as { code?: string }).code).toBe("SUBSCRIPTION_CANCELLED");
+        expect((parsed as { planId?: number }).planId).toBe(plan.id);
+        expect((parsed as { cancelledBy?: number }).cancelledBy).toBe(admin.id);
+      });
+    });
+
+    test("repo-level guard: cancelById matches NOTHING on an already-cancelled id (terminal rows never match)", async () => {
+      await runInRollback(async tx => {
+        const buyer = await createTestUser(tx);
+        const plan = await createTestPlan(tx);
+        const request = await SubscriptionService.requestPlanSubscription(buyer.id, plan.id, "en", tx);
+
+        // Positive twin — the guarded write cancels a pending row exactly once.
+        const cancelled = await SubscriptionRepository.cancelById(request.id, tx);
+        expect(cancelled?.status).toBe("cancelled");
+
+        // Terminal rows (cancelled) can never match the guarded predicate —
+        // asserted at the REPOSITORY layer per the CRON-R6 concurrency
+        // lesson (never two service mutations on one outer tx concurrently).
+        const secondAttempt = await SubscriptionRepository.cancelById(request.id, tx);
+        expect(secondAttempt).toBeNull();
       });
     });
   });

@@ -1,7 +1,8 @@
 /**
  * SubscriptionService — business-logic hub for the subscription-request
  * domain (DEV1-006 Phase A: offline-payment groundwork; Phase B: the admin
- * payment-verification transition).
+ * payment-verification transition; DEV1-009: the admin lifecycle surface —
+ * the filtered all-statuses list + the cancel transition).
  *
  * Responsibilities:
  *  1. `requestPlanSubscription` — the purchase entry point. Inside ONE
@@ -25,6 +26,13 @@
  *     derives the validity window from the plan's CURRENT intervalDays.
  *     Balance crediting stays DEV1-007's concern — this touches ONLY the
  *     subscription row.
+ *  5. `listAllSubscriptionsForAdmin` — the ADMIN lifecycle-list read
+ *     (DEV1-009): every subscription in ALL statuses unless a narrowed
+ *     `status` filter says otherwise, newest first, bounded pagination
+ *     (clamped 1..100, offset floor 0 — the audit-trail discipline).
+ *  6. `cancelSubscription` — the admin cancel transition (DEV1-009):
+ *     guarded `active|pending → cancelled` write + in-transaction audit
+ *     row. Expired/cancelled/suspended rows are terminal and reject.
  *
  * Disciplines (mirroring `PlanCatalogService`):
  *  - Validation is pure and precedes any write; ids must be positive
@@ -45,10 +53,17 @@ import { db } from "@/backend/db";
 import { PlanRepository, SubscriptionRepository } from "@/backend/db/repo";
 import type { OfflineVerificationPaymentMethod } from "@/backend/db/repo/billing/subscription.repository";
 import { plans } from "@/backend/db/schema/billing/plans";
+import { users } from "@/backend/db/schema/users/users";
 import { ConflictError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { AuditLogService } from "@/backend/services/audit/audit-log.service";
-import type { DBTransaction, PlanReturnType, SubscriptionReturnType, SubscriptionUserSummary } from "@/backend/types";
+import type {
+  AuditLogSelectType,
+  DBTransaction,
+  PlanReturnType,
+  SubscriptionReturnType,
+  SubscriptionUserSummary,
+} from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /** Localized error-translation slice consumed by this service. */
@@ -60,12 +75,38 @@ export type SubscriptionWithPlan = SubscriptionReturnType & { plan: PlanReturnTy
 /**
  * The admin verification-queue projection: subscription row + plan row +
  * the narrow purchaser summary. Backs the `AdminSubscriptionRequest`
- * GraphQL object (DEV1-006 Phase B).
+ * GraphQL object (DEV1-006 Phase B) AND the `AdminSubscription` lifecycle
+ * object (DEV1-009 — same projection, wider status span).
  */
 export type SubscriptionWithPlanAndUser = SubscriptionReturnType & {
   plan: PlanReturnType;
   user: SubscriptionUserSummary;
 };
+
+/**
+ * The sanctioned `subscription_status` values (mirrors the pgEnum in
+ * `backend/db/schema/enums.ts` — the DB owns the constraint; this set owns
+ * the wire-level filter narrowing for the admin lifecycle list, DEV1-009).
+ */
+export const SUBSCRIPTION_STATUSES = ["active", "pending", "expired", "cancelled", "suspended"] as const;
+
+/** The page-size ceiling for the admin lifecycle-list read (DEV1-009). */
+export const ADMIN_SUBSCRIPTIONS_MAX_LIMIT = 100;
+
+/** The default page size when the caller omits one (DEV1-009). */
+export const ADMIN_SUBSCRIPTIONS_DEFAULT_LIMIT = 50;
+
+/**
+ * The paginated admin lifecycle page + grand total behind the DEV1-009
+ * viewer: items newest first, the total matching the SAME filter predicate,
+ * and the clamped limit/offset that shaped the page.
+ */
+export interface AdminSubscriptionsPage {
+  readonly items: SubscriptionWithPlanAndUser[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
 
 /**
  * The ONLY payment methods the admin verification stage records (decision
@@ -100,10 +141,15 @@ function logSubscriptionRejection(
  * DEV3-020 Phase 1 semantics: when `actorId` is provided the transition is
  * recorded in the immutable audit trail INSIDE the caller's transaction
  * (fail-closed — the action and its audit row commit or roll back together;
- * currently only the payment-verification transition carries an acting
- * admin). Actorless transitions (the subscriber's own request) keep the
- * structured logger marker alone — they are user acts, not admin actions,
- * and audit rows require a real actor.
+ * currently only the payment-verification and cancellation transitions
+ * carry an acting admin). Actorless transitions (the subscriber's own
+ * request) keep the structured logger marker alone — they are user acts,
+ * not admin actions, and audit rows require a real actor.
+ *
+ * `actionType` defaults to `"update"` (the generic administrative edit); a
+ * caller may narrow it to a more specific `audit_action_type` verb —
+ * DEV1-009's cancellation passes `"suspend"` (cancellation lands in the
+ * suspend family of the audit viewer's chip taxonomy).
  *
  * `extras` carries transition-specific id references only (no field values,
  * no messages).
@@ -114,7 +160,8 @@ async function emitSubscriptionAuditSeam(
   planId: number,
   tx: DBTransaction,
   actorId?: number,
-  extras: Record<string, string | number> = {}
+  extras: Record<string, string | number> = {},
+  actionType: AuditLogSelectType["actionType"] = "update"
 ): Promise<void> {
   if (actorId === undefined) {
     logger.info(`Subscription transition: ${code}`, { code, entityId: subscriptionId, planId, ...extras });
@@ -123,7 +170,7 @@ async function emitSubscriptionAuditSeam(
   await AuditLogService.recordAdminAction(
     {
       actorId,
-      actionType: "update",
+      actionType,
       entityType: "subscriptions",
       entityId: subscriptionId,
       actionCode: code,
@@ -507,6 +554,209 @@ export namespace SubscriptionService {
         }
       );
       return { ...activated, plan };
+    });
+  }
+
+  /**
+   * The ADMIN lifecycle list (DEV1-009): every subscription across ALL
+   * statuses — unless a narrowed `status` filter says otherwise — newest
+   * first (`created_at DESC, id DESC`), each carrying its plan row AND the
+   * narrow purchaser summary, with a bounded pagination envelope.
+   *
+   * Guard order:
+   *  1. the `status` filter is narrowed against `SUBSCRIPTION_STATUSES` via
+   *     `find` BEFORE any read opens — anything else rejects with the
+   *     localized invalid-status validation copy (a typo must surface as a
+   *     loud rejection, never as a silently empty page);
+   *  2. the pagination envelope is clamped — `limit` to 1..100 (default 50
+   *     when omitted, the audit-trail discipline), `offset` floored at 0 —
+   *     so a caller cannot request an unbounded page;
+   *  3. the page read and the count read run against the SAME repository
+   *     predicate (one composition, two consumers — the page and its total
+   *     can never disagree).
+   *
+   * @param filters  `status` (raw wire string, narrowed here), `limit`,
+   *     `offset` (clamped here).
+   * @param tx  Optional transaction — propagated verbatim (test path).
+   * @returns One page of subscriptions with `plan` + `user` embedded plus
+   *     the total matching the SAME predicate.
+   * @throws ValidationError when the `status` filter is outside the
+   *     sanctioned `subscription_status` set.
+   */
+  export async function listAllSubscriptionsForAdmin(
+    filters: { status?: string; limit?: number; offset?: number },
+    locale: string,
+    tx?: DBTransaction
+  ): Promise<AdminSubscriptionsPage> {
+    const t = getServerTranslations(locale).errorsTranslations;
+
+    // `find` narrows the matched element to the typed array's element union
+    // — a plain `includes` check would leave the filter as `string`. The
+    // rejection precedes EVERY read (pure validation first).
+    let statusFilter: (typeof SUBSCRIPTION_STATUSES)[number] | undefined;
+    if (filters.status !== undefined) {
+      const match = SUBSCRIPTION_STATUSES.find(candidate => candidate === filters.status);
+      if (!match) {
+        logSubscriptionRejection(
+          "SUBSCRIPTION_STATUS_INVALID",
+          "Admin subscription list rejected: unknown status filter",
+          {}
+        );
+        throw new ValidationError(t.subscriptionStatusInvalid);
+      }
+      statusFilter = match;
+    }
+
+    // `??` (not the audit suite's `||` idiom) so an EXPLICIT zero clamps to
+    // the 1 floor instead of silently falling back to the default page size;
+    // non-finite shapes (NaN) fall back to the default like the audit read.
+    const rawLimit = filters.limit ?? ADMIN_SUBSCRIPTIONS_DEFAULT_LIMIT;
+    const limit = Math.min(
+      Math.max(Math.trunc(Number.isFinite(rawLimit) ? rawLimit : ADMIN_SUBSCRIPTIONS_DEFAULT_LIMIT), 1),
+      ADMIN_SUBSCRIPTIONS_MAX_LIMIT
+    );
+    const rawOffset = filters.offset ?? 0;
+    const offset = Math.max(Math.trunc(Number.isFinite(rawOffset) ? rawOffset : 0), 0);
+
+    const [items, total] = await Promise.all([
+      SubscriptionRepository.listForAdmin({ status: statusFilter, limit, offset }, tx),
+      SubscriptionRepository.countForAdmin({ status: statusFilter, limit, offset }, tx),
+    ]);
+    return { items, total, limit, offset };
+  }
+
+  /**
+   * Cancels a subscription (DEV1-009 — the admin cancel transition). Only
+   * `active` and `pending` rows are cancellable; `expired`, `cancelled`,
+   * and `suspended` are TERMINAL states and reject with the localized
+   * already-resolved conflict (a cancel can never resurrect or double-fire).
+   *
+   * Guard order (all inside ONE transaction):
+   *  1. pure validation BEFORE the transaction opens — positive-integer
+   *     subscription id;
+   *  2. existence + status probe — a missing id rejects with
+   *     `SUBSCRIPTION_NOT_FOUND`; a row outside the cancellable set rejects
+   *     with `SUBSCRIPTION_ALREADY_RESOLVED` (the idempotency fence);
+   *  3. the plan row is read PLAINLY (no active predicate — REQ-017
+   *     posture, read AFTER the status probe exactly like
+   *     `verifySubscriptionPayment`): cancelling a subscription whose plan
+   *     was deactivated afterwards stays a legitimate administrative act;
+   *  4. the guarded write (`cancelById`) flips `active|pending → cancelled`
+   *     in ONE conditional statement; a zero-row outcome (a concurrent
+   *     verification or cancellation won the predicate between the probe
+   *     and the write) re-probes and rejects with
+   *     `SUBSCRIPTION_ALREADY_RESOLVED` — exactly one transition ever wins,
+   *     mirroring the verification race handling verbatim;
+   *  5. the narrow purchaser summary is read (3 columns — never the full
+   *     `users` row) to compose the canonical wire shape.
+   *
+   * Audit: one immutable `suspend`-family row (`SUBSCRIPTION_CANCELLED`,
+   * extras `{ cancelledBy }`) rides the SAME transaction (fail-closed —
+   * DEV3-020).
+   *
+   * Balance/credit semantics: cancelling does NOT refund, credit, or adjust
+   * anything — DEV1-007 owns `students.balance_*`; this transition touches
+   * ONLY the subscription row (plus its audit twin).
+   *
+   * @param input  `subscriptionId` and `cancelledBy` (the cancelling
+   *     session's admin id — rides into the immutable audit row).
+   * @param outerTx  Optional outer transaction — when provided (test path),
+   *     the flow runs inside a SAVEPOINT on it; otherwise a top-level
+   *     transaction opens.
+   * @returns The cancelled subscription row with its plan row AND the
+   *     narrow purchaser summary embedded (the canonical `AdminSubscription`
+   *     wire shape).
+   * @throws ValidationError when the id is not a positive integer or the
+   *     plan reference is dangling (defensive — FK restrict makes it
+   *     unreachable in practice).
+   * @throws ConflictError with code `SUBSCRIPTION_NOT_FOUND` when the id
+   *     references no row.
+   * @throws ConflictError with code `SUBSCRIPTION_ALREADY_RESOLVED` when
+   *     the row is expired/cancelled/suspended (terminal) or lost a
+   *     concurrent-transition race.
+   */
+  export async function cancelSubscription(
+    input: { subscriptionId: number; cancelledBy: number },
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<SubscriptionWithPlanAndUser> {
+    const t = getServerTranslations(locale).errorsTranslations;
+    const validatedSubscriptionId = parseSubscriptionId(input.subscriptionId, t);
+
+    return withTransaction(outerTx, async tx => {
+      const existing = await SubscriptionRepository.findStatusById(validatedSubscriptionId, tx);
+      if (!existing) {
+        logSubscriptionRejection("SUBSCRIPTION_NOT_FOUND", "Cancellation rejected: subscription id references no row", {
+          subscriptionId: validatedSubscriptionId,
+        });
+        throw new ConflictError("SUBSCRIPTION_NOT_FOUND", t.subscriptionNotFound);
+      }
+      if (existing.status !== "active" && existing.status !== "pending") {
+        logSubscriptionRejection(
+          "SUBSCRIPTION_ALREADY_RESOLVED",
+          "Cancellation rejected: subscription is no longer active or pending",
+          { subscriptionId: validatedSubscriptionId }
+        );
+        throw new ConflictError("SUBSCRIPTION_ALREADY_RESOLVED", t.subscriptionAlreadyResolved);
+      }
+
+      // Plain plan read (NO active predicate — REQ-017 posture documented
+      // above). FK restrict makes a dangling planId unreachable; the check
+      // stays defensive and fails loudly, never silently reshapes.
+      const planRows = await tx.select().from(plans).where(eq(plans.id, existing.planId)).limit(1);
+      const plan = planRows[0];
+      if (!plan) {
+        logger.error("Cancellation hit a dangling plan reference (FK restrict violation?)", {
+          subscriptionId: validatedSubscriptionId,
+          planId: existing.planId,
+        });
+        throw new ValidationError(`Subscription ${validatedSubscriptionId} references a missing plan.`);
+      }
+
+      const cancelled = await SubscriptionRepository.cancelById(validatedSubscriptionId, tx);
+      if (!cancelled) {
+        // The guarded predicate matched nothing AFTER a successful probe:
+        // a concurrent verification (or cancellation) won the row between
+        // the probe and the write. Re-probe to disambiguate — the row
+        // cannot have vanished (restrict-delete), so this resolves to
+        // already-resolved.
+        logSubscriptionRejection(
+          "SUBSCRIPTION_ALREADY_RESOLVED",
+          "Cancellation lost a race: subscription was resolved concurrently",
+          { subscriptionId: validatedSubscriptionId }
+        );
+        throw new ConflictError("SUBSCRIPTION_ALREADY_RESOLVED", t.subscriptionAlreadyResolved);
+      }
+
+      // Narrow purchaser summary for the wire shape (id / fullName / email
+      // — never the full `users` row). FK restrict makes a dangling userId
+      // unreachable; the check stays defensive and fails loudly.
+      const userRows = await tx
+        .select({ id: users.id, fullName: users.fullName, email: users.email })
+        .from(users)
+        .where(eq(users.id, cancelled.userId))
+        .limit(1);
+      const user = userRows[0];
+      if (!user) {
+        logger.error("Cancellation hit a dangling user reference (FK restrict violation?)", {
+          subscriptionId: validatedSubscriptionId,
+          userId: cancelled.userId,
+        });
+        throw new ValidationError(`Subscription ${validatedSubscriptionId} references a missing user.`);
+      }
+
+      // Cancellation lands in the suspend family of the audit viewer's
+      // chip taxonomy — the actionType parameter narrowed to "suspend".
+      await emitSubscriptionAuditSeam(
+        "SUBSCRIPTION_CANCELLED",
+        cancelled.id,
+        cancelled.planId,
+        tx,
+        input.cancelledBy,
+        { cancelledBy: input.cancelledBy },
+        "suspend"
+      );
+      return { ...cancelled, plan, user };
     });
   }
 }

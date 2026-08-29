@@ -39,6 +39,8 @@ export const errorsEn: ErrorsLabels = {
   // Subscription payment-verification domain errors (DEV1-006 Phase B).
   subscriptionNotFound: "The requested subscription request was not found.",
   subscriptionAlreadyResolved: "This subscription request has already been resolved.",
+  // Admin subscription-lifecycle filter error (DEV1-009).
+  subscriptionStatusInvalid: "Unknown subscription status filter.",
   paymentMethodInvalid: "The selected payment method is not supported.",
   paymentReferenceInvalid: "Please enter the payment reference (1-255 characters).",
   // Audit-trail domain errors (DEV3-020 Phase 1).

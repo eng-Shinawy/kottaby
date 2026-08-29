@@ -350,7 +350,7 @@ describe("SEC — root-field authScopes audit (runtime config, not SDL)", () => 
     }
   });
 
-  test("mutation root set is EXACTLY baseline + the three plan mutations + the subscription request", () => {
+  test("mutation root set is EXACTLY baseline + the three plan mutations + the subscription family", () => {
     const names = Object.keys(graphQLSchema.getMutationType()?.getFields() ?? {}).toSorted((a, b) =>
       a.localeCompare(b)
     );
@@ -365,6 +365,8 @@ describe("SEC — root-field authScopes audit (runtime config, not SDL)", () => 
         "requestPlanSubscription",
         // DEV1-006 Phase B — the admin payment-verification transition.
         "verifySubscriptionPayment",
+        // DEV1-009 — the admin cancel transition.
+        "adminCancelSubscription",
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -381,5 +383,10 @@ describe("SEC — root-field authScopes audit (runtime config, not SDL)", () => 
 
   test("adminAuditLogs carries the EXPLICIT admin $all conjunction (DEV3-020 Phase 1)", () => {
     expect(authScopesOf("query", "adminAuditLogs")).toEqual(ADMIN_GATE);
+  });
+
+  test("adminSubscriptions + adminCancelSubscription carry the EXPLICIT admin $all conjunction (DEV1-009)", () => {
+    expect(authScopesOf("query", "adminSubscriptions")).toEqual(ADMIN_GATE);
+    expect(authScopesOf("mutation", "adminCancelSubscription")).toEqual(ADMIN_GATE);
   });
 });
