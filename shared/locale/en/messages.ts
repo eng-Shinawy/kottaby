@@ -1,3 +1,4 @@
+import { adminBroadcastsEn } from "@/shared/locale/en/adminBroadcasts";
 import { adminUsersEn } from "@/shared/locale/en/adminUsers";
 import { applicantEn } from "@/shared/locale/en/applicant";
 import { authEn } from "@/shared/locale/en/auth";
@@ -25,6 +26,7 @@ export const enMessages: Translations = {
   sessionsTranslations: sessionsEn,
   walletTranslations: walletEn,
   adminUsersTranslations: adminUsersEn,
+  adminBroadcastsTranslations: adminBroadcastsEn,
   notificationsTranslations: notificationsEn,
   handshakeCodeTranslations: handshakeCodeEn,
 };

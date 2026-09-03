@@ -279,12 +279,27 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
 
 /**
  * The exhaustive live root-mutation inventory (ground truth at lock time,
- * derived from the committed SDL `frontend/graphql/generated/schema.graphql`):
- * the auth quartet + the notification read-latch pair + users-locale +
- * plan-catalog CRUD + the DEV3-016 admin trio + the 7-mutation session family
- * + the wallet payout.
+ * derived from the committed SDL `frontend/graphql/generated/schema.graphql`).
+ *
+ * Updated when DEV3-016 (Admin User CRUD) landed the three admin mutations
+ * `adminCreateUser`, `adminUpdateUser`, `adminSetUserDeleted` — they are
+ * warning-incapable (return the canonical `AdminUserDetail` payload, never
+ * a partial-success wrapper), so they do not exercise Rules #6/#7. They
+ * still belong on this drift-guard list because the contract is "every
+ * deployed Mutation root field is enumerated" — otherwise any new
+ * mutation ships without an explicit decision about warning propagation.
+ *
+ * Refreshed for the sanctioned additions: notification read-latch pair
+ * (DEV3-010) + users-locale (D2) + billing plan-catalog CRUD (upstream #28)
+ * + `adminBroadcastNotification` (the DEV3-022d admin broadcast surface —
+ * returns the persisted-recipient `Int!` count, never a partial-success
+ * wrapper, so it is warning-incapable like the admin user mutations; it is
+ * admin-scoped via its own auth-scopes conjunction and is NOT on the public
+ * allowlist) + the 7-mutation DEV3-004/005/012 session family + the
+ * DEV3-013 wallet payout (same warning-incapable canonical-payload shapes).
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
+  "adminBroadcastNotification",
   "adminCreateUser",
   "adminSetUserDeleted",
   "adminUpdateUser",

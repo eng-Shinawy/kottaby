@@ -470,4 +470,82 @@ export interface AdminUsersLabels {
     /** Page-size selector label. */
     readonly pageSize: string;
   };
+
+  /**
+   * Audit-trail read surface — the full admin audit-log view over the
+   * immutable `audit_logs` record (page chrome, filter bar, table headers,
+   * details expansion, empty/error states).
+   *
+   * Action chip values are rendered through the REUSED `activity.action*`
+   * vocabulary above — this block intentionally carries NO per-action labels
+   * (single action vocabulary across the admin users domain).
+   */
+  readonly auditTrail: {
+    /** Page heading shown in the page header band. */
+    readonly pageTitle: string;
+    /** Subtitle line under the page heading. */
+    readonly pageSubtitle: string;
+
+    /** Filter bar control labels for the audit-trail query. */
+    readonly filters: {
+      /** Label for the acting-admin id filter input. */
+      readonly actorIdLabel: string;
+      /** Label for the entity-type filter select. */
+      readonly entityTypeLabel: string;
+      /** Label for the entity-id filter input. */
+      readonly entityIdLabel: string;
+      /** Label for the action-type filter select. */
+      readonly actionTypeLabel: string;
+      /** Label for the inclusive range-start date input. */
+      readonly fromDateLabel: string;
+      /** Label for the inclusive range-end date input. */
+      readonly toDateLabel: string;
+      /** Apply-filters button label. */
+      readonly applyAction: string;
+      /** Clear-filters button label — restores the unfiltered trail. */
+      readonly clearAction: string;
+    };
+
+    /** Table column headers and details-expansion affordances. */
+    readonly table: {
+      /** Header cell for the recorded-at timestamp column. */
+      readonly whenHeader: string;
+      /** Header cell for the acting-admin column. */
+      readonly actorHeader: string;
+      /** Header cell for the action column (chip rendered from `activity.action*`). */
+      readonly actionHeader: string;
+      /** Header cell for the entity-type column. */
+      readonly entityTypeHeader: string;
+      /** Header cell for the entity-id column. */
+      readonly entityIdHeader: string;
+      /** Header cell for the raw-details column. */
+      readonly detailsHeader: string;
+      /** Expand control label for the raw-JSON details cell. */
+      readonly detailsShowLabel: string;
+      /** Collapse control label for the expanded details cell. */
+      readonly detailsHideLabel: string;
+      /** Null placeholder shown when an entry carries no details payload. */
+      readonly noDetailsValue: string;
+      /** Null placeholder shown when an entry has no entity id. */
+      readonly noEntityIdValue: string;
+      /** Select-option label for the unfiltered (every-action) action-type entry. */
+      readonly allActionsOption: string;
+    };
+
+    /** Empty-state copy rendered when no audit entries match the filters. */
+    readonly emptyState: {
+      /** Empty-state heading line. */
+      readonly title: string;
+      /** Empty-state body line explaining why no rows are visible. */
+      readonly message: string;
+    };
+
+    /** Error-state copy rendered when the audit-trail query fails. */
+    readonly errorState: {
+      /** Error-state heading line. */
+      readonly title: string;
+      /** Error-state body line explaining the failure. */
+      readonly message: string;
+    };
+  };
 }

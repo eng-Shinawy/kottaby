@@ -107,6 +107,9 @@ Current embedded types:
 - `NotificationListPage` (fields: `hasMore`, `items`, `totalCount`) — no `id`;
   notifications-inbox pagination wrapper (dev3-010 Task 3.1). The normalizable
   entities are the `Notification` rows inside `items` (each carries `id`).
+- `AdminAuditLogPage` (fields: `items`, `page`, `pageSize`, `totalCount`) — no
+  `id`; admin audit-trail pagination wrapper. The normalizable entities are
+  the `AdminAuditLogEntry` rows inside `items` (each carries `id`).
 
 If you add a new GraphQL type without an `id` field, add it to `typePolicies`
 in `apolloCache.ts` with `keyFields: false` and list it here.

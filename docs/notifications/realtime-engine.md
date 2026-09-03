@@ -104,7 +104,7 @@ Emitters that do NOT own a transaction call `emitForUser(input, locale)` (or `em
 | DEV1-016 / DEV1-017 | Session completion → parent (INV-P3's emitters) + parent portal consumption | `emitForUser(s)` inside the session-completion tx + `publishReceipts` |
 | DEV2-016 / DEV2-017 | `evaluation_result` | `emitForUser` per teacher/applicant |
 | DEV3-012 / DEV3-013 | `session_cancellation` / `payment_confirmation` | Same receipt composition as above |
-| DEV3-022d | `system_broadcast` admin surface | `emitForUsers` bulk primitive; cohort resolution is the admin mutation's concern (REQ-027 BFLA containment — the engine provides NO role/all-user resolution queries) |
+| DEV3-022d | `system_broadcast` admin surface — **SHIPPED** (canonical reference: `docs/notifications/broadcast-notifications.md`) | `emitForUsers` bulk primitive; cohort resolution is the admin mutation's concern (REQ-027 BFLA containment — the engine provides NO role/all-user resolution queries) |
 
 Binding rules for all of them: **import the engine's emit contracts — never write `notifications` rows directly** (REQ-010 single-writer; static scans pin that emit primitives appear in zero resolver files); **honor the publish-after-commit composition** (REQ-012) whenever the emitter carries its own transaction; keyless emits are the emitter's dedupe obligation.
 

@@ -120,6 +120,7 @@ export function NotificationRow({
             variant="subtitle1"
             component="h2"
             noWrap
+            dir="auto"
             sx={theme => ({
               fontWeight: unread ? 700 : 500,
               color: theme.palette.text.primary,
@@ -130,7 +131,11 @@ export function NotificationRow({
           </Typography>
         </Stack>
         {notification.body !== null ? (
-          <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary, lineHeight: 1.5 })}>
+          <Typography
+            variant="body2"
+            dir="auto"
+            sx={theme => ({ color: theme.palette.text.secondary, lineHeight: 1.5 })}
+          >
             {notification.body}
           </Typography>
         ) : null}

@@ -12,7 +12,7 @@ backend/db/repo/
 ├── AGENTS.md            (this file)
 │
 ├── shared/              cross-cutting infra: cache, ratelimit, session, signedUrl, soft-delete, system-settings
-├── audit/               audit trail
+├── audit/               audit-trail (read-only over audit_logs)
 ├── auth/                impersonation (auth-related)
 ├── users/               user
 ├── permissions/         permission-management
@@ -38,6 +38,7 @@ Each sub-directory (except `scheduling/` and `utils/` which pre-date this refact
 - **Prepared Statements (CRITICAL)**: Simple read-only repository methods that execute on TCP mode may use Drizzle Prepared Statements 2.0 (`sql.placeholder(...)`) defined at module level. Module-level prepared statements MUST be removed if replaced by `queryDb(tx)` on non-tx read branches. See `docs/drizzle/prepared-statements.md` for the complete pattern reference.
 - **`inArray` + Prepared Statements PROHIBITED**: Queries using `inArray(column, sql.placeholder("ids"))` MUST NOT use prepared statements. PostgreSQL's prepared statement protocol treats `$1` as a single scalar — it cannot expand array parameters for `IN` clauses. Use dynamic queries (`db.select()...where(inArray(col, ids))`) instead. This is a PostgreSQL protocol limitation, not a Drizzle bug.
 - **Handshake-code lookups**: `StudentRepository.findDiscoveryByHandshakeCode` (`backend/db/repo/students/student.repository.ts`) uses a single parameterized equality predicate on `students.handshake_code` (never LIKE/ILIKE or `sql` interpolation) and returns a fixed column list; the non-tx branch runs through `queryDb(tx)` (Neon HTTP), so module-level prepared statements do not apply. See `docs/parents/handshake-code-discovery.md`.
+- **Audit trail is a READ-ONLY repo**: `AuditTrailRepository` (`backend/db/repo/audit/audit-trail.repository.ts`) exposes list + count only over the append-only `audit_logs` table — never add write methods to it (UPDATE/DELETE are trigger-blocked at the DB layer; the single writer remains `AuditService.createAuditLog`). See `docs/admin/audit-trail.md`.
 - **Batch Lookup Methods for DataLoader**: Repositories that support GraphQL DataLoader batching MUST expose batch lookup methods (e.g., `findByUserIds(userIds: string[], tx?)`) returning `Map<string, T | null>`. Use `inArray(column, ids)` with a plain array (NOT `sql.placeholder`). Pre-initialize the map with all requested keys mapped to `null`, then fill in matches from query results. See `docs/graphql/dataloader-batching.md`.
 - **Query Guidelines**: When `findMany` with complex relations creates `SQL<unknown>` errors or TypeScript property missing errors, revert to standard `.select().from().leftJoin()` or manual ID-based mapping. This is the required pattern for this environment to avoid type resolution issues.
 - **Separation of Concerns**: Repositories are strictly for data access. Business logic, permission checking, and complex orchestration must reside in the `backend/services/` layer.
@@ -115,3 +116,6 @@ Schema tables sharing identical column configurations (timestamps, slugs, active
 
 - See `docs/quality/linting-rules.md` for Oxlint & ESLint/sonarjs fix recipes. NEVER use `oxlint-disable` comments.
 
+## Broadcast Audience Resolution (`broadcast-audience.repository.ts`)
+
+Cohort resolution for admin broadcasts: both tx and raw-SQL branches must stay semantically identical; exact-match (parameterized `eq`/`$1`) for country — never LIKE; the plan cohort applies `SELECT DISTINCT … ORDER BY id ASC` where the subscriptions join fans out; the governance predicate (deleted/blocked excluded, suspended INCLUDED) is invariant-pinned — do not "fix" it. Reference: `docs/notifications/broadcast-notifications.md` §2.

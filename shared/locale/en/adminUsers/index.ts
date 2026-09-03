@@ -230,4 +230,40 @@ export const adminUsersEn: AdminUsersLabels = {
     previous: "Previous",
     pageSize: "Rows per page",
   },
+  auditTrail: {
+    pageTitle: "Audit trail",
+    pageSubtitle: "Immutable record of every administrative action across the platform.",
+    filters: {
+      actorIdLabel: "Actor ID",
+      entityTypeLabel: "Entity type",
+      entityIdLabel: "Entity ID",
+      actionTypeLabel: "Action type",
+      fromDateLabel: "From date",
+      toDateLabel: "To date",
+      applyAction: "Apply",
+      clearAction: "Clear",
+    },
+    table: {
+      whenHeader: "When",
+      actorHeader: "Actor",
+      actionHeader: "Action",
+      entityTypeHeader: "Entity type",
+      entityIdHeader: "Entity ID",
+      detailsHeader: "Details",
+      detailsShowLabel: "Show details",
+      detailsHideLabel: "Hide details",
+      noDetailsValue: "—",
+      noEntityIdValue: "—",
+      allActionsOption: "All actions",
+    },
+    emptyState: {
+      title: "No audit entries",
+      message:
+        "No administrative actions match the current filters. Adjust or clear the filters to see the full trail.",
+    },
+    errorState: {
+      title: "Could not load the audit trail",
+      message: "Something went wrong while fetching the audit trail. Try again.",
+    },
+  },
 };

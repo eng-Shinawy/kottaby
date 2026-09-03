@@ -12,12 +12,13 @@ export function FooterLinksSection(): ReactNode {
 
   return (
     <Stack
-      direction={{ xs: "row", sm: "column", md: "row" }}
+      direction="row"
       spacing={{ xs: 5, sm: 3, md: 6 }}
       sx={{
         flex: { md: "1 1 60%" },
         flexWrap: "wrap",
-        justifyContent: { xs: "flex-start", sm: "flex-end", md: "space-between" },
+        rowGap: { xs: 4, sm: 3 },
+        justifyContent: { xs: "flex-start", sm: "space-between", md: "space-between" },
       }}
     >
       <FooterColumn title={t.footerProduct}>

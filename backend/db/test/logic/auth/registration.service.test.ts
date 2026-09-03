@@ -24,14 +24,15 @@
  *  - Password stored hashed.
  *
  * A dedicated "registration contract locks" describe below pins:
- * exact-row-count teacher registration, the applicants-defaults signature,
- * forced child-insert rollback residual proof on users AND applicants, and
- * duplicate-email race convergence + ConflictError mapping (idempotency).
+ * exact-row teacher registration (identity-scoped), the applicants-defaults
+ * signature, forced child-insert rollback residual proof (identity-scoped —
+ * global count assertions would race with other files' committed-fixture
+ * teardown under the parallel test runners), and duplicate-email race
+ * convergence + ConflictError mapping (idempotency).
  */
 
 import { describe, expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
-import type { PgTable } from "drizzle-orm/pg-core";
 import { parents } from "@/backend/db/schema/parents/parents";
 import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
@@ -99,10 +100,19 @@ function makeValidInput(overrides: Partial<RegistrationSubmitInput> = {}): Regis
 
 const LOCALE = "en";
 
-/** Counts rows in a Drizzle table within the supplied transaction. */
-async function countRows(tx: DBTransaction, table: PgTable): Promise<number> {
-  const result = await tx.select({ count: sql<number>`count(*)::int` }).from(table);
-  return result[0]?.count ?? 0;
+/**
+ * Residual-row proof helper — asserts that NO users row exists for a unique
+ * per-run registration identity.
+ *
+ * Identity-scoped instead of a table-wide count: parallel workers legitimately
+ * commit and tear down shared fixture users concurrently (AGENTS.md Rule 9),
+ * so global `count(*)` before/after windows race with other files' teardown
+ * under `test:db`'s 8-worker pool. The unique randomUUID email namespace
+ * (AGENTS.md Rule 2) makes this check exact regardless of concurrency.
+ */
+async function expectNoResidualUser(tx: DBTransaction, email: string): Promise<void> {
+  const residual = await tx.select().from(users).where(eq(users.email, email));
+  expect(residual).toHaveLength(0);
 }
 
 /**
@@ -208,8 +218,6 @@ describe("RegistrationService.registerUser", () => {
 
   test("teacher: creates users + applicants rows; teacher rowcount delta = 0", async () => {
     await runInRollback(async tx => {
-      const initialTeacherCount = await countRows(tx, teacher);
-
       const input = makeValidInput({ role: "teacher" });
 
       const result = await RegistrationService.registerUser(input, LOCALE, tx);
@@ -223,9 +231,12 @@ describe("RegistrationService.registerUser", () => {
       expect(applicantRow.status).toBe("pending");
       expect(applicantRow.verificationAttempts).toBe(0);
 
-      // Teacher row MUST NOT be created for an applicant.
-      const finalTeacherCount = await countRows(tx, teacher);
-      expect(finalTeacherCount).toBe(initialTeacherCount);
+      // Teacher row MUST NOT be created for an applicant — identity-scoped
+      // (teacher shares the users PK), not a table-wide count: global counts
+      // race with other files' committed-fixture teardown under the parallel
+      // runners (AGENTS.md Rule 9).
+      const teacherRowsForUser = await tx.select().from(teacher).where(eq(teacher.id, result.id));
+      expect(teacherRowsForUser).toHaveLength(0);
     });
   });
 
@@ -434,12 +445,10 @@ describe("RegistrationService.registerUser", () => {
 
   test("atomicity: child-insert failure → zero residual users rows (full rollback)", async () => {
     await runInRollback(async tx => {
-      const initialUserCount = await countRows(tx, users);
-
       // Force a child-insert failure by monkey-patching ApplicantRepository.create
       // to throw. The service runs inside a SAVEPOINT (because `tx` was passed),
       // so the savepoint rolls back without aborting the outer transaction —
-      // the test can still query `countRows(tx, users)` afterwards.
+      // the test can still query `tx` afterwards.
       const applicantModule = await import("@/backend/db/repo/teachers/applicant.repository");
       const originalCreate = applicantModule.ApplicantRepository.create;
       let callCount = 0;
@@ -454,9 +463,9 @@ describe("RegistrationService.registerUser", () => {
         const error = await expectRepoError(() => RegistrationService.registerUser(input, LOCALE, tx));
         expect(error.message).toContain("Forced child-insert failure");
 
-        // The user insert MUST have rolled back — no residual users row.
-        const finalUserCount = await countRows(tx, users);
-        expect(finalUserCount).toBe(initialUserCount);
+        // The user insert MUST have rolled back — no residual users row for
+        // THIS registration identity.
+        await expectNoResidualUser(tx, input.email);
         expect(callCount).toBe(1);
       } finally {
         // Restore the original method.
@@ -540,11 +549,6 @@ describe("registration contract locks", () => {
       " + exactly one applicants row sharing the user PK + teacher rowcount delta = 0",
     async () => {
       await runInRollback(async tx => {
-        // Pre-existing data accounting — never assume empty tables (Rule 12).
-        const initialUsersCount = await countRows(tx, users);
-        const initialApplicantsCount = await countRows(tx, applicants);
-        const initialTeacherCount = await countRows(tx, teacher);
-
         const input = makeValidInput({ role: "teacher" }); // randomized email
 
         const result = await RegistrationService.registerUser(input, LOCALE, tx);
@@ -569,10 +573,15 @@ describe("registration contract locks", () => {
         if (!applicantRow) throw new Error("expected applicants row");
         expect(applicantRow.id).toBe(userRow.id);
 
-        // Table-level deltas captured before/after INSIDE the same transaction.
-        expect(await countRows(tx, users)).toBe(initialUsersCount + 1);
-        expect(await countRows(tx, applicants)).toBe(initialApplicantsCount + 1);
-        expect(await countRows(tx, teacher)).toBe(initialTeacherCount); // delta = 0
+        // Table-level locks, identity-scoped (global counts race with parallel
+        // committed-fixture teardown — AGENTS.md Rule 9 — so scope to this
+        // registration identity instead of the whole table): exactly one users
+        // row (asserted by PK and email above) and exactly one applicants row
+        // sharing the user PK (asserted above) are already pinned; what remains
+        // is the teacher rowcount delta = 0 — teacher registration must NOT
+        // mint a teachers row for this user (teacher shares the users PK).
+        const teacherRowsForUser = await tx.select().from(teacher).where(eq(teacher.id, userRow.id));
+        expect(teacherRowsForUser).toHaveLength(0);
       });
     }
   );
@@ -622,14 +631,11 @@ describe("registration contract locks", () => {
       " → zero residual users AND applicants rows (SAVEPOINT-aware rollback)",
     async () => {
       await runInRollback(async tx => {
-        const initialUsersCount = await countRows(tx, users);
-        const initialApplicantsCount = await countRows(tx, applicants);
+        const input = makeValidInput({ role: "teacher" });
 
         const forcedFailure: { error: Error | null } = { error: null };
         const stubCallCount = await withForcedApplicantCreateFailure(async () => {
-          forcedFailure.error = await expectRepoError(() =>
-            RegistrationService.registerUser(makeValidInput({ role: "teacher" }), LOCALE, tx)
-          );
+          forcedFailure.error = await expectRepoError(() => RegistrationService.registerUser(input, LOCALE, tx));
         });
 
         // The injected failure fired EXACTLY once, at the applicants stage,
@@ -639,12 +645,16 @@ describe("registration contract locks", () => {
         if (!error) throw new Error("expected the forced-failure registration to reject");
         expect(error.message).toContain(FORCED_APPLICANT_FAILURE_MESSAGE);
 
-        // ZERO residual rows in BOTH tables — the savepoint-aware rollback of
-        // the nested transaction erased the users insert that had already been
-        // made before the failed child insert. Also proves the outer tx is
-        // still queryable after the inner rollback.
-        expect(await countRows(tx, users)).toBe(initialUsersCount);
-        expect(await countRows(tx, applicants)).toBe(initialApplicantsCount);
+        // ZERO residual rows for THIS identity — the savepoint-aware rollback
+        // of the nested transaction erased the users insert that had already
+        // been made before the failed child insert. Identity-scoped (unique
+        // per-run email) because global table counts race with parallel
+        // committed-fixture teardown (AGENTS.md Rule 9). This also covers the
+        // applicants side: the applicants row shares the users PK (FK) and the
+        // stub throws BEFORE any insert, so with the users row gone no
+        // applicant row can exist for this identity. The query itself doubles
+        // as proof that the outer tx is still usable after the inner rollback.
+        await expectNoResidualUser(tx, input.email);
       });
     }
   );

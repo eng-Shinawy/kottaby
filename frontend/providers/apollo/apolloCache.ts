@@ -7,9 +7,9 @@ import { InMemoryCache } from "@apollo/client";
  * filter/pagination changes legitimately return different arrays, including empty ones.
  * Without `merge: false`, Apollo warns that cache data may be lost.
  *
- * `OnlineMeetingInfo`, `AdminNoteInfo`, `HealthCheck`, `NotificationListPage`
- * and `HandshakeCodeLookup` are embedded value types with no `id` field (see
- * `frontend/graphql/generated/schema.graphql`).
+ * `OnlineMeetingInfo`, `AdminNoteInfo`, `HealthCheck`, `NotificationListPage`,
+ * `HandshakeCodeLookup` and `AdminAuditLogPage` are embedded value types with
+ * no `id` field (see `frontend/graphql/generated/schema.graphql`).
  * Marking them `keyFields: false` opts them out of normalization so Apollo
  * does not emit "Cache data may be lost" warnings when these types are written
  * to the cache via different parent objects. They are always read back through
@@ -21,6 +21,11 @@ import { InMemoryCache } from "@apollo/client";
  * `items`; `HandshakeCodeLookup` is the masked parent-discovery payload —
  * `maskedName` + `linkable` only — and must NEVER be keyed by
  * identity-derived values).
+ *
+ * `AdminAuditLogPage` is the admin audit-trail pagination wrapper (same
+ * shape discipline as `NotificationListPage`): the normalizable entities are
+ * the `AdminAuditLogEntry` rows inside `items` (each carries `id`), so the
+ * wrapper itself never needs an identity.
  */
 export function createApolloCache(): InMemoryCache {
   return new InMemoryCache({
@@ -51,6 +56,12 @@ export function createApolloCache(): InMemoryCache {
       // cached inline under its parent query field, never normalized into a
       // standalone (identity-derived) cache key.
       HandshakeCodeLookup: {
+        keyFields: false,
+      },
+      // Embedded pagination-wrapper value object (no `id`) for the admin
+      // audit trail — the normalizable entities are the `AdminAuditLogEntry`
+      // rows inside `items`, so the wrapper itself never needs an identity.
+      AdminAuditLogPage: {
         keyFields: false,
       },
       OnlineMeetingInfo: {

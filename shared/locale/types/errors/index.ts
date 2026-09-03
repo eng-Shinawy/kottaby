@@ -97,6 +97,14 @@ export interface ErrorsLabels {
   readonly studentHandshakeNotFound: string;
   /** "The free trial credit has already been granted for this student." — re-grant attempt on a student whose trial_granted_at marker is non-null. */
   readonly trialAlreadyGranted: string;
+  /** "Broadcast title must be between 1 and 255 characters." — compose-copy reject → ValidationError("BROADCAST_TITLE_INVALID"). */
+  readonly broadcastTitleInvalid: string;
+  /** Audience-selector coherence reject → ValidationError("BROADCAST_AUDIENCE_INVALID"): unknown audience kind, missing/extra companion field, or malformed companion value. */
+  readonly broadcastAudienceInvalid: string;
+  /** "No recipients match the selected broadcast audience." — empty-cohort reject → ValidationError("BROADCAST_AUDIENCE_EMPTY"). */
+  readonly broadcastAudienceEmpty: string;
+  /** Oversized-cohort reject → ValidationError("BROADCAST_AUDIENCE_TOO_LARGE"): resolved cohort exceeds the fail-closed recipient cap. */
+  readonly broadcastAudienceTooLarge: string;
   /** "The requested session was not found." — session lookup or ownership miss on any session surface. */
   readonly sessionNotFound: string;
   /** Lifecycle-transition reject — the requested action does not apply to the session's current status. */

@@ -20,7 +20,14 @@ export const createAuthLink = (getToken: () => string | null) => {
   return new ApolloLink((operation, forward) => {
     const token = getToken();
 
+    // Additive merge: caller-supplied context headers (e.g. the compose-page
+    // idempotency key) ride along with the link-owned writers. The context
+    // headers spread FIRST so the fixed keys below always keep the final
+    // word on their own keys; a context without headers contributes nothing
+    // and the outgoing map stays byte-identical to the pre-merge behavior.
+    const contextHeaders = operation.getContext().headers;
     const headers: Record<string, string> = {
+      ...contextHeaders,
       "apollo-require-preflight": "true",
       "x-apollo-operation-name": operation.operationName ?? "",
     };

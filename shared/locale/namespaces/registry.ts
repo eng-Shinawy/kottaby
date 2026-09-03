@@ -4,6 +4,7 @@
  * a pure relative re-export surface (root AGENTS.md barrel conventions:
  * no import statements in `index.ts`).
  */
+import { AdminBroadcasts } from "@/shared/locale/namespaces/adminBroadcasts";
 import { AdminUsers } from "@/shared/locale/namespaces/adminUsers";
 import { Applicant } from "@/shared/locale/namespaces/applicant";
 import { Auth } from "@/shared/locale/namespaces/auth";
@@ -19,6 +20,7 @@ import { Sessions } from "@/shared/locale/namespaces/sessions";
 import { Wallet } from "@/shared/locale/namespaces/wallet";
 
 export const namespaces = {
+  AdminBroadcasts,
   AdminUsers,
   Applicant,
   Auth,

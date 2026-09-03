@@ -12,25 +12,61 @@
  *    and carries NO `id` field (embedded value object — proven both at
  *    the type level and behaviorally: selecting `id` fails validation).
  *  - **Surface freeze** — against the frozen baseline inventory (captured
- *    at HEAD `8e5ebb8`, since refreshed for the sanctioned baseline
- *    additions (DEV2-004 applicant surface, the notifications engine — enum
- *    + inbox queries + read-latch mutations, the users-locale pair, the
- *    DEV1-013 handshake surface, and the DEV1-005/DEV3-016 admin plan-catalog
- *    + user-management surfaces): every post-baseline addition is pinned by
- *    name — the mutation set grows ONLY by the DEV3-004 lifecycle quartet
+ *    at HEAD `8e5ebb8`, since refreshed for the sanctioned `ApplicantProfile`/
+ *    `ApplicantStatus` additions, the notifications additions — enum +
+ *    `Notification` + `NotificationListPage` — and the sanctioned inbox
+ *    query additions — `myNotifications` + `myUnreadNotificationCount` +
+ *    `MyNotificationsFilterInput` — and the sanctioned inbox read-latch
+ *    mutation additions — `markNotificationRead` +
+ *    `markAllNotificationsRead` — and the sanctioned users-locale additions
+ *    (D2 backend vertical) — the `AppLocale` enum + `User.locale` + the
+ *    `updateMyLocale` mutation — and, absorbed additively, the admin
+ *    user-management surface (directory/stats/detail/activity reads + the
+ *    admin CRUD mutation trio + the governance-filter enum) and the global
+ *    admin audit-trail read surface — the `adminAuditLogs` query backed by
+ *    the `AdminAuditLogEntry` object, the `AdminAuditLogPage` embedded
+ *    wrapper, and the `AdminAuditLogFiltersInput` input — with the
+ *    `AuditActionType` enum REUSED from the shared registry, never
+ *    re-registered — and, absorbed additively, the admin broadcast
+ *    surface — the `adminBroadcastNotification` mutation + the
+ *    `BroadcastAudienceType` enum + the `BroadcastAudienceInput` /
+ *    `AdminBroadcastNotificationInput` inputs — and, absorbed additively, the
+ *    DEV3-004/005/012/013 session family — the lifecycle mutation quartet
  *    (`createSession`, `startSession`, `completeSession`, `cancelSession`),
- *    the DEV3-005 dispute pair (`openSessionDispute`, `resolveSessionDispute`),
- *    the DEV3-012 dual-confirmation mutation (`confirmSessionCompletion`) and
- *    the DEV3-013 payout write (`requestWithdrawal`); the query set grows ONLY
- *    by the DEV3-004 participant-read trio (`sessionById`, `myStudentSessions`,
- *    `myTeacherSessions`), the DEV3-005 admin arbitration listing
- *    (`adminDisputedSessions`) and the DEV3-013 wallet read (`myWallet`);
- *    the enum set grows ONLY by the DEV3-004 scheduling trio (`SessionStatus`,
- *    `SessionType`, `SessionIntent`), the DEV3-005 arbitration vocabulary
- *    (`DisputeResolution`) and the DEV3-013 ledger pair (`TransactionType`,
- *    `TransactionStatus`); and the whole-schema named-type delta is exactly
- *    the session objects/inputs + arbitration + ledger enums + wallet
- *    surface on top of the refreshed baseline delta.
+ *    the DEV3-005 dispute pair (`openSessionDispute`,
+ *    `resolveSessionDispute`), the DEV3-012 dual-confirmation mutation
+ *    (`confirmSessionCompletion`), the DEV3-013 payout write
+ *    (`requestWithdrawal`), the participant-read trio (`sessionById`,
+ *    `myStudentSessions`, `myTeacherSessions`) + the DEV3-005 admin
+ *    arbitration listing (`adminDisputedSessions`) + the DEV3-013 wallet
+ *    read (`myWallet`), the scheduling/arbitration/ledger enum vocabulary
+ *    (`SessionStatus`, `SessionType`, `SessionIntent`, `DisputeResolution`,
+ *    `TransactionType`, `TransactionStatus`), and the session/wallet
+ *    objects + inputs): ZERO unsanctioned mutations
+ *    beyond the refreshed
+ *    frozen set, and a whole-schema named-type delta of EXACTLY the
+ *    explicitly enumerated additions while the query set grows only by the
+ *    sanctioned probe re-registration and the absorbed read surfaces.
+ *  - **Notification surface** — the `NotificationType` enum carries exactly
+ *    the 7 canonical values (TS-enum keys as GraphQL names, snake_case
+ *    runtime values), the `Notification` object exposes `id` FIRST with
+ *    EXACTLY the inbox field surface (structurally NO `userId`), and the
+ *    `NotificationListPage` wrapper exposes items/totalCount/hasMore.
+ *  - **Notification query surface** — `myNotifications` +
+ *    `myUnreadNotificationCount` carry EXACTLY the `authenticated` scope,
+ *    return the canonical page/scalar shapes, accept ZERO identity
+ *    arguments anywhere (root args AND filter-input fields), and reject
+ *    anonymous in-process execution with UNAUTHORIZED.
+ *  - **Notification mutation surface** — `markNotificationRead` +
+ *    `markAllNotificationsRead` carry EXACTLY the `authenticated` scope,
+ *    return the canonical row/scalar shapes, accept ZERO identity
+ *    arguments (exactly `id: ID!` / `type: NotificationType`), and reject
+ *    anonymous in-process execution with UNAUTHORIZED.
+ *  - **Users-locale surface (D2)** — `updateMyLocale` carries EXACTLY the
+ *    `authenticated` scope, takes exactly `locale: AppLocale!`, returns
+ *    `User!`, `User.locale` is the nullable `AppLocale` enum, the enum
+ *    carries exactly the 2 canonical values, and anonymous in-process
+ *    execution rejects with UNAUTHORIZED.
  *  - **Allowlist agreement** — the scopeless `_health` field is present in
  *    the closed `PUBLIC_OPERATION_NAMES` tuple / `PUBLIC_OPERATIONS` set
  *    1:1 (schema↔allowlist agreement enforced as code).
@@ -74,7 +110,8 @@ import { PUBLIC_OPERATION_NAMES, PUBLIC_OPERATIONS } from "@/backend/lib/gateway
 
 // ─── Frozen baseline inventory (captured @ HEAD 8e5ebb8; refreshed for the ────
 // ─── sanctioned applicant + notifications + users-locale + DEV1-013 handshake ─
-// ─── + DEV1-005 plan-catalog additions) ──────────────────────────────────────
+// ─── + DEV1-005 plan-catalog additions, with the admin user-management and ────
+// ─── audit-trail surfaces absorbed additively — entries are NEVER dropped) ────
 
 /** Root query field names — the frozen baseline (probe re-registration excluded). */
 const PRE_3_1_QUERY_FIELDS = [
@@ -86,8 +123,12 @@ const PRE_3_1_QUERY_FIELDS = [
   "planCatalog",
   "recitationReadings",
 ] as const;
-/** Root mutation field names — the frozen baseline (auth quartet + notification read-latch pair + users-locale + plan-catalog CRUD). */
+/** Root mutation field names — the frozen baseline (auth quartet + notification read-latch pair + users-locale + plan-catalog CRUD + admin user-management trio + the admin broadcast mutation). */
 const PRE_3_1_MUTATION_FIELDS = [
+  "adminBroadcastNotification",
+  "adminCreateUser",
+  "adminSetUserDeleted",
+  "adminUpdateUser",
   "createPlan",
   "login",
   "logout",
@@ -99,10 +140,13 @@ const PRE_3_1_MUTATION_FIELDS = [
   "updateMyLocale",
   "updatePlan",
 ] as const;
-/** GraphQL enum type names — the freeze forbids any new Pothos enum. */
+/** GraphQL enum type names — the freeze forbids any new Pothos enum; every enum is named explicitly (the governance-filter + audit-action + broadcast-audience enums absorbed additively). */
 const PRE_3_1_ENUMS = [
+  "AdminUserGovernanceFilter",
   "ApplicantStatus",
   "AppLocale",
+  "AuditActionType",
+  "BroadcastAudienceType",
   "Gender",
   "NotificationType",
   "RecitationReading",
@@ -143,11 +187,14 @@ const DEV3_005_SESSION_FIELDS = [
 ] as const;
 /** DEV3-004 scheduling enum trio — registered ONCE in `shared/enum.pothos.ts`. */
 const DEV3_004_ENUMS = ["SessionIntent", "SessionStatus", "SessionType"] as const;
-/** Non-root object/enum/scalar SDL type names in the baseline (introspection `__*` and spec scalars excluded). */
+/** Non-root object/enum/scalar SDL type names in the baseline (introspection `__*` and spec scalars excluded; the admin-broadcast input/enum surfaces absorbed additively). */
 const PRE_3_1_TYPE_NAMES = [
+  "AdminBroadcastNotificationInput",
   "AppLocale",
   "ApplicantProfile",
   "ApplicantStatus",
+  "BroadcastAudienceInput",
+  "BroadcastAudienceType",
   "CreatePlanInput",
   "Gender",
   "LoginPayload",
@@ -220,13 +267,21 @@ describe("Query._health — retyped probe surface", () => {
     for (const name of PRE_3_1_QUERY_FIELDS) {
       expect(fieldNames).toContain(name);
     }
-    // …and the ONLY additions beyond them are the probe, the DEV1-013
-    // student-handshake queries, the DEV3-004 participant-read trio, the
+    // …and the ONLY additions beyond them are the explicitly enumerated
+    // sanctioned surfaces: the probe, the DEV1-013 student-handshake
+    // queries, the admin user-management directory reads, the
+    // `adminAuditLogs` trail read (myApplicantProfile already sits in the
+    // refreshed baseline), the DEV3-004 participant-read trio, the
     // DEV3-005 admin arbitration listing, and the DEV3-013 wallet read.
     const additions = fieldNames.filter(name => !(PRE_3_1_QUERY_FIELDS as readonly string[]).includes(name));
     expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual(
       [
         "_health",
+        "adminAuditLogs",
+        "adminUserActivity",
+        "adminUserDetail",
+        "adminUsers",
+        "adminUserStats",
         "findStudentByHandshakeCode",
         "myHandshakeCode",
         ...DEV3_004_QUERY_FIELDS,
@@ -363,7 +418,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + DEV1-013 handshake surface) + DEV3-004 session objects/inputs + scheduling/arbitration/ledger enums + DEV3-013 wallet surface", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + DEV1-013 handshake surface) + admin-directory/audit-trail/broadcast absorbed surfaces + DEV3-004 session objects/inputs + scheduling/arbitration/ledger enums + DEV3-013 wallet surface", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -372,6 +427,22 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     const additions = sdlTypeNames().filter(name => !(PRE_3_1_TYPE_NAMES as readonly string[]).includes(name));
     expect(additions).toEqual(
       [
+        "AdminAuditLogEntry",
+        "AdminAuditLogFiltersInput",
+        "AdminAuditLogPage",
+        "AdminCreateUserInput",
+        "AdminParentSnapshot",
+        "AdminStudentSnapshot",
+        "AdminTeacherSnapshot",
+        "AdminUpdateUserInput",
+        "AdminUserActivityEntry",
+        "AdminUserDetail",
+        "AdminUserFiltersInput",
+        "AdminUserGovernanceFilter",
+        "AdminUserListItem",
+        "AdminUserPage",
+        "AdminUserStats",
+        "AuditActionType",
         "DateTime",
         "HandshakeCodeLookup",
         "HealthCheck",
@@ -776,6 +847,28 @@ describe("Users-locale surface (D2 backend vertical) — self-scoped locale pref
     expect("role" in scopes).toBe(false);
     expect("permission" in scopes).toBe(false);
     expect("superAdmin" in scopes).toBe(false);
+  });
+
+  test("BroadcastAudienceType enum carries EXACTLY the 4 canonical values (keys on the wire, lowercase runtime values)", () => {
+    const enumType = graphQLSchema.getType("BroadcastAudienceType");
+
+    if (!(enumType instanceof GraphQLEnumType)) {
+      throw new Error("BroadcastAudienceType must be registered as a GraphQL enum type");
+    }
+
+    const values = enumType.getValues();
+    expect(values).toHaveLength(4);
+    // The built schema is lexicographically sorted (enum-value order carries
+    // no GraphQL semantics), so the pins compare as sorted sets:
+    expect(values.map(value => value.name).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      ["All", "Country", "Plan", "Role"].toSorted((a, b) => a.localeCompare(b))
+    );
+    // Runtime values stay the canonical lowercase strings — byte-identical
+    // to the TS enum single source of truth (wire vocabulary is the KEY set;
+    // a rename would move the wire contract and must fail here).
+    expect(values.map(value => value.value).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      ["all", "country", "plan", "role"].toSorted((a, b) => a.localeCompare(b))
+    );
   });
 
   test("AppLocale enum carries EXACTLY the 2 canonical values (keys on the wire, lowercase runtime values)", () => {

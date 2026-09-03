@@ -1,3 +1,4 @@
+import type { AdminBroadcastsLabels } from "@/shared/locale/types/adminBroadcasts";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 import type { ApplicantLabels } from "@/shared/locale/types/applicant";
 import type { AuthLabels } from "@/shared/locale/types/auth";
@@ -24,6 +25,7 @@ export interface Translations {
   sessionsTranslations: SessionsLabels;
   walletTranslations: WalletLabels;
   adminUsersTranslations: AdminUsersLabels;
+  adminBroadcastsTranslations: AdminBroadcastsLabels;
   notificationsTranslations: NotificationsLabels;
   handshakeCodeTranslations: HandshakeCodeLabels;
 }

@@ -179,6 +179,16 @@ v({
   details: "{}",
 } satisfies AuditLogWriteContract);
 
+// Positive — AuditWrite: entity-less broadcasts (no single backing row)
+// write a NULL entityId — the contract admits entities without one.
+v({
+  actorId: 1,
+  actionType: AuditActionType.Create,
+  entityType: "notification_broadcast",
+  entityId: null,
+  details: "{}",
+} satisfies AuditLogWriteContract);
+
 // Positive — ActorContext
 v({ userId: 1, role: UserRole.Admin } satisfies ActorContextRef);
 

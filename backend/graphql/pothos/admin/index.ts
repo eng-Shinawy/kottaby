@@ -7,3 +7,4 @@
  *    that consume them; this barrel exists for ergonomic re-export.
  */
 export * from "./admin-user.pothos";
+export * from "./audit-trail.pothos";

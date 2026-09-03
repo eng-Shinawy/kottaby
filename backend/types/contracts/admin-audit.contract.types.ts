@@ -24,7 +24,13 @@ export interface AuditLogWriteContract {
   readonly actorId: AuditLogSelectType["actorId"];
   readonly actionType: AuditActionType;
   readonly entityType: string;
-  readonly entityId: number;
+  /**
+   * Affected row's id — `null` when the audited action has no single
+   * backing entity (e.g. a cohort broadcast). Rides the schema-derived
+   * column type (`audit_logs.entity_id`, already nullable) so the write
+   * shape can never re-diverge from the physical column.
+   */
+  readonly entityId: AuditLogSelectType["entityId"];
   /** JSON-safe string, ≤2000 chars per schema constraint. */
   readonly details: string;
 }
