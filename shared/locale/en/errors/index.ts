@@ -49,4 +49,12 @@ export const errorsEn: ErrorsLabels = {
   handshakeCodeInvalid: "Handshake codes look like KSB-XXXXXXXX (8 hexadecimal characters).",
   studentHandshakeNotFound: "Student record not found.",
   trialAlreadyGranted: "The free trial credit has already been granted for this student.",
+  sessionNotFound: "The requested session was not found.",
+  sessionInvalidTransition: "This action is not allowed for the session in its current state.",
+  teacherNotCertified: "The selected teacher is not certified for this action.",
+  teacherNotFound: "The selected teacher was not found.",
+  insufficientBalance: "Your balance is insufficient for this request.",
+  idempotencyKeyRequired: "A request idempotency key is required. Please retry the request.",
+  invalidSessionIntent: "The requested session intent is not valid for this request.",
+  walletInvalidAmount: "Enter a valid withdrawal amount (a positive value with up to 2 decimal places).",
 };

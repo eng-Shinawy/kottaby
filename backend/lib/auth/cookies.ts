@@ -92,12 +92,15 @@ export function parseCookies(cookieHeader: string | null | undefined): Record<st
  *    top-level navigations still carry the cookie for the `/login → /dashboard`
  *    redirect path the redirect-loop fix relies on.
  *  - `Secure`    — production only (so local dev over `http://` works).
+ *                  Opt-out for plain-HTTP test/demo servers via
+ *                  `AUTH_COOKIE_SECURE=false` (HTTPS prod unchanged — the
+ *                  flag can only DISABLE Secure, never force it on).
  *  - `Path=/`    — cookie is sent on all paths.
  *  - `Max-Age`   — caller-supplied TTL (seconds).
  */
 function serializeCookie(name: string, value: string, maxAgeSeconds: number): string {
   const envConfig = getEnvironmentConfig();
-  const secure = envConfig.nodeEnv === "production" ? "; Secure" : "";
+  const secure = envConfig.nodeEnv === "production" && process.env.AUTH_COOKIE_SECURE !== "false" ? "; Secure" : "";
   const encoded = encodeURIComponent(value);
   return `${name}=${encoded}; HttpOnly; SameSite=Strict; Path=/${secure}; Max-Age=${maxAgeSeconds}`;
 }

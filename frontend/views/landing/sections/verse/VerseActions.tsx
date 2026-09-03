@@ -1,3 +1,5 @@
+"use client";
+
 import { ContentCopy as CopyIcon, Share as ShareIcon } from "@mui/icons-material";
 import { Box, IconButton, Stack, Typography } from "@mui/material";
 import { type ReactNode, useCallback, useState } from "react";

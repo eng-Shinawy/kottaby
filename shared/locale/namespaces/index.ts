@@ -1,15 +1,3 @@
-import { AdminUsers } from "@/shared/locale/namespaces/adminUsers";
-import { Applicant } from "@/shared/locale/namespaces/applicant";
-import { Auth } from "@/shared/locale/namespaces/auth";
-import { Common } from "@/shared/locale/namespaces/common";
-import { Dashboard } from "@/shared/locale/namespaces/dashboard";
-import { Errors } from "@/shared/locale/namespaces/errors";
-import { HandshakeCode } from "@/shared/locale/namespaces/handshakeCode";
-import { Landing } from "@/shared/locale/namespaces/landing";
-import { Notifications } from "@/shared/locale/namespaces/notifications";
-import { Plans } from "@/shared/locale/namespaces/plans";
-import { Recitation } from "@/shared/locale/namespaces/recitation";
-
 export * from "./adminUsers";
 export * from "./applicant";
 export * from "./auth";
@@ -22,18 +10,7 @@ export * from "./landing";
 export * from "./notifications";
 export * from "./plans";
 export * from "./recitation";
+export * from "./registry";
+export * from "./sessions";
 export * from "./translation";
-
-export const namespaces = {
-  AdminUsers,
-  Applicant,
-  Auth,
-  Common,
-  Dashboard,
-  Errors,
-  HandshakeCode,
-  Landing,
-  Notifications,
-  Plans,
-  Recitation,
-} as const;
+export * from "./wallet";

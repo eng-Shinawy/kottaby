@@ -180,10 +180,20 @@ input CreatePlanInput {
   title: String!
 }
 
+input CreateSessionInput {
+  intent: SessionIntent!
+  teacherId: ID!
+}
+
 """
 A date-time string at UTC, such as 2007-12-03T10:15:30Z, compliant with the `date-time` format outlined in section 5.6 of the RFC 3339 profile of the ISO 8601 standard for representation of dates and times using the Gregorian calendar.
 """
 scalar DateTime
+
+enum DisputeResolution {
+  Cancel
+  Complete
+}
 
 enum Gender {
   Female
@@ -228,11 +238,31 @@ type Mutation {
   adminSetUserDeleted(deleted: Boolean!, id: Int!): AdminUserDetail!
   adminUpdateUser(id: Int!, input: AdminUpdateUserInput!): AdminUserDetail!
 
+  """
+  Cancel one of the caller's scheduled/started sessions (either participant) and release the held fee to its original lane. Non-participants and nonexistent ids are indistinguishable SESSION_NOT_FOUND denials.
+  """
+  cancelSession(id: ID!, reason: String): Session!
+
+  """
+  Complete one of the caller's started sessions (teacher-only; certification is re-asserted inside the guarded UPDATE).
+  """
+  completeSession(id: ID!): Session!
+
+  """
+  Confirm a completed session as its student (the teacher's stamp is written by completion), completing the dual confirmation: the escrow hold is consumed and the teacher's wallet is credited exactly once. Repeat confirms, the teacher caller, and arbitration-settled rows are idempotent no-ops returning the current row. Non-participants and nonexistent ids are indistinguishable SESSION_NOT_FOUND denials.
+  """
+  confirmSessionCompletion(id: ID!): Session!
+
   """Creates a new subscription plan in the catalog (Admin only)."""
   createPlan(
     """Input fields for the new subscription plan."""
     input: CreatePlanInput!
   ): Plan!
+
+  """
+  Book one session against a certified teacher. Student-only; the booking is idempotent per the X-Idempotency-Key request header (a replayed key surfaces DUPLICATE_REQUEST).
+  """
+  createSession(input: CreateSessionInput!): Session!
 
   """
   Authenticate with email + password. Returns the authenticated user + access + refresh tokens. The access_token + refresh_token + session_id are also set as httpOnly cookies.
@@ -255,10 +285,25 @@ type Mutation {
   markNotificationRead(id: ID!): Notification!
 
   """
+  Open a dispute on one of the caller's scheduled/started sessions (either participant, exactly once, with a required reason). Non-participants and nonexistent ids are indistinguishable SESSION_NOT_FOUND denials; the row waits in the disputed state for admin arbitration.
+  """
+  openSessionDispute(id: ID!, reason: String!): Session!
+
+  """
   Rotate the JWT pair from a valid refresh token. Returns fresh access + refresh tokens. The new access_token + refresh_token + session_id are also set as httpOnly cookies (rotation invalidates the prior pair).
   """
   refreshToken(refreshToken: String!): RefreshTokenPayload!
   registerUser(input: RegisterUserInput!): User!
+
+  """
+  Request a payout from the caller's own teacher wallet: one pending withdrawal ledger row plus a guarded balance debit, atomically. Insufficient funds roll the request back (zero rows) and surface WALLET_INSUFFICIENT_FUNDS; malformed amounts fail the pre-DB validation matrix with WALLET_INVALID_AMOUNT. Returns the UPDATED wallet (balance + refreshed ledger) so no refetch is needed. Teacher-only.
+  """
+  requestWithdrawal(input: RequestWithdrawalInput!): Wallet!
+
+  """
+  Resolve one disputed session into exactly one terminal state (admin arbitration): Cancel refunds the held fee to its original lane, Complete consumes the hold (never-started disputes are rejected). Non-disputed rows are SESSION_INVALID_TRANSITION conflicts.
+  """
+  resolveSessionDispute(id: ID!, note: String, resolution: DisputeResolution!): Session!
 
   """Activates or deactivates an existing subscription plan (Admin only)."""
   setPlanActiveStatus(
@@ -268,6 +313,11 @@ type Mutation {
     """Target active state for the plan."""
     isActive: Boolean!
   ): Plan!
+
+  """
+  Start one of the caller's scheduled sessions (teacher-only guarded transition).
+  """
+  startSession(id: ID!): Session!
 
   """
   Persists the caller's app locale preference (UI + notification-copy language) and returns the updated user. Idempotent. Self-scoped — identity is derived from the verified context, never from arguments.
@@ -355,6 +405,7 @@ type Plan {
 
 type Query {
   _health: HealthCheck!
+  adminDisputedSessions(filter: SessionListFilterInput, limit: Int = 25, offset: Int = 0): SessionPage!
 
   """Admin-only query to list plans, optionally including inactive plans."""
   adminPlans(
@@ -378,11 +429,18 @@ type Query {
   One page of the caller's own inbox — items (newest first), totalCount, hasMore. Optional conjunctive filters (type, isRead) and page window (limit 1..50 default 20, offset default 0).
   """
   myNotifications(filter: MyNotificationsFilterInput): NotificationListPage!
+  myStudentSessions(filter: SessionListFilterInput, page: Int = 1, pageSize: Int = 25): SessionPage!
+  myTeacherSessions(filter: SessionListFilterInput, page: Int = 1, pageSize: Int = 25): SessionPage!
 
   """
   The caller's unread notification count — the badge read (0 for an all-read or empty inbox).
   """
   myUnreadNotificationCount: Int!
+
+  """
+  The caller's own teacher wallet: the balance surface (decimal strings, EGP) plus the newest-first ledger page (the 50 most recent transactions). The wallet row is ensured lazily, so a new teacher sees an honest zeroed wallet. Teacher-only.
+  """
+  myWallet: Wallet!
 
   """Returns the active subscription plans catalog for authenticated users."""
   planCatalog: [Plan!]!
@@ -391,6 +449,7 @@ type Query {
   Returns the canonical list of recitation readings (Qira'at) for the registration form selector. Public — no authentication required. The values are stable API identifiers; display labels are resolved client-side via the i18n recitation namespace.
   """
   recitationReadings: [RecitationReading!]!
+  sessionById(id: ID!): Session
 }
 
 enum RecitationReading {
@@ -431,6 +490,89 @@ input RegisterUserInput {
   phone: String!
   preferredRecitation: RecitationReading
   role: RegisterPublicRole!
+}
+
+input RequestWithdrawalInput {
+  """The payout amount as a decimal string (e.g. "125.00")."""
+  amount: String!
+}
+
+type Session {
+  cancelReason: String
+  confirmationDeadline: DateTime
+  confirmedByStudentAt: DateTime
+  confirmedByTeacherAt: DateTime
+  createdAt: DateTime!
+  disputeReason: String
+  disputedAt: DateTime
+  endedAt: DateTime
+  fee: String
+  feeHeld: Boolean!
+  id: ID!
+  intent: SessionIntent
+  resolutionNote: String
+  resolvedAt: DateTime
+  sessionType: SessionType!
+  startedAt: DateTime
+  status: SessionStatus!
+  studentId: ID!
+  teacherId: ID!
+  updatedAt: DateTime!
+}
+
+enum SessionIntent {
+  Evaluation
+  Hifz
+  Tajweed
+}
+
+input SessionListFilterInput {
+  status: SessionStatus
+}
+
+type SessionPage {
+  items: [Session!]!
+  page: Int!
+  pageSize: Int!
+  totalCount: Int!
+}
+
+enum SessionStatus {
+  Cancelled
+  Completed
+  Disputed
+  Scheduled
+  Started
+}
+
+enum SessionType {
+  ReEvaluation
+  StudentSession
+  TeacherEvaluation
+}
+
+type TeacherTransaction {
+  amount: String!
+  createdAt: DateTime!
+  description: String
+  id: ID!
+  sessionId: ID
+  status: TransactionStatus!
+  type: TransactionType!
+  updatedAt: DateTime!
+  walletId: ID!
+}
+
+enum TransactionStatus {
+  Completed
+  Failed
+  Pending
+}
+
+enum TransactionType {
+  Bonus
+  Earning
+  Withdrawal
 }
 
 """Mutable fields for updating an existing subscription plan."""
@@ -475,4 +617,14 @@ enum UserRole {
   Parent
   Student
   Teacher
+}
+
+type Wallet {
+  balance: String!
+  createdAt: DateTime!
+  currency: String!
+  id: ID!
+  totalEarning: String!
+  transactions: [TeacherTransaction!]!
+  updatedAt: DateTime!
 }

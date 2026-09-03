@@ -1,3 +1,5 @@
+"use client";
+
 import { Box } from "@mui/material";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { getMaxScrollTop } from "@/frontend/views/landing/utils";

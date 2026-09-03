@@ -1,3 +1,5 @@
+"use client";
+
 import { Alert, Box, Snackbar, Stack, Typography } from "@mui/material";
 import { type ReactNode, type SyntheticEvent, useState } from "react";
 import { SectionWrapper } from "@/frontend/views/landing/layout";

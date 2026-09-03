@@ -1,3 +1,5 @@
+"use client";
+
 import {
   AutoStoriesOutlined as BookIcon,
   PublicOutlined as GlobeIcon,

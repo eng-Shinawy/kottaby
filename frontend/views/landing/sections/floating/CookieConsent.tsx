@@ -1,3 +1,5 @@
+"use client";
+
 import { type ReactNode, useCallback, useState } from "react";
 import { CookieConsentBanner } from "@/frontend/views/landing/sections/floating/CookieConsentBanner";
 import { CookieSettingsDialog } from "@/frontend/views/landing/sections/floating/CookieSettingsDialog";

@@ -13,14 +13,16 @@
  *
  * GROUND TRUTH ANCHOR (honesty pin, Section A):
  *   The quota / class-instance domains are NOT yet materialized in this tree —
- *   the live schema exposes exactly { login, logout, refreshToken,
- *   registerUser } plus the sanctioned notification read-latch pair
- *   (`markNotificationRead` / `markAllNotificationsRead`, DEV3-010) and the
- *   users-locale mutation (`updateMyLocale`, D2). Test A2 pins that inventory
- *   gap so the moment the quota / class-instance domains land, this suite
- *   fails loudly until they adopt the locked shapes (and gets updated to
- *   point Section B's reproduction directly at them). The gap is a known
- *   wiring task, owned by whichever change introduces
+ *   the live schema exposes exactly the twenty live root mutations pinned in
+ *   KNOWN_LIVE_MUTATION_FIELDS below: the auth quartet, the notification
+ *   read-latch pair (DEV3-010), the users-locale mutation (D2), the billing
+ *   plan-catalog CRUD (upstream #28), the DEV3-016 admin user-management
+ *   trio, the 7-mutation session family (DEV3-004/005/012) and the wallet
+ *   payout (DEV3-013). Test A2 pins the inventory
+ *   gap so the moment those domains land, this suite fails loudly until they
+ *   adopt the locked shapes (and gets updated to point Section B's
+ *   reproduction directly at them).
+ *   The gap is a known wiring task, owned by whichever change introduces
  *   `deleteClassInstance`.
  *
  * SECTION B mechanics (propagation semantics, deterministic):
@@ -276,31 +278,32 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
 `;
 
 /**
- * The exhaustive live root-mutation inventory (ground truth at lock time).
- *
- * Updated when DEV3-016 (Admin User CRUD) landed the three admin mutations
- * `adminCreateUser`, `adminUpdateUser`, `adminSetUserDeleted` — they are
- * warning-incapable (return the canonical `AdminUserDetail` payload, never
- * a partial-success wrapper), so they do not exercise Rules #6/#7. They
- * still belong on this drift-guard list because the contract is "every
- * deployed Mutation root field is enumerated" — otherwise any new
- * mutation ships without an explicit decision about warning propagation.
- *
- * Refreshed for the sanctioned additions: notification read-latch pair
- * (DEV3-010) + users-locale (D2) + billing plan-catalog CRUD (upstream #28).
+ * The exhaustive live root-mutation inventory (ground truth at lock time,
+ * derived from the committed SDL `frontend/graphql/generated/schema.graphql`):
+ * the auth quartet + the notification read-latch pair + users-locale +
+ * plan-catalog CRUD + the DEV3-016 admin trio + the 7-mutation session family
+ * + the wallet payout.
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
   "adminCreateUser",
   "adminSetUserDeleted",
   "adminUpdateUser",
+  "cancelSession",
+  "completeSession",
+  "confirmSessionCompletion",
   "createPlan",
+  "createSession",
   "login",
   "logout",
   "markAllNotificationsRead",
   "markNotificationRead",
+  "openSessionDispute",
   "refreshToken",
   "registerUser",
+  "requestWithdrawal",
+  "resolveSessionDispute",
   "setPlanActiveStatus",
+  "startSession",
   "updateMyLocale",
   "updatePlan",
 ];

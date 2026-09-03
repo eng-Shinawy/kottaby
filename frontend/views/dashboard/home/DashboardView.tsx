@@ -9,7 +9,8 @@ import {
 import { Box, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { useAuth } from "@/frontend/hooks/auth";
-import { DashboardGettingStartedCard, type DashboardStat, DashboardStatCard } from "@/frontend/views/dashboard/home";
+import { DashboardGettingStartedCard } from "@/frontend/views/dashboard/home/DashboardGettingStartedCard";
+import { type DashboardStat, DashboardStatCard } from "@/frontend/views/dashboard/home/DashboardStatCard";
 import { Dashboard, useAppTranslation } from "@/shared/locale";
 
 interface DashboardViewProps {

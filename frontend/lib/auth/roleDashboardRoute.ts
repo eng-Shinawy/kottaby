@@ -3,7 +3,7 @@
  *
  * Paired with the server-side `ROLE_DASHBOARD_ROUTE` map in
  * `app/(dashboard)/dashboard/page.tsx` (the `/dashboard` dispatcher) and
- * with `getNavItemsForRole` in `frontend/views/dashboard/navItems.ts`.
+ * with `getNavItemsForRole` in `frontend/views/dashboard/nav/navItems.ts`.
  *
  * ## Why this exists — the preview-gateway trailing-slash loop
  *

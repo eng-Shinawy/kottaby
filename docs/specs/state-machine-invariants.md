@@ -7,6 +7,8 @@
 
 ## 1. Session Lifecycle
 
+> **Implementation reference (DEV3-004):** the guarded-transition pattern, four-phase creation invariant, hold-as-debit ruling, trial-first ladder + same-lane refund, and idempotency claim design are implemented and documented in [`docs/sessions/session-lifecycle.md`](../sessions/session-lifecycle.md) — INV-S1..S5 shipped there; INV-S6/S7/S8 + the `disputed` surface are DEV3-005/DEV2-013/DEV3-022-owned.
+
 ### 1.1 States
 | State | Enum Value | Description |
 |---|---|---|

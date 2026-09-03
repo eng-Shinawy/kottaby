@@ -97,3 +97,48 @@ The whole layer (via the approved runner):
 ```bash
 bun run test/scripts/run-test.ts test/workflows
 ```
+
+## Helpers (`test/workflows/helpers/`) — scaffolded by DEV3-004 task 2.1
+
+The helpers directory exists and is the ONLY shared-scaffolding home for this layer
+(rule 10). Import it via `@/test/workflows/helpers` (rule 8); its `index.ts` is a pure
+`export *` barrel.
+
+### `journey-fixtures.ts` — tracked-ID registry + FK-order-aware cleanup
+
+- `createJourneyFixtureRegistry()` → `{ track, trackAll, ids, trackedCount, cleanup }`.
+  Create ONE registry per suite. Every fixture row AND every row the services create
+  during the journey (sessions, idempotency claims, …) must be registered via
+  `track(<table>, id)` — the registry is the hard-delete worklist for `afterAll`.
+- Trackable tables are exactly `JOURNEY_TRACKED_TABLE_DELETE_ORDER`
+  (`session_request_idempotency`, `session`, `students`, `teacher`, `applicants`,
+  `parents`, `admin`, `users`). `cleanup()` hard-deletes all tracked ids inside ONE
+  committed transaction in that FK-safe order (children first, `users` last), then
+  clears the registry. Repeated `cleanup()` calls are no-ops — safe under retries.
+- Do NOT track `audit_logs` or `teacher_transaction`: both are trigger-immutable
+  (DELETE-blocked) and restrict-delete into `users`/`wallet`. Journeys assert ZERO
+  rows there instead (below); a leak there is meant to fail the suite loudly.
+- Side-effect absence is asserted by row-count deltas scoped to fixture ids — use
+  `countNotificationsForUser`, `countAuditLogsForActor`, `countWalletsForTeacher`,
+  `countTeacherTransactionsForTeacher` (baseline before the step, unchanged after).
+  Rule 5's dispatch spy still applies whenever a journey EXPECTS a dispatch.
+- Idempotent-teardown proof (rule 2 + REQ-J6): run the suite twice consecutively —
+  a second green run proves zero residual state (per-run `jrn_<domain>_<8hex>`
+  prefixes + unique emails make collisions impossible; `cleanup` must leave nothing).
+
+### `session-cast.ts` — cast builders over `entity-setup.ts`
+
+- Builders take `(tx, registry, …)` — call them inside the committing
+  `db.transaction(...)` of `beforeAll`; they register every row they create.
+- Student builders: `buildStudentWithTrial` (trial units, default 1),
+  `buildStudentWithPaidLane(lane, units)` (`hifz`/`tajweed`, zero trial),
+  `buildStudentWithBoth` (trial + paid — trial-first ordering proof),
+  `buildZeroBalanceStudent`, `buildSecondStudent` (flexible profile).
+- Teacher builders: `buildCertifiedTeacher` / `buildSecondCertifiedTeacher` (real
+  `teacher` row with `isApproved = true`), `buildTeacherApplicant` (real `applicants`
+  row, deliberately NO `teacher` row — INV-TV1 by construction, never simulated).
+- Other roles: `buildParent`, `buildAdmin`.
+- Composite: `buildSessionJourneyCast(tx, registry, { prefix, primaryStudent?, secondStudent? })`
+  returns the canonical cross-actor cast; `journeyPrefix(domain)` derives the rule-3
+  prefix. All builders return the real entity rows — permission resolution in the
+  journey flows through these committed rows only (rule 4: never monkey-patch).

@@ -192,6 +192,8 @@ bun run test:ui:kill         # stop stale test servers (port 3066 only — never
 - Always use `~/.bun/bin/bun` - never npm/yarn/pnpm
 - Run `bun tsgo` and `bun run lint` (which IS the lint queue client) after creating or modifying tests - fix all errors
 - Follow Biome/ESLint formatting and linting rules
+- When a source file is covered by static source-scan pin tests (count pins, allowlist pins, comment-hygiene pins), ANY change to that file must update those pins in the SAME change - a stale pin asserts a false contract and hides real drift
+- Dynamic `import()`/`require()` escape hatches must be pinned out wherever a static specifier allowlist exists - a dynamic specifier bypasses `from "..."` scans entirely
 
 ### GraphQL Mutation Argument Coverage (CRITICAL)
 

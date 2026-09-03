@@ -1,3 +1,5 @@
+"use client";
+
 import { Close as CloseIcon, Menu as MenuIcon } from "@mui/icons-material";
 import { Box, Button, Container, Stack, Typography } from "@mui/material";
 import { useColorScheme } from "@mui/material/styles";

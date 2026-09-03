@@ -1,3 +1,5 @@
+"use client";
+
 import { KeyboardArrowUp } from "@mui/icons-material";
 import { Fab, Tooltip } from "@mui/material";
 import { type ReactNode, useCallback, useEffect, useState } from "react";

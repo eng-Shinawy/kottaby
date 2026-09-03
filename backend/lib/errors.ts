@@ -157,15 +157,16 @@ function mergeFieldsIntoExtensions(
 
 /**
  * Conflict (duplicate email, handshake collision exhausted, self-deactivation
- * guard, role-creation-defense deny, etc.). Defaults to code `CONFLICT`;
- * overloads accept a custom `code` for typed conflict variants (e.g.
+ * guard, role-creation-defense deny, invalid session transition, etc.).
+ * Defaults to code `CONFLICT`; overloads accept a custom `code` for typed
+ * conflict variants (e.g. `SESSION_INVALID_TRANSITION`,
  * `USER_SELF_DEACTIVATION_FORBIDDEN`, `ADMIN_ROLE_CREATION_FORBIDDEN`) so
  * the GraphQL transport can branch on the specific failure while remaining
  * a `ConflictError` subclass for `instanceof` checks.
  *
  * @example new ConflictError("An account with this email already exists.")
- * @example new ConflictError("USER_SELF_DEACTIVATION_FORBIDDEN", "You cannot delete your own account.")
- * @example new ConflictError("USER_ALREADY_DELETED", "This user has already been deleted.", { cause: ... })
+ * @example new ConflictError("DUPLICATE_REQUEST", "…") // custom code
+ * @example new ConflictError("SESSION_INVALID_TRANSITION", message, options) // full form
  */
 export class ConflictError extends DomainError {
   constructor(message: string, options?: GraphQLErrorOptions);

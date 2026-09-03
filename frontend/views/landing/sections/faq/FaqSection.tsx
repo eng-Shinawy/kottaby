@@ -1,3 +1,5 @@
+"use client";
+
 import { Box, Button, Stack } from "@mui/material";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { SectionWrapper } from "@/frontend/views/landing/layout";

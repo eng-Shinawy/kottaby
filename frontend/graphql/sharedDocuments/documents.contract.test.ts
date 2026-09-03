@@ -13,12 +13,12 @@
  *   2. Channel table — mutations vs queries match `sharedDocuments/AGENTS.md`.
  *   3. Variable wiring — declared variable sets line up with the generated
  *      `…Variables` contracts (input / email+password / locale / refreshToken /
- *      none).
+ *      none / the DEV3-004 session lifecycle signatures / the DEV3-013 payout).
  *   4. `id` field requirement — every object-typed selection set the Apollo
- *      cache normalizes (`registerUser`, `me`, `login.user`,
- *      `updateMyLocale`) selects `id`; scalar-only payloads (`refreshToken`,
- *      `logout`, `recitationReadings`) correctly select no objects needing
- *      one.
+ *      cache normalizes (`registerUser`, `me`, `login.user`, `updateMyLocale`,
+ *      EVERY DEV3-004 `Session` payload + `SessionPage.items`) selects `id`;
+ *      scalar-only payloads (`refreshToken`, `logout`, `recitationReadings`)
+ *      correctly select no objects needing one.
  *   5. Barrel parity — deep-import and top-level barrel paths resolve to the
  *      IDENTICAL document instance (consumer import conventions table).
  *
@@ -32,19 +32,36 @@ import { describe, expect, test } from "bun:test";
 import type { TypedDocumentNode } from "@apollo/client";
 import type { DocumentNode, FieldNode, OperationDefinitionNode } from "graphql";
 import type {
+  CancelSessionMutation,
+  CancelSessionMutationVariables,
+  CompleteSessionMutation,
+  CompleteSessionMutationVariables,
+  CreateSessionMutation,
+  CreateSessionMutationVariables,
   LoginMutation,
   LoginMutationVariables,
   LogoutMutation,
   MeQuery,
+  MyStudentSessionsQuery,
+  MyStudentSessionsQueryVariables,
+  MyTeacherSessionsQuery,
+  MyTeacherSessionsQueryVariables,
   RecitationReadingsQuery,
   RefreshTokenMutation,
   RefreshTokenMutationVariables,
   RegisterUserMutation,
   RegisterUserMutationVariables,
+  SessionByIdQuery,
+  SessionByIdQueryVariables,
+  StartSessionMutation,
+  StartSessionMutationVariables,
   UpdateMyLocaleMutation,
   UpdateMyLocaleMutationVariables,
 } from "@/frontend/graphql/generated/gql/graphql";
-import { registerUserMutationDocument as registerUserViaBarrel } from "@/frontend/graphql/sharedDocuments";
+import {
+  registerUserMutationDocument as registerUserViaBarrel,
+  sessionByIdQueryDocument as sessionByIdViaBarrel,
+} from "@/frontend/graphql/sharedDocuments";
 import {
   loginMutationDocument,
   logoutMutationDocument,
@@ -54,6 +71,15 @@ import {
   updateMyLocaleMutationDocument,
 } from "@/frontend/graphql/sharedDocuments/auth/auth.documents";
 import { recitationReadingsQueryDocument } from "@/frontend/graphql/sharedDocuments/auth/recitation.documents";
+import {
+  cancelSessionMutationDocument,
+  completeSessionMutationDocument,
+  createSessionMutationDocument,
+  myStudentSessionsQueryDocument,
+  myTeacherSessionsQueryDocument,
+  sessionByIdQueryDocument,
+  startSessionMutationDocument,
+} from "@/frontend/graphql/sharedDocuments/scheduling/session.documents";
 
 // ---------------------------------------------------------------------------
 // Assertion-free AST helpers
@@ -156,6 +182,56 @@ const DOCUMENT_CONTRACT_TABLE: readonly DocumentContractRow[] = [
     variables: [],
     objectSelections: [],
   },
+  // --- DEV3-004 session lifecycle (scheduling/session.documents.ts) ---
+  {
+    document: sessionByIdQueryDocument,
+    operationName: "SessionById",
+    channel: "query",
+    variables: ["id"],
+    objectSelections: ["sessionById"],
+  },
+  {
+    document: myStudentSessionsQueryDocument,
+    operationName: "MyStudentSessions",
+    channel: "query",
+    variables: ["filter", "page", "pageSize"],
+    objectSelections: ["myStudentSessions.items"],
+  },
+  {
+    document: myTeacherSessionsQueryDocument,
+    operationName: "MyTeacherSessions",
+    channel: "query",
+    variables: ["filter", "page", "pageSize"],
+    objectSelections: ["myTeacherSessions.items"],
+  },
+  {
+    document: createSessionMutationDocument,
+    operationName: "CreateSession",
+    channel: "mutation",
+    variables: ["input"],
+    objectSelections: ["createSession"],
+  },
+  {
+    document: startSessionMutationDocument,
+    operationName: "StartSession",
+    channel: "mutation",
+    variables: ["id"],
+    objectSelections: ["startSession"],
+  },
+  {
+    document: completeSessionMutationDocument,
+    operationName: "CompleteSession",
+    channel: "mutation",
+    variables: ["id"],
+    objectSelections: ["completeSession"],
+  },
+  {
+    document: cancelSessionMutationDocument,
+    operationName: "CancelSession",
+    channel: "mutation",
+    variables: ["id", "reason"],
+    objectSelections: ["cancelSession"],
+  },
 ];
 
 describe("shared-document contract — named operations + channel + variables", () => {
@@ -252,6 +328,7 @@ describe("shared-document contract — id field requirement", () => {
 describe("consumer import conventions — barrel ≡ deep import identity", () => {
   test("top-level barrel re-exports the SAME document instance (cache-key safety)", () => {
     expect(registerUserViaBarrel).toBe(registerUserMutationDocument);
+    expect(sessionByIdViaBarrel).toBe(sessionByIdQueryDocument);
   });
 
   test("documents remain TypedDocumentNode-typed against generated operation types", () => {
@@ -268,6 +345,22 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     const typedUpdateMyLocale: TypedDocumentNode<UpdateMyLocaleMutation, UpdateMyLocaleMutationVariables> =
       updateMyLocaleMutationDocument;
 
+    // DEV3-004 session lifecycle documents (compile-time proof that every
+    // `Session` selection conforms to the generated operation types).
+    const typedSessionById: TypedDocumentNode<SessionByIdQuery, SessionByIdQueryVariables> = sessionByIdQueryDocument;
+    const typedMyStudentSessions: TypedDocumentNode<MyStudentSessionsQuery, MyStudentSessionsQueryVariables> =
+      myStudentSessionsQueryDocument;
+    const typedMyTeacherSessions: TypedDocumentNode<MyTeacherSessionsQuery, MyTeacherSessionsQueryVariables> =
+      myTeacherSessionsQueryDocument;
+    const typedCreateSession: TypedDocumentNode<CreateSessionMutation, CreateSessionMutationVariables> =
+      createSessionMutationDocument;
+    const typedStartSession: TypedDocumentNode<StartSessionMutation, StartSessionMutationVariables> =
+      startSessionMutationDocument;
+    const typedCompleteSession: TypedDocumentNode<CompleteSessionMutation, CompleteSessionMutationVariables> =
+      completeSessionMutationDocument;
+    const typedCancelSession: TypedDocumentNode<CancelSessionMutation, CancelSessionMutationVariables> =
+      cancelSessionMutationDocument;
+
     // Runtime uses keep the bindings from being flagged as unused.
     expect(typedRegister.loc).toBeDefined();
     expect(typedLogin.loc).toBeDefined();
@@ -275,6 +368,13 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     expect(typedLogout.loc).toBeDefined();
     expect(typedMe.loc).toBeDefined();
     expect(typedRecitation.loc).toBeDefined();
+    expect(typedSessionById.loc).toBeDefined();
+    expect(typedMyStudentSessions.loc).toBeDefined();
+    expect(typedMyTeacherSessions.loc).toBeDefined();
+    expect(typedCreateSession.loc).toBeDefined();
+    expect(typedStartSession.loc).toBeDefined();
+    expect(typedCompleteSession.loc).toBeDefined();
+    expect(typedCancelSession.loc).toBeDefined();
     expect(typedUpdateMyLocale.loc).toBeDefined();
   });
 });

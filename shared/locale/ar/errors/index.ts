@@ -49,4 +49,12 @@ export const errorsAr: ErrorsLabels = {
   handshakeCodeInvalid: "تبدو رموز الربط بالصيغة KSB-XXXXXXXX وتتكون من 8 أحرف سداسية عشرية.",
   studentHandshakeNotFound: "لم يتم العثور على سجل الطالب.",
   trialAlreadyGranted: "تم منح رصيد الجلسة التجريبية لهذا الطالب مسبقًا.",
+  sessionNotFound: "لم يتم العثور على الجلسة المطلوبة.",
+  sessionInvalidTransition: "لا يمكن تنفيذ هذا الإجراء على الجلسة في حالتها الحالية.",
+  teacherNotCertified: "المعلم المحدد غير معتمد حالياً.",
+  teacherNotFound: "لم يتم العثور على المعلم المحدد.",
+  insufficientBalance: "رصيدك غير كافٍ لإتمام هذا الطلب.",
+  idempotencyKeyRequired: "مفتاح منع تكرار الطلب مفقود. يرجى إعادة المحاولة.",
+  invalidSessionIntent: "غرض الجلسة المطلوب غير صالح.",
+  walletInvalidAmount: "أدخل مبلغ سحب صالحاً (قيمة موجبة بخانتين عشريتين كحد أقصى).",
 };

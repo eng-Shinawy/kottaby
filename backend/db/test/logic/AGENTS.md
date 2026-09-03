@@ -17,6 +17,8 @@ backend/db/test/logic/
 │                        column-encryption, hours-recalc, ip-format, poly-integrity, rls,
 │                        soft_delete_security, session-scalability, permissions_rls
 ├── auth/                auth-rate-limit, auth_rate_limit_enforcement, impersonation-sessions, password-reset-token
+├── classes/             session-schema-deltas (session domain: held_balance_lane column +
+│                        session_request_idempotency claim-table constraints)
 ├── parents/             parent_directory
 ├── students/            student-pagination-stability, student_progress, student_status_history, student_status_transition
 ├── teachers/           teacher_availability, teacher_banking_history, teacher_banking_verification, teacher_profile

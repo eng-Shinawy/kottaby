@@ -7,6 +7,7 @@ import {
   AssessmentOutlined as AuditIcon,
   FamilyRestroomOutlined as ChildrenIcon,
   DashboardOutlined as DashboardIcon,
+  GavelOutlined as DisputesIcon,
   HistoryEduOutlined as HomeworkIcon,
   LinkOutlined as LinkChildIcon,
   NotificationsOutlined as NotificationsIcon,
@@ -131,6 +132,10 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     { route: "/students", labelKey: "students", Icon: StudentsIcon },
     { route: "/admin/plans", labelKey: "plans", Icon: PlansIcon },
     { route: "/audit", labelKey: "audit", Icon: AuditIcon },
+    // DEV3-005 (R-111) — the session-arbitration queue: a REAL admin page
+    // (`app/(dashboard)/disputes/page.tsx`, `withPageAuth` admin-gated like
+    // the role dashboards) instead of a catch-all coming-soon stub.
+    { route: "/disputes", labelKey: "disputes", Icon: DisputesIcon },
     { route: "/profile", labelKey: "profile", Icon: ProfileIcon },
   ],
 };

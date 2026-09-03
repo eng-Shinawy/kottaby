@@ -1,0 +1,27 @@
+import type { WalletLabels } from "@/shared/locale/types/wallet";
+
+export const walletAr: WalletLabels = {
+  pageTitle: "محفظتي",
+  balanceLabel: "الرصيد المتاح",
+  totalEarningLabel: "إجمالي الأرباح",
+  requestWithdrawal: "طلب سحب",
+  withdrawDialogTitle: "طلب سحب من المحفظة",
+  withdrawDialogBody: "يُخصم المبلغ من رصيدك فوراً ويُسجَّل كدفعة معلّقة حتى تتم تسويته.",
+  amountLabel: "المبلغ (ج.م)",
+  amountPlaceholder: "مثال: 250.00",
+  availableBalanceHint: (balance: string) => `الرصيد المتاح: ${balance} ج.م`,
+  withdrawSubmit: "إرسال الطلب",
+  withdrawSuccessNotice: "تم إرسال طلب السحب. تم تحديث رصيدك.",
+  invalidAmount: "أدخل مبلغاً صالحاً (قيمة موجبة بخانتين عشريتين كحد أقصى).",
+  genericError: "حدث خطأ ما. يرجى المحاولة مرة أخرى.",
+  ledgerTitle: "سجل العمليات",
+  typeEarning: "أرباح",
+  typeWithdrawal: "سحب",
+  typeBonus: "مكافأة",
+  statusPending: "معلّق",
+  statusCompleted: "مكتمل",
+  statusFailed: "فاشل",
+  createdAt: "التاريخ",
+  ledgerEmptyTitle: "لا توجد عمليات بعد",
+  ledgerEmptyBody: "ستظهر هنا أرباح جلساتك وطلبات السحب.",
+};

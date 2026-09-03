@@ -1,3 +1,5 @@
+"use client";
+
 import { FilterListOutlined as FilterIcon } from "@mui/icons-material";
 import { TextField as MuiTextField } from "@mui/material";
 import { type ReactNode, useMemo, useState } from "react";

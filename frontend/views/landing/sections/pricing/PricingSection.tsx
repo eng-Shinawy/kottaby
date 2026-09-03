@@ -1,3 +1,5 @@
+"use client";
+
 import { Box } from "@mui/material";
 import { type ReactNode, useState } from "react";
 import { SectionWrapper } from "@/frontend/views/landing/layout";

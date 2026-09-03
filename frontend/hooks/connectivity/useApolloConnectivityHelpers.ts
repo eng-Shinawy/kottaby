@@ -1,3 +1,5 @@
+"use client";
+
 import { useNotifications } from "@toolpad/core/useNotifications";
 import { type RefObject, useCallback, useEffect } from "react";
 import { Common, useAppTranslation } from "@/shared/locale";

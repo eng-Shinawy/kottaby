@@ -1,3 +1,5 @@
+"use client";
+
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isDigitChar, isNumericChar } from "@/frontend/views/landing/utils";
 

@@ -16,6 +16,9 @@
  *  - `Gender`
  *  - `RegisterPublicRole` (public subset — student/teacher/parent — BFLA)
  *  - `RecitationReading`, `ApplicantStatus`
+ *  - `SessionStatus`, `SessionType`, `SessionIntent` (scheduling domain)
+ *  - `DisputeResolution` (admin arbitration outcome vocabulary)
+ *  - `TransactionType`, `TransactionStatus` (billing ledger vocabulary, DEV3-013)
  *  - `AdminUserGovernanceFilter` (active|suspended|blocked|deleted — admin directory filter)
  *  - `NotificationType` (the seven notification kinds)
  *  - `AppLocale` (the per-user UI/copy preference — "ar" | "en")
@@ -23,8 +26,15 @@
  * After registering a new enum here, run `bun run generate:gqlSchema` and
  * `bun codegen` to refresh the SDL + frontend codegen.
  */
+
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import { TransactionStatus } from "@/backend/enum/billing/transaction-status.enum";
+import { TransactionType } from "@/backend/enum/billing/transaction-type.enum";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
+import { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolution.enum";
+import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
+import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
+import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
 import { AppLocale } from "@/backend/enum/users/app-locale.enum";
@@ -86,6 +96,80 @@ export const RecitationReadingPothosEnum = gqlSchemaBuilder.enumType(RecitationR
  */
 export const ApplicantStatusPothosEnum = gqlSchemaBuilder.enumType(ApplicantStatus, {
   name: "ApplicantStatus",
+});
+
+/**
+ * GraphQL `SessionStatus` enum (scheduled|started|completed|cancelled|disputed).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/scheduling/session-status.enum.ts`) mirroring the
+ * `session_status` pgEnum. The `disputed` member is produced by the
+ * participant dispute transition and consumed by the admin arbitration
+ * (`DisputeResolution` below is the outcome vocabulary).
+ */
+export const SessionStatusPothosEnum = gqlSchemaBuilder.enumType(SessionStatus, {
+  name: "SessionStatus",
+});
+
+/**
+ * GraphQL `DisputeResolution` enum (Cancel|Complete) — the admin arbitration
+ * outcome vocabulary that exits the non-terminal `disputed` state into
+ * exactly one terminal state.
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/scheduling/dispute-resolution.enum.ts`). There is NO
+ * pgEnum backing this vocabulary — it is a pure transition selector on the
+ * arbitration mutation, never a stored column value.
+ */
+export const DisputeResolutionPothosEnum = gqlSchemaBuilder.enumType(DisputeResolution, {
+  name: "DisputeResolution",
+});
+
+/**
+ * GraphQL `SessionType` enum (student_session|teacher_evaluation|re_evaluation).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/scheduling/session-type.enum.ts`) mirroring the
+ * `session_type` pgEnum.
+ */
+export const SessionTypePothosEnum = gqlSchemaBuilder.enumType(SessionType, {
+  name: "SessionType",
+});
+
+/**
+ * GraphQL `SessionIntent` enum (hifz|tajweed|evaluation).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/scheduling/session-intent.enum.ts`) mirroring the
+ * `session_intent` pgEnum. Nullable on session fields: intent is optional on
+ * the table (evaluation sessions carry it; student bookings pin Hifz/Tajweed).
+ */
+export const SessionIntentPothosEnum = gqlSchemaBuilder.enumType(SessionIntent, {
+  name: "SessionIntent",
+});
+
+/**
+ * GraphQL `TransactionType` enum (earning|withdrawal|bonus) — the
+ * `teacher_transaction` ledger vocabulary (DEV3-013).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/billing/transaction-type.enum.ts`) mirroring the
+ * `transaction_type` pgEnum.
+ */
+export const TransactionTypePothosEnum = gqlSchemaBuilder.enumType(TransactionType, {
+  name: "TransactionType",
+});
+
+/**
+ * GraphQL `TransactionStatus` enum (pending|completed|failed) — the
+ * `teacher_transaction` ledger settlement vocabulary (DEV3-013).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/billing/transaction-status.enum.ts`) mirroring the
+ * `transaction_status` pgEnum.
+ */
+export const TransactionStatusPothosEnum = gqlSchemaBuilder.enumType(TransactionStatus, {
+  name: "TransactionStatus",
 });
 
 /**

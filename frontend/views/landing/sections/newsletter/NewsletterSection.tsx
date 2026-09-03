@@ -1,3 +1,5 @@
+"use client";
+
 import { CheckCircleOutlined as CheckIcon, MailOutlined as MailIcon } from "@mui/icons-material";
 import { Box, Stack, Typography } from "@mui/material";
 import { type ReactNode, type SyntheticEvent, useCallback, useState } from "react";

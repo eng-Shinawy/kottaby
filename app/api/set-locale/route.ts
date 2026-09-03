@@ -76,7 +76,10 @@ function isSetLocaleBody(value: unknown): value is SetLocaleBody {
  * Single source of the NEXT_LOCALE cookie wire format — attribute set is
  * byte-equivalent to the previous `NextResponse.cookies.set(...)` flags:
  * non-httpOnly so the cookie jar stays consistent across first-visit
- * (proxy.ts) and explicit switch (this route); `Secure` only in production.
+ * (proxy.ts) and explicit switch (this route); `Secure` only in production,
+ * with the same plain-HTTP opt-out as the auth cookies
+ * (`AUTH_COOKIE_SECURE=false` — HTTPS prod unchanged; the flag can only
+ * DISABLE Secure, never force it on).
  * `locale` is whitelist-validated through {@link isAppLocale} before reaching
  * this builder — no unvalidated input can enter the Set-Cookie header.
  */
@@ -87,7 +90,7 @@ function nextLocaleSetCookieValue(locale: AppLocale): string {
     `Max-Age=${LOCALE_MAX_AGE}`,
     "SameSite=Lax",
   ];
-  if (envConfig.nodeEnv === "production") {
+  if (envConfig.nodeEnv === "production" && process.env.AUTH_COOKIE_SECURE !== "false") {
     attributes.push("Secure");
   }
   return attributes.join("; ");

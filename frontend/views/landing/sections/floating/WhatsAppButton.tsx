@@ -1,3 +1,5 @@
+"use client";
+
 import { Box, Tooltip } from "@mui/material";
 import { type ReactNode, useState } from "react";
 import { Landing, useAppTranslation } from "@/shared/locale";

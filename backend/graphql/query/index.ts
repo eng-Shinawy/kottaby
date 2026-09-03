@@ -11,10 +11,13 @@
  *    `index.ts`.
  *
  * `auth.query.ts` wires the `me` query; the other entries register the
- * health, recitation, teacher-domain, student-domain, notification-domain,
- * and billing plan-catalog queries.
+ * health, recitation, classes (session lifecycle), billing (wallet DEV3-013
+ * + plan-catalog), teacher-domain, student-domain, notification-domain,
+ * and admin-domain queries.
  */
 import "./auth.query";
+import "./billing";
+import "./classes";
 import "./health.query";
 import "./notifications";
 import "./plan-catalog.query";
