@@ -19,8 +19,9 @@
  *  - **Root-set freeze** — the Mutation root is EXACTLY the re-pinned frozen
  *    set (auth quartet + the sanctioned notification read-latch pair + the
  *    sanctioned users-locale mutation + the plan-catalog CRUD trio + the
- *    admin user-management mutation trio + the admin broadcast mutation +
- *    the parent-link trio) and the Query root is EXACTLY the re-pinned
+ *    admin user-management mutation trio + the admin cold-start
+ *    certification mutation + the admin broadcast mutation + the
+ *    parent-link trio) and the Query root is EXACTLY the re-pinned
  *    frozen set (the baseline + the `_health` probe + the inbox reads + the
  *    plan-catalog reads + the admin user-management directory reads + the
  *    `adminAuditLogs` trail read + the parent-link lists — mirrors the
@@ -34,7 +35,9 @@
  *    monotonic, nothing was deleted. **The parent-link↔DEV3-020 merge
  *    re-ran STEP ONE for the audit-trail surface**, and this merge absorbs
  *    the DEV3-004/005/012/013 session family + the DEV3-022d admin-broadcast
- *    surface additively the same way.
+ *    surface additively the same way. **The DEV3-018 cold-start teacher
+ *    certification merge adds `adminCertifyTeacherColdStart` to the mutation
+ *    root additively the same way.**
  *  - **Parent-link surface (REQ-061 extend pins)** — the five root
  *    fields carry their EXACT SDL signatures on the artifact (both list
  *    queries NON-paginated `[T!]!` with ZERO arguments;
@@ -102,11 +105,14 @@ import {
 // ─── live artifact. EXTEND (STEP 2): the parent-link surface folded in.     ─
 // ─── Growth is monotonic; no stale entry was deleted, only re-anchored.      ─
 
-/** Root mutation fields — auth quartet + notification read-latch pair + users-locale (D2) + plan-catalog CRUD + DEV3-016 admin writes + the admin broadcast mutation + the parent-link trio. */
+/** Root mutation fields — auth quartet + notification read-latch pair + users-locale (D2) + plan-catalog CRUD + DEV3-016 admin writes + DEV3-018 admin cold-start certification + the admin broadcast mutation + the parent-link trio. */
 const FROZEN_MUTATION_FIELDS = [
   // DEV3-016 reconcile: the admin user-management writes shipped before 3.1
   // (the DEV3-022d admin broadcast mutation absorbed alongside them).
   "adminBroadcastNotification",
+  // DEV3-018: the admin cold-start teacher certification mutation ships on
+  // this branch (absorbed additively, mirroring the DEV3-016 precedent).
+  "adminCertifyTeacherColdStart",
   "adminCreateUser",
   "adminSetUserDeleted",
   "adminUpdateUser",

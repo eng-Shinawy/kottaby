@@ -84,7 +84,6 @@ export function RecitationCardContent({
             variant="caption"
             sx={{
               color: isSelected ? "var(--mui-palette-onPrimaryContainer)" : "var(--mui-palette-text-secondary)",
-              opacity: 0.85,
               lineHeight: 1.3,
             }}
           >

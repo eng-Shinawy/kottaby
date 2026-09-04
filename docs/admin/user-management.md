@@ -178,6 +178,8 @@ DEV3-016 ships the **identity core + audit-write half** of Workflow 05. The othe
 | Plan CRUD (create / edit / activate / deactivate plans) | DEV1-005 (separate sprint) | The audit-write contract pattern (precedent); the `users` directory for admin-browsing context |
 | Cold-start certification (`is_approved` write on `teacher` row) | DEV3-018 | The `applicants` row minted by DEV3-016's create-teacher path; never forks a `teacher`-row-creation path |
 
+> **DEV3-018 SHIPPED:** canonical reference — `docs/admin/cold-start-certification.md`.
+
 ### Consumer obligations for DEV3-017 / 018 / 019 / 020 / 021 / 022b
 
 - **Import-by-reference, never fork.** The audit-write contract (`AuditLogWriteContract` + `AuditService.createAuditLog(contract, tx)`) is the SINGLE canonical writer. A second writer would diverge the `actorId` source-of-truth and re-open the denial-no-audit rule surface. The `escapeLikeWildcards` utility is the SINGLE canonical LIKE/ILIKE sanitizer. The `withTransaction` helper is the SINGLE canonical transaction-context helper. The `UserRepository.findById` / `AdminUserRepository.*` methods are the canonical reads.

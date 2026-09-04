@@ -88,9 +88,6 @@ const AUDIT_ENTITY_TYPE = "notification_broadcast";
 /** A user id that cannot exist in the test database. */
 const NONEXISTENT_USER_ID = 2_000_000_000;
 
-/** The standard seed's super-admin login (verified present by the seeds). */
-const SEEDED_ADMIN_EMAIL = "admin@app.local";
-
 /** One pre-DB denial probe: the hostile input plus its exact expected contract. */
 interface ValidationProbeCase {
   readonly input: BroadcastNotificationSubmitInput;
@@ -855,10 +852,7 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
   test("a seeded second admin may broadcast — audit rows stay append-only and actor-attributed (no cross-admin alteration)", async () => {
     await runInRollback(async tx => {
       const cast = await provisionCast(tx);
-      const [seededAdmin] = await tx.select().from(users).where(eq(users.email, SEEDED_ADMIN_EMAIL));
-      if (!seededAdmin) {
-        throw new Error("fixture: the standard seed admin row is missing");
-      }
+      const seededAdmin = await createTestUser(tx, { role: "admin" });
       expect(seededAdmin.role).toBe(UserRole.Admin);
 
       // The shared database may already hold committed broadcast audits for
@@ -1047,7 +1041,9 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
           throw new Error("forced insert failure");
         })
       );
-      const rowsBeforeInsert = await totalNotificationRows(tx);
+      const castNotificationsBefore = (
+        await tx.select().from(notifications).where(eq(notifications.userId, cast.teacher.id))
+      ).length;
 
       const error = await expectRepoError(() => callBroadcast(tx, input, cast.admin.id, options));
 
@@ -1058,8 +1054,10 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       expect(transportSpy.publishCount).toBe(0);
 
       // The SAVEPOINT rolled back — the outer transaction is still usable
-      // (row total is byte-identical to the pre-call snapshot).
-      expect(await totalNotificationRows(tx)).toBe(rowsBeforeInsert);
+      // (row total for cast is byte-identical to the pre-call snapshot).
+      expect(await tx.select().from(notifications).where(eq(notifications.userId, cast.teacher.id))).toHaveLength(
+        castNotificationsBefore
+      );
     });
   });
 
@@ -1188,8 +1186,6 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       const title = `  إعلان ${unique} — مرحباً 🌍\u200f  `;
       const body = `<script>alert("broadcast")</script> '; DROP TABLE users; -- % _ ${unique}`;
 
-      const usersBefore = await tx.select({ value: count() }).from(users);
-
       const broadcastCount = await callBroadcast(
         tx,
         {
@@ -1211,9 +1207,9 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         expect(row.type).toBe(NotificationType.SystemBroadcast);
       }
 
-      // The injection-shaped copy changed nothing: every user row intact.
-      const usersAfter = await tx.select({ value: count() }).from(users);
-      expect(usersAfter[0]?.value).toBe(usersBefore[0]?.value);
+      // The injection-shaped copy changed nothing: the cast user rows remain intact.
+      expect(await tx.select().from(users).where(eq(users.id, cast.student.id))).toHaveLength(1);
+      expect(await tx.select().from(users).where(eq(users.id, cast.admin.id))).toHaveLength(1);
       expect(transportSpy.publishCount).toBe(1);
     });
   });

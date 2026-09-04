@@ -23,6 +23,7 @@ import { eq, sql } from "drizzle-orm";
 import type { PoolClient } from "pg";
 import { db, queryDb } from "@/backend/db";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
+import { ApplicantStatus } from "@/backend/enum";
 import type { ApplicantSelectType, DBQueryExecutor, DBTransaction } from "@/backend/types";
 
 /**
@@ -148,5 +149,50 @@ export namespace ApplicantRepository {
     // Standalone write — global db handle.
     const [row] = await db.update(applicants).set(attemptIncrement).where(eq(applicants.id, userId)).returning();
     return row ?? null;
+  }
+
+  /**
+   * Finalizes an applicant row upon certification: sets `status` to 'passed',
+   * clears any outstanding cooldown (`cooldown_until` → NULL), and stamps
+   * `updated_at` in ONE atomic UPDATE with `RETURNING id`.
+   *
+   * The write is unconditional on prior state — it supersedes any existing
+   * status (`pending` / `in_evaluation` / `failed`) and any active cooldown,
+   * matching the same supersede-on-certification semantics the applicant
+   * lifecycle defines for passing evaluation. `verification_attempts` and
+   * `last_attempt_at` are deliberately NOT rewritten: they form the audit
+   * trail of the verification loop and must survive finalization. The row
+   * itself is preserved (never deleted).
+   *
+   * Parameterized always; id is bound, never concatenated; no prepared
+   * statement (writes are excluded — `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns `true` when an applicant row was finalized, `false` when no row
+   *          carries the given id (a certification of an applicant-less user
+   *          is still valid — the caller treats `false` as signal, not error).
+   */
+  export async function finalizeOnCertification(userId: number, tx?: DBTransaction): Promise<boolean> {
+    // Single-statement terminal write — no read-modify-write window.
+    const finalizeWrite = {
+      status: ApplicantStatus.Passed,
+      cooldownUntil: null,
+      updatedAt: sql`now()`,
+    };
+    if (tx) {
+      // Transactional write — joins the caller's certification transaction.
+      const rows = await tx
+        .update(applicants)
+        .set(finalizeWrite)
+        .where(eq(applicants.id, userId))
+        .returning({ id: applicants.id });
+      return rows.length > 0;
+    }
+    // Standalone write — global db handle.
+    const rows = await db
+      .update(applicants)
+      .set(finalizeWrite)
+      .where(eq(applicants.id, userId))
+      .returning({ id: applicants.id });
+    return rows.length > 0;
   }
 }

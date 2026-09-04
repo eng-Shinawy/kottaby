@@ -49,6 +49,48 @@ interface DirectoryToolbarProps {
   readonly onCreateUser: () => void;
 }
 
+interface DirectoryGovernanceFilterProps {
+  readonly id: string;
+  readonly labels: ToolbarLabels;
+  readonly governanceFilter: DirectoryGovernance | "";
+  readonly setGovernanceFilter: (value: DirectoryGovernance | "") => void;
+}
+
+function DirectoryGovernanceFilter(props: DirectoryGovernanceFilterProps): ReactNode {
+  const { labels } = props;
+  return (
+    <FormControl sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" } }}>
+      <InputLabel htmlFor={props.id}>{labels.filters.governance}</InputLabel>
+      <Select
+        id={props.id}
+        value={props.governanceFilter}
+        label={labels.filters.governance}
+        onChange={event => props.setGovernanceFilter(event.target.value || "")}
+        sx={{
+          height: 44,
+          // Vertically center the visible value inside the fixed 44px
+          // control: the default block padding makes the inner select box
+          // taller than the outlined root.
+          "&& .MuiSelect-select": {
+            minHeight: 44,
+            boxSizing: "border-box",
+            paddingBlock: 0,
+            display: "flex",
+            alignItems: "center",
+          },
+          "& .MuiSelect-nativeInput": { height: "100%" },
+        }}
+      >
+        <MenuItem value="">{labels.genderOptions.unspecified}</MenuItem>
+        <MenuItem value="Active">{labels.statusBadges.active}</MenuItem>
+        <MenuItem value="Suspended">{labels.statusBadges.suspended}</MenuItem>
+        <MenuItem value="Blocked">{labels.statusBadges.blocked}</MenuItem>
+        <MenuItem value="Deleted">{labels.statusBadges.deleted}</MenuItem>
+      </Select>
+    </FormControl>
+  );
+}
+
 export function DirectoryToolbar(props: DirectoryToolbarProps): ReactNode {
   const { labels } = props;
   // Stable element ids — wire `InputLabel htmlFor` ↔ control `id` so screen
@@ -90,40 +132,21 @@ export function DirectoryToolbar(props: DirectoryToolbarProps): ReactNode {
           setRoleFilter={props.setRoleFilter}
           labels={labels}
         />
-        <FormControl sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" } }}>
-          <InputLabel htmlFor={GOVERNANCE_ID}>{labels.filters.governance}</InputLabel>
-          <Select
-            id={GOVERNANCE_ID}
-            value={props.governanceFilter}
-            label={labels.filters.governance}
-            onChange={event => props.setGovernanceFilter(event.target.value || "")}
-            sx={{
-              height: 44,
-              // Vertically center the visible value inside the fixed 44px
-              // control: the default block padding makes the inner select box
-              // taller than the outlined root.
-              "&& .MuiSelect-select": {
-                minHeight: 44,
-                boxSizing: "border-box",
-                paddingBlock: 0,
-                display: "flex",
-                alignItems: "center",
-              },
-              "& .MuiSelect-nativeInput": { height: "100%" },
-            }}
-          >
-            <MenuItem value="">{labels.genderOptions.unspecified}</MenuItem>
-            <MenuItem value="Active">{labels.statusBadges.active}</MenuItem>
-            <MenuItem value="Suspended">{labels.statusBadges.suspended}</MenuItem>
-            <MenuItem value="Blocked">{labels.statusBadges.blocked}</MenuItem>
-            <MenuItem value="Deleted">{labels.statusBadges.deleted}</MenuItem>
-          </Select>
-        </FormControl>
+        <DirectoryGovernanceFilter
+          id={GOVERNANCE_ID}
+          labels={labels}
+          governanceFilter={props.governanceFilter}
+          setGovernanceFilter={props.setGovernanceFilter}
+        />
         <TextField
           id={COUNTRY_ID}
           label={labels.filters.country}
           value={props.countryFilter}
           onChange={event => props.setCountryFilter(event.target.value)}
+          // Keep the label pinned to the notch at all times so the field
+          // never renders without a visible label (matches the Role/Status
+          // selects, whose labels shrink once a value is shown).
+          slotProps={{ inputLabel: { shrink: true } }}
           sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" }, "& .MuiInputBase-root": { height: 44 } }}
         />
         <Box sx={{ flex: 1 }} />
@@ -145,7 +168,19 @@ export function DirectoryToolbar(props: DirectoryToolbarProps): ReactNode {
           variant="contained"
           startIcon={<AddIcon />}
           onClick={props.onCreateUser}
-          sx={{ borderRadius: "8px", height: 44, flexShrink: 0, whiteSpace: "nowrap" }}
+          sx={theme => ({
+            borderRadius: "8px",
+            height: 44,
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+            // Pin the fill/ink pair to the theme's `primary.main`/`onPrimary`
+            // tokens so the label stays on a contrast-checked pair in both
+            // light and dark themes instead of relying on the default
+            // `primary.contrastText` resolution.
+            bgcolor: theme.palette.primary.main,
+            color: theme.palette.onPrimary,
+            "&:hover": { bgcolor: theme.palette.primary.dark },
+          })}
         >
           {labels.createDialog.title}
         </Button>

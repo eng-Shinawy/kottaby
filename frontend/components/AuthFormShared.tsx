@@ -1,6 +1,6 @@
 "use client";
 
-import { VisibilityOffOutlined, VisibilityOutlined } from "@mui/icons-material";
+import { LockOutlined, VisibilityOffOutlined, VisibilityOutlined } from "@mui/icons-material";
 import { Box, CircularProgress, IconButton, InputAdornment, Stack, TextField, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
@@ -103,9 +103,7 @@ export function PasswordField({
       slotProps={{
         formHelperText: { sx: { lineHeight: 1.6 } },
         input: {
-          startAdornment: (
-            <VisibilityOffOutlined fontSize="small" sx={{ mr: 1, color: "var(--mui-palette-action-active)" }} />
-          ),
+          startAdornment: <LockOutlined fontSize="small" sx={{ mr: 1, color: "var(--mui-palette-action-active)" }} />,
           endAdornment: (
             <InputAdornment position="end">
               <IconButton

@@ -158,7 +158,12 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
       const userA = await createTestUser(tx, { fullName: "AAA Directory Probe" });
       const userB = await createTestUser(tx, { fullName: "BBB Directory Probe" });
 
-      const rows = await AdminUserRepository.listDirectory({}, 100, 0, tx);
+      const rows = await AdminUserRepository.listDirectory(
+        { searchPattern: serviceEscapedSearchPattern("Directory Probe") },
+        100,
+        0,
+        tx
+      );
 
       // Both seeded users appear; ordering is createdAt ASC.
       const ids = rows.map(r => r.id);
@@ -249,7 +254,10 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
       });
 
       const rows = await AdminUserRepository.listDirectory(
-        { governance: AdminUserGovernanceFilter.Active },
+        {
+          governance: AdminUserGovernanceFilter.Active,
+          searchPattern: serviceEscapedSearchPattern("User Probe"),
+        },
         100,
         0,
         tx

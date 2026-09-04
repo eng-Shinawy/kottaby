@@ -147,10 +147,24 @@ export interface DashboardLabels {
   readonly gettingStartedTitle: string;
   /** Getting Started section description body */
   readonly gettingStartedBody: string;
-  /** Getting Started tip: explore sessions */
-  readonly gettingStartedTipSessions: string;
-  /** Getting Started tip: view subscriptions */
-  readonly gettingStartedTipSubscriptions: string;
-  /** Getting Started tip: check notifications */
-  readonly gettingStartedTipNotifications: string;
+  /** Getting Started tips — role-aware bullet copy picked by the authenticated user's role */
+  readonly gettingStartedTips: {
+    readonly student: DashboardGettingStartedTips;
+    readonly teacher: DashboardGettingStartedTips;
+    readonly admin: DashboardGettingStartedTips;
+    readonly parent: DashboardGettingStartedTips;
+  };
+}
+
+/**
+ * Getting Started bullet copy for a single dashboard role. The three keys map
+ * to the card's fixed icon slots (sessions, subscriptions, notifications).
+ */
+export interface DashboardGettingStartedTips {
+  /** Bullet next to the sessions icon */
+  readonly sessions: string;
+  /** Bullet next to the subscriptions/plans icon */
+  readonly subscriptions: string;
+  /** Bullet next to the notifications icon */
+  readonly notifications: string;
 }

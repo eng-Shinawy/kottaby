@@ -19,16 +19,30 @@ import {
   Typography,
 } from "@mui/material";
 import type { ReactNode } from "react";
+import { UserRole } from "@/frontend/graphql/generated/gql/graphql";
+import { useAuth } from "@/frontend/hooks/auth";
 import { Dashboard, useAppTranslation } from "@/shared/locale";
+import type { DashboardLabels } from "@/shared/locale/types/dashboard";
+
+/** Maps the account role enum to the role-specific bullet copy block. */
+const ROLE_COPY_KEY: Record<UserRole, keyof DashboardLabels["gettingStartedTips"]> = {
+  [UserRole.Student]: "student",
+  [UserRole.Teacher]: "teacher",
+  [UserRole.Admin]: "admin",
+  [UserRole.Parent]: "parent",
+};
 
 /** Getting-started guide card shown below the stat grid to fill the landing viewport. */
 export function DashboardGettingStartedCard(): ReactNode {
   const t = useAppTranslation(Dashboard);
+  const { user } = useAuth();
+
+  const copy = t.gettingStartedTips[user ? ROLE_COPY_KEY[user.role] : "student"];
 
   const tips: readonly { readonly Icon: typeof SchoolIcon; readonly text: string }[] = [
-    { Icon: SchoolIcon, text: t.gettingStartedTipSessions },
-    { Icon: SubscriptionsIcon, text: t.gettingStartedTipSubscriptions },
-    { Icon: NotificationsIcon, text: t.gettingStartedTipNotifications },
+    { Icon: SchoolIcon, text: copy.sessions },
+    { Icon: SubscriptionsIcon, text: copy.subscriptions },
+    { Icon: NotificationsIcon, text: copy.notifications },
   ];
 
   return (

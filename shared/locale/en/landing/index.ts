@@ -399,6 +399,8 @@ export const landingEn: LandingLabels = {
   prayerIsha: "Isha",
   prayerNext: "Next prayer",
   prayerIn: "in",
+  // Footer brand wordmark
+  footerBrandName: "Kottaby Academy",
 
   // Global 404 page
   notFoundTitle: "Page not found",

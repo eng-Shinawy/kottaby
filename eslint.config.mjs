@@ -57,6 +57,8 @@ const eslintConfig = defineConfig([
     "jscpd-output/**",
     "jscpd-all/**",
     "agent-ctx/**",
+    // Auto-generated msw service worker (says "do NOT modify"; not real source).
+    "public/mockServiceWorker.js",
     // Transpiled locale artifacts (gitignored, generated at dev time).
     "shared/locale/**/*.js",
     // File patterns

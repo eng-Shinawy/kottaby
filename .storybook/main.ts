@@ -22,9 +22,6 @@ const config: StorybookConfig = {
       resolve: {
         alias: {
           "@": path.resolve(projectRoot, ".."),
-          // Next polyfills `node:process` in client bundles; vite externalizes
-          // it — the frontend logger imports it, so shim it (see shims/).
-          "node:process": path.resolve(projectRoot, "shims/node-process.ts"),
         },
       },
     });

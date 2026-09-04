@@ -3,8 +3,10 @@
 /**
  * MobileUserCardList — the mobile (< md) rendering of the admin user
  * directory: a vertical stack of per-user cards (16px gap). The stack keeps
- * a 96px `paddingBlockEnd` so the fixed create `Fab` never covers the last
- * card's content when the list is scrolled to the end.
+ * a 96px `paddingBlockEnd` as a gap before the pagination card; the scroll
+ * clearance that keeps the fixed create `Fab` off the final content at the
+ * bottom of the page lives on the page container's bottom padding
+ * (`AdminUsersDirectoryContainer`).
  *
  * Each card is rendered by `MobileUserCard` (header grid with avatar +
  * identity + time/kebab column; divider; two-column body rows for Status
@@ -39,7 +41,7 @@ export function MobileUserCardList(props: MobileUserCardListProps): ReactNode {
   return (
     <Stack
       spacing={2}
-      sx={{ display: { xs: "flex", md: "none" }, paddingBlockEnd: 12 /* 96px — clears the fixed create FAB */ }}
+      sx={{ display: { xs: "flex", md: "none" }, paddingBlockEnd: 12 /* 96px gap before the pagination card */ }}
     >
       {loading &&
         items.length === 0 &&

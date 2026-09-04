@@ -275,11 +275,11 @@ describe("AdminUserManagementService.listDirectory", () => {
   test("happy path — admin lists directory; new student row observable with role-child headline", async () => {
     await runInRollback(async tx => {
       const admin = await provisionAdminActor(tx);
-      const student = await createTestUser(tx, { role: "student" });
+      const student = await createTestUser(tx, { role: "student", fullName: "Unique HappyPath Student" });
       await createTestStudent(tx, student.id);
 
       const page = await AdminUserManagementService.listDirectory(
-        { role: UserRole.Student },
+        { role: UserRole.Student, search: "Unique HappyPath Student" },
         1,
         25,
         LOCALE,
@@ -428,6 +428,9 @@ describe("AdminUserManagementService.getStats", () => {
 
   test("governance resolution — a soft-deleted user counts in deletedCount and NOT in activeCount", async () => {
     await runInRollback(async tx => {
+      // Repeatable read ensures the count snapshots before & after the soft delete
+      // aren't skewed by concurrent user inserts from other parallel test suites.
+      await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
       const admin = await provisionAdminActor(tx);
       const target = await createTestUser(tx, { role: "parent" });
       await createTestParent(tx, target.id);

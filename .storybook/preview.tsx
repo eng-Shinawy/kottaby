@@ -1,7 +1,6 @@
 // cspell:ignore circlehollow
 import { DocsContainer, type DocsContainerProps } from "@storybook/addon-docs/blocks";
 import type { Decorator, Preview } from "@storybook/react";
-import { setupWorker } from "msw/browser";
 import { mswLoader } from "msw-storybook-addon/csf3";
 import { type PropsWithChildren, useEffect, useState } from "react";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
@@ -10,7 +9,9 @@ import { themes } from "storybook/theming";
 import { mswHandlers } from "./msw-handlers";
 import { StoryWrapper } from "./StoryWrapper";
 
-// Import global styles
+// Import global styles (font shim first: defines --font-inter/--font-cairo that
+// next/font only sets in app/layout.tsx, which Storybook never renders)
+import "./storybook-fonts.css";
 import "@/app/index.css";
 
 type DocsThemeMode = "light" | "dark";
@@ -106,15 +107,11 @@ const preview: Preview = {
       },
     },
   },
-  loaders: [
-    mswLoader(async () => {
-      const worker = setupWorker();
-      await worker.start({ onUnhandledRequest: "bypass" });
-      return worker;
-    }),
-  ],
+  loaders: [mswLoader()],
   parameters: {
     msw: { handlers: mswHandlers },
+
+    docs: { container: ThemedDocsContainer },
 
     nextjs: {
       appDirectory: true,
@@ -130,8 +127,6 @@ const preview: Preview = {
     a11y: {
       test: "todo",
     },
-
-    docs: { container: ThemedDocsContainer },
   },
   decorators: [withAllProviders],
 };

@@ -33,7 +33,7 @@ interface DirectoryStatusDetailsProps {
  *    pending / in evaluation, else `certified` (secondary lane) when the
  *    teacher is approved;
  *  - students: `parentLinked` (success lane) when the student is linked;
- *  - parents: `<count> <childrenLabel>` (neutral lane) when linked;
+ *  - parents: `childrenCount(count)` (neutral lane) when linked;
  *  - anything else: the em-dash fallback.
  */
 export function DirectoryStatusDetails({ user, labels }: DirectoryStatusDetailsProps): ReactNode {
@@ -62,7 +62,7 @@ export function DirectoryStatusDetails({ user, labels }: DirectoryStatusDetailsP
   }
   const linkedChildren = user.parentLinkedChildrenCount ?? 0;
   if (linkedChildren > 0) {
-    return <TonalChip tone="neutral" label={`${linkedChildren} ${labels.directoryChips.childrenLabel}`} />;
+    return <TonalChip tone="neutral" label={labels.directoryChips.childrenCount(linkedChildren)} />;
   }
   return <EmDash />;
 }

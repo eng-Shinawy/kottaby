@@ -26,9 +26,11 @@
  *    Same technique as `frontend/views/students/dashboard/HandshakeCodeCard.tsx`.
  *  - Meta row: "Member Since: <createdAt>" + "Last Active: <relative>", the
  *    relative part painted in the success family (prototype's mint accent).
- *  - Trailing actions: Edit (contained `primary` → existing edit dialog) and
- *    Deactivate (outlined `error` → existing delete dialog); for deleted
- *    users the slot renders Reactivate instead.
+ *  - Trailing actions: Certify (outlined `warning` → cold-start certify
+ *    dialog, gated on role Teacher + applicant snapshot + not-yet-approved
+ *    teacher + ungoverned account), Edit (contained `primary` → existing
+ *    edit dialog) and Deactivate (outlined `error` → existing delete
+ *    dialog); for deleted users the slot renders Reactivate instead.
  *  - Optional flourish: a skewed alpha-primary wash clipped to the card's
  *    trailing edge (decorative, `aria-hidden`, behind content). The wash
  *    lives inside a full-bleed clipping wrapper so its skew can never
@@ -54,13 +56,14 @@ interface UserDetailHeroProps {
   readonly user: DetailUser;
   readonly role: DirectoryRole;
   readonly governance: DirectoryGovernance;
-  readonly labels: Pick<AdminUsersLabels, "roleLabels" | "statusBadges" | "detail">;
+  readonly labels: Pick<AdminUsersLabels, "roleLabels" | "statusBadges" | "detail" | "certifyDialog">;
   /** Locale-bound date-only formatter (`Intl.DateTimeFormat(dateStyle: "medium")`). */
   readonly formatDate: (raw: string | null | undefined) => string;
   /** Locale-bound relative-time formatter (`Intl.RelativeTimeFormat` ladder). */
   readonly formatRelative: (raw: string | null | undefined) => string;
   readonly onEdit: () => void;
   readonly onDelete: () => void;
+  readonly onCertify: () => void;
 }
 
 export function UserDetailHero({
@@ -72,6 +75,7 @@ export function UserDetailHero({
   formatRelative,
   onEdit,
   onDelete,
+  onCertify,
 }: UserDetailHeroProps): ReactNode {
   const isDeleted = user.isDeleted ?? false;
   return (
@@ -120,7 +124,7 @@ export function UserDetailHero({
           formatDate={formatDate}
           formatRelative={formatRelative}
         />
-        <UserHeroActions labels={labels} isDeleted={isDeleted} onEdit={onEdit} onDelete={onDelete} />
+        <UserHeroActions labels={labels} user={user} onEdit={onEdit} onDelete={onDelete} onCertify={onCertify} />
       </Stack>
     </Box>
   );

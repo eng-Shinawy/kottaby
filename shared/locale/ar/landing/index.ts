@@ -388,4 +388,7 @@ export const landingAr: LandingLabels = {
   notFoundBackHome: "العودة إلى الرئيسية",
   notFoundMetaTitle: "الصفحة غير موجودة — Kottaby Academy",
   notFoundMetaDescription: "الصفحة المطلوبة غير موجودة. عد إلى الصفحة الرئيسية لمواصلة تصفح الأكاديمية.",
+
+  // Footer brand wordmark
+  footerBrandName: "أكاديمية كتّاب",
 };

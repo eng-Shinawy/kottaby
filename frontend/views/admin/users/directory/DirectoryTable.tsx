@@ -128,6 +128,10 @@ function DirectoryHeaderCell({ children, width, align }: DirectoryHeaderCellProp
         color: theme.palette.text.secondary,
         textAlign: align === "end" ? "end" : "start",
         borderBottom: `1px solid ${theme.palette.border.light}`,
+        // End-aligned cells (the ACTIONS column) prevent wrapping so the
+        // letter-spaced label never ellipsizes/clips, and get explicit
+        // inline-end breathing room so it never kisses the card edge.
+        ...(align === "end" && { whiteSpace: "nowrap", paddingInlineEnd: 3 }),
       })}
     >
       {children}

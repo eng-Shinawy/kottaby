@@ -176,7 +176,7 @@ export function resolveNavItemLabel(
   const value = isDashboardLabelKey(item.labelKey)
     ? dashboardLabels[item.labelKey]
     : handshakeCodeLabels[item.labelKey];
-  return typeof value === "string" ? value : String(value);
+  return typeof value === "string" ? value : item.labelKey;
 }
 
 /** Re-exported for the dashboard view's stat-card icon (notifications). */

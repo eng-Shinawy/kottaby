@@ -3,7 +3,7 @@ import { CacheProvider } from "@emotion/react";
 import { Box, CssBaseline, GlobalStyles, type PaletteMode } from "@mui/material";
 import { ThemeProvider, useColorScheme } from "@mui/material/styles";
 import type { StoryContext, StoryFn } from "@storybook/nextjs-vite";
-import { type ReactNode, useEffect, useMemo } from "react";
+import { type ReactNode, Suspense, useEffect, useMemo } from "react";
 import rtlPlugin from "stylis-plugin-rtl";
 import { ThemeContext } from "@/frontend/context/ThemeContext";
 import { LocaleProvider } from "@/frontend/providers/LocaleProvider";
@@ -109,7 +109,11 @@ export const StoryWrapper = ({ Story, context }: { Story: StoryFn; context: Stor
 
   const isUiComponent = checkIsUiComponent(context);
 
-  const content = <RenderStory Story={Story} context={context} />;
+  const content = (
+    <Suspense fallback={<Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", p: 4 }} />}>
+      <RenderStory Story={Story} context={context} />
+    </Suspense>
+  );
 
   // Calculate maxWidth based on viewport global
   const maxWidth = VIEWPORT_MAX_WIDTH[viewport];

@@ -69,7 +69,26 @@ export const dashboardEn: DashboardLabels = {
   comingSoonMetaDescription: "This page is not available yet. Check back soon.",
   gettingStartedTitle: "Getting Started",
   gettingStartedBody: "Welcome aboard! Here are a few things you can do to get started with your account.",
-  gettingStartedTipSessions: "Browse available Quran sessions and book your first recitation.",
-  gettingStartedTipSubscriptions: "Explore subscription plans to continue your learning journey.",
-  gettingStartedTipNotifications: "Check your notifications for important updates and announcements.",
+  gettingStartedTips: {
+    student: {
+      sessions: "Browse available Quran sessions and book your first recitation.",
+      subscriptions: "Explore subscription plans to continue your learning journey.",
+      notifications: "Check your notifications for important updates and announcements.",
+    },
+    teacher: {
+      sessions: "Set your availability and start hosting recitation sessions for students.",
+      subscriptions: "Review your earnings and payout settings from your dashboard.",
+      notifications: "Check your notifications for bookings, schedule changes, and announcements.",
+    },
+    admin: {
+      sessions: "Review teachers, students, and session activity across the platform.",
+      subscriptions: "Manage subscription plans and monitor platform enrollments.",
+      notifications: "Check notifications for pending approvals, alerts, and system updates.",
+    },
+    parent: {
+      sessions: "Book recitation sessions for your children and track their progress.",
+      subscriptions: "Manage your children's subscription plans from one place.",
+      notifications: "Check your notifications for session updates about your children.",
+    },
+  },
 };

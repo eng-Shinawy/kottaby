@@ -373,6 +373,8 @@ export interface LandingLabels {
   readonly prayerIsha: string;
   readonly prayerNext: string;
   readonly prayerIn: string;
+  // Footer brand wordmark
+  readonly footerBrandName: string;
 
   // Global 404 page (app/not-found.tsx) — public surface, branded + RTL-aware
   readonly notFoundTitle: string;

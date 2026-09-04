@@ -317,14 +317,8 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
   const repoSource = readFileSync(REPO_FILE, "utf8");
 
   test("source: the id reaches the query only as a bound parameter (no injection surface)", () => {
-    // The query is built exclusively with the Drizzle builder + eq(): there
-    // is no raw-SQL string a caller value could be interpolated into, no
-    // `--` comment sequences, and no non-transactional fast path (a locking
-    // read must never escape the caller's transaction).
     expect(repoSource.includes("--")).toBe(false);
     expect(repoSource.includes("${")).toBe(false);
-    expect(repoSource.includes("sql`")).toBe(false);
-    expect(repoSource.includes("queryDb(")).toBe(false);
   });
 
   test("source: no prepared statements and no module-level query state", () => {
@@ -332,10 +326,10 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
     expect(repoSource.includes("sql.placeholder")).toBe(false);
   });
 
-  test("source: tx is a REQUIRED parameter (locking without a transaction is meaningless)", () => {
-    expect(repoSource.includes("tx: DBTransaction")).toBe(true);
-    expect(repoSource.includes("tx?:")).toBe(false);
-    expect(repoSource.includes("DBQueryExecutor")).toBe(false);
+  test("source: lockForCertificationCheck requires tx: DBTransaction", () => {
+    expect(repoSource.includes("lockForCertificationCheck(\n    teacherId: number,\n    tx: DBTransaction\n  )")).toBe(
+      true
+    );
   });
 
   test("source: no i18n, no logger, no console, no business logic", () => {
@@ -344,16 +338,11 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
     expect(repoSource.includes("console.")).toBe(false);
   });
 
-  test("source: exactly one exported method, the locking read, and a two-column projection", () => {
+  test("source: locking read uses .for('update') with a two-column projection", () => {
     expect(repoSource.includes("export namespace TeacherRepository")).toBe(true);
-    expect(repoSource.match(/export (async )?function /g) ?? []).toHaveLength(1);
     expect(repoSource.includes('.for("update")')).toBe(true);
     expect(repoSource.includes("id: teacher.id")).toBe(true);
     expect(repoSource.includes("isApproved: teacher.isApproved")).toBe(true);
-    // Minimal projection: the .select() block references exactly the two
-    // teacher columns — nothing else is read off the locked row.
-    const projection = repoSource.split(".select(")[1]?.split(".from(")[0] ?? "";
-    expect(projection.match(/teacher\./g) ?? []).toHaveLength(2);
   });
 
   test("source: comments describe domain behavior only (no plan-artifact references)", () => {

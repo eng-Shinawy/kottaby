@@ -1,34 +1,9 @@
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { drizzleConfigPathForDialect, resolveDialectFromSelectedEnvFile } from "@/scripts/dbActions/dialect";
+import { getSelectedEnvFile } from "@/scripts/dbActions/envFile";
+import { generateCustomMigration } from "@/scripts/dbActions/generate";
 import { runBunCommand } from "@/scripts/dbActions/runCommand";
-import { withStatementBreakpoints } from "@/scripts/dbActions/sqlBreakpoints";
-
-/**
- * Generates a custom migration and populates it with SQL content.
- */
-export async function generateCustomMigration(sqlFilePath: string, customName: string): Promise<number> {
-  const result = await runBunCommand(["drizzle-kit", "generate", "--custom", `--name=${customName}`]);
-  if (result !== 0) return result;
-
-  const drizzleDir = "./backend/drizzle";
-  const folders = readdirSync(drizzleDir).filter(f => statSync(join(drizzleDir, f)).isDirectory());
-
-  // Find the folder that ends with _${customName} — don't rely on alphabetical sort
-  // since two folders can share the same timestamp prefix (e.g. normal + custom generated
-  // in the same second), causing the wrong folder to be picked.
-  const targetFolder = folders.find(f => f.endsWith(`_${customName}`));
-  if (!targetFolder) {
-    globalThis.console.error(`Could not find generated folder for ${customName}`);
-    return 1;
-  }
-  const latestFolder = targetFolder;
-
-  const migrationFile = join(drizzleDir, latestFolder, "migration.sql");
-  const sqlContent = withStatementBreakpoints(readFileSync(sqlFilePath, "utf8"));
-  writeFileSync(migrationFile, sqlContent);
-  globalThis.console.log(`✓ Updated ${migrationFile} with content from ${sqlFilePath}`);
-  return 0;
-}
 
 /**
  * Performs a clean generation of migrations.
@@ -41,6 +16,9 @@ export async function cleanGenerate(): Promise<number> {
     rmSync(drizzleDir, { recursive: true, force: true });
   }
 
+  const dialect = resolveDialectFromSelectedEnvFile(getSelectedEnvFile);
+  const configPath = drizzleConfigPathForDialect(dialect);
+
   // 1. Reset Database (drop/create only — migrations are regenerated and applied below)
   globalThis.console.log("Resetting database (drop/create only)...");
   const resetCode = await runBunCommand(["run", "backend/db/scripts/resetDb.ts", "--skip-migrate"]);
@@ -48,12 +26,12 @@ export async function cleanGenerate(): Promise<number> {
 
   // 2. Extensions
   globalThis.console.log("\nGenerating extensions migration...");
-  let code = await generateCustomMigration("backend/db/migration/1-extensions.sql", "extensions");
+  let code = await generateCustomMigration("backend/db/migration/1-extensions.sql", "extensions", configPath);
   if (code !== 0) return code;
 
   // 3. Normal migration
   globalThis.console.log("\nGenerating normal migration...");
-  code = await runBunCommand(["drizzle-kit", "generate", "--ignore-conflicts"]);
+  code = await runBunCommand(["drizzle-kit", "generate", "--ignore-conflicts", "--config", configPath]);
   if (code !== 0) return code;
 
   // 4. Combine all other migrations into a single temporary file
@@ -76,7 +54,7 @@ export async function cleanGenerate(): Promise<number> {
       writeFileSync(tempCombinedFile, combinedContent);
 
       globalThis.console.log("Generating single custom migration for all custom logic...");
-      code = await generateCustomMigration(tempCombinedFile, "combined_custom_logic");
+      code = await generateCustomMigration(tempCombinedFile, "combined_custom_logic", configPath);
       if (code !== 0) return code;
     } finally {
       if (existsSync(tempCombinedFile)) {

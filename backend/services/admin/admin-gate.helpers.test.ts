@@ -1,36 +1,56 @@
 /**
- * Admin-gate helpers tests — the shared BFLA actor gate (`assertActorAdmin`).
+ * Admin actor-gate helpers tests — the shared BFLA actor gate suite.
  *
- * `admin-gate.helpers.ts` is the ONE canonical admin-actor gate: consumed by
- * `AdminUserManagementService` (7 call sites), `AuditTrailService`, and (from
- * the broadcast ticket) `AdminBroadcastService` via the same import. The
- * DEV3-016 service/chaos suites pin the gate's behavior THROUGH the calling
- * services (anonymous + non-admin denials with zero writes/audit), but no
- * existing suite pins the gate's "actor row missing" branch directly — the
- * journey fixtures deliberately avoid it (see the file-scope cast comment in
- * `test/workflows/admin/admin-user-denials.journey.test.ts`). This suite
- * pins the shared helper ITSELF:
+ * `admin-gate.helpers.ts` is the ONE canonical admin-actor gate module:
+ * `assertActorAdmin` (role gate) is consumed by `AdminUserManagementService`
+ * (7 call sites), `AuditTrailService`, and `AdminBroadcastService` via the
+ * same import; `assertActorAdminActive` (role gate + governance clause)
+ * layers the deleted → blocked → suspended governance ordering on top of it.
+ * The DEV3-016 service/chaos suites pin the gate's behavior THROUGH the
+ * calling services (anonymous + non-admin denials with zero writes/audit),
+ * but no existing suite pins the gate's "actor row missing" branch directly —
+ * the journey fixtures deliberately avoid it (see the file-scope cast comment
+ * in `test/workflows/admin/admin-user-denials.journey.test.ts`). This suite
+ * pins BOTH shared helpers directly:
  *
- *  1. barrel surface — `@/backend/services/admin` re-exports the SAME gate
+ *  `assertActorAdmin`:
+ *   - barrel surface — `@/backend/services/admin` re-exports the SAME gate
  *     function identity (no forked copy);
- *  2. anonymous `actorId = 0` → `UnauthorizedError` BEFORE any repository
+ *   - anonymous `actorId = 0` → `UnauthorizedError` BEFORE any repository
  *     read (pre-DB), one bounded `logDomainError`, zero writes;
- *  3. unresolvable actor (row missing) → `ForbiddenError` after exactly ONE
+ *   - unresolvable actor (row missing) → `ForbiddenError` after exactly ONE
  *     tx-scoped `UserRepository.findById` read, one bounded log, zero writes;
- *  4. resolvable non-admin → `ForbiddenError` after exactly ONE read, one
+ *   - resolvable non-admin → `ForbiddenError` after exactly ONE read, one
  *     bounded log, zero writes;
- *  5. real admin → passes with ZERO logs and zero writes;
- *  6. LIVE-row semantics — the verdict is re-derived from the `users` row on
+ *   - real admin → passes with ZERO logs and zero writes;
+ *   - LIVE-row semantics — the verdict is re-derived from the `users` row on
  *     EVERY call (promote/demote inside the same tx flips the verdict),
  *     proving the gate re-checks the live row rather than a cached claim.
  *
+ *  `assertActorAdminActive`:
+ *   - Tier 1 (role branches): clean admin → silent pass (zero domain logs);
+ *     non-admin → `ForbiddenError` carrying the { code, entity, entityId }
+ *     log context; missing actor → `ForbiddenError`; actor deleted between
+ *     the role-gate read and the governance re-read → fail-closed
+ *     `ForbiddenError` (never sails through on optional chains).
+ *   - Tier 2 (governance ordering): multi-flagged admin fixtures prove the
+ *     deterministic deleted → blocked → suspended precedence.
+ *   - Tier 4 (BFLA / pre-DB): anonymous denial fires with ZERO
+ *     `UserRepository.findById` calls; governed denials carry the `locale`
+ *     in the domain-log context.
+ *
  * Per `backend/db/test/AGENTS.md` + `backend/services/AGENTS.md`:
  *  - Every DB case runs inside `runInRollback`; the caller `tx` is passed to
- *    the gate so fixtures and reads share the SAME rolled-back transaction.
+ *    the gate and to every entity-setup call so fixtures and reads share the
+ *    SAME rolled-back transaction.
  *  - All rejection assertions use `expectRepoError` (try/catch) —
- *    `expect(...).rejects.toThrow()` is prohibited.
+ *    `expect(...).rejects.toThrow()` is prohibited and appears nowhere.
+ *  - Translated-message assertions resolve via `getServerTranslations`
+ *    property access — never raw keys, never hardcoded UI copy.
  *  - Log spies are silences with per-test restoration (bun reuses ONE mock
  *    per object+method pair — see the tracked-spies registry below).
+ *  - Zero-write oracles are identity-scoped (never table-wide counts) so they
+ *    stay exact under parallel runners (AGENTS.md Rule 2 / Rule 9).
  */
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
@@ -43,7 +63,7 @@ import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { DomainError, ForbiddenError, UnauthorizedError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { assertActorAdmin as barrelAssertActorAdmin } from "@/backend/services/admin";
-import { assertActorAdmin } from "@/backend/services/admin/admin-gate.helpers";
+import { assertActorAdmin, assertActorAdminActive } from "@/backend/services/admin/admin-gate.helpers";
 import type { DBTransaction, UserSelectType } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
@@ -53,7 +73,7 @@ const tErrors = getServerTranslations(LOCALE).errorsTranslations;
 /** Sentinel `actorId` value expressing an anonymous caller. */
 const ANONYMOUS_ACTOR_ID = 0;
 
-/** Returns an integer id guaranteed absent from `users` this tx. */
+/** Returns an integer id guaranteed absent from `users` in this tx. */
 async function absentUserId(tx: DBTransaction): Promise<number> {
   const [row] = await tx.select({ maxId: sql<number>`coalesce(max(${users.id}), 0)::int` }).from(users);
   return (row?.maxId ?? 0) + 1_000_000;
@@ -96,6 +116,7 @@ async function actorAuditCount(tx: DBTransaction, entityId: number): Promise<num
   return row?.count ?? 0;
 }
 
+/** Domain log spy family share this stubbed signature. */
 type DomainLogSpy = ReturnType<typeof spyOn>;
 
 /**
@@ -140,6 +161,25 @@ function assertErrorCode(error: Error, expectedCode: string): void {
   expect(error).toBeInstanceOf(DomainError);
   if (!(error instanceof DomainError)) throw new Error("expected a DomainError instance");
   expect(error.code).toBe(expectedCode);
+}
+
+/**
+ * Registers a governance-denial case: an admin-role actor pre-flagged with
+ * the supplied governance overrides must be rejected with a localized
+ * `ForbiddenError` and exactly one domain log entry.
+ */
+function testGovernanceDenial(title: string, overrides: Partial<UserSelectType>, expectedMessage: string): void {
+  test(title, async () => {
+    await runInRollback(async tx => {
+      const admin = await createTestUser(tx, { role: "admin", ...overrides });
+      const spy = silenceDomainLog();
+
+      const error = await expectRepoError(() => assertActorAdminActive(admin.id, LOCALE, tx));
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(error.message).toContain(expectedMessage);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
 }
 
 describe("assertActorAdmin — shared admin gate (BFLA, pre-DB)", () => {
@@ -269,6 +309,114 @@ describe("assertActorAdmin — shared admin gate (BFLA, pre-DB)", () => {
       await tx.update(users).set({ role: "student" }).where(eq(users.id, actor.id));
       const deniedAfter = await expectRepoError(() => assertActorAdmin(actor.id, LOCALE, tx));
       expect(deniedAfter).toBeInstanceOf(ForbiddenError);
+    });
+  });
+});
+
+describe("assertActorAdminActive — Tier 1: role branches", () => {
+  test("clean admin actor passes silently (no throw, zero domain logs)", async () => {
+    await runInRollback(async tx => {
+      const admin = await createTestUser(tx, { role: "admin" });
+      const spy = silenceDomainLog();
+
+      await assertActorAdminActive(admin.id, LOCALE, tx);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  test("non-admin actor → ForbiddenError with exactly one FORBIDDEN domain log", async () => {
+    await runInRollback(async tx => {
+      const nonAdmin = await createTestUser(tx, { role: "student" });
+      const spy = silenceDomainLog();
+
+      const error = await expectRepoError(() => assertActorAdminActive(nonAdmin.id, LOCALE, tx));
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(error.message).toContain(tErrors.forbidden);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const context = spy.mock.calls[0][1];
+      expect(context?.code).toBe("FORBIDDEN");
+      expect(context?.entity).toBe("user");
+      expect(context?.entityId).toBe(nonAdmin.id);
+    });
+  });
+
+  test("missing actor row → ForbiddenError", async () => {
+    await runInRollback(async tx => {
+      const ghostId = await absentUserId(tx);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() => assertActorAdminActive(ghostId, LOCALE, tx));
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(error.message).toContain(tErrors.forbidden);
+    });
+  });
+
+  test("actor deleted between the role-gate read and the governance re-read → fail-closed ForbiddenError, one bounded log", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const spy = silenceDomainLog();
+      // First read (inside `assertActorAdmin`) resolves the real admin row;
+      // the governance re-read resolves null — the vanished-row lane must
+      // fail closed rather than sail through on optional chains.
+      const readSpy = trackSpy(
+        spyOn(UserRepository, "findById").mockResolvedValueOnce(admin).mockResolvedValueOnce(null)
+      );
+
+      const error = await expectRepoError(() => assertActorAdminActive(admin.id, LOCALE, tx));
+
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(error.message).toContain(tErrors.forbidden);
+      expect(readSpy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const [message, ctx] = spy.mock.calls[0];
+      expect(message).toContain("vanished");
+      expect(ctx).toEqual({ code: "FORBIDDEN", entity: "user", entityId: admin.id, locale: LOCALE });
+    });
+  });
+});
+
+describe("assertActorAdminActive — Tier 2: governance ordering", () => {
+  testGovernanceDenial(
+    "deleted + blocked + suspended → deleted denial wins (first in order)",
+    { isDeleted: true, isBlocked: true, suspended: true },
+    tErrors.accountDeleted
+  );
+  testGovernanceDenial(
+    "blocked + suspended → blocked denial wins over suspended",
+    { isBlocked: true, suspended: true },
+    tErrors.accountBlocked
+  );
+  testGovernanceDenial("deleted only → accountDeleted", { isDeleted: true }, tErrors.accountDeleted);
+  testGovernanceDenial("blocked only → accountBlocked", { isBlocked: true }, tErrors.accountBlocked);
+  testGovernanceDenial("suspended only → accountSuspended", { suspended: true }, tErrors.accountSuspended);
+});
+
+describe("assertActorAdminActive — Tier 4: BFLA pre-DB denials", () => {
+  test("anonymous actor (id=0) → UnauthorizedError with ZERO repository reads", async () => {
+    await runInRollback(async tx => {
+      const findSpy = spyActorRead();
+      silenceDomainLog();
+
+      const error = await expectRepoError(() => assertActorAdminActive(ANONYMOUS_ACTOR_ID, LOCALE, tx));
+      expect(error).toBeInstanceOf(UnauthorizedError);
+      expect(error.message).toContain(tErrors.unauthorized);
+      expect(findSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  test("governed admin denial carries the locale in the domain-log context", async () => {
+    await runInRollback(async tx => {
+      const admin = await createTestUser(tx, { role: "admin", suspended: true });
+      const spy = silenceDomainLog();
+
+      const error = await expectRepoError(() => assertActorAdminActive(admin.id, LOCALE, tx));
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const context = spy.mock.calls[0][1];
+      expect(context?.code).toBe("FORBIDDEN");
+      expect(context?.entity).toBe("user");
+      expect(context?.entityId).toBe(admin.id);
+      expect(context?.locale).toBe(LOCALE);
     });
   });
 });

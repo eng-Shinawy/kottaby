@@ -27,7 +27,7 @@ export const adminUsersEn: AdminUsersLabels = {
     verified: "Verified",
     certified: "Certified",
     parentLinked: "Parent Linked",
-    childrenLabel: "children",
+    childrenCount: count => (count === 1 ? "1 child" : `${count} children`),
     pendingReview: "Pending Review",
   },
   stats: {
@@ -122,6 +122,15 @@ export const adminUsersEn: AdminUsersLabels = {
     confirm: "Reactivate user",
     cancel: "Cancel",
   },
+  certifyDialog: {
+    title: "Certify teacher",
+    warningMessage: name =>
+      `Certifying ${name} bypasses the evaluation pipeline and grants teacher access immediately.`,
+    evaluatorCheckbox: "Also grant evaluator privileges",
+    auditNote: "This action is recorded in the audit log.",
+    confirm: "Certify teacher",
+    cancel: "Cancel",
+  },
   detail: {
     profile: "Profile",
     governance: "Governance",
@@ -143,6 +152,7 @@ export const adminUsersEn: AdminUsersLabels = {
     lastActiveLabel: "Last Active",
     profileReadonlyNote: "Email and role are managed by system flows and cannot be edited here.",
     governanceNote: "Governance windows are managed in the Governance module.",
+    emptyValue: "—",
     teacherApplication: {
       subtitle: "Application progress and certification details.",
       statsOf: "of",
@@ -204,6 +214,7 @@ export const adminUsersEn: AdminUsersLabels = {
     updated: "User updated.",
     deleted: "User deleted.",
     reactivated: "User reactivated.",
+    certified: "Teacher certified.",
   },
   activity: {
     title: "Recent activity",

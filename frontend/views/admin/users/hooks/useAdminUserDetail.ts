@@ -10,12 +10,13 @@
  *    activity timeline query (scoped `audit_logs` read-back — a timeline
  *    failure never blocks the detail surface, and it refetches after each
  *    successful inline mutation),
- *  - the inline mutations (`adminUpdateUser` / `adminSetUserDeleted`) — the
- *    SAME whitelist operations the directory uses; both return the
- *    post-write `AdminUserDetailFields` fragment, which Apollo merges into
- *    the `AdminUserDetail:<id>` normalized entity (id-first rule) so the
- *    detail query re-renders automatically,
- *  - the edit / delete dialog open state and the success snackbar message.
+ *  - the inline mutations (`adminUpdateUser` / `adminSetUserDeleted` /
+ *    `adminCertifyTeacherColdStart`) — the SAME whitelist operations the
+ *    directory uses, plus the guarded cold-start certification; the returned
+ *    post-write payloads merge into the `AdminUserDetail:<id>` normalized
+ *    entity (id-first rule) so the detail query re-renders automatically,
+ *  - the edit / delete / certify dialog open state and the success snackbar
+ *    message.
  *
  * Presentation stays in `AdminUserDetailContainer` and the detail cards;
  * this module returns plain state — no JSX.
@@ -24,6 +25,7 @@
 import { useMutation, useQuery } from "@apollo/client/react";
 import { useMemo, useState } from "react";
 import {
+  adminCertifyTeacherColdStartMutationDocument,
   adminSetUserDeletedMutationDocument,
   adminUpdateUserMutationDocument,
   adminUserActivityQueryDocument,
@@ -31,6 +33,7 @@ import {
 } from "@/frontend/graphql/sharedDocuments/admin";
 import { useAppLocale } from "@/frontend/hooks/locale";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
+import type { AdminUserCertifyTarget } from "@/frontend/views/admin/users/dialogs";
 import {
   ACTIVITY_TIMELINE_LIMIT,
   formatDirectoryRelativeTime,
@@ -80,13 +83,21 @@ export function useAdminUserDetail(userId: number) {
   // post-write fragment into the `AdminUserDetail:<id>` normalized entity.
   const [updateUser, { loading: updateLoading }] = useMutation(adminUpdateUserMutationDocument);
   const [setDeleted, { loading: deleteLoading }] = useMutation(adminSetUserDeletedMutationDocument);
+  // Cold-start teacher certification — the returned post-write detail merges
+  // into the `AdminUserDetail:<id>` normalized entity, so no refetch is
+  // needed (the activity timeline still refetches for the new audit row).
+  const [certifyUser, { loading: certifyLoading }] = useMutation(adminCertifyTeacherColdStartMutationDocument);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [certifyState, setCertifyState] = useState<{ targetUser: AdminUserCertifyTarget | null }>({
+    targetUser: null,
+  });
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
   const errorCode = error ? extractErrorCode(error) : null;
   const openEdit = () => setEditOpen(true);
   const openDelete = () => setDeleteOpen(true);
+  const setCertifyTarget = (targetUser: AdminUserCertifyTarget | null) => setCertifyState({ targetUser });
 
   return {
     fmtTimestamp,
@@ -103,6 +114,10 @@ export function useAdminUserDetail(userId: number) {
     updateLoading,
     setDeleted,
     deleteLoading,
+    certifyUser,
+    certifyLoading,
+    certifyState,
+    setCertifyTarget,
     editOpen,
     setEditOpen,
     deleteOpen,

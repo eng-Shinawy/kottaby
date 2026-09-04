@@ -1,0 +1,23 @@
+/*
+ * Storybook-only font shim.
+ *
+ * The app loads Inter/Cairo via next/font in app/layout.tsx, which defines the
+ * --font-inter / --font-cairo CSS variables on <html>. Storybook never renders
+ * that layout, so frontend/providers/theme/typography.ts resolves those vars to
+ * nothing and every story falls back to the browser's default serif.
+ *
+ * This file mirrors the prod setup: it @imports the same Google Fonts
+ * stylesheet (Inter + Cairo, matching the weights typography.ts uses, with the
+ * arabic subset for Cairo via unicode-range) and defines the same variables on
+ * :root so stories match the app's computed font-family.
+ *
+ * prod values (next/font compiled shape: "<family>", "<family> Fallback") map
+ * to the plain Google-hosted family plus the same generic fallback class the
+ * theme already appends (sans-serif).
+ */
+@import "https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap";
+
+:root {
+  --font-inter: "Inter", "Inter Fallback", sans-serif;
+  --font-cairo: "Cairo", "Cairo Fallback", sans-serif;
+}

@@ -15,4 +15,7 @@ export const applicantEn: ApplicantLabels = {
   certifiedSummary: "Your teacher verification is complete. You are certified to teach Qur'an recitation.",
   certifiedSurfacesHint: "All teaching surfaces are now open for you in the dashboard menu.",
   inEvaluationHint: "Your evaluation covers five recitation sessions before a decision is made.",
+  coldStartCertifiedTitle: "Your Teacher Certification Is Complete",
+  coldStartCertifiedBody:
+    "Congratulations — you are now a certified Qur'an teacher. All teaching surfaces are now open for you in the dashboard.",
 };

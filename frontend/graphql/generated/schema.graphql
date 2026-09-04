@@ -301,6 +301,11 @@ type Mutation {
   Broadcasts an admin-authored announcement to the audience selected server-side and returns the persisted recipient count.
   """
   adminBroadcastNotification(input: AdminBroadcastNotificationInput!): Int!
+
+  """
+  Admin-only cold-start certification (INV-TV1(b) / FR-3.9): promotes an existing teacher-role user to a certified founding Sheikh — inserts or elevates the teacher row (is_approved=true, is_evaluator per flag), finalizes any applicants row (passed, cooldown cleared), appends one override audit row, and notifies the teacher. Repeat calls answer TEACHER_ALREADY_CERTIFIED.
+  """
+  adminCertifyTeacherColdStart(makeEvaluator: Boolean = true, userId: Int!): AdminUserDetail!
   adminCreateUser(input: AdminCreateUserInput!): AdminUserDetail!
   adminSetUserDeleted(deleted: Boolean!, id: Int!): AdminUserDetail!
   adminUpdateUser(id: Int!, input: AdminUpdateUserInput!): AdminUserDetail!

@@ -56,9 +56,12 @@ export function RecitationSelector({ value, onChange, labels, options, loading }
       sx={{
         display: "grid",
         gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+        alignItems: "stretch",
         gap: 1.5,
-        maxHeight: 360,
-        overflowY: "auto",
+        // Scroll cap only once the grid goes 2-column: in the single-column
+        // mobile stack the cap clips the last card (page scrolls instead).
+        maxHeight: { xs: "none", sm: 360 },
+        overflowY: { xs: "visible", sm: "auto" },
         pr: 1,
         // Custom scrollbar for the grid
         "&::-webkit-scrollbar": { width: 6 },

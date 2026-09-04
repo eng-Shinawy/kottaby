@@ -117,8 +117,8 @@ export interface AdminUsersLabels {
     readonly certified: string;
     /** Chip shown when the student account is linked to a parent. */
     readonly parentLinked: string;
-    /** Caption unit composed after a linked-children count (`${count} ${childrenLabel}` in the component). */
-    readonly childrenLabel: string;
+    /** Full caption for the linked-children count chip; handles pluralization per locale. */
+    readonly childrenCount: (count: number) => string;
     /** Chip shown when a teacher application is awaiting review. */
     readonly pendingReview: string;
   };
@@ -276,6 +276,31 @@ export interface AdminUsersLabels {
     readonly cancel: string;
   };
 
+  /**
+   * Certify-teacher (cold-start) confirm dialog copy — the guarded admin
+   * bypass that grants teacher access immediately, skipping the evaluation
+   * pipeline (`adminCertifyTeacherColdStart`).
+   */
+  readonly certifyDialog: {
+    /** Dialog title; the hero action button reuses it. */
+    readonly title: string;
+    /**
+     * Warning banner naming the target user and stating that certification
+     * bypasses the evaluation pipeline and grants teacher access
+     * immediately — interpolation function (typed template; the component
+     * passes the verbatim full name).
+     */
+    readonly warningMessage: (name: string) => string;
+    /** Checkbox label for the optional evaluator grant (pre-checked, default on). */
+    readonly evaluatorCheckbox: string;
+    /** Muted footnote — the certification is recorded in the audit log. */
+    readonly auditNote: string;
+    /** Confirm button label for the certify dialog. */
+    readonly confirm: string;
+    /** Cancel button label for the certify dialog. */
+    readonly cancel: string;
+  };
+
   /** Detail page section headings and navigation affordances. */
   readonly detail: {
     /** Section heading for the profile card (full name, email, phone, etc.). */
@@ -316,6 +341,8 @@ export interface AdminUsersLabels {
     readonly profileReadonlyNote: string;
     /** Info strip at the bottom of the governance card — windows live in the Governance module. */
     readonly governanceNote: string;
+    /** Placeholder rendered in place of an unset profile value (typographic dash). */
+    readonly emptyValue: string;
     /**
      * Teacher-application progress card on the detail page — application
      * stats, review stepper, and the read-only certification note.
@@ -412,6 +439,8 @@ export interface AdminUsersLabels {
     readonly deleted: string;
     /** Snackbar copy rendered after a successful reactivation. */
     readonly reactivated: string;
+    /** Snackbar copy rendered after a successful cold-start teacher certification. */
+    readonly certified: string;
   };
 
   /**

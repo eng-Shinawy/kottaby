@@ -27,7 +27,12 @@ export const adminUsersAr: AdminUsersLabels = {
     verified: "موثّق",
     certified: "معتمد",
     parentLinked: "مرتبط بولي أمر",
-    childrenLabel: "أبناء",
+    childrenCount: count => {
+      if (count === 1) return "طفل واحد";
+      if (count === 2) return "طفلان";
+      if (count >= 3 && count <= 10) return `${count} أطفال`;
+      return `${count} طفلاً`;
+    },
     pendingReview: "قيد المراجعة",
   },
   stats: {
@@ -122,6 +127,14 @@ export const adminUsersAr: AdminUsersLabels = {
     confirm: "إعادة تفعيل المستخدم",
     cancel: "إلغاء",
   },
+  certifyDialog: {
+    title: "اعتماد المعلم",
+    warningMessage: name => `اعتماد ${name} يتجاوز مسار التقييم ويمنح صلاحية التدريس فورًا.`,
+    evaluatorCheckbox: "منح صلاحيات المقيّم أيضًا",
+    auditNote: "يُسجَّل هذا الإجراء في سجل التدقيق.",
+    confirm: "اعتماد المعلم",
+    cancel: "إلغاء",
+  },
   detail: {
     profile: "الملف الشخصي",
     governance: "الحوكمة",
@@ -142,6 +155,7 @@ export const adminUsersAr: AdminUsersLabels = {
     lastActiveLabel: "آخر نشاط",
     profileReadonlyNote: "يُدار البريد الإلكتروني والدور عبر تدفقات النظام ولا يمكن تعديلهما من هنا.",
     governanceNote: "تُدار نوافذ الحوكمة من وحدة الحوكمة.",
+    emptyValue: "—",
     teacherApplication: {
       subtitle: "تقدم الطلب وتفاصيل الاعتماد.",
       statsOf: "من",
@@ -203,6 +217,7 @@ export const adminUsersAr: AdminUsersLabels = {
     updated: "تم تحديث المستخدم.",
     deleted: "تم حذف المستخدم.",
     reactivated: "تمت إعادة تفعيل المستخدم.",
+    certified: "تم اعتماد المعلم.",
   },
   activity: {
     title: "النشاط الأخير",

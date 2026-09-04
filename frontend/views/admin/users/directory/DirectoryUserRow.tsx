@@ -94,7 +94,7 @@ export function DirectoryUserRow({ user, labels, locale, onEdit, onDelete }: Dir
       <TableCell sx={{ minWidth: 0 }}>
         <DirectoryRelativeTime value={user.lastActiveAt} locale={locale} />
       </TableCell>
-      <TableCell sx={theme => ({ textAlign: "end", color: theme.palette.text.secondary })}>
+      <TableCell sx={theme => ({ textAlign: "end", color: theme.palette.text.secondary, paddingInlineEnd: 3 })}>
         <DirectoryActionsMenu user={user} labels={labels} onEdit={onEdit} onDelete={onDelete} />
       </TableCell>
     </TableRow>

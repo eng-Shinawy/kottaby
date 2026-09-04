@@ -29,7 +29,7 @@ export function FooterBrandSection(): ReactNode {
             bgcolor: "var(--mui-palette-secondary-main)",
           }}
         />
-        <Typography sx={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.01em" }}>Kottaby Academy</Typography>
+        <Typography sx={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.01em" }}>{t.footerBrandName}</Typography>
       </Stack>
       <Typography variant="body2" sx={{ maxWidth: 320, lineHeight: 1.6, opacity: 0.7, fontSize: 13 }}>
         {t.footerTagline}

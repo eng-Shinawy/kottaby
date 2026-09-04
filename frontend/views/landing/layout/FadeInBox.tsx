@@ -1,6 +1,7 @@
 "use client";
 
 import { Box } from "@mui/material";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 // ─── Scroll-triggered settle-in hook ─────────────────────────────────
@@ -62,6 +63,8 @@ export function FadeInBox({
   readonly delay?: number;
 }) {
   const { ref, settled } = useSettleInOnScroll();
+  // Honor prefers-reduced-motion: render fully settled with no transition.
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", { noSsr: true });
   return (
     <Box
       ref={ref}
@@ -69,8 +72,8 @@ export function FadeInBox({
       sx={{
         // Transform-only entrance: opacity stays 1 at all times so sections
         // are visible before/without any JS-driven reveal.
-        transform: settled ? "translateY(0)" : "translateY(14px)",
-        transition: `transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms`,
+        transform: settled || reducedMotion ? "translateY(0)" : "translateY(14px)",
+        transition: reducedMotion ? "none" : `transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms`,
         // Anchor targets must clear the sticky navbar (65px) plus the 14px
         // settle-in translateY offset that the anchor-scroll geometry can
         // capture mid-transition (otherwise headings land under the bar).

@@ -14,4 +14,6 @@ export const applicantAr: ApplicantLabels = {
   certifiedSummary: "اكتمل التحقق بنجاح، وأنت الآن معتمد لتعليم القرآن الكريم.",
   certifiedSurfacesHint: "جميع أقسام التعليم متاحة لك الآن من قائمة لوحة التحكم.",
   inEvaluationHint: "يشمل التقييم خمس جلسات للتلاوة قبل إصدار القرار النهائي.",
+  coldStartCertifiedTitle: "اكتمل اعتمادك كمعلم قرآن",
+  coldStartCertifiedBody: "تهانينا! أنت الآن معلم قرآن معتمد، وقد فُتحت لك جميع أقسام التعليم في لوحة التحكم.",
 };

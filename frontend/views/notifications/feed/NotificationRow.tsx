@@ -96,6 +96,9 @@ export function NotificationRow({
         p: { xs: 1.5, sm: 2 },
         borderRadius: 2,
         bgcolor: unread ? theme.palette.action.selected : undefined,
+        // Read rows stay un-tinted; a hairline keeps them card-shaped in dark
+        // mode where an un-tinted row otherwise floats on the page background.
+        border: unread ? undefined : `1px solid ${theme.palette.divider}`,
       })}
     >
       <NotificationRowTypeAvatar icon={TypeIcon} />

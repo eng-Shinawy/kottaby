@@ -7,5 +7,6 @@ export * from "./destructive";
 export * from "./dialect";
 export * from "./ensureExtensions";
 export * from "./envFile";
+export * from "./generate";
 export * from "./runCommand";
 export * from "./sqlBreakpoints";

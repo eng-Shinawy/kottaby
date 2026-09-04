@@ -121,7 +121,7 @@ The permanent lock suite lives in `backend/db/test/logic/auth/registration.servi
 | **Failure / cooldown writer** | Cooldown **writer** contract: sets `applicants.cooldown_until`. Durations (30d Tajweed / 90d Hifz minimums) are set at write time — the reader documented here is deliberately duration-agnostic (§2.4). Keep the strict-`>` reader honest: when a cooldown should no longer bind (pass, admin clearing), null/clear the column rather than leaving a stale instant. |
 | **Failed → student conversion** | Co-existence: the `students` record co-exists with the `applicants` row; the applicants row is not disturbed (§2.5). Student privileges persist during cooldown. |
 | **Admin governance / override** | The override surface reads `audit_logs` (the append-only audit trail per the recorded governance decision). No override surface exists in this lifecycle layer; the admin-override-supersedes-aggregation invariant is unaffected, and the admin-governance workflow is not modified. |
-| **Direct admin onboarding** | Boundary: direct onboarding is the cold-start certification path. It does **not** route through the purchase/evaluation lifecycle; the cooldown/attempt contracts in §2 do not apply to it, and no applicant file is required by that path. |
+| **Direct admin onboarding** | Boundary: direct onboarding is the cold-start certification path. It does **not** route through the purchase/evaluation lifecycle; the cooldown/attempt contracts in §2 do not apply to it, and no applicant file is required by that path. Canonical reference: `docs/admin/cold-start-certification.md`. |
 
 ---
 

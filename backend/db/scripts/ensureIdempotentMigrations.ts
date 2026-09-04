@@ -118,7 +118,7 @@ function transformCreateTable(trimmed: string): string | null {
   if (
     /\bCREATE\s+TABLE\b/i.test(trimmed) &&
     !/\bCREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b/i.test(trimmed) &&
-    !/\bCREATE\s+TABLE\b[\s\S]*?\bAS\b/i.test(trimmed) &&
+    !/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^\s(]+\s+AS\b/i.test(trimmed) &&
     !/DO\s+\$\$/i.test(trimmed)
   ) {
     return trimmed.replace(/\bCREATE\s+TABLE\b/gi, "CREATE TABLE IF NOT EXISTS");

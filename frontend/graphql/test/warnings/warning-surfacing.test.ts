@@ -296,7 +296,10 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
  * wrapper, so it is warning-incapable like the admin user mutations; it is
  * admin-scoped via its own auth-scopes conjunction and is NOT on the public
  * allowlist) + the 7-mutation DEV3-004/005/012 session family + the
- * DEV3-013 wallet payout (same warning-incapable canonical-payload shapes).
+ * DEV3-013 wallet payout (same warning-incapable canonical-payload shapes)
+ * + cold-start teacher certification (DEV3-018) — the latter returns the
+ * canonical `AdminUserDetail` payload with every denial riding `errors[]`,
+ * so it is warning-incapable exactly like the DEV3-016 trio.
  *
  * Refreshed again when DEV1-014 (parent→child link request workflow) landed
  * `requestParentChildLink`, `respondToParentLinkRequest` and
@@ -307,6 +310,7 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
   "adminBroadcastNotification",
+  "adminCertifyTeacherColdStart",
   "adminCreateUser",
   "adminSetUserDeleted",
   "adminUpdateUser",

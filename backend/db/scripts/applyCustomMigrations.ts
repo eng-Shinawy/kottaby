@@ -226,8 +226,7 @@ function generateFolderForFile(entry: ManifestEntry, index: number, baseMs: numb
  */
 export function applyCustomMigrations(): string[] {
   if (!existsSync(DRIZZLE_DIR)) {
-    logger.info("Custom migrations: backend/drizzle/ does not exist yet; skipping auto-bundle.");
-    return [];
+    mkdirSync(DRIZZLE_DIR, { recursive: true });
   }
 
   const currentManifest = buildManifest();

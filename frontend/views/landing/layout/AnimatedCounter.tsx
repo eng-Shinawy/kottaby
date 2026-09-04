@@ -1,5 +1,6 @@
 "use client";
 
+import useMediaQuery from "@mui/material/useMediaQuery";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isDigitChar, isNumericChar } from "@/frontend/views/landing/utils";
 
@@ -20,6 +21,8 @@ function parseStatValue(raw: string): { num: number; suffix: string } {
 
 export function AnimatedCounter({ raw }: { readonly raw: string }): ReactNode {
   const { num, suffix } = parseStatValue(raw);
+  // Honor prefers-reduced-motion: show the final value with no count-up.
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", { noSsr: true });
   const [count, setCount] = useState(0);
   const [started, setStarted] = useState(false);
   const spanRef = useRef<HTMLSpanElement>(null);
@@ -52,7 +55,7 @@ export function AnimatedCounter({ raw }: { readonly raw: string }): ReactNode {
   }, [started]);
 
   useEffect(() => {
-    if (!started) return;
+    if (!started || reducedMotion) return undefined;
     // 1.2s keeps the count-up snappy while guaranteeing the final value
     // renders quickly (full-page captures, fast scrollers).
     const duration = 1200;
@@ -62,24 +65,32 @@ export function AnimatedCounter({ raw }: { readonly raw: string }): ReactNode {
       return 1 - (1 - x) ** 3;
     }
 
+    // The in-flight frame id, cancelled on restart/unmount (`reducedMotion`
+    // is an effect dependency and can flip mid-animation — without cleanup
+    // the stale loop keeps updating `count` beside the new one).
+    let frameId: number | undefined;
+
     function tick(now: number) {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
       const eased = easeOutCubic(progress);
       setCount(Math.floor(eased * num));
       if (progress < 1) {
-        requestAnimationFrame(tick);
+        frameId = requestAnimationFrame(tick);
       } else {
         setCount(num);
       }
     }
 
-    requestAnimationFrame(tick);
-  }, [started, num]);
+    frameId = requestAnimationFrame(tick);
+    return () => {
+      if (frameId !== undefined) cancelAnimationFrame(frameId);
+    };
+  }, [started, num, reducedMotion]);
 
   return (
     <span ref={spanRef}>
-      {count.toLocaleString()}
+      {(reducedMotion ? num : count).toLocaleString()}
       {suffix}
     </span>
   );

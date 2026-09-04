@@ -1,6 +1,7 @@
 export * from "./AdminDialogBands";
 export * from "./AdminDialogFieldLabel";
 export * from "./AdminUserDialogs";
+export * from "./CertifyTeacherDialog";
 export * from "./CreateUserCredentialField";
 export * from "./CreateUserDialog";
 export * from "./CreateUserFormGrid";

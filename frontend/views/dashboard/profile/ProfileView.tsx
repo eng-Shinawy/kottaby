@@ -84,6 +84,7 @@ export function ProfileView(): ReactNode {
         sx={{
           display: "grid",
           gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+          alignItems: "start",
           gap: 2,
           mb: 2,
         }}

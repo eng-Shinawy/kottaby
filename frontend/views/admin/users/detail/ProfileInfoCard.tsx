@@ -41,9 +41,9 @@ interface ProfileInfoCardProps {
   readonly onEdit: () => void;
 }
 
-/** Localized gender label; "—" when unset. */
+/** Localized gender label; the unset placeholder when null. */
 function genderLabel(gender: Gender | null, labels: ProfileLabels): string {
-  if (gender === null) return "—";
+  if (gender === null) return labels.detail.emptyValue;
   const genderLabels: Record<Gender, string> = {
     [Gender.Male]: labels.genderOptions.male,
     [Gender.Female]: labels.genderOptions.female,
@@ -126,10 +126,10 @@ export function ProfileInfoCard({ user, labels, formatDate, onEdit }: ProfileInf
           {user.email}
         </ProfileRow>
         <ProfileRow label={labels.headers.phone} borderStyle="solid" ltr>
-          {user.phone ?? "—"}
+          {user.phone ?? labels.detail.emptyValue}
         </ProfileRow>
         <ProfileRow label={labels.headers.country} borderStyle="solid">
-          {user.country ?? "—"}
+          {user.country ?? labels.detail.emptyValue}
         </ProfileRow>
         <ProfileRow label={labels.createDialog.gender} borderStyle="solid">
           {genderLabel(user.gender, labels)}

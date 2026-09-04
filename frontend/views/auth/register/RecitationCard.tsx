@@ -38,6 +38,9 @@ export function RecitationCard({ reading, isSelected, isPopular, labels, onSelec
       sx={{
         display: "block",
         width: "100%",
+        // Fill the stretched grid row so the "Most popular" badge (or a
+        // longer description) never makes one card taller than its siblings.
+        height: "100%",
         p: 0,
         textAlign: "start",
         font: "inherit",

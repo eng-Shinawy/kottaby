@@ -49,4 +49,8 @@ export interface ApplicantLabels {
   readonly certifiedSurfacesHint: string;
   /** In-evaluation progress hint rendered beneath the attempts counter. */
   readonly inEvaluationHint: string;
+  /** Notification title emitted to the newly certified teacher when an admin completes the certification directly. */
+  readonly coldStartCertifiedTitle: string;
+  /** Notification body emitted alongside `coldStartCertifiedTitle` — pure copy, no identifiers. */
+  readonly coldStartCertifiedBody: string;
 }

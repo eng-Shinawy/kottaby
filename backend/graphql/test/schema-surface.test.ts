@@ -152,9 +152,13 @@ import { PUBLIC_OPERATION_NAMES, PUBLIC_OPERATIONS } from "@/backend/lib/gateway
 // ─── surface (+`adminAuditLogs` query, +3 audit types folded into baseline).  ─
 // ─── This merge absorbs the DEV3-004/005/012/013 session family and the     ─
 // ─── DEV3-022d admin-broadcast surface the same way: additive only,         ─
-// ─── entries are NEVER dropped.                                               ─
+// ─── entries are NEVER dropped. The cold-start branch's re-pin to the LIVE  ─
+// ─── tree rides along: the shipped admin user-management surface (directory ─
+// ─── queries, stats/activity, create/update/soft-delete mutations,          ─
+// ─── governance filter + audit enum) and the admin cold-start certification ─
+// ─── mutation are enrolled as baseline.                                     ─
 
-/** Root query field names — the frozen baseline (probe re-registration excluded). */
+/** Root query field names — the frozen baseline (probe re-registration excluded), re-pinned to the LIVE inventory (admin directory/stats/detail/activity reads enrolled). */
 const PRE_3_1_QUERY_FIELDS = [
   // Parent-link↔DEV3-020 merge reconcile: the global audit-trail read shipped on
   // main while this branch was in flight (mirrors the DEV3-016 precedent).
@@ -175,11 +179,14 @@ const PRE_3_1_QUERY_FIELDS = [
   "planCatalog",
   "recitationReadings",
 ] as const;
-/** Root mutation field names — the frozen baseline (auth quartet + notification read-latch pair + users-locale + plan-catalog CRUD + admin user-management trio + the admin broadcast mutation). */
+/** Root mutation field names — the frozen baseline (auth quartet + notification read-latch pair + users-locale + plan-catalog CRUD), re-pinned to the LIVE inventory (admin user-management trio + admin cold-start certification + the admin broadcast mutation enrolled). */
 const PRE_3_1_MUTATION_FIELDS = [
   // DEV3-016 reconcile: the admin user-management writes shipped before 3.1
   // (the DEV3-022d admin broadcast mutation absorbed alongside them).
   "adminBroadcastNotification",
+  // Cold-start branch (DEV3-018): the admin teacher-certification mutation
+  // shipped on this branch — enrolled as baseline with the DEV3-016 trio.
+  "adminCertifyTeacherColdStart",
   "adminCreateUser",
   "adminSetUserDeleted",
   "adminUpdateUser",
@@ -271,10 +278,10 @@ const PRE_3_1_TYPE_NAMES = [
   "AdminUserActivityEntry",
   "AdminUserDetail",
   "AdminUserFiltersInput",
+  "AdminUserGovernanceFilter",
   "AdminUserListItem",
   "AdminUserPage",
   "AdminUserStats",
-  "AdminUserGovernanceFilter",
   "AppLocale",
   "ApplicantProfile",
   "ApplicantStatus",

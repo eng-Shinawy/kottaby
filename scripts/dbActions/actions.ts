@@ -9,6 +9,7 @@ import {
 import { drizzleConfigPathForDialect, resolveDialectFromSelectedEnvFile } from "@/scripts/dbActions/dialect";
 import { ensureExtensions } from "@/scripts/dbActions/ensureExtensions";
 import { getSelectedEnvFile } from "@/scripts/dbActions/envFile";
+import { generateMigrations } from "@/scripts/dbActions/generate";
 import { runBunCommand } from "@/scripts/dbActions/runCommand";
 
 export const ACTIONS: Record<string, { label: string; name: string }> = {
@@ -59,7 +60,7 @@ export async function dispatchAction(key: string): Promise<number> {
     case "2":
       return runBunCommand(["run", "backend/db/scripts/drizzleSeed.ts"]);
     case "3":
-      return runBunCommand(["drizzle-kit", "generate", "--ignore-conflicts", "--config", configPath]);
+      return generateMigrations();
     case "4":
       return runBunCommand(["drizzle-kit", "drop", "--config", configPath]);
     case "5":

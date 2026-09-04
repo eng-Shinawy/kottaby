@@ -97,6 +97,12 @@ export interface ErrorsLabels {
   readonly studentHandshakeNotFound: string;
   /** "The free trial credit has already been granted for this student." — re-grant attempt on a student whose trial_granted_at marker is non-null. */
   readonly trialAlreadyGranted: string;
+  /** "This teacher is already certified." — certification attempt on an approved teachers row → ConflictError("TEACHER_ALREADY_CERTIFIED", …). */
+  readonly teacherAlreadyCertified: string;
+  /** "This user is not a teacher." — certification attempt on a non-``teacher`` account → ConflictError("TEACHER_ROLE_REQUIRED", …). */
+  readonly teacherRoleRequired: string;
+  /** "This account has been deleted, blocked, or suspended." — certification attempt on a governed account → ConflictError("TEACHER_ACCOUNT_GOVERNED", …). */
+  readonly teacherAccountGoverned: string;
   /** "This student is already linked to a parent account." — link-request deny when the target student already has a linked parent. */
   readonly parentLinkTargetAlreadyLinked: string;
   /** "A link request to this student is already pending." — duplicate-pending deny while a previous request is still awaiting a response. */

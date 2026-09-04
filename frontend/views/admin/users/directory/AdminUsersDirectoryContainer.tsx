@@ -33,7 +33,7 @@
  */
 
 import { AddOutlined as AddIcon } from "@mui/icons-material";
-import { Alert, Fab, Stack, Typography } from "@mui/material";
+import { Alert, Button, Fab, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { AdminUserSuccessSnackbar, DirectoryMutationDialogs } from "@/frontend/views/admin/users/dialogs";
 import { DirectoryResults, DirectoryToolbar, FilterChipsRow } from "@/frontend/views/admin/users/directory";
@@ -46,10 +46,16 @@ interface AdminUsersDirectoryContainerProps {
 
 export function AdminUsersDirectoryContainer({ labels }: AdminUsersDirectoryContainerProps): ReactNode {
   const directory = useAdminUsersDirectory();
+  // Re-fetch the current page after a load failure (transport failure or
+  // GraphQL error). The promise is handed to Apollo; rejections re-surface
+  // through the same `hasError` state.
+  const retryDirectory = () => {
+    void directory.refetch();
+  };
   return (
     // Bottom padding clears the fixed mobile FAB (bottom 88 + 56 height) so
     // the last stacked card never slides under it when scrolled to the end.
-    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, pb: { xs: 19, md: 4 } }}>
+    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, pb: { xs: 20, md: 4 } }}>
       <Typography variant="h4" component="h1">
         {labels.title}
       </Typography>
@@ -75,16 +81,27 @@ export function AdminUsersDirectoryContainer({ labels }: AdminUsersDirectoryCont
         setGovernanceFilter={directory.setGovernanceFilter}
       />
 
-      {directory.firstErrorCode && (
-        <Alert severity="error">
-          {labels.errorState.title}: {directory.firstErrorCode}
+      {directory.hasError && (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={retryDirectory}>
+              {labels.errorState.retry}
+            </Button>
+          }
+        >
+          {labels.errorState.title}: {labels.errorState.message}
+          {directory.firstErrorCode === null ? "" : ` (${directory.firstErrorCode})`}
         </Alert>
       )}
 
       <DirectoryResults labels={labels} directory={directory} />
 
       {/* Mobile-only create affordance — the desktop one lives in the
-          toolbar. Fixed above the bottom nav (bottom: 88px), below dialogs. */}
+          toolbar. Fixed above the bottom nav (bottom: 88px), below dialogs.
+          The container's 160px mobile `pb` above guarantees scroll clearance
+          below the pagination card so this FAB never covers the last
+          content at the bottom of the page. */}
       <Fab
         color="primary"
         aria-label={labels.createDialog.title}
