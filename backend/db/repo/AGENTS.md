@@ -18,7 +18,7 @@ backend/db/repo/
 ├── permissions/         permission-management
 ├── billing/             billing
 ├── books/               book, report
-├── classes/             class-category, class-performance, class-subject, group-class, dst-migration, subject-resource
+├── classes/             session.repository.ts (SessionRepository: findById + findWaveContextById joined wave-context read)
 ├── scheduling/          scheduling (nested sub-package, pre-existing — has its own internal layout)
 ├── parents/             parent, suggestion
 ├── students/            student, student-history

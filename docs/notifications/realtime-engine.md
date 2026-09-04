@@ -100,7 +100,7 @@ Emitters that do NOT own a transaction call `emitForUser(input, locale)` (or `em
 
 | Ticket | Semantic trigger | What it consumes |
 |---|---|---|
-| DEV3-011 | `session_request` accept/decline wave | `emitForUser` per recipient |
+| DEV3-011 | `session_request` accept/decline wave | `emitForUser` per recipient — SHIPPED: `docs/notifications/session-request-notifications.md` |
 | DEV1-016 / DEV1-017 | Session completion → parent (INV-P3's emitters) + parent portal consumption | `emitForUser(s)` inside the session-completion tx + `publishReceipts` |
 | DEV2-016 / DEV2-017 | `evaluation_result` | `emitForUser` per teacher/applicant |
 | DEV3-012 / DEV3-013 | `session_cancellation` / `payment_confirmation` | Same receipt composition as above |

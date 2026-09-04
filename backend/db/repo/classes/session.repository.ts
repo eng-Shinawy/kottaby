@@ -61,6 +61,7 @@ import type {
   SessionListFilterInput,
   SessionSelectType,
   SessionTransitionProbeRowType,
+  SessionWaveContextRow,
 } from "@/backend/types";
 
 export namespace SessionRepository {
@@ -98,6 +99,23 @@ export namespace SessionRepository {
    */
   export async function findById(id: number, tx?: DBTransaction): Promise<SessionSelectType | null> {
     return sessionRepositoryImpl.findById(id, tx);
+  }
+
+  /**
+   * ONE joined read of the session-request wave context: the session's
+   * `id` + raw `intent` (untrusted storage — the service layer validates
+   * it) together with BOTH participants' `userId`/`fullName`/`locale`.
+   *
+   * Read-only: on the caller's transaction it runs as a Drizzle join;
+   * standalone it runs as raw parameterized SQL via `queryDb`.
+   *
+   * @returns The joined wave-context row, or `null` when no session
+   *          carries that id (the INNER JOINs make a participant-missing
+   *          row structurally impossible, so `null` uniformly means
+   *          session-not-found).
+   */
+  export async function findWaveContextById(id: number, tx?: DBTransaction): Promise<SessionWaveContextRow | null> {
+    return sessionRepositoryImpl.findWaveContextById(id, tx);
   }
 
   /**

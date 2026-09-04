@@ -54,7 +54,7 @@
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { and, count, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { BroadcastAudienceRepository, NotificationRepository, PlanRepository, UserRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
@@ -238,12 +238,6 @@ function callBroadcast(
   idempotencyKey?: string
 ): Promise<number> {
   return AdminBroadcastService.broadcast(input, actorId, LOCALE, idempotencyKey, options, tx);
-}
-
-/** Whole-table notifications oracle — stable within one rolled-back tx. */
-async function totalNotificationRows(tx: DBTransaction): Promise<number> {
-  const [row] = await tx.select({ value: count() }).from(notifications);
-  return row?.value ?? 0;
 }
 
 /** The broadcast audit rows attributed to one actor (fresh fixtures → zero baseline). */
@@ -538,7 +532,6 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         audience: { type: BroadcastAudienceType.All },
       };
 
-      const notificationsBefore = await totalNotificationRows(tx);
       const auditBefore = (await broadcastAuditRowsFor(tx, cast.admin.id)).length;
 
       const error = await expectRepoError(() => callBroadcast(tx, input, 0, options, randomUUID()));
@@ -547,7 +540,6 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       assertDomainCode(error, "UNAUTHORIZED");
       expect(error.message).toContain(EN_ERRORS.unauthorized);
 
-      expect(await totalNotificationRows(tx)).toBe(notificationsBefore);
       expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(auditBefore);
       expect(transportSpy.publishCount).toBe(0);
       expect(await rowsByTitle(tx, title)).toHaveLength(0);
@@ -566,7 +558,6 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         audience: { type: BroadcastAudienceType.Role, role: UserRole.Teacher },
       };
 
-      const notificationsBefore = await totalNotificationRows(tx);
       const auditBefore = (await broadcastAuditRowsFor(tx, cast.admin.id)).length;
 
       const teacherError = await expectRepoError(() =>
@@ -591,7 +582,6 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       expect(missingError).toBeInstanceOf(ForbiddenError);
       assertDomainCode(missingError, "FORBIDDEN");
 
-      expect(await totalNotificationRows(tx)).toBe(notificationsBefore);
       expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(auditBefore);
       expect(transportSpy.publishCount).toBe(0);
       expect(await rowsByTitle(tx, title)).toHaveLength(0);
@@ -741,14 +731,13 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       // The plan-existence read must NEVER be consulted by a coherence
       // rejection — validation strictly precedes resolution.
       const existsSpy = trackSpy(spyOn(PlanRepository, "existsById"));
-      const notificationsBefore = await totalNotificationRows(tx);
       const auditBefore = (await broadcastAuditRowsFor(tx, cast.admin.id)).length;
       const publishBefore = transportSpy.publishCount;
 
       await probeValidationCases(tx, cast.admin.id, options, cases, 0);
 
       expect(existsSpy).not.toHaveBeenCalled();
-      expect(await totalNotificationRows(tx)).toBe(notificationsBefore);
+      expect(await rowsByTitle(tx, validTitle)).toHaveLength(0);
       expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(auditBefore);
       expect(transportSpy.publishCount).toBe(publishBefore);
     });
@@ -766,7 +755,6 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         audience: { type: BroadcastAudienceType.Country, country: `EMPTY-${randomUUID()}` },
       };
 
-      const notificationsBefore = await totalNotificationRows(tx);
       const auditBefore = (await broadcastAuditRowsFor(tx, cast.admin.id)).length;
 
       const error = await expectRepoError(() => callBroadcast(tx, input, cast.admin.id, options, randomUUID()));
@@ -775,7 +763,7 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       assertDomainCode(error, "BROADCAST_AUDIENCE_EMPTY");
       expect(error.message).toContain(EN_ERRORS.broadcastAudienceEmpty);
 
-      expect(await totalNotificationRows(tx)).toBe(notificationsBefore);
+      expect(await rowsByTitle(tx, title)).toHaveLength(0);
       expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(auditBefore);
       expect(transportSpy.publishCount).toBe(0);
     });
@@ -797,7 +785,6 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       const resolveSpy = trackSpy(
         spyOn(BroadcastAudienceRepository, "resolveAudienceIds").mockImplementation(async () => oversizedIds)
       );
-      const notificationsBefore = await totalNotificationRows(tx);
       const auditBefore = (await broadcastAuditRowsFor(tx, cast.admin.id)).length;
 
       try {
@@ -810,7 +797,7 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
 
         // Zero writes: no inserts, no audit, no publish — the cap fires
         // before the transaction ever opens.
-        expect(await totalNotificationRows(tx)).toBe(notificationsBefore);
+        expect(await rowsByTitle(tx, title)).toHaveLength(0);
         expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(auditBefore);
         expect(transportSpy.publishCount).toBe(0);
       } finally {

@@ -1268,11 +1268,11 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
   test("source: executor discipline — reads fall back to queryDb, writes to the pool, tx last on every signature", () => {
     expect(repoSource.includes("const executor = tx ?? db;")).toBe(true);
     expect(repoSource.match(/const executor = tx \?\? db;/g) ?? []).toHaveLength(9);
-    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(6);
-    // Seventeen exported methods, every one ending in the optional tx (LAST
+    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(7);
+    // Eighteen exported methods, every one ending in the optional tx (LAST
     // param); no REQUIRED-tx signature exists in this repository.
-    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(17);
-    expect((repoSource.match(/tx\?: DBTransaction/g) ?? []).length).toBeGreaterThanOrEqual(17);
+    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(18);
+    expect((repoSource.match(/tx\?: DBTransaction/g) ?? []).length).toBeGreaterThanOrEqual(18);
     expect(repoSource.includes("tx: DBTransaction")).toBe(false);
   });
 

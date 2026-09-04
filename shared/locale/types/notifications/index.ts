@@ -92,6 +92,39 @@ export interface NotificationsLabels {
   readonly reconnecting: string;
   /** Quiet reconnect affordance — realtime stream silently recovered. */
   readonly reconnectedQuietly: string;
+  /** Teacher-wave title — a new session request arrived. */
+  readonly eventSessionRequestTitle: string;
+  /** Student outcome title — the teacher accepted the request. */
+  readonly eventSessionAcceptedTitle: string;
+  /** Student outcome title — the teacher declined the request. */
+  readonly eventSessionDeclinedTitle: string;
+  /** Student outcome title — the request was auto-rejected (reject preference). */
+  readonly eventSessionAutoRejectedTitle: string;
+  /** Student outcome title — the request was queued (queue preference). */
+  readonly eventSessionQueuedTitle: string;
+  /** Student outcome title — alternative teachers were offered (offer_alternatives preference). */
+  readonly eventSessionAlternativesOfferedTitle: string;
+  /**
+   * Teacher-wave body — interpolates ONLY the requesting student's name
+   * and the localized intent label (sanctioned matching context).
+   */
+  readonly eventSessionRequestBody: (studentName: string, intentLabel: string) => string;
+  /** Student outcome body — interpolates ONLY the accepting teacher's name. */
+  readonly eventSessionAcceptedBody: (teacherName: string) => string;
+  /** Student outcome body — interpolates ONLY the declining teacher's name. */
+  readonly eventSessionDeclinedBody: (teacherName: string) => string;
+  /** Student outcome body — interpolates ONLY the teacher's name (auto-reject). */
+  readonly eventSessionAutoRejectedBody: (teacherName: string) => string;
+  /** Student outcome body — interpolates ONLY the teacher's name (queued). */
+  readonly eventSessionQueuedBody: (teacherName: string) => string;
+  /** Student outcome body — interpolates ONLY the teacher's name (alternatives offered). */
+  readonly eventSessionAlternativesOfferedBody: (teacherName: string) => string;
+  /** Intent display label — hifz (memorization) session. */
+  readonly intentHifz: string;
+  /** Intent display label — tajweed (recitation refinement) session. */
+  readonly intentTajweed: string;
+  /** Intent display label — evaluation session. */
+  readonly intentEvaluation: string;
   // ─── Parent-link lifecycle event copy ─────────────────────────────────────
   /** Notification title — a parent sent the student a link request. */
   readonly eventParentLinkRequestTitle: string;

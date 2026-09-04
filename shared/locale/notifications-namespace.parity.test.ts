@@ -14,7 +14,8 @@
  *      surface (feed title, empty/error states, filter labels, the SEVEN
  *      notification-type display labels, mark-read/mark-all affordances,
  *      badge aria, pluralized counts, realtime toast, quiet reconnect copy,
- *      parent-link lifecycle event copy) exists on BOTH maps — a key
+ *      session-request lifecycle + intent labels, parent-link lifecycle event
+ *      copy) exists on BOTH maps — a key
  *      deleted from both maps simultaneously still fails this suite.
  *   3. NO ENGLISH FALLTHROUGH — every ar STRING slot contains Arabic script
  *      (an accidentally English value in the ar map fails the sweep).
@@ -22,9 +23,10 @@
  *      are exact-pinned at the Arabic plural boundaries (0 / 1 / 2 /
  *      3–10 few / 11+ counted) and the English boundaries (0 / 1 / many)
  *      in BOTH locales.
- *   5. TEMPLATE PINS — `markReadAriaLabel`, `realtimeToast`, and the three
- *      parent-link event-body functions expand their arguments into the
- *      returned message in BOTH locales.
+ *   5. TEMPLATE PINS — `markReadAriaLabel`, `realtimeToast`, the six
+ *      session-request event bodies, and the four parent-link event-body
+ *      functions expand their arguments into the returned message in BOTH
+ *      locales.
  *   6. REGISTRY WIRING — the `Notifications` handle is registered in
  *      `shared/locale/namespaces/index.ts` with the conventional
  *      `<ns>.<ns>` id and its getter resolves the composed bundle slice.
@@ -47,7 +49,7 @@ import { Notifications } from "@/shared/locale/namespaces/notifications";
 
 // ─── Mandated key inventory (the notification-feed surface ground truth) ────
 
-/** Every key the notifications UI namespace must carry (34 slots). */
+/** Every key the notifications UI namespace must carry (49 slots). */
 const MANDATED_KEYS = [
   "title",
   "emptyTitle",
@@ -75,6 +77,21 @@ const MANDATED_KEYS = [
   "realtimeToast",
   "reconnecting",
   "reconnectedQuietly",
+  "eventSessionRequestTitle",
+  "eventSessionAcceptedTitle",
+  "eventSessionDeclinedTitle",
+  "eventSessionAutoRejectedTitle",
+  "eventSessionQueuedTitle",
+  "eventSessionAlternativesOfferedTitle",
+  "eventSessionRequestBody",
+  "eventSessionAcceptedBody",
+  "eventSessionDeclinedBody",
+  "eventSessionAutoRejectedBody",
+  "eventSessionQueuedBody",
+  "eventSessionAlternativesOfferedBody",
+  "intentHifz",
+  "intentTajweed",
+  "intentEvaluation",
   "eventParentLinkRequestTitle",
   "eventParentLinkRequestBody",
   "eventParentLinkAcceptedTitle",
@@ -104,12 +121,18 @@ const TYPE_LABEL_KEYS = [
   "typeEvaluationResult",
 ] as const;
 
-/** The eight function-valued slots (pluralization + interpolation templates). */
+/** The fourteen function-valued slots (pluralization + interpolation templates). */
 const FUNCTION_KEYS = [
   "markReadAriaLabel",
   "markAllResult",
   "unreadCount",
   "realtimeToast",
+  "eventSessionRequestBody",
+  "eventSessionAcceptedBody",
+  "eventSessionDeclinedBody",
+  "eventSessionAutoRejectedBody",
+  "eventSessionQueuedBody",
+  "eventSessionAlternativesOfferedBody",
   "eventParentLinkRequestBody",
   "eventParentLinkAcceptedBody",
   "eventParentLinkRejectedBody",
@@ -126,6 +149,43 @@ function stringSlotOf(localeMap: object, key: string, localeName: string): strin
     throw new Error(`notifications.${localeName}.${key} must be a non-empty localized string`);
   }
   return value;
+}
+
+/**
+ * Sample arguments per function slot, per locale — used by the callable pin
+ * and the Arabic-flavored function-slot sweep (NOT by the exact-string pins).
+ */
+const FUNCTION_SLOT_SAMPLE_ARGS: Record<
+  (typeof FUNCTION_KEYS)[number],
+  { en: readonly unknown[]; ar: readonly unknown[] }
+> = {
+  markReadAriaLabel: { en: ["New session request"], ar: ["طلب جلسة جديد"] },
+  markAllResult: { en: [4], ar: [4] },
+  unreadCount: { en: [4], ar: [4] },
+  realtimeToast: { en: ["Session Request", "New session request"], ar: ["طلب جلسة", "طلب جلسة جديد"] },
+  eventSessionRequestBody: { en: ["Amina", "Hifz"], ar: ["أمينة", "الحفظ"] },
+  eventSessionAcceptedBody: { en: ["Sheikh Omar"], ar: ["الشيخ عمر"] },
+  eventSessionDeclinedBody: { en: ["Sheikh Omar"], ar: ["الشيخ عمر"] },
+  eventSessionAutoRejectedBody: { en: ["Sheikh Omar"], ar: ["الشيخ عمر"] },
+  eventSessionQueuedBody: { en: ["Sheikh Omar"], ar: ["الشيخ عمر"] },
+  eventSessionAlternativesOfferedBody: { en: ["Sheikh Omar"], ar: ["الشيخ عمر"] },
+  eventParentLinkRequestBody: { en: ["Adam"], ar: ["ولي الأمر"] },
+  eventParentLinkAcceptedBody: { en: ["Yusuf"], ar: ["الطالب"] },
+  eventParentLinkRejectedBody: { en: ["Yusuf"], ar: ["الطالب"] },
+  eventParentLinkExpiringBody: { en: ["Yusuf"], ar: ["الطالب"] },
+};
+
+/** Invokes one function slot with sample args — throws if the slot is not callable or returns a non-string. */
+function callFunctionSlot(localeMap: object, key: string, args: readonly unknown[], localeName: string): string {
+  const value: unknown = Reflect.get(localeMap, key);
+  if (typeof value !== "function") {
+    throw new Error(`notifications.${localeName}.${key} must be a function`);
+  }
+  const result: unknown = Reflect.apply(value, undefined, args);
+  if (typeof result !== "string") {
+    throw new Error(`notifications.${localeName}.${key} must return a string`);
+  }
+  return result;
 }
 
 // ===========================================================================
@@ -163,7 +223,7 @@ describe("compile-time parity mirror — ar/en key sets agree", () => {
     expect(Object.hasOwn(notificationsEn, key)).toBe(true);
   });
 
-  test("the mandated inventory is exhaustive (no silent key minting beyond the 32 slots)", () => {
+  test("the mandated inventory is exhaustive (no silent key minting beyond the 49 slots)", () => {
     const mandated = new Set<string>(MANDATED_KEYS);
     for (const key of Object.keys(notificationsAr)) {
       expect(mandated.has(key)).toBe(true);
@@ -195,15 +255,12 @@ describe("no English fallthrough — ar map carries Arabic copy for every string
     }
   });
 
-  test("all seven ar FUNCTION slots return Arabic-script output for Arabic-flavored arguments", () => {
-    const arTitle = "طلب جلسة جديد";
-    expect(ARABIC_SCRIPT.test(notificationsAr.markReadAriaLabel(arTitle))).toBe(true);
-    expect(ARABIC_SCRIPT.test(notificationsAr.markAllResult(7))).toBe(true);
-    expect(ARABIC_SCRIPT.test(notificationsAr.unreadCount(7))).toBe(true);
-    expect(ARABIC_SCRIPT.test(notificationsAr.realtimeToast("طلب جلسة", arTitle))).toBe(true);
-    expect(ARABIC_SCRIPT.test(notificationsAr.eventParentLinkRequestBody("ولي الأمر"))).toBe(true);
-    expect(ARABIC_SCRIPT.test(notificationsAr.eventParentLinkAcceptedBody("الطالب"))).toBe(true);
-    expect(ARABIC_SCRIPT.test(notificationsAr.eventParentLinkRejectedBody("الطالب"))).toBe(true);
+  test("every ar FUNCTION slot returns Arabic-script output for Arabic-flavored arguments", () => {
+    for (const key of FUNCTION_KEYS) {
+      expect(ARABIC_SCRIPT.test(callFunctionSlot(notificationsAr, key, FUNCTION_SLOT_SAMPLE_ARGS[key].ar, "ar"))).toBe(
+        true
+      );
+    }
   });
 });
 
@@ -267,21 +324,12 @@ describe("template pins — function slots expand their arguments", () => {
     expect(notificationsAr.eventParentLinkRejectedBody("الطالب")).toContain("الطالب");
   });
 
-  test("all seven function slots are callable with non-empty output in BOTH locales", () => {
-    expect(notificationsEn.markReadAriaLabel("Payment received").length).toBeGreaterThan(0);
-    expect(notificationsEn.markAllResult(4).length).toBeGreaterThan(0);
-    expect(notificationsEn.unreadCount(4).length).toBeGreaterThan(0);
-    expect(notificationsEn.realtimeToast("System Announcement", "Maintenance tonight").length).toBeGreaterThan(0);
-    expect(notificationsAr.markReadAriaLabel("تأكيد الدفع").length).toBeGreaterThan(0);
-    expect(notificationsAr.markAllResult(4).length).toBeGreaterThan(0);
-    expect(notificationsAr.unreadCount(4).length).toBeGreaterThan(0);
-    expect(notificationsAr.realtimeToast("إعلان النظام", "صيانة الليلة").length).toBeGreaterThan(0);
-    expect(notificationsEn.eventParentLinkRequestBody("Adam").length).toBeGreaterThan(0);
-    expect(notificationsEn.eventParentLinkAcceptedBody("Yusuf").length).toBeGreaterThan(0);
-    expect(notificationsEn.eventParentLinkRejectedBody("Yusuf").length).toBeGreaterThan(0);
-    expect(notificationsAr.eventParentLinkRequestBody("ولي الأمر").length).toBeGreaterThan(0);
-    expect(notificationsAr.eventParentLinkAcceptedBody("الطالب").length).toBeGreaterThan(0);
-    expect(notificationsAr.eventParentLinkRejectedBody("الطالب").length).toBeGreaterThan(0);
+  test("every function slot is callable with non-empty output in BOTH locales", () => {
+    for (const key of FUNCTION_KEYS) {
+      const args = FUNCTION_SLOT_SAMPLE_ARGS[key];
+      expect(callFunctionSlot(notificationsEn, key, args.en, "en").length).toBeGreaterThan(0);
+      expect(callFunctionSlot(notificationsAr, key, args.ar, "ar").length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -309,7 +357,7 @@ describe("registry + bundle wiring", () => {
 });
 
 // ===========================================================================
-describe("function-slot inventory — exactly the eight locale functions, on BOTH maps", () => {
+describe("function-slot inventory — exactly the fourteen locale functions, on BOTH maps", () => {
   test.each([...FUNCTION_KEYS])("slot `%s` is a function on BOTH maps", key => {
     expect(typeof Reflect.get(notificationsAr, key)).toBe("function");
     expect(typeof Reflect.get(notificationsEn, key)).toBe("function");
