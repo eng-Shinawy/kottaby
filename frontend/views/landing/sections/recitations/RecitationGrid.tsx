@@ -59,7 +59,7 @@ export function RecitationGrid({
                 borderRadius: 99,
                 bgcolor: "var(--mui-palette-secondary-main)",
                 color: "var(--mui-palette-onSecondary)",
-                fontSize: 9,
+                fontSize: 12,
                 fontWeight: 700,
                 letterSpacing: "0.05em",
                 textTransform: "uppercase",

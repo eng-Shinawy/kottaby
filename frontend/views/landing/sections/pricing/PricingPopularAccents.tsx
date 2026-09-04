@@ -44,7 +44,7 @@ export function PricingPopularAccents({ popular, popularLabel }: Props): ReactNo
             borderRadius: 99,
             bgcolor: "var(--mui-palette-secondary-main)",
             color: "var(--mui-palette-onSecondary)",
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: 700,
             letterSpacing: "0.04em",
             textTransform: "uppercase",

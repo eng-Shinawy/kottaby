@@ -82,12 +82,14 @@ export function DashboardSidebar({ mobileOpen, onMobileClose }: Readonly<Dashboa
 
   return (
     <Box component="aside" sx={{ flexShrink: { lg: 0 }, width: { lg: DRAWER_WIDTH } }}>
-      {/* Mobile: temporary Drawer */}
+      {/* Mobile: temporary Drawer. Mounts only while open (no `keepMounted`):
+          a kept-mounted closed drawer parks its 264px paper off-canvas, where
+          its toolbar/list nodes register as viewport-clipped geometry in DOM
+          audits ("AppBar internals past the right edge"). */}
       <Drawer
         variant="temporary"
         open={mobileOpen}
         onClose={onMobileClose}
-        ModalProps={{ keepMounted: true }}
         sx={{
           display: { xs: "block", lg: "none" },
           "& .MuiDrawer-paper": {

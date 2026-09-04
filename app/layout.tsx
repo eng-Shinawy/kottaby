@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Cairo, Inter } from "next/font/google";
 import type { ReactNode } from "react";
 import { AppClientProviders } from "@/frontend/providers/AppClientProviders";
+import { getTranslations } from "@/shared/locale/server";
 import { getLocaleFromCookie } from "@/shared/locale/server-cookies";
 import "@/app/index.css";
 
@@ -18,9 +19,21 @@ const cairo = Cairo({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "Kottaby Academy",
-};
+/**
+ * Locale-aware fallback `<title>` — pages that set no metadata of their own
+ * (the public landing) inherit this. The brand is bilingual: the localized
+ * wordmark first, with the English brand kept as a suffix on the Arabic
+ * surface (the landing wordmark renders the English brand in both locales),
+ * so the tab reads naturally for either audience. Per-page metadata below
+ * this boundary composes `page — brand` with the same localized brand.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocaleFromCookie();
+  const brand = getTranslations(locale).dashboardTranslations.title;
+  return {
+    title: locale === "ar" ? `${brand} — Kottaby Academy` : brand,
+  };
+}
 
 export default async function RootLayout({ children }: { readonly children: ReactNode }) {
   // Resolve the locale from the NEXT_LOCALE cookie (written by

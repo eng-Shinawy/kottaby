@@ -1,3 +1,5 @@
+"use client";
+
 import { useMemo } from "react";
 import { Landing, useAppTranslation } from "@/shared/locale";
 

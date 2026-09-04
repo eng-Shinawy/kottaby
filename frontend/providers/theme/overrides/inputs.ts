@@ -4,6 +4,12 @@ export const getMuiInputOverrides = () => ({
   MuiOutlinedInput: {
     styleOverrides: {
       root: {
+        // Disabled affordance: make the whole field chrome read as inert
+        // (the browser never applies an inert cursor to MUI's greyed
+        // disabled fields on its own).
+        "&.Mui-disabled": {
+          cursor: "not-allowed",
+        },
         "& input:-webkit-autofill": {
           WebkitBoxShadow: `0 0 0 100px ${AUTOFILL_BACKGROUND_VAR} inset !important`,
           WebkitTextFillColor: `${AUTOFILL_TEXT_VAR} !important`,
@@ -46,6 +52,11 @@ export const getMuiInputOverrides = () => ({
   MuiInputBase: {
     styleOverrides: {
       input: {
+        // Disabled affordance: replace the UA text cursor on disabled
+        // inputs with the inert not-allowed cursor.
+        "&.Mui-disabled": {
+          cursor: "not-allowed",
+        },
         "&:-webkit-autofill": {
           WebkitBoxShadow: `0 0 0 100px ${AUTOFILL_BACKGROUND_VAR} inset !important`,
           WebkitTextFillColor: `${AUTOFILL_TEXT_VAR} !important`,

@@ -82,6 +82,7 @@ export function AdminUserDetailContainer({ labels, userId }: AdminUserDetailCont
           component={MuiLink}
           href="/admin/users"
           startIcon={<BackIcon sx={theme => ({ transform: theme.direction === "rtl" ? "scaleX(-1)" : "none" })} />}
+          sx={{ minHeight: 44 }}
         >
           {labels.detail.backToDirectory}
         </Button>

@@ -51,7 +51,7 @@ export function HijriPrayerStrip(): ReactNode {
               >
                 <CrescentIcon sx={{ fontSize: 15 }} />
               </Box>
-              <Typography sx={{ fontSize: 12, opacity: 0.65, fontWeight: 600 }}>{t.hijriToday}</Typography>
+              <Typography sx={{ fontSize: 12.5, opacity: 0.85, fontWeight: 600 }}>{t.hijriToday}</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 700, color: "var(--mui-palette-onPrimary)" }}>
                 {model.hijri}
               </Typography>

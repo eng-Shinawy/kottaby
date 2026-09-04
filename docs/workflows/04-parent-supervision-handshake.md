@@ -96,6 +96,8 @@ sequenceDiagram
 - The parent sends a link request to the matched student.
 - The request enters a `pending` state awaiting student action.
 
+> Shipped in DEV1-014 — canonical implementation reference: `docs/parents/parent-link-request.md` (state machine, expiry, single-writer, notifications).
+
 ### 4.4 Student Confirmation
 - The student **must explicitly confirm/accept** the relationship link from their account.
 - This prevents unauthorized tracking — no parent can monitor a student without the student's explicit consent.

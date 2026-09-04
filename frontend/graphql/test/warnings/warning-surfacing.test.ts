@@ -297,12 +297,20 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
  * admin-scoped via its own auth-scopes conjunction and is NOT on the public
  * allowlist) + the 7-mutation DEV3-004/005/012 session family + the
  * DEV3-013 wallet payout (same warning-incapable canonical-payload shapes).
+ *
+ * Refreshed again when DEV1-014 (parent→child link request workflow) landed
+ * `requestParentChildLink`, `respondToParentLinkRequest` and
+ * `cancelParentLinkRequest` — they resolve to canonical parent-link payloads
+ * (never a partial-success wrapper), so they do not exercise Rules #6/#7.
+ * They still belong on this drift-guard list: the contract stays "every
+ * deployed Mutation root field is enumerated".
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
   "adminBroadcastNotification",
   "adminCreateUser",
   "adminSetUserDeleted",
   "adminUpdateUser",
+  "cancelParentLinkRequest",
   "cancelSession",
   "completeSession",
   "confirmSessionCompletion",
@@ -315,8 +323,10 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "openSessionDispute",
   "refreshToken",
   "registerUser",
+  "requestParentChildLink",
   "requestWithdrawal",
   "resolveSessionDispute",
+  "respondToParentLinkRequest",
   "setPlanActiveStatus",
   "startSession",
   "updateMyLocale",

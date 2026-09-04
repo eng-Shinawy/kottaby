@@ -92,11 +92,18 @@ export function RegisterAccountSection({
                     <MuiIconButton
                       aria-label={showPassword ? t.hidePassword : t.showPassword}
                       onClick={() => setShowPassword(!showPassword)}
-                      edge="end"
                       size="small"
                       // v9 ButtonBase has no focus ring — this toggle
                       // was invisible to keyboard users when focused.
-                      sx={focusVisibleRingSx}
+                      sx={{
+                        ...focusVisibleRingSx,
+                        // 44px touch target: 12px padding around the 20px
+                        // glyph, pulled back with matching negative margins so
+                        // the input row keeps its natural height (the same
+                        // invisible-padding trick as the auth/profile fields).
+                        p: 1.5,
+                        m: -1.5,
+                      }}
                     >
                       {showPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                     </MuiIconButton>

@@ -30,7 +30,10 @@
  *    Deactivate (outlined `error` → existing delete dialog); for deleted
  *    users the slot renders Reactivate instead.
  *  - Optional flourish: a skewed alpha-primary wash clipped to the card's
- *    trailing edge (decorative, `aria-hidden`, behind content).
+ *    trailing edge (decorative, `aria-hidden`, behind content). The wash
+ *    lives inside a full-bleed clipping wrapper so its skew can never
+ *    widen the card's scrollable overflow (the card reports no hidden
+ *    horizontal overflow at any viewport).
  *
  * Directional CSS uses logical properties only (`insetInlineEnd`), so the
  * wash and rows mirror correctly under RTL.
@@ -83,17 +86,23 @@ export function UserDetailHero({
         bgcolor: theme.palette.background.paper,
       })}
     >
-      {/* Decorative skewed alpha-primary wash, clipped by the card radius. */}
+      {/* Decorative slanted alpha-primary wash at the card's trailing edge,
+          painted as a hard-stop gradient on a full-bleed layer. Painting the
+          flourish (instead of positioning a skewed child) keeps every painted
+          pixel inside the card box, so the card reports no hidden horizontal
+          overflow at any viewport; the angle mirrors per direction. */}
       <Box
         aria-hidden
         sx={theme => ({
           position: "absolute",
-          insetBlock: "-20%",
-          insetInlineEnd: "-6%",
-          width: "30%",
-          transform: "skewX(-16deg)",
-          bgcolor: alpha(theme.palette.primary.main, 0.06),
+          inset: 0,
           pointerEvents: "none",
+          background: `linear-gradient(${
+            theme.direction === "rtl" ? "254deg" : "106deg"
+          }, transparent 0%, transparent 72%, ${alpha(theme.palette.primary.main, 0.06)} 72%, ${alpha(
+            theme.palette.primary.main,
+            0.06
+          )} 100%)`,
         })}
       />
       <Stack

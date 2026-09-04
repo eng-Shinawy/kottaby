@@ -63,6 +63,8 @@
     "test:services:sqlite": "bun --no-env-file --env-file=.env.sqlite test/scripts/run-services-tests-parallel.ts",
     "test:graphql:sqlite": "TEST_ENV_FILE=.env.sqlite bun run scripts/lib/run-locked-cmd.ts test:graphql:sqlite bun run test/scripts/run-server-tests.ts",
     "cron:worker": "bun run scripts/cron-worker.ts",
+    "ops:sweep-link-requests": "bun run scripts/ops/sweep-expired-link-requests.ts",
+    "ops:remind-link-requests": "bun run scripts/ops/remind-expiring-link-requests.ts",
     "ws": "bun run scripts/start-notification-ws.ts",
     "generate:gqlSchema": "bun run scripts/generator/generate-gql-schema.ts",
     "codegen": "graphql-codegen --config codegen.ts",

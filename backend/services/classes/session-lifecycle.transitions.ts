@@ -122,7 +122,7 @@ async function rejectCompletionMiss(
 ): Promise<never> {
   if (tx !== undefined) {
     const lockedTeacher = await TeacherRepository.lockForCertificationCheck(teacherId, tx);
-    if (lockedTeacher === null || lockedTeacher.isApproved !== true) {
+    if (lockedTeacher?.isApproved !== true) {
       return rejectCertificationConflict(sessionId, t);
     }
   }

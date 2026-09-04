@@ -20,8 +20,12 @@ export function StatsBar(): ReactNode {
 
   useEffect(() => {
     const el = statsRef.current;
+    // Fallback timer guarantees the settled state (icons visible + counters
+    // running) even if the observer never fires — full-page captures, bots
+    // and no-IntersectionObserver browsers must still see the stats content.
+    const fallbackTimer = window.setTimeout(() => setInView(true), 400);
     let obs: IntersectionObserver | undefined;
-    if (el) {
+    if (el && typeof IntersectionObserver !== "undefined") {
       obs = new IntersectionObserver(
         ([entry]) => {
           if (entry.isIntersecting) {
@@ -32,8 +36,13 @@ export function StatsBar(): ReactNode {
         { threshold: 0.3 }
       );
       obs.observe(el);
+    } else {
+      setInView(true);
     }
-    return () => obs?.disconnect();
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      obs?.disconnect();
+    };
   }, []);
 
   const statIcons: ReactNode[] = [

@@ -416,6 +416,7 @@ After reading the applicable instruction files and AGENTS.md, subagents check fo
 - `frontend/THEME_PALETTE.md` - Color tokens and access patterns
 - `docs/IDEMPOTENCY.md` - Idempotency patterns
 - `docs/notifications/realtime-engine.md` - Real-time notification engine (WebSocket): persist-first/push-second, single-writer emit contract, sidecar topology, fail-open idempotency deviation
+- `docs/parents/parent-link-request.md` - Parent→student link-request workflow (DEV1-014): exact state machine with 7-day expiry, guarded single-writer `parent_id`, notification choreography, consumer contract
 - `docs/notifications/broadcast-notifications.md` - Admin broadcast notifications: frozen 4-kind cohort taxonomy, double-wall admin gate, header idempotency via the engine claim cache, 5000 fail-closed cap, metadata-only audit contract, verbatim-copy boundary
 - `docs/drizzle/prepared-statements.md` - Drizzle Prepared Statements 2.0 pattern reference
 - `docs/drizzle/neon-http-client.md` - Neon HTTP Client & Provider-Agnostic Stateless Queries reference

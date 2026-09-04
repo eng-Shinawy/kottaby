@@ -25,5 +25,6 @@ import "./admin";
 import "./billing";
 import "./classes";
 import "./notifications";
+import "./parents";
 import "./plan-catalog.mutation";
 import "./user.mutation";

@@ -3,31 +3,51 @@
 import { Box } from "@mui/material";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-// ─── Scroll-triggered fade-in hook ───────────────────────────────────
+// ─── Scroll-triggered settle-in hook ─────────────────────────────────
 
-function useFadeInOnScroll() {
+/**
+ * Reveals a section with a gentle settle motion when it scrolls into view.
+ *
+ * Resilience contract: the wrapper must NEVER hide content.
+ * Full-page captures, crawlers, link-preview bots and no-JS visitors never
+ * fire IntersectionObserver-based reveals, which previously left ~90% of the
+ * landing page as an invisible void. Therefore:
+ *  1. the animated properties are transform-only — no `opacity: 0` initial;
+ *  2. a mount-time fallback timer forces the settled state even when the
+ *     observer never fires (headless capture, reduced-motion, ancient browsers).
+ */
+function useSettleInOnScroll() {
   const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
+    // Fallback: force the final state shortly after mount regardless of
+    // viewport intersection so content is always fully visible.
+    const fallbackTimer = window.setTimeout(() => setSettled(true), 400);
+
     let observer: IntersectionObserver | undefined;
-    if (el) {
+    if (el && typeof IntersectionObserver !== "undefined") {
       observer = new IntersectionObserver(
         ([entry]) => {
           if (entry.isIntersecting) {
-            setVisible(true);
+            setSettled(true);
             observer?.unobserve(el);
           }
         },
         { threshold: 0.08 }
       );
       observer.observe(el);
+    } else {
+      setSettled(true);
     }
-    return () => observer?.disconnect();
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      observer?.disconnect();
+    };
   }, []);
 
-  return { ref, visible };
+  return { ref, settled };
 }
 
 // ─── FadeInBox wrapper ───────────────────────────────────────────────
@@ -41,17 +61,18 @@ export function FadeInBox({
   readonly id?: string;
   readonly delay?: number;
 }) {
-  const { ref, visible } = useFadeInOnScroll();
+  const { ref, settled } = useSettleInOnScroll();
   return (
     <Box
       ref={ref}
       id={id}
       sx={{
-        opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0)" : "translateY(20px)",
-        transition: `all 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms`,
-        // Anchor targets must clear the sticky navbar (65px) plus the 20px
-        // fade-in translateY offset that the anchor-scroll geometry can
+        // Transform-only entrance: opacity stays 1 at all times so sections
+        // are visible before/without any JS-driven reveal.
+        transform: settled ? "translateY(0)" : "translateY(14px)",
+        transition: `transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms`,
+        // Anchor targets must clear the sticky navbar (65px) plus the 14px
+        // settle-in translateY offset that the anchor-scroll geometry can
         // capture mid-transition (otherwise headings land under the bar).
         scrollMarginTop: 96,
       }}

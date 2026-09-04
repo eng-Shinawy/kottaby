@@ -57,7 +57,6 @@ export function CreateUserCredentialField({
                 <IconButton
                   aria-label={showPassword ? authLabels.hidePassword : authLabels.showPassword}
                   onClick={() => setShowPassword(prev => !prev)}
-                  edge="end"
                   size="small"
                   // Bare icon-only affordance — no border/ring; the
                   // only visible state change is the hover wash.
@@ -65,6 +64,12 @@ export function CreateUserCredentialField({
                     border: "none",
                     boxShadow: "none",
                     backgroundColor: "transparent",
+                    // 44px touch target via transparent padding pulled back
+                    // with matching negative margins (same trick as the
+                    // auth/profile eye toggles) — the input row keeps
+                    // its natural height.
+                    p: 1.5,
+                    m: -1.5,
                     "&:hover": { backgroundColor: theme.palette.action.hover },
                   })}
                 >

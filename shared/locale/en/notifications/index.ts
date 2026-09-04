@@ -36,4 +36,13 @@ export const notificationsEn: NotificationsLabels = {
     `New notification — ${typeLabel}: ${notificationTitle}`,
   reconnecting: "Reconnecting…",
   reconnectedQuietly: "Realtime notifications restored",
+  eventParentLinkRequestTitle: "New link request",
+  eventParentLinkRequestBody: (parentName: string) => `${parentName} sent you a link request.`,
+  eventParentLinkAcceptedTitle: "Link request confirmed",
+  eventParentLinkAcceptedBody: (studentName: string) => `${studentName} confirmed your link request.`,
+  eventParentLinkRejectedTitle: "Link request rejected",
+  eventParentLinkRejectedBody: (studentName: string) => `${studentName} declined your link request.`,
+  eventParentLinkExpiringTitle: "Reminder: your link request is expiring soon",
+  eventParentLinkExpiringBody: (studentName: string) =>
+    `Your link request for ${studentName} is about to expire — the student can still confirm or decline before it lapses.`,
 };

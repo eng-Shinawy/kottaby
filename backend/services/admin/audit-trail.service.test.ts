@@ -19,7 +19,8 @@
  *  - Gate denials (BFLA): anonymous `actorId=0` → `UnauthorizedError`;
  *    resolvable non-admin → `ForbiddenError` — each with exactly ONE
  *    bounded domain log, ZERO repository reads beyond the actor probe,
- *    and a byte-unchanged `audit_logs` row count (zero writes).
+ *    and zero actor-attributable `audit_logs` rows (zero writes — a
+ *    global row count would race with concurrent files' commits).
  *  - Pre-DB filter validation (zero row contact): id-shaped filters must
  *    be positive safe integers (fractional / negative / zero / oversized
  *    all reject), `entityType` is trimmed + length-bounded, `actionType`
@@ -42,7 +43,7 @@
 
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { AuditTrailRepository, UserRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
@@ -93,10 +94,21 @@ async function seedTrailRow(
   return row;
 }
 
-/** Total `audit_logs` row count via a direct read-back (zero-write oracle). */
-async function countAllAuditRows(tx: DBTransaction): Promise<number> {
-  const rows = await tx.select({ count: sql<number>`count(*)::int`.as("count") }).from(auditLogs);
-  return rows[0]?.count ?? 0;
+/**
+ * Counts `audit_logs` rows attributable to a single actor id — the zero-write
+ * oracle for the gate denials. Global table totals are NOT stable mid-test
+ * under parallel bun test file execution (sibling suites commit fixture rows
+ * and hard-delete them in `afterAll` mid-window), so write-freedom is asserted
+ * per-actor: an id this test owns (a fresh sequence value minted inside the
+ * rollback tx, or the anonymous sentinel) cannot be perturbed by concurrent
+ * external churn.
+ */
+async function countAuditRowsForActor(tx: DBTransaction, actorId: number): Promise<number> {
+  const [row] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(auditLogs)
+    .where(eq(auditLogs.actorId, actorId));
+  return row?.count ?? 0;
 }
 
 /** Provisions an actor whose `users.role` satisfies the admin gate. */
@@ -167,7 +179,6 @@ describe("AuditTrailService — actor gate (BFLA, pre-DB)", () => {
       const admin = await provisionAdminActor(tx);
       const logSpy = silenceDomainLog();
       const reads = spyTrailReads();
-      const auditBefore = await countAllAuditRows(tx);
 
       const error = await expectRepoError(() =>
         AuditTrailService.listAuditTrail({}, 1, 25, LOCALE, ANONYMOUS_ACTOR_ID, tx)
@@ -181,10 +192,11 @@ describe("AuditTrailService — actor gate (BFLA, pre-DB)", () => {
       expect(message).toContain("anonymous");
       expect(ctx).toEqual({ code: "UNAUTHORIZED", entity: "user", entityId: ANONYMOUS_ACTOR_ID });
 
-      // Zero reads beyond the gate, zero writes to the trail.
+      // Zero reads beyond the gate, zero writes to the trail (actor-scoped
+      // — a global audit count races with concurrent files' commits).
       expect(reads.countSpy).not.toHaveBeenCalled();
       expect(reads.listSpy).not.toHaveBeenCalled();
-      expect(await countAllAuditRows(tx)).toBe(auditBefore);
+      expect(await countAuditRowsForActor(tx, ANONYMOUS_ACTOR_ID)).toBe(0);
       expect(admin.id).toBeGreaterThan(0);
     });
   });
@@ -194,7 +206,6 @@ describe("AuditTrailService — actor gate (BFLA, pre-DB)", () => {
       const nonAdmin = await createTestUser(tx, { role: "student" });
       const logSpy = silenceDomainLog();
       const reads = spyTrailReads();
-      const auditBefore = await countAllAuditRows(tx);
 
       const error = await expectRepoError(() =>
         AuditTrailService.listAuditTrail({}, null, null, LOCALE, nonAdmin.id, tx)
@@ -210,7 +221,10 @@ describe("AuditTrailService — actor gate (BFLA, pre-DB)", () => {
 
       expect(reads.countSpy).not.toHaveBeenCalled();
       expect(reads.listSpy).not.toHaveBeenCalled();
-      expect(await countAllAuditRows(tx)).toBe(auditBefore);
+      // Zero writes to the trail attributable to the denied caller
+      // (actor-scoped — a global audit count races with concurrent
+      // files' commits).
+      expect(await countAuditRowsForActor(tx, nonAdmin.id)).toBe(0);
     });
   });
 });

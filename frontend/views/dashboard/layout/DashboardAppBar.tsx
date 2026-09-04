@@ -5,7 +5,7 @@ import {
   LightModeOutlined as LightModeIcon,
   MenuOutlined as MenuIcon,
 } from "@mui/icons-material";
-import { AppBar, IconButton, Stack, Toolbar, Tooltip, Typography } from "@mui/material";
+import { AppBar, Box, IconButton, Stack, Toolbar, Tooltip, Typography } from "@mui/material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -15,6 +15,7 @@ import { NotificationUnreadBadge } from "@/frontend/components/ui/NotificationUn
 import { useAuth } from "@/frontend/hooks/auth";
 import { useThemeMode } from "@/frontend/hooks/theme";
 import { roleDashboardPath } from "@/frontend/lib/auth/roleDashboardRoute";
+import { BrandMark } from "@/frontend/views/auth/layout";
 import { DashboardAppBarUserMenu } from "@/frontend/views/dashboard/layout";
 import { Dashboard, useAppTranslation } from "@/shared/locale";
 
@@ -108,30 +109,41 @@ export function DashboardAppBar({ onMenuClick, showMenuButton }: Readonly<Dashbo
           </IconButton>
         ) : null}
 
-        {/* Brand wordmark — link to the caller's role dashboard. `noWrap` +
-            `minWidth: 0` make this the ONE shrinkable toolbar child (it
-            ellipsizes under space pressure) so the fixed-size controls never
-            spill off-canvas. */}
+        {/* Brand — link to the caller's role dashboard. Below `sm` the
+            wordmark cannot fit next to the fixed-size toolbar controls at
+            375px (it ellipsized ~23px, the recurring mobile-clip finding),
+            so the bar swaps to the icon-only brand mark; `sm`+ renders the
+            full wordmark. The link keeps the localized brand as its
+            accessible name + tooltip either way, and the 44px min height
+            makes it a proper tap target (it was a 24px strip). */}
         <Typography
           component={Link}
           href={dashboardHref}
           aria-current={isOnDashboard ? "page" : undefined}
-          noWrap
+          aria-label={t.title}
+          title={t.title}
           sx={theme => ({
             textDecoration: "none",
             color: theme.palette.text.primary,
             fontWeight: 700,
-            // Upstream main reduced the xs size to 16 (billing CRUD refresh);
-            // keep that tighter value — stricter against 375px overflow.
             fontSize: { xs: 16, sm: 20 },
             letterSpacing: "-0.01em",
             whiteSpace: "nowrap",
             flexGrow: 1,
             flexShrink: 1,
             minWidth: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 1,
+            minHeight: 44,
           })}
         >
-          {t.title}
+          <Box component="span" aria-hidden="true" sx={{ display: { xs: "inline-flex", sm: "none" }, flexShrink: 0 }}>
+            <BrandMark size={32} />
+          </Box>
+          <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+            {t.title}
+          </Box>
         </Typography>
 
         {/* Right-side actions — the stack never shrinks (the wordmark absorbs

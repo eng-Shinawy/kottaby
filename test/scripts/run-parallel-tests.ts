@@ -5,7 +5,7 @@
 import { availableParallelism } from "node:os";
 import { Glob, type Subprocess } from "bun";
 import { isTestCi } from "@/backend/lib/test-ci-env";
-import { TEST_ENV_FILE, withProcessLock } from "@/scripts/lib";
+import { loadTestEnvFile, TEST_ENV_FILE, withProcessLock } from "@/scripts/lib";
 import { deduplicateLines, renderProgressBar, stripAnsiCodes } from "@/test/scripts/runner-helpers";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -261,7 +261,13 @@ async function runSingleTestFile(
     };
 
     if (!isTestCi()) {
-      workerEnv.DATABASE_URL = undefined;
+      // PIN the worker's database to the TEST database explicitly. Bun
+      // auto-loads a cwd `.env` whose values would otherwise fill in any env
+      // var the child does not already have — silently pointing test workers
+      // at the DEV database (env-file isolation is NOT authoritative for
+      // keys the parent unset). An explicitly-set env var beats every env
+      // file (dotenv precedence), so this pin is authoritative.
+      workerEnv.DATABASE_URL = loadTestEnvFile().DATABASE_URL;
     }
 
     const bunArgs = ["bun", `--env-file=${TEST_ENV_FILE}`, "test", file, `--timeout=${timeoutMs}`];

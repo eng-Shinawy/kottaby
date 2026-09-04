@@ -12,8 +12,10 @@ export function ColorModeToggleButton({
     <Button
       onClick={onToggle}
       sx={{
-        minWidth: "auto",
         p: 1,
+        // Icon-only control — keep the 44px touch-target floor.
+        minHeight: 44,
+        minWidth: 44,
         color: "var(--mui-palette-secondary-light)",
         borderRadius: 2,
         "&:hover": { bgcolor: "color-mix(in srgb, var(--mui-palette-secondary-main) 15%, transparent)" },

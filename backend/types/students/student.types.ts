@@ -22,3 +22,23 @@ export interface HandshakeCodeLookupReturnType {
  */
 export type HandshakeDiscoveryRowType = Pick<StudentSelectType, "parentId"> &
   Pick<UserSelectType, "fullName" | "isDeleted" | "isBlocked" | "suspended" | "suspendedAt" | "suspendedPeriodDays">;
+
+/**
+ * Server-internal row for resolving a parent-link target by handshake code —
+ * the student identity plus the parent FK and the users-side governance
+ * columns consumed by the discovery exclusion predicate. It exists for the
+ * link-request write path only and NEVER surfaces through GraphQL (the
+ * parent-facing payload remains HandshakeCodeLookupReturnType); unlike
+ * HandshakeDiscoveryRowType it carries the raw student id so the write path
+ * can address the target row directly.
+ */
+export interface StudentLinkTargetRowType {
+  readonly studentId: number;
+  readonly parentId: number | null;
+  readonly fullName: string;
+  readonly isDeleted: boolean | null;
+  readonly isBlocked: boolean | null;
+  readonly suspended: boolean | null;
+  readonly suspendedAt: Date | null;
+  readonly suspendedPeriodDays: number | null;
+}

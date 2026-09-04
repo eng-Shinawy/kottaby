@@ -49,7 +49,7 @@ function dispatch(code: string, operation: "query" | "mutation", requestId?: str
 }
 
 describe("GraphQLErrorSurfaceHost", () => {
-  test("en: mutation-context masked INTERNAL_SERVER_ERROR → error toast with correlation id chip", () => {
+  test("en: mutation-context masked INTERNAL_SERVER_ERROR → error toast, correlation id never renders", () => {
     const locale: AppLocale = "en";
     const labels = Errors.getLabels(getTranslations(locale));
 
@@ -58,8 +58,9 @@ describe("GraphQLErrorSurfaceHost", () => {
     dispatch("INTERNAL_SERVER_ERROR", "mutation", "req-test-123");
 
     expect(screen.getByText(labels.internalServerError)).toBeDefined();
-    // Correlation guidance: the requestId travels as a mono chip.
-    expect(screen.getByText("req-test-123")).toBeDefined();
+    // Correlation guidance: the requestId stays OFF the surface (support reads
+    // it from the error-surface logger, not the pixels).
+    expect(screen.queryByText("req-test-123")).toBeNull();
     // Close affordance is translated, not hardcoded.
     expect(screen.getByRole("button", { name: Common.getLabels(getTranslations(locale)).close })).toBeDefined();
     // The raw server message NEVER renders (server masking).

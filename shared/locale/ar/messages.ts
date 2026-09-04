@@ -8,6 +8,7 @@ import { errorsAr } from "@/shared/locale/ar/errors";
 import { handshakeCodeAr } from "@/shared/locale/ar/handshakeCode";
 import { landingAr } from "@/shared/locale/ar/landing";
 import { notificationsAr } from "@/shared/locale/ar/notifications";
+import { parentLinkAr } from "@/shared/locale/ar/parentLink";
 import { plansAr } from "@/shared/locale/ar/plans";
 import { recitationAr } from "@/shared/locale/ar/recitation";
 import { sessionsAr } from "@/shared/locale/ar/sessions";
@@ -29,4 +30,5 @@ export const arMessages: Translations = {
   adminBroadcastsTranslations: adminBroadcastsAr,
   notificationsTranslations: notificationsAr,
   handshakeCodeTranslations: handshakeCodeAr,
+  parentLinkTranslations: parentLinkAr,
 };

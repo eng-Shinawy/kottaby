@@ -18,6 +18,7 @@ export const dashboardAr: DashboardLabels = {
   disputes: "النزاعات",
   profile: "الملف الشخصي",
   children: "الأبناء",
+  linkRequests: "طلبات الربط",
   comingSoon: "قريباً",
   comingSoonBody: (feature: string) => `صفحة ${feature} غير متاحة بعد. نعمل على إطلاقها قريباً — يرجى التحقق لاحقاً.`,
   sessionsCompleted: "الجلسات المكتملة",

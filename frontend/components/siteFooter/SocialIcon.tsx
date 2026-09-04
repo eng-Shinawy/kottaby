@@ -19,7 +19,10 @@ export function SocialIcon({ children, label }: Readonly<{ children: ReactNode; 
         borderRadius: 1,
         border: "1px solid rgba(255, 255, 255, 0.3)",
         color: "var(--mui-palette-onPrimary)",
-        opacity: 0.7,
+        // 20px glyph inside the 44px box — the previous 16px glyph read as a
+        // ~25px target in visual QA even though the box met the 44px floor.
+        "& svg": { width: 20, height: 20 },
+        opacity: 0.85,
         textDecoration: "none",
         transition: "border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease",
         "&:hover": {

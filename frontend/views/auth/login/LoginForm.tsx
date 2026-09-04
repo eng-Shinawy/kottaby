@@ -139,7 +139,13 @@ export function LoginForm() {
       </Box>
 
       <Stack direction="row" spacing={1} sx={{ justifyContent: "center", mt: 3 }}>
-        <MuiLink component={Link} href="/register" underline="hover" sx={{ fontWeight: 600 }}>
+        {/* 44px tap target via transparent padding — visible text size unchanged. */}
+        <MuiLink
+          component={Link}
+          href="/register"
+          underline="hover"
+          sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+        >
           {t.registerLink}
         </MuiLink>
       </Stack>

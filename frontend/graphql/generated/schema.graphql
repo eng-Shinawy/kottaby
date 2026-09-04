@@ -260,6 +260,22 @@ type HealthCheck {
   version: String!
 }
 
+type IncomingParentLinkRequest {
+  createdAt: DateTime!
+  expiresAt: DateTime!
+  id: ID!
+  parentFullName: String!
+  respondedAt: DateTime
+  status: LinkStatus!
+}
+
+enum LinkStatus {
+  Confirmed
+  Expired
+  Pending
+  Rejected
+}
+
 type LoginPayload {
   """
   Short-lived access token (15 min). Store in React memory; NEVER set as a cookie.
@@ -288,6 +304,11 @@ type Mutation {
   adminCreateUser(input: AdminCreateUserInput!): AdminUserDetail!
   adminSetUserDeleted(deleted: Boolean!, id: Int!): AdminUserDetail!
   adminUpdateUser(id: Int!, input: AdminUpdateUserInput!): AdminUserDetail!
+
+  """
+  Withdraws exactly one of the caller's own pending link requests (silent fold — zero notifications). A foreign or nonexistent id is indistinguishable — PARENT_LINK_REQUEST_NOT_FOUND with no existence oracle.
+  """
+  cancelParentLinkRequest(requestId: ID!): OutgoingParentLinkRequest!
 
   """
   Cancel one of the caller's scheduled/started sessions (either participant) and release the held fee to its original lane. Non-participants and nonexistent ids are indistinguishable SESSION_NOT_FOUND denials.
@@ -347,6 +368,11 @@ type Mutation {
   registerUser(input: RegisterUserInput!): User!
 
   """
+  Submits a parent-child link request for the student owning the handshake code. A valid-format code matching no eligible student answers null (missing and governance-excluded are indistinguishable); already-linked and already-pending targets surface their dedicated conflicts.
+  """
+  requestParentChildLink(code: String!): OutgoingParentLinkRequest
+
+  """
   Request a payout from the caller's own teacher wallet: one pending withdrawal ledger row plus a guarded balance debit, atomically. Insufficient funds roll the request back (zero rows) and surface WALLET_INSUFFICIENT_FUNDS; malformed amounts fail the pre-DB validation matrix with WALLET_INVALID_AMOUNT. Returns the UPDATED wallet (balance + refreshed ledger) so no refetch is needed. Teacher-only.
   """
   requestWithdrawal(input: RequestWithdrawalInput!): Wallet!
@@ -355,6 +381,11 @@ type Mutation {
   Resolve one disputed session into exactly one terminal state (admin arbitration): Cancel refunds the held fee to its original lane, Complete consumes the hold (never-started disputes are rejected). Non-disputed rows are SESSION_INVALID_TRANSITION conflicts.
   """
   resolveSessionDispute(id: ID!, note: String, resolution: DisputeResolution!): Session!
+
+  """
+  Accepts or rejects exactly one of the caller's own pending link requests (one-directional claim). A foreign or nonexistent id is indistinguishable — PARENT_LINK_REQUEST_NOT_FOUND with no existence oracle; already-resolved and expired requests surface their dedicated conflicts.
+  """
+  respondToParentLinkRequest(accept: Boolean!, requestId: ID!): IncomingParentLinkRequest!
 
   """Activates or deactivates an existing subscription plan (Admin only)."""
   setPlanActiveStatus(
@@ -419,6 +450,15 @@ enum NotificationType {
   SystemBroadcast
 }
 
+type OutgoingParentLinkRequest {
+  createdAt: DateTime!
+  expiresAt: DateTime!
+  id: ID!
+  respondedAt: DateTime
+  status: LinkStatus!
+  studentMaskedName: String!
+}
+
 """A subscription plan in the Kottaby catalog."""
 type Plan {
   """Timestamp when the plan record was created."""
@@ -478,9 +518,19 @@ type Query {
   myHandshakeCode: String!
 
   """
+  Lists the link requests addressed to the caller (newest first, capped). Rows keep their post-resolution status; expired rows are rendered without any write.
+  """
+  myIncomingParentLinkRequests: [IncomingParentLinkRequest!]!
+
+  """
   One page of the caller's own inbox — items (newest first), totalCount, hasMore. Optional conjunctive filters (type, isRead) and page window (limit 1..50 default 20, offset default 0).
   """
   myNotifications(filter: MyNotificationsFilterInput): NotificationListPage!
+
+  """
+  Lists the caller's own parent-child link requests (newest first, capped). Rows keep their post-resolution status; expired rows are rendered without any write.
+  """
+  myOutgoingParentLinkRequests: [OutgoingParentLinkRequest!]!
   myStudentSessions(filter: SessionListFilterInput, page: Int = 1, pageSize: Int = 25): SessionPage!
   myTeacherSessions(filter: SessionListFilterInput, page: Int = 1, pageSize: Int = 25): SessionPage!
 

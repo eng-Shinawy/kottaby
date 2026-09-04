@@ -68,7 +68,9 @@ function StatusBadge({ active, label, Icon, tone }: Readonly<StatusBadgeProps>):
         variant="outlined"
         disabled
         sx={theme => ({
-          borderColor: theme.palette.outlineVariant,
+          // border.main (not outlineVariant) so the inert badge keeps a
+          // visible outline next to its now-legible disabled label.
+          borderColor: theme.palette.border.main,
           color: theme.palette.text.disabled,
           fontWeight: 600,
         })}

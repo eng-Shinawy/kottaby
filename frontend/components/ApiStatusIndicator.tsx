@@ -9,6 +9,7 @@ import {
   versionLabelSx,
 } from "@/frontend/components/ApiStatusIndicator.styles";
 import { type ApiStatusKind, useApiStatusPolling } from "@/frontend/components/useApiStatusPolling";
+import { logger } from "@/frontend/lib/logger";
 import { Landing, useAppTranslation } from "@/shared/locale";
 
 /**
@@ -22,6 +23,12 @@ import { Landing, useAppTranslation } from "@/shared/locale";
  * `aria-live="polite"`; the animated dot is aria-hidden; all motion is gated
  * behind `prefers-reduced-motion: no-preference`. Invisible ::after padding
  * lifts the pointer target to ≥44px without inflating the visual pill.
+ *
+ * Correlation id policy: the health envelope's `requestId` NEVER renders on
+ * the surface (tooltip or copy) — users get the friendly localized status
+ * line only. The raw id stays a dev/support channel: it travels on the
+ * `data-api-request-id` attribute (queryable from devtools) and is emitted
+ * through the frontend logger.
  */
 
 export interface ApiStatusIndicatorProps {
@@ -40,12 +47,16 @@ export function ApiStatusIndicator({ pollIntervalMs }: Readonly<ApiStatusIndicat
   };
   const statusLabel = labelsByKind[status.kind];
 
-  // FSI/PDI isolates pin the LTR UUID so it cannot flip glyph order inside the
-  // RTL tooltip title (bidi isolation — display-only, never enters data state).
-  const tooltipTitle =
-    status.requestId === null
-      ? `${statusLabel} — ${t.footerStatusLabel}`
-      : `${statusLabel} · \u2066${status.requestId}\u2069`;
+  if (status.requestId !== null) {
+    // Dev/support correlation only — never rendered (see doc block above).
+    logger.debug({ caller: "ApiStatusIndicator" }, "[ApiStatus] probe correlation id", {
+      requestId: status.requestId,
+    });
+  }
+
+  // Friendly localized line only — the raw requestId is deliberately absent
+  // from the user-visible tooltip (support reads it via the data attribute).
+  const tooltipTitle = `${statusLabel} — ${t.footerStatusLabel}`;
 
   return (
     <Tooltip title={tooltipTitle} arrow describeChild placement="top">

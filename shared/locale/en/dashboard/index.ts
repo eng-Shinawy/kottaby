@@ -18,6 +18,7 @@ export const dashboardEn: DashboardLabels = {
   disputes: "Disputes",
   profile: "Profile",
   children: "Children",
+  linkRequests: "Link Requests",
   comingSoon: "Coming soon",
   comingSoonBody: (feature: string) =>
     `The ${feature} page is not available yet. We're working hard to bring it online — check back soon.`,

@@ -4,7 +4,6 @@ import { useQuery } from "@apollo/client/react";
 import { Box, Button, Divider, Popover, Stack, Typography } from "@mui/material";
 import Link from "next/link";
 import { type ReactNode, useMemo } from "react";
-// audit-R4: shared keyboard-focus ring (v9 ButtonBase ships none).
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { NotificationDrawerBody } from "@/frontend/components/ui/NotificationDrawerBody";
 import { useNotificationDrawerActions } from "@/frontend/components/ui/useNotificationDrawerActions";
@@ -13,7 +12,7 @@ import {
   myNotificationsQueryDocument,
   myUnreadNotificationCountQueryDocument,
 } from "@/frontend/graphql/sharedDocuments";
-import { Notifications, useAppLocale, useAppTranslation } from "@/shared/locale";
+import { Notifications, useAppTranslation } from "@/shared/locale";
 
 /**
  * Drawer window size — the latest few notifications (prototype contract: a
@@ -60,19 +59,34 @@ interface NotificationDrawerProps {
  * MUI v9 discipline: `sx`-only styling, palette via theme callbacks, content
  * as TEXT nodes through `Typography` only (the REQ-028 contract — honored
  * here even though the static scan roots at `frontend/views/notifications/**`).
- * RTL: the app sets document `dir` without `theme.direction` (the badge's
- * `[dir=rtl]` override precedent), so the popover's end-alignment flips via
- * the active locale.
+ * RTL: the app sets document `dir` without `theme.direction`, so the popover
+ * anchors PHYSICAL edges — the bell's right edge in both directions (the
+ * toolbar's control cluster never moves across the start/end axis), with MUI
+ * clamping the panel flush to the viewport margin under RTL.
  */
 export function NotificationDrawer({ anchorEl, open, onClose }: Readonly<NotificationDrawerProps>): ReactNode {
   const t = useAppTranslation(Notifications);
-  const locale = useAppLocale();
 
   // Memoized so `useQuery` sees a stable variables identity across re-renders.
   const filter = useMemo<MyNotificationsFilterInput>(
     () => ({ isRead: null, type: null, limit: DRAWER_PAGE_SIZE, offset: 0 }),
     []
   );
+
+  // Horizontal anchor side, re-read when the drawer opens: the app sets
+  // document `dir` WITHOUT `theme.direction`, so the mirror is derived from
+  // the live document. In RTL the bell cluster sits on the toolbar's END
+  // (physical left) edge — anchoring the panel's LEFT edges keeps its near
+  // edge flush with the bell; anchoring right-to-right there overflowed the
+  // viewport and the clamp left the panel overshooting the bell by 58px at
+  // desktop widths (visual QA). Narrow viewports clamp flush either way.
+  const anchorToEnd = useMemo(() => {
+    if (!open || typeof document === "undefined") {
+      return true;
+    }
+    return document.documentElement.getAttribute("dir") !== "rtl";
+  }, [open]);
+  const horizontal: "left" | "right" = anchorToEnd ? "right" : "left";
 
   const listQuery = useQuery(myNotificationsQueryDocument, {
     variables: { filter },
@@ -91,23 +105,28 @@ export function NotificationDrawer({ anchorEl, open, onClose }: Readonly<Notific
   const initialLoading = listQuery.loading && listQuery.data === undefined;
   const loadFailed = !initialLoading && listQuery.error !== undefined;
 
-  // The app sets document `dir` per locale but never `theme.direction` — flip
-  // the popover's END alignment explicitly (the badge RTL-override precedent).
-  const isRtl = locale === "ar";
-
   return (
     <Popover
       id="notification-drawer"
       open={open}
       anchorEl={anchorEl}
       onClose={onClose}
-      anchorOrigin={{ vertical: "bottom", horizontal: isRtl ? "left" : "right" }}
-      transformOrigin={{ vertical: "top", horizontal: isRtl ? "left" : "right" }}
+      // Anchor at the bell's cluster-side edge: the panel grows inward from
+      // the bell — END-side (physical right) in LTR, START-side (physical
+      // left) in RTL per `anchorToEnd`. MUI clamps the panel flush to the
+      // viewport margin on narrow screens, directly beneath the bell/avatar
+      // cluster. (The previous fixed right-to-right anchor in RTL let the
+      // clamped 400px panel overshoot the bell's outer edge by 58px at
+      // desktop widths.)
+      anchorOrigin={{ vertical: "bottom", horizontal }}
+      transformOrigin={{ vertical: "top", horizontal }}
       slotProps={{
         paper: {
           sx: theme => ({
             width: "min(400px, calc(100vw - 16px))",
-            mt: 1,
+            // Clear the taller `sm`+ toolbar (64px + border): the bell sits
+            // 10px above it there, vs 8px below the 56px mobile bar.
+            mt: { xs: 1, sm: 1.375 },
             borderRadius: 2,
             bgcolor: theme.palette.background.paper,
             display: "flex",
@@ -125,7 +144,8 @@ export function NotificationDrawer({ anchorEl, open, onClose }: Readonly<Notific
           variant="text"
           disabled={markAllPending || unreadCount === 0 || markReadPendingIds.length > 0}
           onClick={handleMarkAll}
-          sx={{ ...focusVisibleRingSx, minHeight: 36 }}
+          // 44px tap floor (visual QA flagged the small-size default at 36px).
+          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
         >
           {t.markAllRead}
         </Button>

@@ -4,7 +4,7 @@
 > **Plan directory (verbatim — every header, ledger path, and self-reference in this plan uses exactly this string):** `ai/plans/sprint_3/dev1-014-parent-child-link-request-workflow-7-day`
 > **Specs of record:** `ai/plans/sprint_3/dev1-014-parent-child-link-request-workflow-7-day/specs.md` (REQ-001..REQ-096)
 > **Canonical refs consumed:** `docs/workflows/04-parent-supervision-handshake.md` (§2 state machine, §4.3/§4.4), `docs/parents/handshake-code-discovery.md` (R1–R8 — binding R5 link-flow contract), `docs/notifications/realtime-engine.md` §3.1–§3.3, `docs/specs/state-machine-invariants.md` (INV-P1..P4, INV-U1/U4/U5), `docs/specs/open-decisions-and-gaps.md` (A.2, A.3, B.12, B.13, B.14), `docs/graphql/error-handling-contract.md`, `docs/graphql/domain-error-extensions-code.md`, `docs/DATABASE_MIGRATIONS.md`, `docs/IDEMPOTENCY.md`, `docs/testing/workflow-journey-tests.md`
-> **Blocking dependencies (SHIPPED, verified in-tree):** DEV1-002 registration (`backend/services/auth/registration.service.ts:22-48`), DEV1-013 handshake substrate (`backend/services/students/student-handshake.service.ts`, `backend/graphql/query/students/handshake-code.query.ts`), DEV3-010 notification engine (`backend/services/notifications/notification-engine.service.ts:159-288`).
+> **Blocking dependencies (SHIPPED, verified in-tree):** DEV1-002 registration (`backend/services/auth/registration.service.ts:79`), DEV1-013 handshake substrate (`backend/services/students/student-handshake.service.ts`, `backend/graphql/query/students/handshake-code.query.ts`), DEV3-010 notification engine (`backend/services/notifications/notification-engine.service.ts:43-123`; anchors re-verified by Task 0.2).
 
 ---
 
@@ -14,10 +14,10 @@
 
 DEV1-014 ships the platform's first **persistent link-request record** and the only sanctioned write path onto `students.parent_id` (INV-P1). The net-new work:
 
-1. **ONE new table** — `parent_link_requests` (the first new table since DEV1-001), reusing the ALREADY-EXISTING `link_status` pgEnum (`backend/db/schema/enums.ts:28`) and its dormant TS mirror (`backend/enum/shared/link-status.enum.ts:1-6`). Zero enum drift. A partial unique index `(parent_id, student_id) WHERE status='pending'` enforces one live pending per pair at the DB level.
+1. **ONE new table** — `parent_link_requests` (the first new table since DEV1-001), reusing the ALREADY-EXISTING `link_status` pgEnum (`backend/db/schema/enums.ts:54`) and its dormant TS mirror (`backend/enum/shared/link-status.enum.ts:1-6`). Zero enum drift. A partial unique index `(parent_id, student_id) WHERE status='pending'` enforces one live pending per pair at the DB level.
 2. **One new domain service** — `ParentLinkRequestService` (`backend/services/parents/parent-link-request.service.ts`): request (capability-by-code re-submission), respond (confirm — THE `parent_id` writer — / reject), cancel, and two self-scoped list reads with compute-on-read expiry rendering.
 3. **One new repository** — `ParentLinkRequestRepository` (`backend/db/repo/parents/parent-link-request.repository.ts`) + TWO additive students-repo methods (`findLinkTargetByHandshakeCode`, `linkParentIfUnlinked`).
-4. **Five GraphQL operations** — 2 self-scoped queries + 3 mutations — with the load-bearing `$all` authScopes conjunction and service-layer governance re-checks (the context factory applies NO governance filter — `backend/graphql/gqlContextFactory.ts:91-104`).
+4. **Five GraphQL operations** — 2 self-scoped queries + 3 mutations — with the load-bearing `$all` authScopes conjunction and service-layer governance re-checks (the context factory applies NO governance filter — `backend/graphql/gqlContextFactory.ts:206-216`; anchor re-verified at the 0.3 gate).
 5. **Frontend** — the student `link-requests` page, the parent's outgoing-requests section on the existing handshake page, one new student nav item, and the new `parentLink` i18n namespace.
 6. **Permanent test locks** — repo/service/chaos/wire/static tiers plus the cross-actor journey `test/workflows/parents/parent-link-request.journey.test.ts`, written TEST-FIRST.
 
@@ -65,16 +65,16 @@ DEV1-014 ships the platform's first **persistent link-request record** and the o
 | # | Decision | Options Considered | Pros / Cons | Rationale (Maintainability, Scalability, Reliability) |
 |---|---|---|---|---|
 | D1 | **Lazy expiry + materialize-at-write**, never a cron sweep | (a) cron sweeper; (b) read-time flip; (c) lazy + guarded materialization on interaction | (a) extra infra for a correctness-neutral convenience. (b) alone leaves `pending` rows forever stale-looking to other actors' writes. (c) list reads COMPUTE expired render without writing (read purity); the first WRITE interaction materializes `expired` via a guarded no-op-safe UPDATE | REQ-015/044. Strict `expiresAt > now` liveness mirrors the applicant-cooldown precedent (`backend/services/teachers/applicant-lifecycle.service.ts`). Sweep = ledger forward-reference, resolved-pointer |
-| D2 | **All transitions are single guarded `UPDATE … WHERE <ownership ∧ status ∧ liveness> RETURNING`** — zero SELECT-then-UPDATE | (a) read-check-write; (b) guarded updates + zero-row classifiers | (a) TOCTOU under concurrent claim (two confirms win). (b) predicate+mutation in one statement; the zero-row branch drives an honest classifier | REQ-041. Precedent: `AdminUserRepository.setDeletedOnce` (`backend/db/repo/admin/admin-user.repository.ts:327-347`) |
+| D2 | **All transitions are single guarded `UPDATE … WHERE <ownership ∧ status ∧ liveness> RETURNING`** — zero SELECT-then-UPDATE | (a) read-check-write; (b) guarded updates + zero-row classifiers | (a) TOCTOU under concurrent claim (two confirms win). (b) predicate+mutation in one statement; the zero-row branch drives an honest classifier | REQ-041. Precedent: `AdminUserRepository.setDeletedOnce` (`backend/db/repo/admin/admin-user.repository.ts:355`) |
 | D3 | **The confirm flow's arbiter is the guarded `students.parent_id IS NULL` write, and failure rolls back the WHOLE tx** (claim + notification die with it) | (a) claim-check-then-link in separate steps; (b) single-tx order claim → link → sibling-expiry → notify | (a) ghost confirmed state without a link (INV-P1 breach). (b) the loser's claim is NEVER committed; confirmed rows and linked parents stay 1:1 | REQ-016/042. Two-parent confirm race: exactly one winner by construction |
-| D4 | **Partial unique index `(parent_id, student_id) WHERE status='pending'`** as the duplicate-pending final arbiter | (a) full unique on pair (blocks legitimate re-request after rejection); (b) partial unique; (c) app-level check only | (a) forbids re-applying after rejection/expiry — wrong product rule. (c) racy. (b) terminates duplicates under concurrency AND lets reject→re-request succeed | REQ-014/043. 23505 loser maps to `PARENT_LINK_ALREADY_PENDING` via cause-chain traversal (`isUniqueViolation`, `backend/services/shared/user-provisioning.helpers.ts:29-44`) |
+| D4 | **Partial unique index `(parent_id, student_id) WHERE status='pending'`** as the duplicate-pending final arbiter | (a) full unique on pair (blocks legitimate re-request after rejection); (b) partial unique; (c) app-level check only | (a) forbids re-applying after rejection/expiry — wrong product rule. (c) racy. (b) terminates duplicates under concurrency AND lets reject→re-request succeed | REQ-014/043. 23505 loser maps to `PARENT_LINK_ALREADY_PENDING` via cause-chain traversal (`isUniqueViolation`, `backend/services/shared/user-provisioning.helpers.ts:54`) |
 | D5 | **Service-layer actor re-check (fresh `users` read: role + governance) is the FIRST action of every mutation** | (a) trust the context; (b) re-check per surface | (a) rides the documented governance window — a suspended parent could act with a pre-issued token. (b) closes the window for THIS surface only, honestly documented | REQ-031; same posture as DEV3-018's strict actor re-check. The context factory stays as-is |
 | D6 | **Target resolution is server-internal: a NEW joint read `findLinkTargetByHandshakeCode` returns `students.id`** — the public discovery payload stays id-free | (a) widen the discovery payload with `id`; (b) a second read inside the write tx | (a) violates R1 payload closure (`docs/parents/handshake-code-discovery.md`) — the id must never cross the wire. (b) the code is re-submitted server-side (R5.1); the id never leaves the backend | REQ-011/032. Client args carry the CODE only; the id surfaces only inside the write tx |
 | D7 | **Null-collapse for miss/governed (`requestParentChildLink` returns `null`)**; honest conflicts for already-linked/duplicate | (a) errors for every denial; (b) R2/R3 parity collapse for the miss family, conflict codes for the honest family | (b) preserves the discovery oracle contract byte-for-byte (governed ≡ never existed) while keeping `linkable:false`'s honest disclosure | REQ-012/013/034. The `linkable` bit already disclosed linkability; erroring on it leaks nothing new |
 | D8 | **Recipient-locale notification copy, verbatim-stored, publish-after-commit** via the engine's caller-tx receipt pattern | (a) actor locale; (b) recipient locale via `UserRepository.findLocalesByIds` + `defaultLocale` fallback | (b) is the engine's emitter-localization rule (§3.3) and the DEV3-018 D6 precedent | REQ-023; `defaultLocale = "ar"` (`shared/locale/AppLocale.ts:3`) |
 | D9 | **Cancel folds into `status='rejected'`** (the frozen `link_status` enum has no `cancelled`), recorded as withdrawal-with-note | (a) widen the enum (needs a migration); (b) fold with a documented semantic | (a) REQ-045 forbids enum drift; (b) preserves the append-only history row with zero schema churn | REQ-018; product-vocabulary change = future-ticket pointer, never patched here |
 | D10 | **Reconcile-then-extend the stale frozen SDL baselines in ONE documented two-step** | (a) silent baseline patch; (b) re-anchor to live, then append this surface | The bundled freeze suites predate the DEV3-016 admin surface; a silent edit erases that history | REQ-061; DEV3-018 §3.3 precedent — reconciliation commit context + extension step, both recorded in the outcome |
-| D11 | **Timestamps use the registered `DateTime` scalar, never `String` + `toISOString()`** | (a) legacy String pattern; (b) `type: "DateTime"` | (b) Architectural Invariant 11; scalar registered at `backend/graphql/pothos/shared/scalar.pothos.ts:1-4`, builder slot `backend/graphql/pothos/builder.ts:16-18` | REQ-060; codegen maps to `string` (`codegen.ts`) |
+| D11 | **Timestamps use the registered `DateTime` scalar, never `String` + `toISOString()`** | (a) legacy String pattern; (b) `type: "DateTime"` | (b) Architectural Invariant 11; scalar registered at `backend/graphql/pothos/shared/scalar.pothos.ts:28`, builder slot `backend/graphql/pothos/builder.ts:76` | REQ-060; codegen maps to `string` (`codegen.ts`) |
 | D12 | **No idempotency-key contract (out of the mandated set); natural guards ARE the replay protection** | (a) `X-Idempotency-Key` plumbing; (b) partial-unique + guarded transitions + UI in-flight disable | Key set = Students/Invoices/Class Instances/Payments only (`docs/IDEMPOTENCY.md`); the DEV3-016 ruling pattern applies verbatim | REQ-023. Duplicate double-submit ⇒ one row + one `PARENT_LINK_ALREADY_PENDING` |
 
 ---
@@ -85,11 +85,11 @@ DEV1-014 ships the platform's first **persistent link-request record** and the o
 
 | Element | Anchor | State |
 |---|---|---|
-| `linkStatus` pgEnum `("pending","confirmed","rejected","expired")` | `backend/db/schema/enums.ts:28` | EXISTING, first consumer — untouched |
+| `linkStatus` pgEnum `("pending","confirmed","rejected","expired")` | `backend/db/schema/enums.ts:54` | EXISTING, first consumer — untouched |
 | `LinkStatus` TS mirror | `backend/enum/shared/link-status.enum.ts:1-6` | EXISTING; NO `isLinkStatus` guard exists → NEW additive guard this ticket |
-| `students.parentId` FK `ON DELETE SET NULL` + `students_parent_id_idx` | `backend/db/schema/students/students.ts:18,27` | EXISTING — the INV-P1 write target; untouched |
-| `users` governance columns | `backend/db/schema/users/users.ts:16-22` | READ-only here |
-| `students.handshake_code` unique | `backend/db/schema/students/students.ts:17,26` | The capability key |
+| `students.parentId` FK `ON DELETE SET NULL` + `students_parent_id_idx` | `backend/db/schema/students/students.ts:32,41` | EXISTING — the INV-P1 write target; untouched |
+| `users` governance columns | `backend/db/schema/users/users.ts:30-35` | READ-only here |
+| `students.handshake_code` unique | `backend/db/schema/students/students.ts:31,40` | The capability key |
 | `notifications` (engine-written) | `backend/db/schema/notifications/notifications.ts` | Written ONLY via `NotificationEngine` |
 
 **Zero table elsewhere changes.** `git diff backend/db/schema/**` at completion shows EXACTLY: the new file + the one-line barrel edit in `backend/db/schema/parents/index.ts`.
@@ -243,9 +243,9 @@ extend type Mutation {
 | `backend/graphql/pothos/shared/enum.pothos.ts` | ADD `LinkStatusPothosEnum = gqlSchemaBuilder.enumType(LinkStatus, { name: "LinkStatus" })` — enum-OBJECT form ONLY (CRITICAL rule), registered ONCE |
 | `backend/graphql/pothos/parents/parent-link-request.pothos.ts` | CREATE dir + objects: `OutgoingParentLinkRequestPothosObject`/`IncomingParentLinkRequestPothosObject` — `objectRef<…ReturnType>(...)`, `id` FIRST (`t.exposeID("id")`), timestamps `t.expose("createdAt", { type: "DateTime" })` etc. NO local types |
 | `backend/graphql/pothos/parents/index.ts` | CREATE barrel line |
-| `backend/graphql/query/parents/parent-link.query.ts` | CREATE: `myOutgoingParentLinkRequests` (`$all: { authenticated: true, role: [UserRole.Parent] }`), `myIncomingParentLinkRequests` (`role: [UserRole.Student]`) — thin delegation; `ctx.user` guard via localized `UnauthorizedError` (pattern anchored at `backend/graphql/mutation/notifications/notification.mutation.ts:31-34`) |
+| `backend/graphql/query/parents/parent-link.query.ts` | CREATE: `myOutgoingParentLinkRequests` (`$all: { authenticated: true, role: [UserRole.Parent] }`), `myIncomingParentLinkRequests` (`role: [UserRole.Student]`) — thin delegation; `ctx.user` guard via localized `UnauthorizedError` (pattern anchored at `backend/graphql/mutation/notifications/notification.mutation.ts:114-116`) |
 | `backend/graphql/query/parents/index.ts` + `backend/graphql/query/index.ts` | side-effect barrel wiring (`import "./parents";`) |
-| `backend/graphql/mutation/parents/parent-link.mutation.ts` | CREATE: the three mutations. `requestParentChildLink` — SAME parent scope, `nullable: true` type config, resolver maps the service's `null` through verbatim. `respondToParentLinkRequest` / `cancelParentLinkRequest` — SAME respective-role scopes; `requestId: ID!` parsed by a module-local `parseLinkRequestIdArg` mirroring the canonical pattern (`/^[1-9]\d*$/` + `isPositiveSafeInt`, invalid → `ValidationError` pre-DB — precedent `notification.mutation.ts:7-18`) |
+| `backend/graphql/mutation/parents/parent-link.mutation.ts` | CREATE: the three mutations. `requestParentChildLink` — SAME parent scope, `nullable: true` type config, resolver maps the service's `null` through verbatim. `respondToParentLinkRequest` / `cancelParentLinkRequest` — SAME respective-role scopes; `requestId: ID!` parsed by a module-local `parseLinkRequestIdArg` mirroring the canonical pattern (`/^[1-9]\d*$/` + `isPositiveSafeInt`, invalid → `ValidationError` pre-DB — precedent `notification.mutation.ts:81` (`parseNotificationIdArg`)) |
 | `backend/graphql/mutation/parents/index.ts` + `backend/graphql/mutation/index.ts` | side-effect barrel wiring |
 | Codegen | `bun run generate:gqlSchema && bun codegen` in the SAME change set; commit `frontend/graphql/**/generated` artifacts |
 | `backend/lib/gateway/public-operations.ts` | UNTOUCHED — frozen six; all five ops are scope-gated |
@@ -260,14 +260,14 @@ Both steps and their rationale are recorded in the same changeset's outcome file
 
 | Scenario | `extensions.code` | Producer |
 |---|---|---|
-| anonymous, any of the 5 ops | `UNAUTHORIZED` | `$all` `authenticated` scope throws pre-resolver (`builder.ts:41-46`) |
+| anonymous, any of the 5 ops | `UNAUTHORIZED` | `$all` `authenticated` scope throws pre-resolver (`builder.ts:119`) |
 | authenticated wrong role (parent↔student cross-probes) | `FORBIDDEN` | role scope → localized `ForbiddenError` |
 | governed actor with pre-issued token | `FORBIDDEN` (service re-check) | actor fresh-read guard (REQ-031) |
 | malformed code | `VALIDATION` | pre-DB (`isHandshakeCode`) |
 | code miss / governed target | `null` payload (NO error) | REQ-012 collapse |
-| target already linked | `PARENT_LINK_TARGET_ALREADY_LINKED` | `ConflictError(code, message)` overload (`backend/lib/errors.ts:90-99`) |
+| target already linked | `PARENT_LINK_TARGET_ALREADY_LINKED` | `ConflictError(code, message)` overload (`backend/lib/errors.ts:170-182`) |
 | duplicate pending per pair (incl. 23505 race loser) | `PARENT_LINK_ALREADY_PENDING` | same overload via `isUniqueViolation` traversal |
-| respond/cancel foreign OR nonexistent id | `PARENT_LINK_REQUEST_NOT_FOUND` | `NotFoundError("PARENT_LINK_REQUEST", …)` — constant shape, foreign ≡ nonexistent (the `markReadOnce` precedent `notification.repository.ts:128-139`) |
+| respond/cancel foreign OR nonexistent id | `PARENT_LINK_REQUEST_NOT_FOUND` | `NotFoundError("PARENT_LINK_REQUEST", …)` — constant shape, foreign ≡ nonexistent (the `markReadOnce` precedent `notification.repository.ts:269-281`) |
 | respond/cancel already answered | `PARENT_LINK_REQUEST_ALREADY_RESOLVED` | `ConflictError(code, message)` |
 | respond/cancel expired-at-interaction | `PARENT_LINK_REQUEST_EXPIRED` | classifier materializes `expired` THEN throws |
 | invalid `requestId` wire value (`"0"`, `"-1"`, `"1.5"`, `"abc"`, oversized) | `VALIDATION` | module-local ID parser, pre-DB |
@@ -295,7 +295,7 @@ There is deliberately NO admin/supervisor axis — link requests are a user-to-u
 
 Registered in `backend/db/repo/parents/index.ts` (currently `export * from "./parent.repository";`).
 
-Repo-local joined-row shapes follow the sanctioned precedent (exported interfaces inside the repo file, e.g. `AdminUserDirectoryRow` at `backend/db/repo/admin/admin-user.repository.ts:41-61`).
+Repo-local joined-row shapes follow the sanctioned precedent (exported interfaces in the repo sub-directory — live precedent `AdminUserDirectoryRow` at `backend/db/repo/admin/admin-user-row-types.ts:72`, the sanctioned row-types sibling file).
 
 | Method | Signature | Contract |
 |---|---|---|
@@ -344,20 +344,20 @@ export namespace ParentLinkRequestService {
 **Module-private actor re-check (REQ-031)** — one local function (fresh `UserRepository.findById(actorId, tx)`): missing/id≤0 → `UnauthorizedError(t.unauthorized)`; role mismatch → `ForbiddenError(t.forbidden)`; `isDeleted || isBlocked || suspended` → `ForbiddenError(t.forbidden)` (constant denial copy — no branch disclosure). Each denial = exactly ONE `logger.logDomainError` `{ code, entity: "users", entityId, locale }` + ZERO writes + ZERO notifications.
 
 **`requestLink` pipeline (ordered — REQ-011):**
-1. `normalizeHandshakeCode(code)` + `isHandshakeCode` — malformed → `ValidationError(t.handshakeCodeInvalid)` PRE-DB (existing key — `shared/locale/en/errors/index.ts:48`).
+1. `normalizeHandshakeCode(code)` + `isHandshakeCode` — malformed → `ValidationError(t.handshakeCodeInvalid)` PRE-DB (existing key — `shared/locale/en/errors/index.ts:49`).
 2. Actor re-check (parent).
-3. `withTransaction(outerTx, async tx => …)` (`backend/lib/db/with-transaction` — import anchored at `user-management.service.ts:13`):
+3. `withTransaction(outerTx, async tx => …)` (`backend/lib/db/with-transaction` — import anchored at `user-management.service.ts:62`):
    - `const now = new Date();` — ONE captured instant.
    - `const target = await StudentRepository.findLinkTargetByHandshakeCode(normalized, tx)`;
-   - `null` → return `null`; `isGovernanceExcludedFromDiscovery(target, now)` (`backend/services/students/student-handshake.helpers.ts:3-18`) → return `null`. BOTH leave zero rows, zero notifications, zero publishes.
+   - `null` → return `null`; `isGovernanceExcludedFromDiscovery(target, now)` (`backend/services/students/student-handshake.helpers.ts:39-59`) → return `null`. BOTH leave zero rows, zero notifications, zero publishes.
    - `target.parentId !== null` → `ConflictError("PARENT_LINK_TARGET_ALREADY_LINKED", t.parentLinkTargetAlreadyLinked)`.
    - `findPendingByPair` hit → `ConflictError("PARENT_LINK_ALREADY_PENDING", t.parentLinkAlreadyPending)`.
    - `ParentLinkRequestRepository.create({ parentId: parentActorId, studentId: target.studentId, expiresAt: new Date(now.getTime() + PARENT_LINK_REQUEST_MS) }, tx)` wrapped in the 23505-traversal catch → SAME `PARENT_LINK_ALREADY_PENDING` on `isUniqueViolation(error)`.
-   - Recipient locale: `(await UserRepository.findLocalesByIds([target.studentId], tx)).get(target.studentId) ?? defaultLocale` (`user.repository.ts:63-92`; `AppLocale.ts:3`); copy = `getServerTranslations(recipientLocale).notificationsTranslations.eventParentLinkRequestTitle` + `…Body(actorFullName)` (the parent actor's own name — sanctioned: the decision-maker must know WHO asks).
-   - In-tx `NotificationEngine.emitForUser({ userId: target.studentId, type: NotificationType.ParentLinkRequest, title, body, relatedEntityType: "parent_link_request", relatedEntityId: created.id }, recipientLocale, tx, options)` → receipt (NO publish inside tx — `notification-engine.service.ts:178-181`).
+   - Recipient locale: `(await UserRepository.findLocalesByIds([target.studentId], tx)).get(target.studentId) ?? defaultLocale` (`user.repository.ts:152-186`; `AppLocale.ts:3`); copy = `getServerTranslations(recipientLocale).notificationsTranslations.eventParentLinkRequestTitle` + `…Body(actorFullName)` (the parent actor's own name — sanctioned: the decision-maker must know WHO asks).
+   - In-tx `NotificationEngine.emitForUser({ userId: target.studentId, type: NotificationType.ParentLinkRequest, title, body, relatedEntityType: "parent_link_request", relatedEntityId: created.id }, recipientLocale, tx, options)` → receipt (NO publish inside tx — `notification-engine.service.ts:65-68`).
    - Return `{ created, receipt }` (internal bridge shape).
 4. Own-commit path ONLY: `NotificationEngine.publishReceipts([receipt], recipientLocale, options)` — push failure degrades to `NOTIFICATION_DELIVERY_DEGRADED` and NEVER fails the request (engine contract §3.1).
-5. Map to outgoing return: `maskFullName(target.fullName)` (`shared/lib/mask-full-name` — import anchored at `student-handshake.service.ts:7`), `status: LinkStatus.Pending`, inserted timestamps verbatim.
+5. Map to outgoing return: `maskFullName(target.fullName)` (`shared/lib/mask-full-name` — imported at `student-handshake.service.ts:49`), `status: LinkStatus.Pending`, inserted timestamps verbatim.
 
 **`respondToLinkRequest` pipeline (REQ-016/017):**
 1. Actor re-check (student).
@@ -380,7 +380,7 @@ export namespace ParentLinkRequestService {
 
 | Scenario | Actors | Risk | Mitigation |
 |---|---|---|---|
-| Duplicate pending create race (double-click / concurrent submit) | parent × DB | two live pendings per pair | partial unique index (D4) — loser maps 23505 → `PARENT_LINK_ALREADY_PENDING`; chaos tier proves ONE row (`Promise.allSettled`, skip under `isPgliteProvider` — `test/helpers/skip-when-pglite.ts:1-5`) |
+| Duplicate pending create race (double-click / concurrent submit) | parent × DB | two live pendings per pair | partial unique index (D4) — loser maps 23505 → `PARENT_LINK_ALREADY_PENDING`; chaos tier proves ONE row (`Promise.allSettled`, skip under `isPgliteProvider` — `test/helpers/skip-when-pglite.ts:48-50`) |
 | Two pending requests for ONE student confirmed in race | student acts twice (claim A ∥ claim B) | two "confirmed" rows / double link write | the guarded `parent_id IS NULL` link write is the FINAL arbiter (D3): loser's link update matches zero rows → whole loser tx (claim + notification + anything) rolls back; final = exactly ONE confirmed + ONE linked parent + all siblings expired |
 | Confirm lands exactly ON `expiresAt` | student | off-by-one liveness | strict `expires_at > now` predicate; one captured `now` per call; boundary suite covers past/now/future |
 | Cancel ∥ student-confirm on the SAME row | parent + student | conflicting terminal states | both transitions are row-locked guarded UPDATEs on the SAME row; the second statement observes the first's committed effect; a cancelled row cannot be claimed (`status='pending'` predicate) and vice versa |
@@ -438,7 +438,7 @@ stateDiagram-v2
 | Expired interaction | outgoing renders `expired` chip (computed) | — | interaction denied `PARENT_LINK_REQUEST_EXPIRED`; row materialized | — |
 | Race (B12) | ONE parent_id winner; losers see conflict | OTHER pendings expired; ZERO dupes | exactly ONE notification per direction | — |
 
-**Journey harness contract (REQ-076):** `test/workflows/parents/parent-link-request.journey.test.ts` — TEST-FIRST; committed fixtures in ONE `beforeAll db.transaction`; REAL actors via `provisionParentActor` / `provisionStudentActor` (existence anchored by `@/test/workflows/helpers` imports — `fanout-transport.test.ts:12`); `TrackedFixtures` teardown deleting `parent_link_requests` FIRST (RESTRICT FKs — REQ-046 order) with mandatory zero-residue re-probes; `SpiedFanoutTransport` at the `options.transport` seam; unique `jrn_plink_<uuid8>` prefixes; NO `runInRollback`; denials via REAL role resolution; backdated `expiresAt` fixtures are committed DIRECTLY (`expiresAt` is application-written, so fixture control is honest). Run: `bun run test/scripts/run-test.ts test/workflows/parents/parent-link-request.journey.test.ts`.
+**Journey harness contract (REQ-076):** `test/workflows/parents/parent-link-request.journey.test.ts` — TEST-FIRST; committed fixtures in ONE `beforeAll db.transaction`; REAL actors via `provisionParentActor` / `provisionStudentActor` (existence anchored by `@/test/workflows/helpers` imports — `fanout-transport.test.ts:25`); `TrackedFixtures` teardown deleting `parent_link_requests` FIRST (RESTRICT FKs — REQ-046 order) with mandatory zero-residue re-probes; `SpiedFanoutTransport` at the `options.transport` seam; unique `jrn_plink_<uuid8>` prefixes; NO `runInRollback`; denials via REAL role resolution; backdated `expiresAt` fixtures are committed DIRECTLY (`expiresAt` is application-written, so fixture control is honest). Run: `bun run test/scripts/run-test.ts test/workflows/parents/parent-link-request.journey.test.ts`.
 
 ---
 
@@ -448,15 +448,15 @@ stateDiagram-v2
 
 | Path | Purpose | Required permission | Allowed roles |
 |---|---|---|---|
-| `/student/link-requests` (NEW) | student incoming queue (confirm/reject) | `withPageAuth({ roles: [UserRole.Student], redirectTo: "/student/link-requests" })` (`frontend/lib/auth/withPageAuth.ts:15-30`) | Student |
+| `/student/link-requests` (NEW) | student incoming queue (confirm/reject) | `withPageAuth({ roles: [UserRole.Student], redirectTo: "/student/link-requests" })` (`frontend/lib/auth/withPageAuth.ts:34-47/:67-105`) | Student |
 | `/parent/handshake` (EXISTING page — container gains the outgoing section + the send affordance on the found state) | discovery + outgoing list | existing parent guard | Parent |
 
-Anonymous → `/login?redirect=/student/link-requests`; wrong role → `roleDashboardPath(ctx.role)` (`frontend/lib/auth/roleDashboardRoute.ts:9-22`) — bare `/dashboard` is NEVER a target.
+Anonymous → `/login?redirect=/student/link-requests`; wrong role → `roleDashboardPath(ctx.role)` (`frontend/lib/auth/roleDashboardRoute.ts:52-65`; Parent → `/parent/dashboard` at `:39`) — bare `/dashboard` is NEVER a target.
 
 ### 5.2 Sidebar & Navigation Integration
 
-- `frontend/views/dashboard/navItems.ts` student array (`navItems.ts:35-42`) gains ONE entry `{ route: "/student/link-requests", labelKey: "linkRequests", Icon: LinkChildIcon }` (the `LinkChildIcon` import already exists at `navItems.ts:8`). NO duplicate — no current item targets this route.
-- `DashboardLabels` gains `linkRequests: string` (`shared/locale/types/dashboard/index.ts` + en/ar leaves). The nav ownership matrix (`navItems.test.ts:19-29`) stays green — the key lives ONLY on the dashboard bundle.
+- `frontend/views/dashboard/nav/navItems.ts` student array (`navItems.ts:103-109`) gains ONE entry `{ route: "/student/link-requests", labelKey: "linkRequests", Icon: LinkChildIcon }` (the `LinkChildIcon` import already exists at `navItems.ts:11`). NO duplicate — no current item targets this route.
+- `DashboardLabels` gains `linkRequests: string` (`shared/locale/types/dashboard/index.ts` + en/ar leaves). The nav ownership matrix (`frontend/views/dashboard/nav/navItems.test.ts:7-17`) stays green — the key lives ONLY on the dashboard bundle.
 - There is NO mobile bottom-nav component; the temporary MUI `Drawer` (`DashboardSidebar.tsx`) picks the item up automatically.
 
 ### 5.3 Per-Audience Rendering
@@ -481,7 +481,7 @@ mutation CancelParentLinkRequest($requestId: ID!) { cancelParentLinkRequest(requ
 ```
 
 - `id` FIRST in every selection; five named operations; `TypedDocumentNode<…>` typed from the single generated `graphql.ts`; `useQuery`-only (NO `useLazyQuery`).
-- **Cache:** both objects carry real `id`s → they normalize; the frozen policy inventory (`frontend/providers/apollo/apolloCache.test.ts:90-99`) stays GREEN UNTOUCHED (no `keyFields: false` needed).
+- **Cache:** both objects carry real `id`s → they normalize; the frozen policy inventory (`frontend/providers/apollo/apolloCache.test.ts:167-192` — the `keyFields:false` assertions) stays GREEN UNTOUCHED (no `keyFields: false` needed).
 - A sibling document-contract test mirrors `notification.documents.test.ts` (operation names, variables, id-first).
 - Mutation→list coherence: after each mutation, `await` the active query's `refetch()` (the simplest honest refresh; no hand-rolled cache surgery).
 
@@ -524,7 +524,7 @@ app/(dashboard)/parent/handshake/page.tsx                 (EXISTING — prose-ve
 | `shared/locale/namespaces/index.ts` | registry entry + `export *` line |
 | `shared/locale/types/message.ts` + both `messages.ts` | `parentLinkTranslations: ParentLinkLabels` + bundle wiring (pattern anchored at `shared/locale/en/messages.ts`) |
 | `shared/locale/parentLink-namespace.parity.test.ts` | NEW parity suite mirroring `notifications-namespace.parity.test.ts` (key-set identity, non-empty, Arabic-script pins, function-slot parity, registry/bundle pins) |
-| `shared/locale/types/errors/index.ts` + en/ar errors | FIVE NEW FLAT keys (flat like `handshakeCodeInvalid` at line 48): `parentLinkTargetAlreadyLinked`, `parentLinkAlreadyPending`, `parentLinkRequestExpired`, `parentLinkRequestAlreadyResolved`, `parentLinkRequestNotFound` |
+| `shared/locale/types/errors/index.ts` + en/ar errors | FIVE NEW FLAT keys (flat like `handshakeCodeInvalid` at line 49): `parentLinkTargetAlreadyLinked`, `parentLinkAlreadyPending`, `parentLinkRequestExpired`, `parentLinkRequestAlreadyResolved`, `parentLinkRequestNotFound` |
 | `shared/locale/{types,en,ar}/notifications/` | SIX new non-`type*` slots: `eventParentLinkRequestTitle`, `eventParentLinkRequestBody: (parentName) => string`, `eventParentLinkAcceptedTitle`, `eventParentLinkAcceptedBody: (studentName) => string`, `eventParentLinkRejectedTitle`, `eventParentLinkRejectedBody: (studentName) => string` |
 | `shared/locale/notifications-namespace.parity.test.ts` | SAME change set: `MANDATED_KEYS` 26 → 32 and the function-slot inventory 4 → 7 (the three body functions); the "exactly seven `type*` keys" pin stays GREEN UNCHANGED |
 | `shared/locale/{types,en,ar}/dashboard/` | `linkRequests` label (nav) |
@@ -535,14 +535,14 @@ app/(dashboard)/parent/handshake/page.tsx                 (EXISTING — prose-ve
 
 | Threat class | Mitigation (anchored) |
 |---|---|
-| **BOLA / IDOR** | (1) Targeting is capability-by-CODE only — `requestLink(code)` re-resolves server-side; the student id NEVER crosses the wire (D6). (2) `respondToParentLinkRequest`/`cancelParentLinkRequest` fold ownership into the guarded UPDATE predicate; foreign ≡ nonexistent ⇒ constant `PARENT_LINK_REQUEST_NOT_FOUND` (precedent `notification.repository.ts:128-139`). (3) Lists are self-scoped by the VERIFIED actor id. (4) NO resolver argument may carry `parentId`/`studentId`/`userId` — smuggled identity dies as `GRAPHQL_VALIDATION_FAILED` pre-resolver (wire-matrix pinned) |
-| **BFLA** | `$all: { authenticated: true, role: [<one role>] }` on all five ops (handshake-code `$all` precedent `handshake-code.query.ts:9-15`; the ANY-semantics hazard recorded at `docs/teachers/applicant-lifecycle.md` §3) + service-layer fresh-read actor re-check incl. governance (D5). `PUBLIC_OPERATIONS` untouched |
+| **BOLA / IDOR** | (1) Targeting is capability-by-CODE only — `requestLink(code)` re-resolves server-side; the student id NEVER crosses the wire (D6). (2) `respondToParentLinkRequest`/`cancelParentLinkRequest` fold ownership into the guarded UPDATE predicate; foreign ≡ nonexistent ⇒ constant `PARENT_LINK_REQUEST_NOT_FOUND` (precedent `notification.repository.ts:269-281`). (3) Lists are self-scoped by the VERIFIED actor id. (4) NO resolver argument may carry `parentId`/`studentId`/`userId` — smuggled identity dies as `GRAPHQL_VALIDATION_FAILED` pre-resolver (wire-matrix pinned) |
+| **BFLA** | `$all: { authenticated: true, role: [<one role>] }` on all five ops (handshake-code `$all` precedent `handshake-code.query.ts:60-66`; the ANY-semantics hazard recorded at `docs/teachers/applicant-lifecycle.md` §3) + service-layer fresh-read actor re-check incl. governance (D5). `PUBLIC_OPERATIONS` untouched |
 | **BOPLA (mass assignment)** | Every DB payload built field-by-field: insert = EXACTLY `{ parentId, studentId, expiresAt }`; guarded updates set only their transition columns; NO `{ ...input }` spread anywhere; GraphQL inputs are closed (request input = exactly `{ code: String! }`) |
 | **Oracle hygiene** | (1) code miss ≡ governed target ⇒ SAME `null` payload (REQ-012/034); (2) already-linked = honest conflict (the `linkable:false` bit already disclosed it); (3) foreign ≡ nonexistent request ids; (4) malformed code dies pre-DB. Both request-path reads run through identical query shapes (timing-parity test-locked) |
 | **Injection / LIKE surface** | ZERO LIKE/ILIKE anywhere in the new modules — every read is parameterized equality; a static scan pins absence of `ilike(` (REQ-074(b)). `escapeLikeWildcards` is deliberately NOT wired — no text search exists on this surface |
 | **INV-P1 single-writer lock (REQ-021)** | a static scan over `backend/**` pins that the ONLY production writer of a NON-NULL `students.parent_id` is `StudentRepository.linkParentIfUnlinked` (sanctioned test helpers/seeds are the whitelist); the FK's `ON DELETE SET NULL` stays untouched |
 | **Silent-surface guarantees** | expiry + sibling expiry write ZERO notification rows (REQ-024); cancellation emits NONE; EVERY denial writes ZERO rows across `parent_link_requests`/`students`/`notifications`/`audit_logs` and emits EXACTLY ONE bounded `logDomainError` `{ code, entity, entityId?, locale }` — NEVER codes/names/emails and NEVER the submitted handshake code (R8 carried forward: the code is never logged at ANY layer); happy paths log NOTHING (REQ-054) |
-| **Governance window honesty** | `createGraphQLContext` applies NO governance filter (`gqlContextFactory.ts:91-104`) — this plan closes it per-surface via a fresh-read re-check and records the divergence; it never claims the context boundary is fail-closed |
+| **Governance window honesty** | `createGraphQLContext` applies NO governance filter (`gqlContextFactory.ts:206-216`) — this plan closes it per-surface via a fresh-read re-check and records the divergence; it never claims the context boundary is fail-closed |
 | **Rate limiting** | unchanged fail-open stub posture (`docs/parents/handshake-code-discovery.md` R6); brute-force rests on the 32-bit code space + role gates + null collapse |
 | **Financial/tenant adjacency** | zero balance/wallet/session reads or writes; `runInRollback` suites pin zero-row oracles on unrelated fixtures |
 

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { withProcessLock } from "@/scripts/lib";
+import { loadTestEnvFile, withProcessLock } from "@/scripts/lib";
 
 const BUN_BIN = join(homedir(), ".bun", "bin", "bun");
 const PROJECT_ROOT = process.cwd();
@@ -154,7 +154,16 @@ async function runTest(testPath: string): Promise<number> {
   const proc = Bun.spawn([BUN_BIN, "--env-file=.env.test", "test", testPath, "--timeout=60000"], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, DATABASE_URL: undefined, FORCE_COLOR: "0", NODE_ENV: "test", KOTTABY_TEST_RUNNER_OK: "1" },
+    // PIN DATABASE_URL to the TEST database explicitly (dotenv precedence:
+    // an explicitly-set env var beats Bun's auto-loaded cwd `.env`, which
+    // would otherwise silently point single-file runs at the DEV database).
+    env: {
+      ...process.env,
+      DATABASE_URL: loadTestEnvFile().DATABASE_URL,
+      FORCE_COLOR: "0",
+      NODE_ENV: "test",
+      KOTTABY_TEST_RUNNER_OK: "1",
+    },
     cwd: PROJECT_ROOT,
   });
 

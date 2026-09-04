@@ -47,7 +47,9 @@ interface AdminUsersDirectoryContainerProps {
 export function AdminUsersDirectoryContainer({ labels }: AdminUsersDirectoryContainerProps): ReactNode {
   const directory = useAdminUsersDirectory();
   return (
-    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, pb: { xs: 8, md: 4 } }}>
+    // Bottom padding clears the fixed mobile FAB (bottom 88 + 56 height) so
+    // the last stacked card never slides under it when scrolled to the end.
+    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, pb: { xs: 19, md: 4 } }}>
       <Typography variant="h4" component="h1">
         {labels.title}
       </Typography>

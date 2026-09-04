@@ -110,7 +110,7 @@ export function NotificationFilterChips({
           color={allSelected ? "primary" : "default"}
           variant={allSelected ? "filled" : "outlined"}
           onClick={() => onReadFilterChange("all")}
-          sx={{ ...focusVisibleRingSx, minHeight: 36 }}
+          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
         />
         <Chip
           label={labels.filterUnread}
@@ -120,7 +120,7 @@ export function NotificationFilterChips({
           color={readFilter === "unread" ? "primary" : "default"}
           variant={readFilter === "unread" ? "filled" : "outlined"}
           onClick={() => onReadFilterChange("unread")}
-          sx={{ ...focusVisibleRingSx, minHeight: 36 }}
+          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
         />
         <Divider
           orientation="vertical"
@@ -142,7 +142,7 @@ export function NotificationFilterChips({
               variant={selected ? "filled" : "outlined"}
               onClick={() => onTypeFilterChange(selected ? null : type)}
               // Generous height keeps taller Arabic glyphs unclipped.
-              sx={{ ...focusVisibleRingSx, minHeight: 36 }}
+              sx={{ ...focusVisibleRingSx, minHeight: 44 }}
             />
           );
         })}

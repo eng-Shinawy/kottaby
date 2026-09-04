@@ -34,6 +34,7 @@ import { Errors } from "@/shared/locale/namespaces/errors";
 import { HandshakeCode } from "@/shared/locale/namespaces/handshakeCode";
 import { Landing } from "@/shared/locale/namespaces/landing";
 import { Notifications } from "@/shared/locale/namespaces/notifications";
+import { ParentLink } from "@/shared/locale/namespaces/parentLink";
 
 /** Mutable navigation state consumed by the mocked `next/navigation` exports. */
 export interface TestNavigationState {
@@ -91,4 +92,8 @@ for (const translations of [arMessages, enMessages]) {
   // Warm the HandshakeCode handle so the student handshake-code card suite
   // surfaces missing-key drift at preload time.
   HandshakeCode.getLabels(translations);
+  // Warm the ParentLink handle so the DEV1-014 link-requests suites (student
+  // incoming queue + parent outgoing section) surface missing-key drift at
+  // preload time.
+  ParentLink.getLabels(translations);
 }

@@ -57,3 +57,26 @@ export function formatApplicantDate(iso: string, locale: string): string {
   const formatter = new Intl.DateTimeFormat(resolveLocaleTag(locale), APPLICANT_DATE_OPTIONS);
   return formatter.format(new Date(iso));
 }
+
+/**
+ * Builds the locale's short numeric date mask (e.g. `02/27/2023` for en,
+ * `٢٧/٠٢/٢٠٢٣` for ar — day-first with Arabic-Indic digits) from a fixed
+ * sample date. Used as the visible placeholder for native `<input
+ * type="date">` fields: Chromium renders its internal `mm/dd/yyyy` mask from
+ * the BROWSER language and ignores the input's `lang`, so an RTL Arabic UI
+ * showed an LTR English mask (QA finding). The mask text is displayed by the
+ * field while the input is empty; direction marks that some ICU builds
+ * inject around number runs are stripped.
+ */
+export function shortNumericDateMask(locale: string): string {
+  const parts = new Intl.DateTimeFormat(resolveLocaleTag(locale), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(Date.UTC(2023, 1, 27)));
+  return parts
+    .filter(part => part.type !== "literal")
+    .map(part => part.value)
+    .join("/")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "");
+}

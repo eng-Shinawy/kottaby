@@ -23,7 +23,16 @@ export const darkPalette: PaletteOptions = {
   text: {
     primary: "#F1F5FB", // High contrast cool-white for primary text
     secondary: "#A8B5CC", // Muted sky-blue (~8:1 contrast ratio)
-    disabled: "#5C6678", // Muted slate
+    disabled: "#8792A3", // Muted slate — solid grey that stays readable (~5:1) on navy surfaces
+  },
+
+  // Disabled-state controls: solid, legible greys instead of MUI's 38%-alpha
+  // wash, which read as "invisible" in visual QA (profile save button +
+  // status chips). Still clearly inert — the not-allowed cursor + no hover
+  // feedback carry the disabled affordance.
+  action: {
+    disabled: "#7E8AA0",
+    disabledBackground: "rgba(241, 245, 251, 0.16)",
   },
 
   primary: {

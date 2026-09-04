@@ -47,6 +47,8 @@ export interface DashboardLabels {
   readonly profile: string;
   /** Sidebar nav: Children link (parent) */
   readonly children: string;
+  /** Sidebar nav: Link Requests link (student) */
+  readonly linkRequests: string;
   /** Coming-soon placeholder title for unimplemented routes */
   readonly comingSoon: string;
   /** Coming-soon placeholder body — interpolated with the feature name */

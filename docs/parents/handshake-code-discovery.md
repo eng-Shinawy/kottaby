@@ -146,9 +146,11 @@ Window end = `suspendedAt + suspendedPeriodDays × 24h` (86,400,000 ms per day),
 - **Per-child gating, never per-parent**: a parent can link multiple children (recorded decision B.13 — each child requires a separate handshake confirmation). The gate is the child's `parent_id`, never anything about the searching parent's existing links. A second parent's later linking of a *different* child is always legitimate.
 - `linkable: false` discloses only "this child already has a linked parent" — the minimum any future claimant needs to know — and **never which parent**.
 - The FK is `ON DELETE SET NULL` (`students.parent_id` → `users.id`): removal of the linked parent's user row re-opens the child (`linkable` becomes `true` again on the next lookup).
-- Link requests are explicitly **out of scope** for discovery: no pending-link record exists today. The 7-day expiry ruling (B.14) governs the *future* link-request state; discovery is stateless, emits no record, and has nothing that can expire.
+- Discovery itself remains stateless: the lookup emits no record, and nothing discovery returns can expire. The link-request flow downstream of discovery is now SHIPPED (see the R5 status update and `docs/parents/parent-link-request.md`) and persists its own `parent_link_requests` rows under the 7-day expiry ruling (B.14) — those records belong to the binding flow, never to discovery.
 
 ### R5 — Binding forward contract for the link-request flow
+
+> **Status update (DEV1-014):** the link-request flow described here is now SHIPPED — see `docs/parents/parent-link-request.md` for the implemented workflow (the R5 rules below remain intact and are enforced there).
 
 Whoever implements the link-request mutation (Workflow 04 §4.3) is bound by this contract:
 

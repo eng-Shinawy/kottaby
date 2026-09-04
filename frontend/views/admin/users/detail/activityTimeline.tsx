@@ -135,6 +135,7 @@ export function ActivityAuditButton({ labels, fullWidth }: ActivityAuditButtonPr
       variant="outlined"
       sx={theme => ({
         ...(fullWidth && { mt: 2, width: "100%" }),
+        minHeight: 44,
         borderColor: theme.palette.outlineVariant,
       })}
     >

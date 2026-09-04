@@ -20,6 +20,8 @@ export function ContactSubmitButton(): ReactNode {
         borderRadius: 2,
         px: 4,
         py: 1.2,
+        // Tap floor — the padding-only height measured 41px in visual QA.
+        minHeight: 44,
         "&::after": {
           content: '""',
           position: "absolute",

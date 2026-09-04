@@ -146,7 +146,13 @@ export function RegisterForm() {
         <Typography variant="body2" sx={{ color: "var(--mui-palette-text-secondary)" }}>
           {t.haveAccount}
         </Typography>
-        <MuiLink component={Link} href="/login" underline="hover" sx={{ fontWeight: 600 }}>
+        {/* 44px tap target via transparent padding — visible text size unchanged. */}
+        <MuiLink
+          component={Link}
+          href="/login"
+          underline="hover"
+          sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+        >
           {t.loginLink}
         </MuiLink>
       </Stack>

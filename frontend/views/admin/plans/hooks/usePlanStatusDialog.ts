@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * usePlanStatusDialog — Status-confirmation dialog orchestration for the admin
  * plan catalog.

@@ -380,4 +380,12 @@ export const landingAr: LandingLabels = {
   prayerIsha: "العشاء",
   prayerNext: "الصلاة القادمة",
   prayerIn: "بعد",
+
+  // Global 404 page
+  notFoundTitle: "الصفحة غير موجودة",
+  notFoundBody:
+    "لم نتمكن من العثور على الصفحة التي تبحث عنها. ربما تم نقلها أو حذفها، أو أن العنوان الذي أدخلته غير صحيح.",
+  notFoundBackHome: "العودة إلى الرئيسية",
+  notFoundMetaTitle: "الصفحة غير موجودة — Kottaby Academy",
+  notFoundMetaDescription: "الصفحة المطلوبة غير موجودة. عد إلى الصفحة الرئيسية لمواصلة تصفح الأكاديمية.",
 };

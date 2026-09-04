@@ -78,6 +78,14 @@ const getSwitchBaseStyles = (theme: Theme, geo: SwitchGeo, main: string, onColor
   "&.Mui-focusVisible": {
     backgroundColor: theme.alpha(theme.palette.onSurface, theme.palette.action.focusOpacity),
   },
+  // Disabled inert affordance: the theme's MuiButtonBase override restores
+  // pointer events on `.Mui-disabled` (for the not-allowed cursor), which would
+  // let the hover tints above repaint an inert switch. Explicit suppression —
+  // needed here because these rules share or exceed the ButtonBase-level rule's
+  // specificity (the checked variant's hover is (0,3,0)).
+  "&.Mui-disabled:hover": {
+    backgroundColor: "transparent",
+  },
   "&:active .MuiSwitch-thumb": {
     width: geo.pressedThumb,
     height: geo.pressedThumb,
@@ -91,6 +99,9 @@ const getSwitchBaseStyles = (theme: Theme, geo: SwitchGeo, main: string, onColor
       "@media (hover: none)": {
         backgroundColor: "transparent",
       },
+    },
+    "&.Mui-disabled:hover": {
+      backgroundColor: "transparent",
     },
     "&.Mui-focusVisible": {
       backgroundColor: theme.alpha(main, theme.palette.action.focusOpacity),
@@ -111,7 +122,10 @@ const getSwitchBaseStyles = (theme: Theme, geo: SwitchGeo, main: string, onColor
       opacity: 1,
     },
     "& + .MuiSwitch-track": {
-      opacity: 0.12,
+      // Track opacity stays above the 0.12 MUI default: a barely-there track
+      // read as "extremely faint" in visual QA — visible-but-grey still
+      // communicates inert without disappearing.
+      opacity: 0.32,
       backgroundColor: theme.palette.onSurface,
       borderColor: theme.palette.onSurface,
     },
@@ -119,10 +133,10 @@ const getSwitchBaseStyles = (theme: Theme, geo: SwitchGeo, main: string, onColor
   "&.Mui-disabled": {
     color: theme.palette.onSurface,
     "& .MuiSwitch-thumb": {
-      opacity: 0.38,
+      opacity: 0.55,
     },
     "& + .MuiSwitch-track": {
-      opacity: 0.12,
+      opacity: 0.32,
       backgroundColor: theme.palette.surfaceContainerHighest,
       borderColor: theme.palette.onSurface,
     },

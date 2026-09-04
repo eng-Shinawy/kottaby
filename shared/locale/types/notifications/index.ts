@@ -92,4 +92,36 @@ export interface NotificationsLabels {
   readonly reconnecting: string;
   /** Quiet reconnect affordance — realtime stream silently recovered. */
   readonly reconnectedQuietly: string;
+  // ─── Parent-link lifecycle event copy ─────────────────────────────────────
+  /** Notification title — a parent sent the student a link request. */
+  readonly eventParentLinkRequestTitle: string;
+  /**
+   * Notification body for a new link request — interpolates ONLY the
+   * requesting parent's already-assembled display name.
+   */
+  readonly eventParentLinkRequestBody: (parentName: string) => string;
+  /** Notification title — the student confirmed the parent's link request. */
+  readonly eventParentLinkAcceptedTitle: string;
+  /**
+   * Notification body for a confirmed link request — interpolates ONLY the
+   * student's already-assembled display name.
+   */
+  readonly eventParentLinkAcceptedBody: (studentName: string) => string;
+  /** Notification title — the student rejected the parent's link request. */
+  readonly eventParentLinkRejectedTitle: string;
+  /**
+   * Notification body for a rejected link request — interpolates ONLY the
+   * student's already-assembled display name.
+   */
+  readonly eventParentLinkRejectedBody: (studentName: string) => string;
+  /** Notification title — a parent's pending link request is nearing expiry (D1 reminder). */
+  readonly eventParentLinkExpiringTitle: string;
+  /**
+   * Notification body for the expiry reminder — interpolates ONLY the
+   * student's already-MASKED display name (R9: pre-decision parent-bound
+   * copy never carries the full name), bidi-isolated by the sender
+   * (`isolateBidi`) before interpolation so the stored body renders
+   * correctly in mixed-direction feeds without a presentation wrapper.
+   */
+  readonly eventParentLinkExpiringBody: (studentName: string) => string;
 }

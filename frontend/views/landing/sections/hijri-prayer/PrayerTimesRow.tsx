@@ -34,19 +34,21 @@ export function PrayerTimesRow({ model }: Readonly<{ model: HijriPrayerModel }>)
           >
             <Typography
               sx={{
-                fontSize: 11.5,
+                // ≥12px + raised opacity: the 11.5px @ 0.6 variant failed
+                // contrast/readability checks on the dim-label tier.
+                fontSize: 12,
                 fontWeight: isNext ? 800 : 600,
-                color: isNext ? "var(--mui-palette-secondary-light)" : undefined,
-                opacity: isNext ? 1 : 0.6,
+                color: isNext ? "var(--mui-palette-secondary-light)" : "var(--mui-palette-onPrimary)",
+                opacity: isNext ? 1 : 0.85,
               }}
             >
               {p.label}
             </Typography>
-            <Typography sx={{ fontSize: 12, fontWeight: 700, opacity: isNext ? 1 : 0.85 }}>{p.value}</Typography>
+            <Typography sx={{ fontSize: 12.5, fontWeight: 700, opacity: isNext ? 1 : 0.9 }}>{p.value}</Typography>
             {isNext && (
               <Typography
                 sx={{
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 700,
                   color: "var(--mui-palette-secondary-light)",
                   display: "inline-flex",

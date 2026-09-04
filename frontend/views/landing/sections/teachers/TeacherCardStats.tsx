@@ -16,7 +16,7 @@ export function TeacherCardStats({ sessions, rating }: Readonly<{ sessions: numb
         <Typography sx={{ fontWeight: 800, fontSize: 16, color: "var(--mui-palette-secondary-main)", lineHeight: 1 }}>
           {sessions.toLocaleString()}
         </Typography>
-        <Typography variant="caption" sx={{ color: "var(--mui-palette-text-secondary)", fontSize: 11 }}>
+        <Typography variant="caption" sx={{ color: "var(--mui-palette-text-secondary)", fontSize: 12 }}>
           {t.teacherSessionsCount}
         </Typography>
       </Stack>
@@ -27,7 +27,7 @@ export function TeacherCardStats({ sessions, rating }: Readonly<{ sessions: numb
             {rating}
           </Typography>
         </Stack>
-        <Typography variant="caption" sx={{ color: "var(--mui-palette-text-secondary)", fontSize: 11 }}>
+        <Typography variant="caption" sx={{ color: "var(--mui-palette-text-secondary)", fontSize: 12 }}>
           {t.teacherRating}
         </Typography>
       </Stack>

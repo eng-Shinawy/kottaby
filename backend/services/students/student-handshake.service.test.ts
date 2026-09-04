@@ -38,7 +38,8 @@
  *    STUDENT_NOT_FOUND); localized denials resolve distinctly in ar + en;
  *    domain-rejection logs carry bounded context and NEVER the submitted
  *    code; happy paths / misses / governance collapses emit NOTHING; read
- *    flows write zero rows (audit/notification count probes).
+ *    flows write zero rows (per-actor attributable audit/notification
+ *    probes — global table totals would race with concurrent files).
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
@@ -619,23 +620,21 @@ describe("StudentHandshakeService.findStudentByHandshakeCode", () => {
     }
   });
 
-  test("read flows write ZERO rows — audit/notification totals unchanged, no attributable rows", async () => {
+  test("read flows write ZERO rows — no attributable audit/notification rows", async () => {
     const c = requireCast();
     const logSpy = silenceDomainLog();
     try {
-      const [auditBefore, notificationsBefore] = await Promise.all([db.$count(auditLogs), db.$count(notifications)]);
-
-      // Exercise every read path, including both rejection arms.
+      // Exercise every read path, including both rejection arms. No global
+      // audit/notification totals are snapshotted: global table counts
+      // race with concurrent files' fixture cleanup under parallel bun
+      // test execution — the per-actor attributable probe below is the
+      // hermetic zero-write evidence.
       await StudentHandshakeService.getMyHandshakeCode(c.student.userId, LOCALE_EN);
       await StudentHandshakeService.findStudentByHandshakeCode(c.student.handshakeCode, LOCALE_EN);
       await StudentHandshakeService.findStudentByHandshakeCode(c.absentProbeCode, LOCALE_EN);
       await StudentHandshakeService.findStudentByHandshakeCode(c.governedSuspendedCode, LOCALE_EN);
       await expectRepoError(() => StudentHandshakeService.getMyHandshakeCode(c.parentUserId, LOCALE_EN));
       await expectRepoError(() => StudentHandshakeService.findStudentByHandshakeCode("KSB-NOPE", LOCALE_EN));
-
-      const [auditAfter, notificationsAfter] = await Promise.all([db.$count(auditLogs), db.$count(notifications)]);
-      expect(auditAfter).toBe(auditBefore);
-      expect(notificationsAfter).toBe(notificationsBefore);
 
       // Per-actor probes: no side-effect row is attributable to any tracked id.
       const attributable = await Promise.all(

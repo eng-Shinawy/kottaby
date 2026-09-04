@@ -13,17 +13,18 @@
  *   2. MANDATED CONTENT — every key required by the notification-feed
  *      surface (feed title, empty/error states, filter labels, the SEVEN
  *      notification-type display labels, mark-read/mark-all affordances,
- *      badge aria, pluralized counts, realtime toast, quiet reconnect copy)
- *      exists on BOTH maps — a key deleted from both maps simultaneously
- *      still fails this suite.
+ *      badge aria, pluralized counts, realtime toast, quiet reconnect copy,
+ *      parent-link lifecycle event copy) exists on BOTH maps — a key
+ *      deleted from both maps simultaneously still fails this suite.
  *   3. NO ENGLISH FALLTHROUGH — every ar STRING slot contains Arabic script
  *      (an accidentally English value in the ar map fails the sweep).
  *   4. PLURALIZATION PINS — `unreadCount` + `markAllResult` branch outputs
  *      are exact-pinned at the Arabic plural boundaries (0 / 1 / 2 /
  *      3–10 few / 11+ counted) and the English boundaries (0 / 1 / many)
  *      in BOTH locales.
- *   5. TEMPLATE PINS — `markReadAriaLabel` + `realtimeToast` expand their
- *      arguments into the returned message in BOTH locales.
+ *   5. TEMPLATE PINS — `markReadAriaLabel`, `realtimeToast`, and the three
+ *      parent-link event-body functions expand their arguments into the
+ *      returned message in BOTH locales.
  *   6. REGISTRY WIRING — the `Notifications` handle is registered in
  *      `shared/locale/namespaces/index.ts` with the conventional
  *      `<ns>.<ns>` id and its getter resolves the composed bundle slice.
@@ -46,7 +47,7 @@ import { Notifications } from "@/shared/locale/namespaces/notifications";
 
 // ─── Mandated key inventory (the notification-feed surface ground truth) ────
 
-/** Every key the notifications UI namespace must carry (26 slots). */
+/** Every key the notifications UI namespace must carry (34 slots). */
 const MANDATED_KEYS = [
   "title",
   "emptyTitle",
@@ -74,6 +75,14 @@ const MANDATED_KEYS = [
   "realtimeToast",
   "reconnecting",
   "reconnectedQuietly",
+  "eventParentLinkRequestTitle",
+  "eventParentLinkRequestBody",
+  "eventParentLinkAcceptedTitle",
+  "eventParentLinkAcceptedBody",
+  "eventParentLinkRejectedTitle",
+  "eventParentLinkRejectedBody",
+  "eventParentLinkExpiringTitle",
+  "eventParentLinkExpiringBody",
 ] as const;
 
 /**
@@ -95,8 +104,17 @@ const TYPE_LABEL_KEYS = [
   "typeEvaluationResult",
 ] as const;
 
-/** The four function-valued slots (pluralization + interpolation templates). */
-const FUNCTION_KEYS = ["markReadAriaLabel", "markAllResult", "unreadCount", "realtimeToast"] as const;
+/** The eight function-valued slots (pluralization + interpolation templates). */
+const FUNCTION_KEYS = [
+  "markReadAriaLabel",
+  "markAllResult",
+  "unreadCount",
+  "realtimeToast",
+  "eventParentLinkRequestBody",
+  "eventParentLinkAcceptedBody",
+  "eventParentLinkRejectedBody",
+  "eventParentLinkExpiringBody",
+] as const;
 
 /** Arabic-script probe — at least one Arabic-block character in the value. */
 const ARABIC_SCRIPT = /[\u0600-\u06FF]/;
@@ -145,7 +163,7 @@ describe("compile-time parity mirror — ar/en key sets agree", () => {
     expect(Object.hasOwn(notificationsEn, key)).toBe(true);
   });
 
-  test("the mandated inventory is exhaustive (no silent key minting beyond the 26 slots)", () => {
+  test("the mandated inventory is exhaustive (no silent key minting beyond the 32 slots)", () => {
     const mandated = new Set<string>(MANDATED_KEYS);
     for (const key of Object.keys(notificationsAr)) {
       expect(mandated.has(key)).toBe(true);
@@ -177,12 +195,15 @@ describe("no English fallthrough — ar map carries Arabic copy for every string
     }
   });
 
-  test("all four ar FUNCTION slots return Arabic-script output for Arabic-flavored arguments", () => {
+  test("all seven ar FUNCTION slots return Arabic-script output for Arabic-flavored arguments", () => {
     const arTitle = "طلب جلسة جديد";
     expect(ARABIC_SCRIPT.test(notificationsAr.markReadAriaLabel(arTitle))).toBe(true);
     expect(ARABIC_SCRIPT.test(notificationsAr.markAllResult(7))).toBe(true);
     expect(ARABIC_SCRIPT.test(notificationsAr.unreadCount(7))).toBe(true);
     expect(ARABIC_SCRIPT.test(notificationsAr.realtimeToast("طلب جلسة", arTitle))).toBe(true);
+    expect(ARABIC_SCRIPT.test(notificationsAr.eventParentLinkRequestBody("ولي الأمر"))).toBe(true);
+    expect(ARABIC_SCRIPT.test(notificationsAr.eventParentLinkAcceptedBody("الطالب"))).toBe(true);
+    expect(ARABIC_SCRIPT.test(notificationsAr.eventParentLinkRejectedBody("الطالب"))).toBe(true);
   });
 });
 
@@ -237,7 +258,16 @@ describe("template pins — function slots expand their arguments", () => {
     expect(notificationsAr.realtimeToast("طلب جلسة", "طلب جلسة جديد")).toBe("إشعار جديد — طلب جلسة: طلب جلسة جديد");
   });
 
-  test("all four function slots are callable with non-empty output in BOTH locales", () => {
+  test("parent-link event bodies embed the counterpart name in BOTH locales", () => {
+    expect(notificationsEn.eventParentLinkRequestBody("Adam")).toContain("Adam");
+    expect(notificationsAr.eventParentLinkRequestBody("ولي الأمر")).toContain("ولي الأمر");
+    expect(notificationsEn.eventParentLinkAcceptedBody("Yusuf")).toContain("Yusuf");
+    expect(notificationsAr.eventParentLinkAcceptedBody("الطالب")).toContain("الطالب");
+    expect(notificationsEn.eventParentLinkRejectedBody("Yusuf")).toContain("Yusuf");
+    expect(notificationsAr.eventParentLinkRejectedBody("الطالب")).toContain("الطالب");
+  });
+
+  test("all seven function slots are callable with non-empty output in BOTH locales", () => {
     expect(notificationsEn.markReadAriaLabel("Payment received").length).toBeGreaterThan(0);
     expect(notificationsEn.markAllResult(4).length).toBeGreaterThan(0);
     expect(notificationsEn.unreadCount(4).length).toBeGreaterThan(0);
@@ -246,6 +276,12 @@ describe("template pins — function slots expand their arguments", () => {
     expect(notificationsAr.markAllResult(4).length).toBeGreaterThan(0);
     expect(notificationsAr.unreadCount(4).length).toBeGreaterThan(0);
     expect(notificationsAr.realtimeToast("إعلان النظام", "صيانة الليلة").length).toBeGreaterThan(0);
+    expect(notificationsEn.eventParentLinkRequestBody("Adam").length).toBeGreaterThan(0);
+    expect(notificationsEn.eventParentLinkAcceptedBody("Yusuf").length).toBeGreaterThan(0);
+    expect(notificationsEn.eventParentLinkRejectedBody("Yusuf").length).toBeGreaterThan(0);
+    expect(notificationsAr.eventParentLinkRequestBody("ولي الأمر").length).toBeGreaterThan(0);
+    expect(notificationsAr.eventParentLinkAcceptedBody("الطالب").length).toBeGreaterThan(0);
+    expect(notificationsAr.eventParentLinkRejectedBody("الطالب").length).toBeGreaterThan(0);
   });
 });
 
@@ -273,7 +309,7 @@ describe("registry + bundle wiring", () => {
 });
 
 // ===========================================================================
-describe("function-slot inventory — exactly the four locale functions, on BOTH maps", () => {
+describe("function-slot inventory — exactly the eight locale functions, on BOTH maps", () => {
   test.each([...FUNCTION_KEYS])("slot `%s` is a function on BOTH maps", key => {
     expect(typeof Reflect.get(notificationsAr, key)).toBe("function");
     expect(typeof Reflect.get(notificationsEn, key)).toBe("function");

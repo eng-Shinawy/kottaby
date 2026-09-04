@@ -9,6 +9,8 @@ export const ctaShimmerSx = {
   fontWeight: 700,
   textTransform: "none",
   borderRadius: 2,
+  // Tap floor — the padding-only newsletter submit measured 40px in QA.
+  minHeight: 44,
   "&::after": {
     content: '""',
     position: "absolute",
@@ -106,6 +108,8 @@ export const POPULAR_CTA_SX = {
   textTransform: "none",
   borderRadius: 2,
   py: 1.2,
+  // Tap floor — the padding-only height measured 40px in visual QA.
+  minHeight: 44,
   "&::after": {
     content: '""',
     position: "absolute",
@@ -134,6 +138,8 @@ export const STANDARD_CTA_SX = {
   textTransform: "none",
   borderRadius: 2,
   py: 1.2,
+  // Tap floor — matches the popular-plan CTA.
+  minHeight: 44,
   "&:hover": {
     bgcolor: "color-mix(in srgb, var(--mui-palette-secondary-main) 8%, transparent)",
     borderColor: "var(--mui-palette-secondary-dark)",

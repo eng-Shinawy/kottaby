@@ -2,13 +2,19 @@
 
 /**
  * MobileUserIdentity — the mobile user card's middle header track: name
- * link + ellipsized email + role pill.
+ * link + full-width wrapping email + role pill.
+ *
+ * The email WRAPS (no ellipsis): at a 375px viewport the identity track is
+ * ~200px wide, so nowrap + ellipsis hid a further ~27px of every seeded
+ * address; wrapping shows the whole value across two lines instead of
+ * silently cutting it. The name link keeps its single-line ellipsis (names
+ * are short) and carries the shared 44px tap-target padding.
  *
  * Bidi note (Latin names/emails inside an RTL page): the HTML `dir="ltr"`
  * ATTRIBUTE isolates glyph direction. A CSS `direction` rule MUST NOT be
  * added — stylis-plugin-rtl would flip it to `rtl`, clipping the string's
  * head. With the attribute alone plus `unicodeBidi: "isolate"`,
- * `text-align: start` shows the head with a trailing ellipsis.
+ * `text-align: start` reads correctly in both directions.
  *
  * Soft-deleted users render dimmed: the name/email drop to the disabled
  * ink, the name is struck through, and the role pill falls back to the
@@ -51,6 +57,12 @@ export function MobileUserIdentity({ user, role, labels, deleted }: MobileUserId
           whiteSpace: "nowrap",
           minWidth: 0,
           color: deleted ? theme.palette.text.disabled : theme.palette.text.primary,
+          // ≥44px tap target without shifting the email below: transparent
+          // block padding grows the clickable box while the matching
+          // negative margins keep the layout height unchanged.
+          minHeight: 44,
+          paddingBlock: "10.5px",
+          marginBlock: "-10.5px",
           ...(deleted && { textDecoration: "line-through" }),
         })}
       >
@@ -58,17 +70,15 @@ export function MobileUserIdentity({ user, role, labels, deleted }: MobileUserId
       </MuiLink>
       <Typography
         variant="body2"
-        title={user.email}
         dir="ltr"
         sx={theme => ({
           display: "block",
           fontSize: 13,
           unicodeBidi: "isolate",
           textAlign: "start",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          maxWidth: "100%",
+          // Wrap long addresses instead of ellipsizing them — a truncated
+          // email defeats the card's purpose (the full value at a glance).
+          overflowWrap: "anywhere",
           minWidth: 0,
           color: deleted ? theme.palette.text.disabled : theme.palette.text.secondary,
         })}

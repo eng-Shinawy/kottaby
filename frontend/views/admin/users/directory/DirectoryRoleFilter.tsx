@@ -27,7 +27,20 @@ export function DirectoryRoleFilter({ id, roleFilter, setRoleFilter, labels }: D
         value={roleFilter}
         label={labels.filters.role}
         onChange={event => setRoleFilter(event.target.value || "")}
-        sx={{ height: 44 }}
+        sx={{
+          height: 44,
+          // Vertically center the visible value inside the fixed 44px
+          // control: the default block padding makes the inner select box
+          // taller than the outlined root.
+          "&& .MuiSelect-select": {
+            minHeight: 44,
+            boxSizing: "border-box",
+            paddingBlock: 0,
+            display: "flex",
+            alignItems: "center",
+          },
+          "& .MuiSelect-nativeInput": { height: "100%" },
+        }}
       >
         <MenuItem value="">{labels.genderOptions.unspecified}</MenuItem>
         <MenuItem value="Admin">{labels.roleLabels.admin}</MenuItem>

@@ -399,4 +399,13 @@ export const landingEn: LandingLabels = {
   prayerIsha: "Isha",
   prayerNext: "Next prayer",
   prayerIn: "in",
+
+  // Global 404 page
+  notFoundTitle: "Page not found",
+  notFoundBody:
+    "We couldn't find the page you're looking for. It may have been moved or deleted, or the address is incorrect.",
+  notFoundBackHome: "Back to home",
+  notFoundMetaTitle: "Page not found — Kottaby Academy",
+  notFoundMetaDescription:
+    "The page you requested does not exist. Head back to the homepage to keep exploring the academy.",
 };

@@ -17,30 +17,21 @@ export function HowItWorkStep({
 }>): ReactNode {
   return (
     <Stack spacing={2} sx={{ position: "relative", zIndex: 1 }}>
+      {/* Ring host wrapper — the animated pulse ring lives on this non-leaf
+          box so it never registers as scrollable overflow on the circle
+          itself (a border/transform ring inside the 56px circle reported
+          scrollWidth 61–69 vs clientWidth 56 as "clipped" in QA DOM audits). */}
       <Box
-        ref={circleRef}
-        className="step-circle-pulse"
         sx={{
-          width: 56,
-          height: 56,
-          borderRadius: "50%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          bgcolor: "var(--mui-palette-secondary-main)",
-          color: "var(--mui-palette-onSecondary)",
-          fontSize: 24,
-          fontWeight: 800,
-          boxShadow: active ? "0 0 20px rgba(184,115,51,0.4)" : "0 6px 16px rgba(184,115,51,0.3)",
-          transform: active ? "scale(1.1)" : "scale(1)",
-          transition: "box-shadow 0.4s ease, transform 0.4s ease",
           position: "relative",
+          display: "inline-flex",
+          alignSelf: "flex-start",
           "&::after": {
             content: '""',
             position: "absolute",
             inset: -6,
             borderRadius: "50%",
-            border: "2px solid var(--mui-palette-secondary-main)",
+            boxShadow: "0 0 0 2px var(--mui-palette-secondary-main)",
             opacity: 0,
             animation: "stepPulse 2.5s ease-in-out infinite",
           },
@@ -51,7 +42,30 @@ export function HowItWorkStep({
           },
         }}
       >
-        {num}
+        <Box
+          ref={circleRef}
+          className="step-circle-pulse"
+          sx={{
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: "var(--mui-palette-secondary-main)",
+            color: "var(--mui-palette-onSecondary)",
+            fontSize: 24,
+            fontWeight: 800,
+            // Fixed-height line box keeps the numeral optically centered
+            // (default line-height let the glyph drift in the 56px circle).
+            lineHeight: 1,
+            boxShadow: active ? "0 0 20px rgba(184,115,51,0.4)" : "0 6px 16px rgba(184,115,51,0.3)",
+            transform: active ? "scale(1.1)" : "scale(1)",
+            transition: "box-shadow 0.4s ease, transform 0.4s ease",
+          }}
+        >
+          {num}
+        </Box>
       </Box>
       <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 18 }}>
         {title}

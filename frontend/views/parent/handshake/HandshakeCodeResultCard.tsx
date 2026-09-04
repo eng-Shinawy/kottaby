@@ -57,6 +57,12 @@ export function HandshakeCodeResultCard(props: Readonly<HandshakeCodeResultCardP
         <Typography
           variant="h5"
           component="p"
+          // Bidi isolation (D8 browser-QA note): the masked name is always
+          // first-strong (first grapheme of each name part + neutral
+          // asterisks) — `dir="auto"` resolves Latin-initial masks to LTR and
+          // Arabic-initial masks to RTL, and isolates the neutrals from the
+          // surrounding RTL shell (mirrors OutgoingLinkRequestCard).
+          dir="auto"
           sx={theme => ({
             px: 2.5,
             py: 1.5,

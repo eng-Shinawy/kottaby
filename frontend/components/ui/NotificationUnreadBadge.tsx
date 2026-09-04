@@ -88,6 +88,7 @@ export function NotificationUnreadBadge(): ReactNode {
     <>
       <Tooltip title={accessibleLabel}>
         <IconButton
+          size="large"
           aria-label={accessibleLabel}
           aria-haspopup="dialog"
           aria-expanded={drawerOpen}
@@ -103,18 +104,23 @@ export function NotificationUnreadBadge(): ReactNode {
             color="error"
             max={BADGE_OVERFLOW_MAX}
             sx={{
+              // Comfortable chip so 1–2 digits fit with breathing room (the
+              // audit saw the count crowd its chip at the 20px default).
+              "& .MuiBadge-badge": { minWidth: 22, height: 22 },
               // MUI v9's badge anchor is PHYSICAL (`inset` + translate CSS
               // vars set inline on the badge slot) — it does NOT mirror under
-              // RTL. Anchor the badge at the bell's top-END corner: under
-              // `[dir=rtl]` (the app sets document dir per locale and never
-              // sets `theme.direction`) flip the vars to the top-left corner.
-              // `!important` is required to override the inline slot style.
+              // RTL. Pin the badge to the bell's top-END corner (top-LEFT
+              // under `[dir=rtl]` — the app sets document dir per locale and
+              // never sets `theme.direction`) and keep it fully INSIDE the
+              // button: the previous half-offset translate left a ~10px
+              // overhang outside the bell that registered as clipped
+              // content. `!important` overrides the inline slot style.
               "[dir=rtl] & .MuiBadge-badge": {
                 // inset shorthand is top/right/bottom/left — leaving bottom
-                // at `auto` keeps the badge content-sized (never stretched).
-                "--Badge-inset": "0 auto auto 0 !important",
+                // and `right` at `auto` keeps the badge content-sized.
+                "--Badge-inset": "2px auto auto 2px !important",
                 "--Badge-origin": "0% 0% !important",
-                "--Badge-translate": "-50%, -50% !important",
+                "--Badge-translate": "0, 0 !important",
               },
             }}
           >

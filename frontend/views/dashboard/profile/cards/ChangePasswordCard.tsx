@@ -7,6 +7,7 @@ import {
 } from "@mui/icons-material";
 import { Alert, Button, IconButton, InputAdornment, Stack, TextField } from "@mui/material";
 import { type ReactNode, useState } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { ProfileCardSection } from "@/frontend/views/dashboard/profile/ui";
 import type { DashboardLabels } from "@/shared/locale/types/dashboard";
 
@@ -101,6 +102,9 @@ function PasswordField({
       value={value}
       autoComplete={autoComplete}
       disabled={disabled}
+      // Masked placeholder so the inert (disabled) fields read as real
+      // password inputs instead of unfinished empty boxes.
+      placeholder="••••••••"
       fullWidth
       slotProps={{
         input: {
@@ -110,9 +114,17 @@ function PasswordField({
               <IconButton
                 aria-label={showValue ? hiddenLabel : visibleLabel}
                 onClick={onToggleVisibility}
-                edge="end"
                 size="small"
                 disabled={disabled}
+                sx={{
+                  ...focusVisibleRingSx,
+                  // Same 44px hit target as the auth forms' eye toggle:
+                  // 12px padding around the 20px glyph pulled back with
+                  // matching negative margins so the input row keeps its
+                  // natural height (invisible-padding trick).
+                  p: 1.5,
+                  m: -1.5,
+                }}
               >
                 {showValue ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
               </IconButton>

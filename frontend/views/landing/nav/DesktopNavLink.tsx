@@ -15,7 +15,9 @@ export function DesktopNavLink({
       sx={{
         minWidth: "auto",
         px: 0.25,
+        // Compact padding but a 44px floor: WCAG 2.5.5 touch-target minimum.
         py: 0.5,
+        minHeight: 44,
         fontSize: 12,
         fontWeight: 600,
         textTransform: "none",

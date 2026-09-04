@@ -1,3 +1,5 @@
+"use client";
+
 import { useQuery } from "@apollo/client/react";
 import type { MyNotificationsQuery_myNotifications_items } from "@/frontend/graphql/generated/gql/graphql";
 import {

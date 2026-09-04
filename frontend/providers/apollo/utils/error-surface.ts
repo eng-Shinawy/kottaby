@@ -120,10 +120,15 @@ export function dispatchMappedGraphQLErrorActions(
   const contextKind = inferContextKind(operation.query);
   const meta: GraphQLErrorActionMeta = { operationName: operation.operationName ?? "", contextKind };
   let publishedCount = 0;
+  // Correlation ids ride the logger (dev/support channel) — they never render
+  // on the surface (see `GraphQLErrorToastItem`).
+  const correlationRequestIds: string[] = [];
 
   for (const item of error.errors) {
     const action = toMappedSurfaceAction(item, contextKind);
     if (action === null) continue; // auth row / no mapping row → behavior unchanged
+
+    if (typeof action.correlationRequestId === "string") correlationRequestIds.push(action.correlationRequestId);
 
     try {
       graphQLErrorActionListener(action, meta);
@@ -143,6 +148,7 @@ export function dispatchMappedGraphQLErrorActions(
       contextKind,
       publishedCount,
       totalItems: error.errors.length,
+      ...(correlationRequestIds.length > 0 ? { correlationRequestIds } : {}),
     });
   }
 }

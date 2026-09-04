@@ -36,7 +36,13 @@ import { db, queryDb } from "@/backend/db";
 import { students } from "@/backend/db/schema/students/students";
 import { users } from "@/backend/db/schema/users/users";
 import { HeldBalanceLane } from "@/backend/enum/scheduling/held-balance-lane.enum";
-import type { DBQueryExecutor, DBTransaction, HandshakeDiscoveryRowType, StudentSelectType } from "@/backend/types";
+import type {
+  DBQueryExecutor,
+  DBTransaction,
+  HandshakeDiscoveryRowType,
+  StudentLinkTargetRowType,
+  StudentSelectType,
+} from "@/backend/types";
 
 /**
  * Frozen held-balance-lane → `students` balance-column resolution map.
@@ -57,6 +63,63 @@ const LANE_BALANCE_COLUMNS: Readonly<Record<HeldBalanceLane, AnyPgColumn>> = Obj
 /** Type guard — narrows `DBQueryExecutor` to `DBTransaction`. */
 function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
   return typeof tx === "object" && "select" in tx;
+}
+
+/**
+ * Shared joined projection for handshake-code lookups: the users-side
+ * governance columns plus the display name, composed once and reused by both
+ * public read methods (`findDiscoveryByHandshakeCode`,
+ * `findLinkTargetByHandshakeCode`) — never re-derived per call site.
+ */
+const HANDSHAKE_GOVERNANCE_SHAPE = {
+  parentId: students.parentId,
+  fullName: users.fullName,
+  isDeleted: users.isDeleted,
+  isBlocked: users.isBlocked,
+  suspended: users.suspended,
+  suspendedAt: users.suspendedAt,
+  suspendedPeriodDays: users.suspendedPeriodDays,
+} as const;
+
+/**
+ * Shared joint reader behind BOTH handshake-code lookups: resolves the
+ * student by a single parameterized equality on `handshake_code`, joining
+ * `users` on the shared PK. Drizzle select on the supplied transaction, or
+ * raw parameterized SQL via `queryDb` (Neon HTTP fast path) when called
+ * standalone — identical column aliases on both branches.
+ *
+ * The ONLY predicate is the equality on `handshake_code` (`WHERE
+ * s.handshake_code = $1`); no LIKE/ILIKE, no `sql` templates, no `inArray`.
+ * Governance filtering is a service concern — the row is returned
+ * faithfully, or `null` on miss.
+ */
+async function readHandshakeCodeJoinRow(code: string, tx?: DBTransaction): Promise<StudentLinkTargetRowType | null> {
+  // Shared parameterized read — identical column aliases on both branches.
+  const readSql = `SELECT s.id AS "studentId",
+          s.parent_id AS "parentId",
+          u.full_name AS "fullName",
+          u.is_deleted AS "isDeleted",
+          u.is_blocked AS "isBlocked",
+          u.suspended,
+          u.suspended_at AS "suspendedAt",
+          u.suspended_period_days AS "suspendedPeriodDays"
+   FROM students s
+   JOIN users u ON u.id = s.id
+   WHERE s.handshake_code = $1
+   LIMIT 1`;
+  if (tx) {
+    // Transactional read — Drizzle select on the supplied executor.
+    const rows = await tx
+      .select({ studentId: students.id, ...HANDSHAKE_GOVERNANCE_SHAPE })
+      .from(students)
+      .innerJoin(users, eq(users.id, students.id))
+      .where(eq(students.handshakeCode, code))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+  // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
+  const result = await queryDb<StudentLinkTargetRowType>(readSql, [code]);
+  return result.rows[0] ?? null;
 }
 
 export namespace StudentRepository {
@@ -146,6 +209,10 @@ export namespace StudentRepository {
    * `inArray`. Governance filtering (deleted/blocked/suspended) is a service
    * concern — this method returns the row faithfully, or `null` on miss.
    *
+   * Implemented on top of the shared `readHandshakeCodeJoinRow` reader (which
+   * also backs `findLinkTargetByHandshakeCode`); the student id fetched
+   * internally is dropped here — this shape never carries the raw identity.
+   *
    * @returns The joined discovery row, or `null` when no student carries that
    *          handshake code.
    */
@@ -153,39 +220,21 @@ export namespace StudentRepository {
     code: string,
     tx?: DBTransaction
   ): Promise<HandshakeDiscoveryRowType | null> {
-    // Shared parameterized read — identical column aliases on both branches.
-    const readSql = `SELECT s.parent_id AS "parentId",
-            u.full_name AS "fullName",
-            u.is_deleted AS "isDeleted",
-            u.is_blocked AS "isBlocked",
-            u.suspended,
-            u.suspended_at AS "suspendedAt",
-            u.suspended_period_days AS "suspendedPeriodDays"
-     FROM students s
-     JOIN users u ON u.id = s.id
-     WHERE s.handshake_code = $1
-     LIMIT 1`;
-    if (tx) {
-      // Transactional read — Drizzle select on the supplied executor.
-      const rows = await tx
-        .select({
-          parentId: students.parentId,
-          fullName: users.fullName,
-          isDeleted: users.isDeleted,
-          isBlocked: users.isBlocked,
-          suspended: users.suspended,
-          suspendedAt: users.suspendedAt,
-          suspendedPeriodDays: users.suspendedPeriodDays,
-        })
-        .from(students)
-        .innerJoin(users, eq(users.id, students.id))
-        .where(eq(students.handshakeCode, code))
-        .limit(1);
-      return rows[0] ?? null;
+    const row = await readHandshakeCodeJoinRow(code, tx);
+    if (!row) {
+      return null;
     }
-    // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
-    const result = await queryDb<HandshakeDiscoveryRowType>(readSql, [code]);
-    return result.rows[0] ?? null;
+    // Exact picked shape — the raw student id is intentionally NOT part of
+    // the discovery contract (the parent-facing lookup must never carry it).
+    return {
+      parentId: row.parentId,
+      fullName: row.fullName,
+      isDeleted: row.isDeleted,
+      isBlocked: row.isBlocked,
+      suspended: row.suspended,
+      suspendedAt: row.suspendedAt,
+      suspendedPeriodDays: row.suspendedPeriodDays,
+    };
   }
 
   /**
@@ -242,6 +291,61 @@ export namespace StudentRepository {
       .where(and(eq(students.id, studentId), isNull(students.trialGrantedAt)))
       .returning({ id: students.id });
     return updated.length > 0;
+  }
+
+  /**
+   * Server-internal joint read for the parent-link WRITE path: resolves the
+   * link target by handshake code, returning the raw student id plus the
+   * parent FK and the users-side governance columns the discovery exclusion
+   * predicate consumes (`StudentLinkTargetRowType` — service-internal, never
+   * serialized; the parent-facing payload remains `HandshakeDiscoveryRowType`
+   * → `HandshakeCodeLookupReturnType` via `findDiscoveryByHandshakeCode`).
+   *
+   * Delegates to the shared `readHandshakeCodeJoinRow` reader (also backing
+   * `findDiscoveryByHandshakeCode`): single parameterized equality on
+   * `handshake_code` (no LIKE/ILIKE), dual executor branch,
+   * `LIMIT 1`. Mirrors `findDiscoveryByHandshakeCode` with `s.id` added so
+   * the write path can address the target row directly. Governance filtering
+   * is a service concern — the row is returned faithfully, or `null` on miss.
+   *
+   * @returns The link-target row, or `null` when no student carries that
+   *          handshake code.
+   */
+  export async function findLinkTargetByHandshakeCode(
+    code: string,
+    tx?: DBTransaction
+  ): Promise<StudentLinkTargetRowType | null> {
+    return readHandshakeCodeJoinRow(code, tx);
+  }
+
+  /**
+   * Atomically links a parent to an UNLINKED student — ONE guarded
+   * statement: `UPDATE students SET parent_id = $2, updated_at = now()
+   * WHERE id = $1 AND parent_id IS NULL RETURNING *`. The `parent_id IS
+   * NULL` conjunct is the guard: predicate evaluation and column mutation
+   * occur in the same SQL statement, so the once-only invariant holds with
+   * zero TOCTOU window (no read-then-write, no locks).
+   *
+   * This is THE only production writer of a non-null `students.parent_id`
+   * (pinned by the static-locks suite). Requires a transaction so
+   * the write joins the caller's atomic unit — in the link-request accept
+   * path a lost race here (null return → conflict error) rolls back the
+   * whole claim transaction, making ghost confirmations impossible.
+   *
+   * @returns The updated student row, or `null` when the student does not
+   *          exist or already carries a `parent_id` (zero-row collapse).
+   */
+  export async function linkParentIfUnlinked(
+    studentId: number,
+    parentId: number,
+    tx: DBTransaction
+  ): Promise<StudentSelectType | null> {
+    const [row] = await tx
+      .update(students)
+      .set({ parentId, updatedAt: sql`now()` })
+      .where(and(eq(students.id, studentId), isNull(students.parentId)))
+      .returning();
+    return row ?? null;
   }
 
   /**

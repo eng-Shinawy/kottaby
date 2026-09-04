@@ -26,8 +26,12 @@ export function AnimatedCounter({ raw }: { readonly raw: string }): ReactNode {
 
   useEffect(() => {
     const el = spanRef.current;
+    // Fallback: start the count shortly after mount even if the observer
+    // never fires, so captures/no-JS-adjacent environments never show a
+    // permanent "0" placeholder.
+    const fallbackTimer = window.setTimeout(() => setStarted(true), 400);
     let observer: IntersectionObserver | undefined;
-    if (el) {
+    if (el && typeof IntersectionObserver !== "undefined") {
       observer = new IntersectionObserver(
         ([entry]) => {
           if (entry.isIntersecting && !started) {
@@ -38,13 +42,20 @@ export function AnimatedCounter({ raw }: { readonly raw: string }): ReactNode {
         { threshold: 0.3 }
       );
       observer.observe(el);
+    } else {
+      setStarted(true);
     }
-    return () => observer?.disconnect();
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      observer?.disconnect();
+    };
   }, [started]);
 
   useEffect(() => {
     if (!started) return;
-    const duration = 2000;
+    // 1.2s keeps the count-up snappy while guaranteeing the final value
+    // renders quickly (full-page captures, fast scrollers).
+    const duration = 1200;
     const startTime = performance.now();
 
     function easeOutCubic(x: number): number {

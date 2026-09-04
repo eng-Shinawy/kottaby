@@ -43,13 +43,13 @@ export function ResourceCard({
             bgcolor: "var(--mui-palette-secondary-main)",
             color: "var(--mui-palette-onSecondary)",
             fontWeight: 700,
-            fontSize: 11,
+            fontSize: 12,
             letterSpacing: "0.02em",
             height: 24,
             opacity: 0.12,
           }}
         />
-        <Typography variant="caption" sx={{ color: "var(--mui-palette-text-secondary)", fontSize: 11 }}>
+        <Typography variant="caption" sx={{ color: "var(--mui-palette-text-secondary)", fontSize: 12 }}>
           {date}
         </Typography>
       </Stack>

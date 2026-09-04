@@ -19,6 +19,15 @@ export const getMuiButton = (): Components<Omit<Theme, "components">>["MuiButton
             backgroundColor: theme.palette.primary.dark,
             boxShadow: "none",
           },
+          // Disabled contained buttons: solid muted surface + legible grey
+          // label. MUI's default 38%-alpha wash read as a "very low contrast
+          // gray bar" in visual QA (profile save-password button). The doubled
+          // class out-specifies MUI's own `.Mui-disabled` variant styles.
+          "&&.Mui-disabled": {
+            backgroundColor: theme.palette.surfaceContainerHighest,
+            color: theme.palette.text.disabled,
+            boxShadow: "none",
+          },
         }),
     }),
   },

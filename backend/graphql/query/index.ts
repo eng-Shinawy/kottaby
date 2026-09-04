@@ -20,6 +20,7 @@ import "./billing";
 import "./classes";
 import "./health.query";
 import "./notifications";
+import "./parents";
 import "./plan-catalog.query";
 import "./recitation.query";
 import "./students";

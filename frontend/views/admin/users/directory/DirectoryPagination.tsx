@@ -64,7 +64,20 @@ export function DirectoryPagination(props: DirectoryPaginationProps): ReactNode 
           value={pageSize}
           onChange={event => onPageSizeChange(event.target.value)}
           inputProps={{ "aria-label": labels.pagination.pageSize }}
-          sx={{ height: 36 }}
+          sx={{
+            height: 44,
+            // Vertically center the visible value inside the fixed 44px
+            // control: the default block padding makes the inner select box
+            // taller than the outlined root (or shrink it below the target).
+            "&& .MuiSelect-select": {
+              minHeight: 44,
+              boxSizing: "border-box",
+              paddingBlock: 0,
+              display: "flex",
+              alignItems: "center",
+            },
+            "& .MuiSelect-nativeInput": { height: "100%" },
+          }}
         >
           {PAGE_SIZE_OPTIONS.map(option => (
             <MenuItem key={`page-size-${option}`} value={option}>
@@ -82,6 +95,9 @@ export function DirectoryPagination(props: DirectoryPaginationProps): ReactNode 
           boundaryCount={1}
           aria-label={labels.pagination.page}
           sx={theme => ({
+            // ≥44px pagination buttons (WCAG 2.5.5) without switching the
+            // compact visual variant.
+            "& .MuiPaginationItem-root": { minWidth: 44, minHeight: 44 },
             "& .MuiPaginationItem-root.Mui-selected": {
               bgcolor: theme.palette.primary.main,
               color: theme.palette.onPrimary,

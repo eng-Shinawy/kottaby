@@ -22,7 +22,9 @@ export function StatBlock({
           alignItems: "center",
           justifyContent: "center",
           mb: 0.5,
-          opacity: inView ? 1 : 0,
+          // Icon stays visible even before the in-view trigger fires (the
+          // pulse animation is a progressive enhancement only).
+          opacity: 1,
           animation: inView ? "statIconPulse 0.6s ease-out" : "none",
           "@keyframes statIconPulse": {
             "0%": { transform: "scale(0.5)", opacity: 0 },

@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
   // plain `bun run dev` keeps the default `.next`.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   allowedDevOrigins: ["*.space-z.ai", "*.space-zai"],
+  // Dev-only polish: hide the floating Next.js dev-tools indicator (the "N"
+  // badge parked bottom-left in every dev capture — visual QA kept flagging
+  // it as an overlapping artifact on production-looking screenshots; it has
+  // no effect on production builds).
+  devIndicators: false,
   experimental: {
     // TypeScript 7.0.2's `lib/tsc.js` is an ESM module that cannot be loaded
     // by Next.js's runTypeScriptCli (which uses require/child_process).

@@ -111,9 +111,15 @@ export function PasswordField({
               <IconButton
                 aria-label={showPassword ? t.hidePassword : t.showPassword}
                 onClick={onToggleShow}
-                edge="end"
                 size="small"
-                sx={focusVisibleRingSx}
+                sx={{
+                  ...focusVisibleRingSx,
+                  // 44px touch target: 12px padding around the 20px glyph,
+                  // pulled back with matching negative margins so the input
+                  // row keeps its natural height (invisible-padding trick).
+                  p: 1.5,
+                  m: -1.5,
+                }}
               >
                 {showPassword ? <VisibilityOffOutlined fontSize="small" /> : <VisibilityOutlined fontSize="small" />}
               </IconButton>

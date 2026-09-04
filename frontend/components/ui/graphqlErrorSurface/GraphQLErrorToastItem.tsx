@@ -1,7 +1,7 @@
 "use client";
 
 import { Close as CloseIcon } from "@mui/icons-material";
-import { Alert, IconButton, Snackbar, Stack, Typography } from "@mui/material";
+import { Alert, IconButton, Snackbar, Typography } from "@mui/material";
 import type { GraphQLErrorAction } from "@/frontend/providers/apollo/error-link.map";
 import { Common, Errors, useAppTranslation } from "@/shared/locale";
 
@@ -25,8 +25,10 @@ interface GraphQLErrorToastItemProps {
 /**
  * Single toast/notice row of the GraphQLErrorSurfaceHost stack. Duplicate-
  * replay rows render neutral `info` per docs/IDEMPOTENCY.md §3; masked
- * INTERNAL_SERVER_ERROR rows append the correlation id so support reports
- * can quote it. Copy resolves via the action's `messageKey` handle.
+ * INTERNAL_SERVER_ERROR rows show the friendly localized copy ONLY — the
+ * correlation requestId never renders (it reaches support through the
+ * error-surface logger instead, see `utils/error-surface.ts`). Copy resolves
+ * via the action's `messageKey` handle.
  */
 export function GraphQLErrorToastItem({ toast, onDismiss }: GraphQLErrorToastItemProps) {
   const t = useAppTranslation(Errors);
@@ -80,24 +82,7 @@ export function GraphQLErrorToastItem({ toast, onDismiss }: GraphQLErrorToastIte
           },
         })}
       >
-        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-          <Typography sx={{ fontSize: 14, lineHeight: 1.45 }}>{t[toast.action.messageKey]}</Typography>
-          {toast.action.requestIdCorrelationGuidance === true && toast.action.correlationRequestId !== undefined && (
-            <Typography
-              component="code"
-              sx={theme => ({
-                fontFamily: "var(--font-inter), monospace",
-                fontSize: 11,
-                px: 0.75,
-                py: 0.25,
-                borderRadius: 1,
-                bgcolor: `color-mix(in srgb, ${theme.palette.common.black} 20%, transparent)`,
-              })}
-            >
-              {toast.action.correlationRequestId}
-            </Typography>
-          )}
-        </Stack>
+        <Typography sx={{ fontSize: 14, lineHeight: 1.45 }}>{t[toast.action.messageKey]}</Typography>
       </Alert>
     </Snackbar>
   );

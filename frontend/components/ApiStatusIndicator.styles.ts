@@ -97,7 +97,8 @@ export function statusDotSx(kind: ApiStatusKind): SxProps<Theme> {
 }
 
 export const statusLabelSx: SxProps<Theme> = {
-  fontSize: 10.5,
+  // 12px floor — sub-12px micro-type fails contrast/readability checks.
+  fontSize: 12,
   fontWeight: 700,
   letterSpacing: "0.14em",
   lineHeight: 1,
@@ -106,7 +107,7 @@ export const statusLabelSx: SxProps<Theme> = {
 
 export const versionLabelSx: SxProps<Theme> = {
   fontFamily: "var(--font-inter), monospace",
-  fontSize: 10,
+  fontSize: 12,
   lineHeight: 1,
   opacity: 0.6,
   direction: "ltr",

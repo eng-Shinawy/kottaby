@@ -27,13 +27,15 @@ export function BackToTopButton(): ReactNode {
     <Tooltip title={t.a11yBackToTop} placement="top" arrow>
       <span>
         <Fab
-          size="small"
           onClick={scrollToTop}
           aria-label={t.a11yBackToTop}
           sx={{
             position: "fixed",
             bottom: 24,
             insetInlineEnd: 24,
+            // Small Fab is 40px — pad to the 44px touch-target floor.
+            width: 44,
+            height: 44,
             bgcolor: "var(--mui-palette-secondary-main)",
             color: "var(--mui-palette-onSecondary)",
             zIndex: 50,

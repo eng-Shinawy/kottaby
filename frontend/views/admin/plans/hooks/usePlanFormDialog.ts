@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * usePlanFormDialog — Create/edit dialog orchestration for the admin plan catalog.
  *

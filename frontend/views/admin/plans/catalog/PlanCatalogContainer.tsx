@@ -1,7 +1,8 @@
+"use client";
+
 /**
  * PlanCatalogContainer — Root client container for admin plan catalog management.
  *
- * Implements REQ-054, REQ-060, REQ-062, REQ-063, REQ-064 (Task 4.3).
  * Integrates:
  *  - Apollo useQuery hook with cache normalization
  *  - Create & Edit plan dialogs (PlanFormDialog via usePlanFormDialog)
@@ -60,14 +61,20 @@ export function PlanCatalogContainer(): React.ReactElement {
         }}
       >
         <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 0.5 }}>
             {t.pageTitle}
           </Typography>
           <Typography variant="body1" sx={theme => ({ color: theme.palette.text.secondary })}>
             {t.pageSubtitle}
           </Typography>
         </Box>
-        <Button variant="contained" color="primary" startIcon={<AddIcon />} onClick={formDialog.handleOpenCreate}>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<AddIcon />}
+          onClick={formDialog.handleOpenCreate}
+          sx={{ minHeight: 44 }}
+        >
           {t.createPlanButton}
         </Button>
       </Stack>

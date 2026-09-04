@@ -23,6 +23,7 @@
  *  - `NotificationType` (the seven notification kinds)
  *  - `BroadcastAudienceType` (all|role|country|plan — admin broadcast cohort kinds)
  *  - `AppLocale` (the per-user UI/copy preference — "ar" | "en")
+ *  - `LinkStatus` (pending|confirmed|rejected|expired — parent-child link request lifecycle)
  *
  * After registering a new enum here, run `bun run generate:gqlSchema` and
  * `bun codegen` to refresh the SDL + frontend codegen.
@@ -37,6 +38,7 @@ import { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolution.
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
+import { LinkStatus } from "@/backend/enum/shared/link-status.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
 import { AppLocale } from "@/backend/enum/users/app-locale.enum";
@@ -212,6 +214,23 @@ export const AuditActionTypePothosEnum = gqlSchemaBuilder.enumType(AuditActionTy
  */
 export const NotificationTypePothosEnum = gqlSchemaBuilder.enumType(NotificationType, {
   name: "NotificationType",
+});
+
+/**
+ * GraphQL `LinkStatus` enum (pending|confirmed|rejected|expired).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/shared/link-status.enum.ts`), which mirrors the
+ * `link_status` pgEnum byte-for-byte. Per the Pothos enum-object
+ * convention (identical to `NotificationType`), the enum KEYS are the
+ * GraphQL value names on the wire (`Pending`, `Confirmed`, `Rejected`,
+ * `Expired`) while the lowercase string values remain the runtime and
+ * database representation — the GraphQL enum layer maps between them.
+ * Backs the `status` field on the parent-child link request objects
+ * (`pothos/parents/parent-link-request.pothos.ts`).
+ */
+export const LinkStatusPothosEnum = gqlSchemaBuilder.enumType(LinkStatus, {
+  name: "LinkStatus",
 });
 
 /**

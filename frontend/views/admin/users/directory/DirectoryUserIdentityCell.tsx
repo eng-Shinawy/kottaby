@@ -52,6 +52,12 @@ export function DirectoryUserIdentityCell({ user, role, labels }: DirectoryUserI
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               minWidth: 0,
+              // ≥44px tap target without changing the row's visual density:
+              // transparent block padding grows the clickable box while the
+              // matching negative margins keep the layout height unchanged.
+              minHeight: 44,
+              paddingBlock: "10.5px",
+              marginBlock: "-10.5px",
             })}
           >
             {user.fullName}

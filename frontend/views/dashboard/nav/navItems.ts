@@ -110,6 +110,7 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     { route: "/student/sessions", labelKey: "sessions", Icon: SessionsIcon },
     { route: "/subscriptions", labelKey: "subscriptions", Icon: SubscriptionsIcon },
     { route: "/homework", labelKey: "homework", Icon: HomeworkIcon },
+    { route: "/student/link-requests", labelKey: "linkRequests", Icon: LinkChildIcon },
     { route: "/profile", labelKey: "profile", Icon: ProfileIcon },
   ],
   [UserRole.Teacher]: [

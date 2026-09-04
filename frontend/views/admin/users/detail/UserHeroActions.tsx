@@ -33,7 +33,7 @@ export function UserHeroActions({ labels, isDeleted, onEdit, onDelete }: UserHer
         color="primary"
         startIcon={<EditIcon />}
         onClick={onEdit}
-        sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168 }}
+        sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 44 }}
       >
         {labels.detail.editAction}
       </Button>
@@ -43,7 +43,7 @@ export function UserHeroActions({ labels, isDeleted, onEdit, onDelete }: UserHer
           color="success"
           startIcon={<ReactivateIcon />}
           onClick={onDelete}
-          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168 }}
+          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 44 }}
         >
           {labels.detail.reactivateAction}
         </Button>
@@ -53,7 +53,7 @@ export function UserHeroActions({ labels, isDeleted, onEdit, onDelete }: UserHer
           color="error"
           startIcon={<BlockIcon />}
           onClick={onDelete}
-          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168 }}
+          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 44 }}
         >
           {labels.detail.deleteAction}
         </Button>

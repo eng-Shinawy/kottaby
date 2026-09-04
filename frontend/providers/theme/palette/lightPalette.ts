@@ -19,7 +19,14 @@ export const lightPalette: PaletteOptions = {
   text: {
     primary: "#1A2B45", // Deep navy-charcoal for crisp text
     secondary: "#4A5A75", // Muted navy (~7:1 contrast on cream)
-    disabled: "#9AA5B8", // Soft cool grey
+    disabled: "#5F6C82", // Solid cool grey — stays readable (~4.8:1) on cream
+  },
+
+  // Disabled-state controls: solid, legible greys instead of MUI's 38%-alpha
+  // wash (mirrors the dark palette's disabled-contrast refinement).
+  action: {
+    disabled: "#7A8496",
+    disabledBackground: "rgba(26, 43, 69, 0.12)",
   },
 
   primary: {

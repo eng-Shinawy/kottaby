@@ -17,12 +17,12 @@ export function CookieConsentActions({
     <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
       <Button
         onClick={onDecline}
-        size="small"
         sx={{
           color: "var(--mui-palette-text-secondary)",
           textTransform: "none",
           fontWeight: 600,
           borderRadius: 2,
+          minHeight: 44,
           "&:hover": { bgcolor: "color-mix(in srgb, var(--mui-palette-text-secondary) 8%, transparent)" },
         }}
       >
@@ -30,12 +30,12 @@ export function CookieConsentActions({
       </Button>
       <Button
         onClick={onOpenSettings}
-        size="small"
         sx={{
           color: "var(--mui-palette-secondary-main)",
           textTransform: "none",
           fontWeight: 600,
           borderRadius: 2,
+          minHeight: 44,
           "&:hover": { bgcolor: "color-mix(in srgb, var(--mui-palette-secondary-main) 8%, transparent)" },
         }}
       >
@@ -44,7 +44,6 @@ export function CookieConsentActions({
       <Button
         onClick={onAccept}
         variant="contained"
-        size="small"
         sx={{
           position: "relative",
           overflow: "hidden",
@@ -53,6 +52,7 @@ export function CookieConsentActions({
           textTransform: "none",
           fontWeight: 700,
           borderRadius: 2,
+          minHeight: 44,
           "&::after": {
             content: '""',
             position: "absolute",

@@ -49,6 +49,11 @@ export const errorsEn: ErrorsLabels = {
   handshakeCodeInvalid: "Handshake codes look like KSB-XXXXXXXX (8 hexadecimal characters).",
   studentHandshakeNotFound: "Student record not found.",
   trialAlreadyGranted: "The free trial credit has already been granted for this student.",
+  parentLinkTargetAlreadyLinked: "This student is already linked to a parent account.",
+  parentLinkAlreadyPending: "A link request to this student is already pending.",
+  parentLinkRequestExpired: "This link request has expired.",
+  parentLinkRequestAlreadyResolved: "This link request has already been handled.",
+  parentLinkRequestNotFound: "The link request was not found.",
   broadcastTitleInvalid: "Broadcast title must be between 1 and 255 characters.",
   broadcastAudienceInvalid:
     "Invalid broadcast audience. Select a valid audience type and provide exactly the field it requires.",

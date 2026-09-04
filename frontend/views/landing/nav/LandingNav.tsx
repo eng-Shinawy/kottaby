@@ -67,11 +67,22 @@ export function LandingNav({
               component={Link}
               href="/login"
               variant="text"
-              sx={{ color: "var(--mui-palette-onPrimary)", fontWeight: 600, textTransform: "none" }}
+              sx={{
+                color: "var(--mui-palette-onPrimary)",
+                fontWeight: 600,
+                textTransform: "none",
+                // 44px touch-target floor (WCAG 2.5.5).
+                minHeight: 44,
+              }}
             >
               {t.navSignIn}
             </Button>
-            <Button component={Link} href="/register" variant="contained" sx={{ ...ctaShimmerSx, px: 2.5 }}>
+            <Button
+              component={Link}
+              href="/register"
+              variant="contained"
+              sx={{ ...ctaShimmerSx, px: 2.5, minHeight: 44 }}
+            >
               {t.navGetStarted}
             </Button>
           </Stack>
@@ -84,6 +95,8 @@ export function LandingNav({
               sx={{
                 minWidth: "auto",
                 p: 1,
+                // Icon-only control — keep the 44px touch-target floor.
+                minHeight: 44,
                 color: "var(--mui-palette-onPrimary)",
                 borderRadius: 2,
                 "&:hover": { bgcolor: "color-mix(in srgb, var(--mui-palette-onPrimary) 10%, transparent)" },
