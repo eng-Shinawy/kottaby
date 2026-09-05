@@ -300,6 +300,56 @@ export interface AdminUsersLabels {
     /** Cancel button label for the certify dialog. */
     readonly cancel: string;
   };
+  /**
+   * Inline governance action copy on the admin user detail page — the
+   * suspend / unsuspend / block / unblock action labels, the four confirm
+   * dialog title/message pairs, the suspension-period field label and
+   * helper, the shared confirm/cancel button labels, and the four
+   * mutation-success toast strings. Sourced via the `AdminUsers` namespace
+   * handle from task 4.3's `GovernanceActionsSection` component.
+   */
+  readonly governanceActions: {
+    /** Inline action button label — suspend the user. */
+    readonly suspendAction: string;
+    /** Inline action button label — lift an existing suspension. */
+    readonly unsuspendAction: string;
+    /** Inline action button label — block the user. */
+    readonly blockAction: string;
+    /** Inline action button label — lift an existing block. */
+    readonly unblockAction: string;
+    /** Dialog title for the suspend confirm dialog. */
+    readonly suspendDialogTitle: string;
+    /** Dialog body copy explaining the suspend action being confirmed. */
+    readonly suspendDialogMessage: string;
+    /** Field label for the suspension-period (days) input inside the suspend dialog. */
+    readonly suspendPeriodLabel: string;
+    /** Helper text under the suspension-period input describing the valid range. */
+    readonly suspendPeriodHelper: string;
+    /** Dialog title for the unsuspend confirm dialog. */
+    readonly unsuspendDialogTitle: string;
+    /** Dialog body copy explaining the unsuspend action being confirmed. */
+    readonly unsuspendDialogMessage: string;
+    /** Dialog title for the block confirm dialog. */
+    readonly blockDialogTitle: string;
+    /** Dialog body copy explaining the block action being confirmed. */
+    readonly blockDialogMessage: string;
+    /** Dialog title for the unblock confirm dialog. */
+    readonly unblockDialogTitle: string;
+    /** Dialog body copy explaining the unblock action being confirmed. */
+    readonly unblockDialogMessage: string;
+    /** Shared confirm button label for the four governance dialogs. */
+    readonly confirm: string;
+    /** Shared cancel button label for the four governance dialogs. */
+    readonly cancel: string;
+    /** Snackbar copy rendered after a successful suspend. */
+    readonly suspendSuccessToast: string;
+    /** Snackbar copy rendered after a successful unsuspend. */
+    readonly unsuspendSuccessToast: string;
+    /** Snackbar copy rendered after a successful block. */
+    readonly blockSuccessToast: string;
+    /** Snackbar copy rendered after a successful unblock. */
+    readonly unblockSuccessToast: string;
+  };
 
   /** Detail page section headings and navigation affordances. */
   readonly detail: {
@@ -339,7 +389,7 @@ export interface AdminUsersLabels {
     readonly lastActiveLabel: string;
     /** Info strip at the bottom of the profile card — email/role are system-managed. */
     readonly profileReadonlyNote: string;
-    /** Info strip at the bottom of the governance card — windows live in the Governance module. */
+    /** Info strip at the bottom of the governance card — suspension/block state is managed inline on this page. */
     readonly governanceNote: string;
     /** Placeholder rendered in place of an unset profile value (typographic dash). */
     readonly emptyValue: string;

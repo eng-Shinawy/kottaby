@@ -198,7 +198,7 @@ describe("StudentRepository.findDiscoveryByHandshakeCode", () => {
   test("Tier 1 — linked + governed fixture: parentId and governance columns map faithfully", async () => {
     await runInRollback(async tx => {
       const parent = await createTestUser(tx, { role: "parent" });
-      const suspendedAt = new Date();
+      const suspendedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
       const user = await createTestUser(tx, {
         isBlocked: true,
         suspended: true,

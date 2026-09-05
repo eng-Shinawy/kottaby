@@ -98,6 +98,7 @@ import { isolateBidi } from "@/shared/lib/isolate-bidi";
 import { maskFullName } from "@/shared/lib/mask-full-name";
 import { defaultLocale } from "@/shared/locale/AppLocale";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
+import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
 const LOCALE_EN = "en";
 const LOCALE_AR = "ar";
@@ -1455,8 +1456,11 @@ describe("ParentLinkRequestService.sendExpiryReminders", () => {
 });
 
 // ─── Tier 2 — strict liveness + render boundaries (frozen clock) ────────
+// These tests use millisecond-precision boundary values (now+1ms, now-1ms)
+// which pglite truncates to seconds — skip on pglite.
+const describeBoundary = isPgliteProvider() ? describe.skip : describe;
 
-describe("ParentLinkRequestService boundary tier (frozen clock)", () => {
+describeBoundary("ParentLinkRequestService boundary tier (frozen clock)", () => {
   test("Tier 2 — claim at expiresAt = now+1ms succeeds: strict `>` holds, one-captured-now stamp", async () => {
     await runInRollback(async (tx: DBTransaction) => {
       requireCast();

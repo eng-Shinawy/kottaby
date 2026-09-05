@@ -2,13 +2,17 @@
  * AdminUserManagementService — business-logic hub for the admin user-management
  * surface (Workflow 05 identity-and-governance core).
  *
- * The service orchestrates five operations against the `users` directory:
+ * The service orchestrates seven operations against the `users` directory:
  *  - `listDirectory` — paginated directory with role-child headline projection.
  *  - `getUserDetail` — single-row detail with role-child snapshot assembly.
  *  - `createUser` — admin-provisioned user creation (student / teacher / parent
  *    roles only; `admin` is rejected via a runtime role pre-guard).
  *  - `updateUser` — whitelisted profile patch (five fields only).
  *  - `setUserDeleted` — soft-delete / reactivate via a single guarded UPDATE.
+ *  - `setUserSuspended` — suspend / release-suspension via a single guarded
+ *    UPDATE that also stamps the suspension window
+ *    (`suspended_at` + `suspended_period_days`).
+ *  - `setUserBlocked` — block / unblock via a single guarded UPDATE.
  *
  * Plus two pure-read companions: `getStats` (directory-wide aggregate counters)
  * and `getUserActivity` (per-user audit-timeline read-back).
@@ -16,11 +20,18 @@
  * Disciplines enforced here:
  *  - Defense-in-depth BFLA: every method re-validates that the `actorId`
  *    resolves to a real `admin`-role user BEFORE any work — the actor gate
- *    lives in `admin-gate.helpers.ts` (`assertActorAdmin`). Anonymous
+ *    lives in `admin-guards.helpers.ts` (`assertActorAdmin`). Anonymous
  *    callers (`actorId = 0`) receive `UnauthorizedError`; authenticated
  *    non-admins receive `ForbiddenError`. Denial paths emit ZERO audit
  *    rows and perform ZERO writes — the actor check happens BEFORE any
  *    transaction opens.
+ *    Governance mutations (`setUserSuspended` / `setUserBlocked`) use the
+ *    STRICT variant (`assertActiveActorAdmin`) which additionally rejects
+ *    governed actors (deleted / blocked / actively-suspended) — the
+ *    blast radius of a governance mutation is high enough to warrant
+ *    re-validating the actor's governance state. The legacy CRUD methods
+ *    (list / detail / create / update / soft-delete) keep the relaxed
+ *    variant per REQ-031 (no behavior change to DEV3-016).
  *  - BOPLA: `createUser` and `updateUser` build their payloads field-by-field
  *    (never `{ ...input }` spreads) via `user-management.helpers.ts`.
  *    Transport-tampered extra fields are ignored by construction.
@@ -38,7 +49,9 @@
  *    audit rows (no-trail-pollution).
  *  - Self-protection: `setUserDeleted(id, deleted=true)` with `id === actorId`
  *    throws `ConflictError(USER_SELF_DEACTIVATION_FORBIDDEN)` BEFORE any
- *    write — zero rows mutated, zero audit rows appended.
+ *    write — zero rows mutated, zero audit rows appended. The same guard
+ *    applies to `setUserSuspended` (`USER_SELF_SUSPENSION_FORBIDDEN`) and
+ *    `setUserBlocked` (`USER_SELF_BLOCK_FORBIDDEN`).
  *  - Logging: expected rejections via `logger.logDomainError` carrying
  *    `{ code, entity: "user", entityId }` (ids + codes only — no PII);
  *    unexpected failures via `logger.error`. NEVER `console.*`.
@@ -62,7 +75,7 @@ import { hashPassword } from "@/backend/lib/auth/password";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { ConflictError, NotFoundError, translateDbError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
-import { assertActorAdmin } from "@/backend/services/admin/admin-gate.helpers";
+import { assertActiveActorAdmin, assertActorAdmin } from "@/backend/services/admin/admin-guards.helpers";
 import { AuditService } from "@/backend/services/admin/audit.service";
 import {
   buildAuditContract,
@@ -96,6 +109,12 @@ import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /** Entity label passed to `NotFoundError` — yields code `USER_NOT_FOUND`. */
 const USER_ENTITY = "USER";
+
+/** Inclusive lower bound on `setUserSuspended`'s `periodDays` parameter. */
+const SUSPENSION_PERIOD_MIN_DAYS = 1;
+
+/** Inclusive upper bound on `setUserSuspended`'s `periodDays` parameter (~10 years). */
+const SUSPENSION_PERIOD_MAX_DAYS = 3650;
 
 export namespace AdminUserManagementService {
   /**
@@ -438,6 +457,201 @@ export namespace AdminUserManagementService {
         buildAuditContract(actorId, deleted ? AuditActionType.Delete : AuditActionType.Reactivate, id, { deleted }),
         tx
       );
+
+      return getUserDetail(id, locale, actorId, tx);
+    });
+  }
+
+  /**
+   * Suspend / release-suspension via a single guarded UPDATE that also
+   * stamps the suspension window (`suspended_at` + `suspended_period_days`).
+   *
+   * Pipeline mirrors `setUserDeleted` with the suspend axis + window
+   * metadata: (1) strict active-admin actor guard
+   * (`assertActiveActorAdmin`) pre-transaction when no `outerTx`; (2) `id`
+   * positive-safe-int re-assertion; (3) `suspended === true` ⇒ `periodDays`
+   * validated as a whole number in `1..3650` (else `ValidationError`
+   * naming `periodDays`); `suspended === false` ⇒ `periodDays` IGNORED;
+   * (4) `withTransaction(outerTx, …)`: self-check `id === actorId` →
+   * `USER_SELF_SUSPENSION_FORBIDDEN` BEFORE any write; guarded repo call
+   * → row ⇒ proceed; `null` ⇒ classifier via `findGovernanceState(id, tx)`
+   * → `null` ⇒ `USER_NOT_FOUND`; `isDeleted === true` →
+   * `USER_ALREADY_DELETED`; axis already in requested state →
+   * `USER_ALREADY_SUSPENDED` / `USER_NOT_SUSPENDED` per direction; (5) ONE
+   * in-tx audit row via `buildAuditContract` (suspend → `AuditActionType.Suspend`
+   * + `{ changedFields, suspended: true, suspendedPeriodDays }`; unsuspend →
+   * `AuditActionType.Reactivate` + `{ changedFields, suspended: false }`);
+   * (6) return `getUserDetail(id, locale, actorId, tx)` (composition reuse —
+   * the relaxed inner re-check pass is defense-in-depth; the strict guard
+   * is the authoritative actor gate).
+   *
+   * Denials: EXACTLY ONE `logger.logDomainError(message, { code, entity,
+   * entityId, locale })`; ZERO audit rows; ZERO notification rows; happy
+   * path SILENT (REQ-053). Zero PII in audit `details`.
+   */
+  export async function setUserSuspended(
+    id: number,
+    suspended: boolean,
+    periodDays: number | null,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<AdminUserDetailReturnType> {
+    await assertActiveActorAdmin(actorId, locale, outerTx);
+
+    const tErrors = getServerTranslations(locale).errorsTranslations;
+
+    if (!isPositiveSafeInteger(id)) {
+      throw new ValidationError(tErrors.validation);
+    }
+
+    // periodDays validated ONLY on suspend; unsuspend IGNORES it.
+    if (
+      suspended &&
+      (periodDays === null ||
+        !Number.isInteger(periodDays) ||
+        periodDays < SUSPENSION_PERIOD_MIN_DAYS ||
+        periodDays > SUSPENSION_PERIOD_MAX_DAYS)
+    ) {
+      throw new ValidationError("SUSPENSION_PERIOD_INVALID", tErrors.adminUsers.suspensionPeriodInvalid, undefined, [
+        { field: "periodDays", code: "SUSPENSION_PERIOD_INVALID", message: tErrors.adminUsers.suspensionPeriodInvalid },
+      ]);
+    }
+
+    return withTransaction(outerTx, async tx => {
+      if (id === actorId) {
+        logger.logDomainError("Admin self-suspension denied", {
+          code: "USER_SELF_SUSPENSION_FORBIDDEN",
+          entity: "user",
+          entityId: id,
+          locale,
+        });
+        throw new ConflictError("USER_SELF_SUSPENSION_FORBIDDEN", tErrors.adminUsers.userSelfSuspensionForbidden);
+      }
+
+      const updated = await AdminUserRepository.setSuspendedOnce(id, suspended, suspended ? periodDays : null, tx);
+
+      if (updated === null) {
+        const governanceState = await AdminUserRepository.findGovernanceState(id, tx);
+        if (governanceState === null) {
+          logger.logDomainError("Admin user suspend/reactivate: user not found", {
+            code: "USER_NOT_FOUND",
+            entity: "user",
+            entityId: id,
+            locale,
+          });
+          throw new NotFoundError(USER_ENTITY, tErrors.adminUsers.userNotFound);
+        }
+        if (governanceState.isDeleted === true) {
+          logger.logDomainError("Admin user suspend/reactivate: target already deleted", {
+            code: "USER_ALREADY_DELETED",
+            entity: "user",
+            entityId: id,
+            locale,
+          });
+          throw new ConflictError("USER_ALREADY_DELETED", tErrors.adminUsers.userAlreadyDeleted);
+        }
+        const code = suspended ? "USER_ALREADY_SUSPENDED" : "USER_NOT_SUSPENDED";
+        const message = suspended ? tErrors.adminUsers.userAlreadySuspended : tErrors.adminUsers.userNotSuspended;
+        logger.logDomainError("Admin user suspend/reactivate: state conflict", {
+          code,
+          entity: "user",
+          entityId: id,
+          locale,
+        });
+        throw new ConflictError(code, message);
+      }
+
+      const changedFields = ["suspended", "suspendedAt", "suspendedPeriodDays"];
+      const actionType = suspended ? AuditActionType.Suspend : AuditActionType.Reactivate;
+      const details = suspended
+        ? { changedFields, suspended: true, suspendedPeriodDays: periodDays }
+        : { changedFields, suspended: false };
+      await AuditService.createAuditLog(buildAuditContract(actorId, actionType, id, details), tx);
+
+      return getUserDetail(id, locale, actorId, tx);
+    });
+  }
+
+  /**
+   * Block / unblock via a single guarded UPDATE that stamps `blocked_at`
+   * on the block direction and clears it on the unblock direction. Block
+   * is an indefinite administrative deny (no lapse window — the column
+   * pair carries no period-days companion).
+   *
+   * Pipeline mirrors `setUserSuspended` with the blocked axis + axis
+   * codes. Audit `details` carries the block field names + axis state
+   * only (zero PII):
+   *   block   → `AuditActionType.Suspend` + `{ changedFields: ["isBlocked","blockedAt"], blocked: true }`
+   *   unblock → `AuditActionType.Reactivate` + `{ …, blocked: false }`
+   *
+   * Denials: EXACTLY ONE `logger.logDomainError`; ZERO audit rows; ZERO
+   * notification rows; happy path SILENT (REQ-053).
+   */
+  export async function setUserBlocked(
+    id: number,
+    blocked: boolean,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<AdminUserDetailReturnType> {
+    await assertActiveActorAdmin(actorId, locale, outerTx);
+
+    const tErrors = getServerTranslations(locale).errorsTranslations;
+
+    if (!isPositiveSafeInteger(id)) {
+      throw new ValidationError(tErrors.validation);
+    }
+
+    return withTransaction(outerTx, async tx => {
+      if (id === actorId) {
+        logger.logDomainError("Admin self-block denied", {
+          code: "USER_SELF_BLOCK_FORBIDDEN",
+          entity: "user",
+          entityId: id,
+          locale,
+        });
+        throw new ConflictError("USER_SELF_BLOCK_FORBIDDEN", tErrors.adminUsers.userSelfBlockForbidden);
+      }
+
+      const updated = await AdminUserRepository.setBlockedOnce(id, blocked, tx);
+
+      if (updated === null) {
+        const governanceState = await AdminUserRepository.findGovernanceState(id, tx);
+        if (governanceState === null) {
+          logger.logDomainError("Admin user block/unblock: user not found", {
+            code: "USER_NOT_FOUND",
+            entity: "user",
+            entityId: id,
+            locale,
+          });
+          throw new NotFoundError(USER_ENTITY, tErrors.adminUsers.userNotFound);
+        }
+        if (governanceState.isDeleted === true) {
+          logger.logDomainError("Admin user block/unblock: target already deleted", {
+            code: "USER_ALREADY_DELETED",
+            entity: "user",
+            entityId: id,
+            locale,
+          });
+          throw new ConflictError("USER_ALREADY_DELETED", tErrors.adminUsers.userAlreadyDeleted);
+        }
+        const code = blocked ? "USER_ALREADY_BLOCKED" : "USER_NOT_BLOCKED";
+        const message = blocked ? tErrors.adminUsers.userAlreadyBlocked : tErrors.adminUsers.userNotBlocked;
+        logger.logDomainError("Admin user block/unblock: state conflict", {
+          code,
+          entity: "user",
+          entityId: id,
+          locale,
+        });
+        throw new ConflictError(code, message);
+      }
+
+      const actionType = blocked ? AuditActionType.Suspend : AuditActionType.Reactivate;
+      const details = blocked
+        ? { changedFields: ["isBlocked", "blockedAt"], blocked: true }
+        : { changedFields: ["isBlocked", "blockedAt"], blocked: false };
+      await AuditService.createAuditLog(buildAuditContract(actorId, actionType, id, details), tx);
 
       return getUserDetail(id, locale, actorId, tx);
     });

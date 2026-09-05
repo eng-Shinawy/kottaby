@@ -45,6 +45,7 @@ import { UserRepository } from "@/backend/db/repo";
 import { users } from "@/backend/db/schema/users/users";
 import { generateSessionId, signAccessToken, signRefreshToken, verifyRefreshToken } from "@/backend/lib/auth/jwt";
 import { comparePassword } from "@/backend/lib/auth/password";
+import { isSuspensionActive } from "@/backend/lib/auth/suspension-window";
 import { ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import type {
@@ -84,15 +85,41 @@ function stripPasswordHash(user: UserSelectType): RegistrationReturnType {
 
 /**
  * Checks the governance flags on a user row. Throws `ForbiddenError` (with
- * a localized message) if the user is deleted, blocked, or suspended.
+ * a localized message) if the user is deleted, blocked, or has an ACTIVE
+ * suspension window. A LAPSED suspension no longer denies — the
+ * suspension-window predicate (`isSuspensionActive`) is the single source
+ * of truth for window liveness, shared with the SSR boundary
+ * (`getServerUserContext`). Deleted/blocked are always-denied (no lapse
+ * concept for either).
  *
- * Called by `login` (after password verification) and `getMe` (after fetch).
+ * Called by `login` (after password verification) and `refreshToken`
+ * (after token verification). Both call sites pass the SAME fetched row
+ * — ZERO call-site signature churn; only the user shape widens to include
+ * the suspension-window metadata columns already returned by
+ * `UserRepository.findById` / `findByEmail` (full `UserSelectType`).
  */
 function assertUserActive(
-  user: { isDeleted: boolean | null; isBlocked: boolean | null; suspended: boolean | null },
+  user: {
+    isDeleted: boolean | null;
+    isBlocked: boolean | null;
+    suspended: boolean | null;
+    suspendedAt: Date | null;
+    suspendedPeriodDays: number | null;
+  },
   message: string
 ): void {
-  if (user.isDeleted || user.isBlocked || user.suspended) {
+  if (
+    user.isDeleted ||
+    user.isBlocked ||
+    isSuspensionActive(
+      {
+        suspended: user.suspended,
+        suspendedAt: user.suspendedAt,
+        suspendedPeriodDays: user.suspendedPeriodDays,
+      },
+      new Date()
+    )
+  ) {
     throw new ForbiddenError(message);
   }
 }

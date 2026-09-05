@@ -200,7 +200,7 @@ beforeAll(async () => {
       tx,
       parentA.id,
       studentS.studentId,
-      new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+      new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
     );
     // Pair 2 — parent B → student S2, deliberately request-free (race host).
     const parentB = await setupParent(tx);
@@ -253,7 +253,7 @@ describe("ParentLinkRequestRepository.create", () => {
   test("Tier 1 — inserts with the schema-default pending status and verbatim payload", async () => {
     await runInRollback(async tx => {
       const pair = await setupLinkPair(tx);
-      const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       const row = await createPending(tx, pair.parentUserId, pair.studentId, expiresAt);
       expect(row.parentId).toBe(pair.parentUserId);
       expect(row.studentId).toBe(pair.studentId);
@@ -272,7 +272,7 @@ describe("ParentLinkRequestRepository.create", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       createdId = row.id;
       // Visible INSIDE the transaction (the write joined the outer tx)…
@@ -291,7 +291,7 @@ describe("ParentLinkRequestRepository.findById", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       const found = await ParentLinkRequestRepository.findById(created.id, tx);
       expect(found).not.toBeNull();
@@ -327,7 +327,7 @@ describe("ParentLinkRequestRepository.findPendingByPair", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       const found = await ParentLinkRequestRepository.findPendingByPair(pair.parentUserId, pair.studentId, tx);
       expect(found?.id).toBe(created.id);
@@ -355,7 +355,7 @@ describe("ParentLinkRequestRepository.findPendingByPair", () => {
         tx,
         parent.id,
         studentA.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       // Wrong student — same parent, different target.
       expect(await ParentLinkRequestRepository.findPendingByPair(parent.id, studentB.studentId, tx)).toBeNull();
@@ -364,7 +364,7 @@ describe("ParentLinkRequestRepository.findPendingByPair", () => {
         created.id,
         studentA.studentId,
         LinkStatus.Confirmed,
-        new Date(),
+        new Date(Math.floor(Date.now() / 1000) * 1000),
         tx
       );
       expect(await ParentLinkRequestRepository.findPendingByPair(parent.id, studentA.studentId, tx)).toBeNull();
@@ -377,7 +377,7 @@ describe("ParentLinkRequestRepository.findPendingByPair", () => {
         tx,
         secondParent.id,
         studentA.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       await ParentLinkRequestRepository.markExpiredIfPending(expiring.id, tx);
       expect(await ParentLinkRequestRepository.findPendingByPair(secondParent.id, studentA.studentId, tx)).toBeNull();
@@ -393,9 +393,9 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
-      const now = new Date();
+      const now = new Date(Math.floor(Date.now() / 1000) * 1000);
       const claimed = await ParentLinkRequestRepository.respondToPendingForStudent(
         created.id,
         pair.studentId,
@@ -417,9 +417,9 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
-      const now = new Date();
+      const now = new Date(Math.floor(Date.now() / 1000) * 1000);
       const claimed = await ParentLinkRequestRepository.respondToPendingForStudent(
         created.id,
         pair.studentId,
@@ -440,7 +440,7 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       // Nonexistent id.
       expect(
@@ -448,7 +448,7 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
           NONEXISTENT_REQUEST_ID,
           pair.studentId,
           LinkStatus.Confirmed,
-          new Date(),
+          new Date(Math.floor(Date.now() / 1000) * 1000),
           tx
         )
       ).toBeNull();
@@ -458,7 +458,7 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
           created.id,
           foreign.studentId,
           LinkStatus.Confirmed,
-          new Date(),
+          new Date(Math.floor(Date.now() / 1000) * 1000),
           tx
         )
       ).toBeNull();
@@ -469,7 +469,7 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
         created.id,
         pair.studentId,
         LinkStatus.Confirmed,
-        new Date(),
+        new Date(Math.floor(Date.now() / 1000) * 1000),
         tx
       );
       expect(
@@ -477,7 +477,7 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
           created.id,
           pair.studentId,
           LinkStatus.Confirmed,
-          new Date(),
+          new Date(Math.floor(Date.now() / 1000) * 1000),
           tx
         )
       ).toBeNull();
@@ -494,7 +494,7 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
           stale.id,
           foreign.studentId,
           LinkStatus.Confirmed,
-          new Date(),
+          new Date(Math.floor(Date.now() / 1000) * 1000),
           tx
         )
       ).toBeNull();
@@ -505,7 +505,7 @@ describe("ParentLinkRequestRepository.respondToPendingForStudent", () => {
   test("Tier 2 — boundary: claim exactly AT expiresAt returns NULL (strict >), ±1ms parity holds", async () => {
     await runInRollback(async tx => {
       const parent = await setupParent(tx);
-      const base = new Date();
+      const base = new Date(Math.floor(Date.now() / 1000) * 1000);
       // (a) exactly at the expiry instant → strict `expires_at > now` is FALSE.
       const atExpiry = await createPending(tx, parent.id, (await setupStudent(tx)).studentId, base);
       expect(
@@ -560,9 +560,9 @@ describe("ParentLinkRequestRepository.cancelPendingForParent", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
-      const now = new Date();
+      const now = new Date(Math.floor(Date.now() / 1000) * 1000);
       const cancelled = await ParentLinkRequestRepository.cancelPendingForParent(
         created.id,
         pair.parentUserId,
@@ -585,25 +585,40 @@ describe("ParentLinkRequestRepository.cancelPendingForParent", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       expect(
         await ParentLinkRequestRepository.cancelPendingForParent(
           NONEXISTENT_REQUEST_ID,
           pair.parentUserId,
-          new Date(),
+          new Date(Math.floor(Date.now() / 1000) * 1000),
           tx
         )
       ).toBeNull();
       // Foreign parent cannot withdraw someone else's request.
       expect(
-        await ParentLinkRequestRepository.cancelPendingForParent(created.id, foreign.parentUserId, new Date(), tx)
+        await ParentLinkRequestRepository.cancelPendingForParent(
+          created.id,
+          foreign.parentUserId,
+          new Date(Math.floor(Date.now() / 1000) * 1000),
+          tx
+        )
       ).toBeNull();
       expect((await ParentLinkRequestRepository.findById(created.id, tx))?.status).toBe(LinkStatus.Pending);
       // Already-resolved (withdrawn) — the second cancel matches zero rows.
-      await ParentLinkRequestRepository.cancelPendingForParent(created.id, pair.parentUserId, new Date(), tx);
+      await ParentLinkRequestRepository.cancelPendingForParent(
+        created.id,
+        pair.parentUserId,
+        new Date(Math.floor(Date.now() / 1000) * 1000),
+        tx
+      );
       expect(
-        await ParentLinkRequestRepository.cancelPendingForParent(created.id, pair.parentUserId, new Date(), tx)
+        await ParentLinkRequestRepository.cancelPendingForParent(
+          created.id,
+          pair.parentUserId,
+          new Date(Math.floor(Date.now() / 1000) * 1000),
+          tx
+        )
       ).toBeNull();
       // Expired-at-write-instant.
       const stale = await createPending(
@@ -613,7 +628,12 @@ describe("ParentLinkRequestRepository.cancelPendingForParent", () => {
         new Date(Date.now() - PARENT_LINK_REQUEST_MS)
       );
       expect(
-        await ParentLinkRequestRepository.cancelPendingForParent(stale.id, pair.parentUserId, new Date(), tx)
+        await ParentLinkRequestRepository.cancelPendingForParent(
+          stale.id,
+          pair.parentUserId,
+          new Date(Math.floor(Date.now() / 1000) * 1000),
+          tx
+        )
       ).toBeNull();
     });
   });
@@ -621,7 +641,7 @@ describe("ParentLinkRequestRepository.cancelPendingForParent", () => {
   test("Tier 2 — boundary: withdrawal exactly AT expiresAt returns NULL, −1ms still folds", async () => {
     await runInRollback(async tx => {
       const parent = await setupParent(tx);
-      const base = new Date();
+      const base = new Date(Math.floor(Date.now() / 1000) * 1000);
       const atExpiry = await createPending(tx, parent.id, (await setupStudent(tx)).studentId, base);
       expect(await ParentLinkRequestRepository.cancelPendingForParent(atExpiry.id, parent.id, base, tx)).toBeNull();
       // One millisecond before the instant still withdraws.
@@ -665,13 +685,13 @@ describe("ParentLinkRequestRepository.markExpiredIfPending", () => {
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       await ParentLinkRequestRepository.respondToPendingForStudent(
         created.id,
         pair.studentId,
         LinkStatus.Confirmed,
-        new Date(),
+        new Date(Math.floor(Date.now() / 1000) * 1000),
         tx
       );
       await ParentLinkRequestRepository.markExpiredIfPending(created.id, tx);
@@ -693,9 +713,14 @@ describe("ParentLinkRequestRepository.markAllExpiredIfPending", () => {
       const residue = await tx
         .select({ id: parentLinkRequests.id })
         .from(parentLinkRequests)
-        .where(and(eq(parentLinkRequests.status, LinkStatus.Pending), lte(parentLinkRequests.expiresAt, new Date())));
+        .where(
+          and(
+            eq(parentLinkRequests.status, LinkStatus.Pending),
+            lte(parentLinkRequests.expiresAt, new Date(Math.floor(Date.now() / 1000) * 1000))
+          )
+        );
       const past = new Date(Date.now() - PARENT_LINK_REQUEST_MS);
-      const future = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const future = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       const rows = await insertRequests(tx, [
         { parentId: parentA.id, studentId: studentA.studentId, expiresAt: past }, // lapsed pending → swept
         { parentId: parentB.id, studentId: studentA.studentId, expiresAt: past }, // lapsed pending → swept
@@ -705,7 +730,10 @@ describe("ParentLinkRequestRepository.markAllExpiredIfPending", () => {
       ]);
       expect(rows).toHaveLength(5);
 
-      const sweptCount = await ParentLinkRequestRepository.markAllExpiredIfPending(new Date(), tx);
+      const sweptCount = await ParentLinkRequestRepository.markAllExpiredIfPending(
+        new Date(Math.floor(Date.now() / 1000) * 1000),
+        tx
+      );
       expect(sweptCount).toBe(residue.length + 2);
 
       const after = await tx
@@ -734,14 +762,25 @@ describe("ParentLinkRequestRepository.markAllExpiredIfPending", () => {
     await runInRollback(async tx => {
       const pair = await setupLinkPair(tx);
       await insertRequests(tx, [
-        { parentId: pair.parentUserId, studentId: pair.studentId, expiresAt: new Date(Date.now() - 1) },
+        {
+          parentId: pair.parentUserId,
+          studentId: pair.studentId,
+          expiresAt: new Date(Math.floor((Date.now() - 1000) / 1000) * 1000),
+        },
       ]);
       // Delta-based: the first sweep takes the fixture plus any residue; the
       // re-runs MUST match zero rows — the idempotency contract.
-      const first = await ParentLinkRequestRepository.markAllExpiredIfPending(new Date(), tx);
+      const first = await ParentLinkRequestRepository.markAllExpiredIfPending(
+        new Date(Math.floor(Date.now() / 1000) * 1000),
+        tx
+      );
       expect(first).toBeGreaterThanOrEqual(1);
-      expect(await ParentLinkRequestRepository.markAllExpiredIfPending(new Date(), tx)).toBe(0);
-      expect(await ParentLinkRequestRepository.markAllExpiredIfPending(new Date(), tx)).toBe(0);
+      expect(
+        await ParentLinkRequestRepository.markAllExpiredIfPending(new Date(Math.floor(Date.now() / 1000) * 1000), tx)
+      ).toBe(0);
+      expect(
+        await ParentLinkRequestRepository.markAllExpiredIfPending(new Date(Math.floor(Date.now() / 1000) * 1000), tx)
+      ).toBe(0);
     });
   });
 
@@ -857,7 +896,7 @@ describe("ParentLinkRequestRepository.claimPendingForExpiryReminder", () => {
     await runInRollback(async tx => {
       const student = await setupStudent(tx);
       const parent = await setupParent(tx);
-      const now = new Date();
+      const now = new Date(Math.floor(Date.now() / 1000) * 1000);
       const horizon = new Date(now.getTime() + 3_600_000);
       await insertRequests(tx, [
         { parentId: parent.id, studentId: student.studentId, expiresAt: new Date(now.getTime() + 1_800_000) },
@@ -917,7 +956,7 @@ describe("ParentLinkRequestRepository.expireSiblingPendingsForStudent", () => {
       const parentA = await setupParent(tx);
       const parentB = await setupParent(tx);
       const parentC = await setupParent(tx);
-      const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       const rows = await insertRequests(tx, [
         { parentId: parentA.id, studentId: student.studentId, expiresAt },
         { parentId: parentB.id, studentId: student.studentId, expiresAt },
@@ -953,7 +992,7 @@ describe("ParentLinkRequestRepository.expireSiblingPendingsForStudent", () => {
       const student = await setupStudent(tx);
       const parentA = await setupParent(tx);
       const parentB = await setupParent(tx);
-      const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       const rows = await insertRequests(tx, [
         { parentId: parentA.id, studentId: student.studentId, expiresAt },
         { parentId: parentB.id, studentId: student.studentId, expiresAt },
@@ -969,7 +1008,7 @@ describe("ParentLinkRequestRepository.expireSiblingPendingsForStudent", () => {
         rejected.id,
         student.studentId,
         LinkStatus.Rejected,
-        new Date(),
+        new Date(Math.floor(Date.now() / 1000) * 1000),
         tx
       );
       expect(await ParentLinkRequestRepository.expireSiblingPendingsForStudent(student.studentId, winner.id, tx)).toBe(
@@ -987,7 +1026,7 @@ describe("ParentLinkRequestRepository.listOutgoingForParent", () => {
       const pair = await setupLinkPair(tx);
       const studentB = await setupStudent(tx);
       const studentC = await setupStudent(tx);
-      const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       // Three rows sharing ONE transaction timestamp → order decided by id
       // DESC. One pending row PER PAIR (different students) — the
       // partial-unique index admits multiple students for one parent.
@@ -1005,7 +1044,12 @@ describe("ParentLinkRequestRepository.listOutgoingForParent", () => {
       if (!oldest || !middle || !newest) {
         return;
       }
-      await ParentLinkRequestRepository.cancelPendingForParent(oldest.id, pair.parentUserId, new Date(), tx);
+      await ParentLinkRequestRepository.cancelPendingForParent(
+        oldest.id,
+        pair.parentUserId,
+        new Date(Math.floor(Date.now() / 1000) * 1000),
+        tx
+      );
       await ParentLinkRequestRepository.markExpiredIfPending(middle.id, tx);
       const list = await ParentLinkRequestRepository.listOutgoingForParent(pair.parentUserId, tx);
       expect(list.map(row => row.id)).toEqual([newest.id, middle.id, oldest.id]);
@@ -1023,7 +1067,7 @@ describe("ParentLinkRequestRepository.listOutgoingForParent", () => {
   test("Tier 1 — LIMIT 50 caps the history list (55 rows → newest 50, deterministic)", async () => {
     await runInRollback(async tx => {
       const pair = await setupLinkPair(tx);
-      const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       // 55-row history for ONE pair: the partial-unique index admits only one
       // live pending per pair, so the older 54 rows are inserted as `expired`
       // history (append-and-transition semantics — rows are never deleted and
@@ -1055,7 +1099,12 @@ describe("ParentLinkRequestRepository.listOutgoingForParent", () => {
     await runInRollback(async tx => {
       const pair = await setupLinkPair(tx);
       const outsider = await setupLinkPair(tx);
-      await createPending(tx, pair.parentUserId, pair.studentId, new Date(Date.now() + PARENT_LINK_REQUEST_MS));
+      await createPending(
+        tx,
+        pair.parentUserId,
+        pair.studentId,
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
+      );
       expect(await ParentLinkRequestRepository.listOutgoingForParent(outsider.parentUserId, tx)).toEqual([]);
     });
   });
@@ -1074,7 +1123,12 @@ describe("ParentLinkRequestRepository.listOutgoingForParent", () => {
     await runInRollback(async tx => {
       const pair = await setupLinkPair(tx);
       pairParentId = pair.parentUserId;
-      await createPending(tx, pair.parentUserId, pair.studentId, new Date(Date.now() + PARENT_LINK_REQUEST_MS));
+      await createPending(
+        tx,
+        pair.parentUserId,
+        pair.studentId,
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
+      );
       expect(await ParentLinkRequestRepository.listOutgoingForParent(pair.parentUserId, tx)).toHaveLength(1);
     });
     expect(await ParentLinkRequestRepository.listOutgoingForParent(pairParentId)).toEqual([]);
@@ -1088,7 +1142,7 @@ describe("ParentLinkRequestRepository.listIncomingForStudent", () => {
       const parentA = await setupParent(tx);
       const parentB = await setupParent(tx);
       const parentC = await setupParent(tx);
-      const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       const rows = await insertRequests(tx, [
         { parentId: parentA.id, studentId: student.studentId, expiresAt },
         { parentId: parentB.id, studentId: student.studentId, expiresAt },
@@ -1103,7 +1157,12 @@ describe("ParentLinkRequestRepository.listIncomingForStudent", () => {
       if (!fromA || !fromB || !fromC) {
         return;
       }
-      await ParentLinkRequestRepository.cancelPendingForParent(fromB.id, parentB.id, new Date(), tx);
+      await ParentLinkRequestRepository.cancelPendingForParent(
+        fromB.id,
+        parentB.id,
+        new Date(Math.floor(Date.now() / 1000) * 1000),
+        tx
+      );
       await ParentLinkRequestRepository.markExpiredIfPending(fromC.id, tx);
       const list = await ParentLinkRequestRepository.listIncomingForStudent(student.studentId, tx);
       expect(list.map(row => row.id)).toEqual([fromC.id, fromB.id, fromA.id]);
@@ -1135,7 +1194,7 @@ describe("ParentLinkRequestRepository.findOutgoingRowById / findIncomingRowById"
         tx,
         pair.parentUserId,
         pair.studentId,
-        new Date(Date.now() + PARENT_LINK_REQUEST_MS)
+        new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000)
       );
       const outgoing = await ParentLinkRequestRepository.findOutgoingRowById(created.id, tx);
       expect(outgoing).not.toBeNull();
@@ -1176,7 +1235,7 @@ describe("ParentLinkRequestRepository — partial-unique conflict (Tier 3)", () 
   test("second live pending for one pair surfaces the RAW 23505 constraint", async () => {
     await runInRollback(async tx => {
       const pair = await setupLinkPair(tx);
-      const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+      const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
       await createPending(tx, pair.parentUserId, pair.studentId, expiresAt);
       // The colliding insert runs inside a SAVEPOINT (Drizzle nested
       // transaction): the 23505 rolls back ONLY the savepoint, leaving the
@@ -1197,7 +1256,12 @@ describe("ParentLinkRequestRepository — partial-unique conflict (Tier 3)", () 
       const pending = await ParentLinkRequestRepository.findPendingByPair(pair.parentUserId, pair.studentId, tx);
       expect(pending).not.toBeNull();
       if (pending) {
-        await ParentLinkRequestRepository.cancelPendingForParent(pending.id, pair.parentUserId, new Date(), tx);
+        await ParentLinkRequestRepository.cancelPendingForParent(
+          pending.id,
+          pair.parentUserId,
+          new Date(Math.floor(Date.now() / 1000) * 1000),
+          tx
+        );
       }
       const reapplied = await createPending(tx, pair.parentUserId, pair.studentId, expiresAt);
       expect(reapplied.status).toBe(LinkStatus.Pending);
@@ -1232,7 +1296,7 @@ function hasUniqueViolationCode(error: unknown): boolean {
 describeOnRealPostgres("ParentLinkRequestRepository — concurrent creation race (Tier 3, real PostgreSQL)", () => {
   test("same-pair concurrent pendings: exactly one winner, one raw 23505", async () => {
     const fixtures = requireCommitted();
-    const expiresAt = new Date(Date.now() + PARENT_LINK_REQUEST_MS);
+    const expiresAt = new Date(Math.floor((Date.now() + PARENT_LINK_REQUEST_MS) / 1000) * 1000);
     const attempt = () =>
       db.transaction(async tx => createPending(tx, fixtures.race.parentUserId, fixtures.race.studentId, expiresAt));
     const outcomes = await Promise.allSettled([attempt(), attempt()]);

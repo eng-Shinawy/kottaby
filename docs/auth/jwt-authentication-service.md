@@ -381,6 +381,8 @@ function throwSuspendedError(locale: string): never {
 
 The session-creation service consumes this helper to enforce the active-suspension-window deny on session-creation-class operations.
 
+> **Note (DEV3-017):** The shared suspension-window predicate NOW EXISTS at `backend/lib/auth/suspension-window.ts#isSuspensionActive` and is consumed by login / `refreshToken` / SSR (`assertUserActive` + `getServerUserContext`). Session-creation gating remains the owning consumer (forward pointer — see D2). See `docs/admin/account-governance.md`.
+
 ### 5.4 SSR parity
 
 `requireRoleForPage` is shipped alongside `requirePermissionForPage` / `withPageAuth`:
@@ -426,7 +428,7 @@ When implementing teacher surfaces:
 | Item | Owner |
 |---|---|
 | `permission` authScope wiring to `PermissionsService.getUserContext(ctx.user.id)` | Future work |
-| `assertNotSuspended` helper implementation (active-suspension-window calculation) | Session-creation work |
+| `assertNotSuspended` helper implementation (active-suspension-window calculation) — shared predicate NOW EXISTS at `backend/lib/auth/suspension-window.ts` (consumed by login/refresh/SSR); this session-creation helper remains the owning consumer (forward pointer D2). See `docs/admin/account-governance.md`. | Session-creation work |
 | Schema-coverage assertion test (`rbac-schema-coverage.test.ts`) | Test-runner environment unblock |
 | GraphQL context factory fail-closed hardening for governed accounts | Defense-in-depth follow-up |
 

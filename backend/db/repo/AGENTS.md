@@ -14,6 +14,7 @@ backend/db/repo/
 ├── shared/              cross-cutting infra: cache, ratelimit, session, signedUrl, soft-delete, system-settings
 ├── audit/               audit-trail (read-only over audit_logs)
 ├── auth/                impersonation (auth-related)
+├── admin/               admin-user
 ├── users/               user
 ├── permissions/         permission-management
 ├── billing/             billing
@@ -49,6 +50,7 @@ Each sub-directory (except `scheduling/` and `utils/` which pre-date this refact
 - **Type Definition Pattern**: Repository functions should use types defined in `backend/types/` (e.g., `{Entity}SelectType`, `{Entity}InsertType`) rather than directly referencing schema types. Define input/output types in the corresponding `backend/types/<subdir>/<entity>.types.ts` files using Drizzle's `$inferSelect` and `$inferInsert` types with custom transformations as needed.
 - **Directory Role Filtering**: `resolveRoleCondition` in `staff-profile.repository.ts` maps `roleFilter` values to `ilike` patterns on `permission_groups.slug`. `"admin"` and `"manager"` both match `%admin%`; `"supervisor"` matches `%supervisor%`. See `docs/auth/manager-role-mapping.md`.
 - **Guarded self-scope updates**: For recipient-owned mutations, fold ownership into the UPDATE predicate (`WHERE id = ? AND user_id = ?` with `RETURNING`) instead of read-then-check-then-write — a foreign or nonexistent id matches zero rows, indistinguishably. Precedent: `NotificationRepository.markReadOnce` (`backend/db/repo/notifications/notification.repository.ts`).
+- **Guarded governance-transition pattern (`AdminUserRepository` in `backend/db/repo/admin/admin-user.repository.ts`): `setSuspendedOnce` / `setBlockedOnce` issue single-statement UPDATEs with NULL-safe axis guards + not-deleted guard + `RETURNING SAFE_USER_SELECT` (no SELECT-then-UPDATE TOCTOU — the WHERE clause is the atomicity guarantee); zero-row misses disambiguated by the `findGovernanceState` 5-column classifier probe (mirrors `setDeletedOnce`). See `docs/admin/account-governance.md`.**
 
 ### Import Convention
 - Consumers of repositories import from the top-level barrel: `import { TeacherRepository } from "@/backend/db/repo";` or via the `Repository` namespace. This keeps move/refactor churn contained to the barrel.

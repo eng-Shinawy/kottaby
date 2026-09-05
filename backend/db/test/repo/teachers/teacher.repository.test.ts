@@ -48,6 +48,7 @@ import { users } from "@/backend/db/schema/users/users";
 import { createTestApplicant, createTestUser } from "@/backend/db/test/entity-setup";
 import { runInRollback } from "@/backend/db/test/test-utils";
 import type { DBTransaction } from "@/backend/types";
+import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
 /** How long to observe a supposedly-blocked waiter before concluding it is stuck. */
 const LOCK_PROBE_MS = 500;
@@ -191,125 +192,134 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
   });
 
   // ─── Tier 3: the lock is observable (concurrent tx pair) ────────────
+  // These tests require real PostgreSQL (multi-connection FOR UPDATE row-level
+  // locking). PGlite is single-connection WASM and cannot observe cross-tx locks.
+  const testOnRealPostgres = isPgliteProvider() ? test.skip : test;
 
-  test("a second FOR UPDATE read blocks until the holder commits, then reads the committed value", async () => {
-    const teacherUserId = await createCommittedTeacher(false);
+  testOnRealPostgres(
+    "a second FOR UPDATE read blocks until the holder commits, then reads the committed value",
+    async () => {
+      const teacherUserId = await createCommittedTeacher(false);
 
-    const lockAcquired = createGate(); // holder signals: row lock taken
-    const finishHolder = createGate(); // test signals: holder may flip + commit
+      const lockAcquired = createGate(); // holder signals: row lock taken
+      const finishHolder = createGate(); // test signals: holder may flip + commit
 
-    const holder = db.transaction(async txHolder => {
-      const held = await TeacherRepository.lockForCertificationCheck(teacherUserId, txHolder);
-      expect(held?.isApproved).toBe(false); // pre-commit certification state
-      lockAcquired.open();
-      await finishHolder.promise; // hold the lock across the probe window
-      await txHolder.update(teacher).set({ isApproved: true }).where(eq(teacher.id, teacherUserId));
-    });
-    // Never leave the holder's rejection unhandled; the outcome is asserted below.
-    const holderSettled = holder.then(
-      () => "committed" as const,
-      error => (error instanceof Error ? error : new Error(String(error)))
-    );
-
-    await lockAcquired.promise;
-
-    // Waiter: the SAME locking read from an independent transaction.
-    const waiter = db.transaction(txWaiter => TeacherRepository.lockForCertificationCheck(teacherUserId, txWaiter));
-    const waiterSettled = waiter.then(
-      value => ({ ok: true as const, value }),
-      error => ({ ok: false as const, error })
-    );
-
-    let probeTimer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const probe = await Promise.race([
-        waiterSettled.then(() => "resolved" as const),
-        new Promise<"blocked">(resolve => {
-          probeTimer = setTimeout(() => resolve("blocked"), LOCK_PROBE_MS);
-        }),
-      ]);
-      // The holder's uncommitted lock keeps the waiter from resolving.
-      expect(probe).toBe("blocked");
-
-      // Contrast probe: a PLAIN (non-locking) MVCC read does NOT block and
-      // still sees the pre-commit value — the serialization above is the
-      // FOR UPDATE lock, not ordinary read behavior.
-      const plain = await db.transaction(async txPlain => {
-        const rows = await txPlain
-          .select({ isApproved: teacher.isApproved })
-          .from(teacher)
-          .where(eq(teacher.id, teacherUserId));
-        return rows[0]?.isApproved;
+      const holder = db.transaction(async txHolder => {
+        const held = await TeacherRepository.lockForCertificationCheck(teacherUserId, txHolder);
+        expect(held?.isApproved).toBe(false); // pre-commit certification state
+        lockAcquired.open();
+        await finishHolder.promise; // hold the lock across the probe window
+        await txHolder.update(teacher).set({ isApproved: true }).where(eq(teacher.id, teacherUserId));
       });
-      expect(plain).toBe(false);
-    } finally {
-      if (probeTimer) clearTimeout(probeTimer);
-      finishHolder.open(); // idempotent — always let the holder finish
+      // Never leave the holder's rejection unhandled; the outcome is asserted below.
+      const holderSettled = holder.then(
+        () => "committed" as const,
+        error => (error instanceof Error ? error : new Error(String(error)))
+      );
+
+      await lockAcquired.promise;
+
+      // Waiter: the SAME locking read from an independent transaction.
+      const waiter = db.transaction(txWaiter => TeacherRepository.lockForCertificationCheck(teacherUserId, txWaiter));
+      const waiterSettled = waiter.then(
+        value => ({ ok: true as const, value }),
+        error => ({ ok: false as const, error })
+      );
+
+      let probeTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const probe = await Promise.race([
+          waiterSettled.then(() => "resolved" as const),
+          new Promise<"blocked">(resolve => {
+            probeTimer = setTimeout(() => resolve("blocked"), LOCK_PROBE_MS);
+          }),
+        ]);
+        // The holder's uncommitted lock keeps the waiter from resolving.
+        expect(probe).toBe("blocked");
+
+        // Contrast probe: a PLAIN (non-locking) MVCC read does NOT block and
+        // still sees the pre-commit value — the serialization above is the
+        // FOR UPDATE lock, not ordinary read behavior.
+        const plain = await db.transaction(async txPlain => {
+          const rows = await txPlain
+            .select({ isApproved: teacher.isApproved })
+            .from(teacher)
+            .where(eq(teacher.id, teacherUserId));
+          return rows[0]?.isApproved;
+        });
+        expect(plain).toBe(false);
+      } finally {
+        if (probeTimer) clearTimeout(probeTimer);
+        finishHolder.open(); // idempotent — always let the holder finish
+      }
+
+      const holderOutcome = await holderSettled;
+      expect(holderOutcome).toBe("committed");
+
+      const waiterOutcome = await waiterSettled;
+      expect(waiterOutcome.ok).toBe(true);
+      if (!waiterOutcome.ok) throw new Error("expected the waiter to resolve");
+      // The waiter reads as of ITS lock acquisition — i.e. after the holder's
+      // commit — so the certification value it hands back is the committed one.
+      expect(waiterOutcome.value?.id).toBe(teacherUserId);
+      expect(waiterOutcome.value?.isApproved).toBe(true);
     }
+  );
 
-    const holderOutcome = await holderSettled;
-    expect(holderOutcome).toBe("committed");
+  testOnRealPostgres(
+    "a holder's ROLLBACK releases the lock: the waiter acquires it and reads the durable value",
+    async () => {
+      const teacherUserId = await createCommittedTeacher(false);
 
-    const waiterOutcome = await waiterSettled;
-    expect(waiterOutcome.ok).toBe(true);
-    if (!waiterOutcome.ok) throw new Error("expected the waiter to resolve");
-    // The waiter reads as of ITS lock acquisition — i.e. after the holder's
-    // commit — so the certification value it hands back is the committed one.
-    expect(waiterOutcome.value?.id).toBe(teacherUserId);
-    expect(waiterOutcome.value?.isApproved).toBe(true);
-  });
+      const lockAcquired = createGate();
+      const releaseHolder = createGate();
 
-  test("a holder's ROLLBACK releases the lock: the waiter acquires it and reads the durable value", async () => {
-    const teacherUserId = await createCommittedTeacher(false);
+      const holder = runInRollback(async txHolder => {
+        const held = await TeacherRepository.lockForCertificationCheck(teacherUserId, txHolder);
+        expect(held?.isApproved).toBe(false);
+        lockAcquired.open();
+        await releaseHolder.promise; // hold the committed row's lock, then roll back
+      });
+      const holderSettled = holder.then(
+        () => "rolled-back" as const,
+        error => (error instanceof Error ? error : new Error(String(error)))
+      );
 
-    const lockAcquired = createGate();
-    const releaseHolder = createGate();
+      await lockAcquired.promise;
 
-    const holder = runInRollback(async txHolder => {
-      const held = await TeacherRepository.lockForCertificationCheck(teacherUserId, txHolder);
-      expect(held?.isApproved).toBe(false);
-      lockAcquired.open();
-      await releaseHolder.promise; // hold the committed row's lock, then roll back
-    });
-    const holderSettled = holder.then(
-      () => "rolled-back" as const,
-      error => (error instanceof Error ? error : new Error(String(error)))
-    );
+      // Waiter: the SAME locking read from an independent transaction.
+      const waiter = db.transaction(txWaiter => TeacherRepository.lockForCertificationCheck(teacherUserId, txWaiter));
+      const waiterSettled = waiter.then(
+        value => ({ ok: true as const, value }),
+        error => ({ ok: false as const, error })
+      );
 
-    await lockAcquired.promise;
+      let probeTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const probe = await Promise.race([
+          waiterSettled.then(() => "resolved" as const),
+          new Promise<"blocked">(resolve => {
+            probeTimer = setTimeout(() => resolve("blocked"), LOCK_PROBE_MS);
+          }),
+        ]);
+        expect(probe).toBe("blocked");
+      } finally {
+        if (probeTimer) clearTimeout(probeTimer);
+        releaseHolder.open(); // holder returns → runInRollback forces ROLLBACK → lock released
+      }
 
-    // Waiter: the SAME locking read from an independent transaction.
-    const waiter = db.transaction(txWaiter => TeacherRepository.lockForCertificationCheck(teacherUserId, txWaiter));
-    const waiterSettled = waiter.then(
-      value => ({ ok: true as const, value }),
-      error => ({ ok: false as const, error })
-    );
+      const holderOutcome = await holderSettled;
+      expect(holderOutcome).toBe("rolled-back");
 
-    let probeTimer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const probe = await Promise.race([
-        waiterSettled.then(() => "resolved" as const),
-        new Promise<"blocked">(resolve => {
-          probeTimer = setTimeout(() => resolve("blocked"), LOCK_PROBE_MS);
-        }),
-      ]);
-      expect(probe).toBe("blocked");
-    } finally {
-      if (probeTimer) clearTimeout(probeTimer);
-      releaseHolder.open(); // holder returns → runInRollback forces ROLLBACK → lock released
+      const waiterOutcome = await waiterSettled;
+      expect(waiterOutcome.ok).toBe(true);
+      if (!waiterOutcome.ok) throw new Error("expected the waiter to resolve");
+      // The rolled-back holder changed nothing: the waiter acquires the
+      // released lock and reads the durable committed certification state.
+      expect(waiterOutcome.value?.id).toBe(teacherUserId);
+      expect(waiterOutcome.value?.isApproved).toBe(false);
     }
-
-    const holderOutcome = await holderSettled;
-    expect(holderOutcome).toBe("rolled-back");
-
-    const waiterOutcome = await waiterSettled;
-    expect(waiterOutcome.ok).toBe(true);
-    if (!waiterOutcome.ok) throw new Error("expected the waiter to resolve");
-    // The rolled-back holder changed nothing: the waiter acquires the
-    // released lock and reads the durable committed certification state.
-    expect(waiterOutcome.value?.id).toBe(teacherUserId);
-    expect(waiterOutcome.value?.isApproved).toBe(false);
-  });
+  );
 
   // ─── Tier 4: security / injection surface (static) ──────────────────
 

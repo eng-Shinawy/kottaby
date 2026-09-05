@@ -266,3 +266,30 @@ export interface AdminUserFiltersSubmitInput {
 export type AdminUserUpdateDbPatch = Partial<
   Pick<UserSelectType, "fullName" | "phone" | "country" | "gender" | "dateOfBirth">
 >;
+
+/**
+ * `GovernanceProbeRowType` — focused probe-row shape carrying the five
+ * `users` governance columns consumed by the governance-state classifier
+ * (deleted flag, suspension flag + window, block flag). Repositories expose
+ * a dedicated probe read that returns EXACTLY these columns — never the
+ * full row, never `passwordHash`, never any PII column — so the classifier
+ * runs against the minimal-cost read for state disambiguation.
+ *
+ * All five members preserve the nullable-with-default schema shape
+ * (Drizzle `$inferSelect` yields `boolean | null` for columns that lack
+ * `notNull()`); the probe deliberately does NOT null-coalesce to `false`
+ * so the suspension-window predicate can distinguish "explicitly set to
+ * false" from "legacy NULL state" when deciding fail-closed behavior.
+ *
+ * The shape is `readonly` end-to-end: probe rows are immutable snapshots
+ * consumed by the service layer for read-only state classification. Any
+ * mutation path goes through the dedicated guarded repository transitions
+ * rather than mutating a probe instance in place.
+ */
+export type GovernanceProbeRowType = {
+  readonly isDeleted: boolean | null;
+  readonly suspended: boolean | null;
+  readonly suspendedAt: Date | null;
+  readonly suspendedPeriodDays: number | null;
+  readonly isBlocked: boolean | null;
+};

@@ -138,6 +138,8 @@ A matched child whose `users` row is governed is treated **exactly as if the stu
 
 Window end = `suspendedAt + suspendedPeriodDays × 24h` (86,400,000 ms per day), evaluated against **one captured `now` per invocation**. The fail-closed direction is binding: missing or corrupt governance data must never widen discovery visibility. Rationale: Workflow 04's resolved ruling that a soft-deleted child means the parent loses access immediately — unfindability is the read-side twin.
 
+> **Note (DEV3-017):** The window math above now lives in the shared predicate `backend/lib/auth/suspension-window.ts#isSuspensionActive`; this R3 table stays the semantic source. See `docs/admin/account-governance.md`.
+
 ### R4 — `linkable` semantics (advisory, per-child)
 
 `linkable` is computed server-side as `parent_id IS NULL` at lookup time. It is the read-side signal of the one-parent-per-student rule (recorded decision B.12: `students.parent_id` is a single FK, not a junction table — only one parent can be linked to a student at a time).

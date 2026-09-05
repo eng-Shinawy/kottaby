@@ -13,7 +13,11 @@
 import { gql, type TypedDocumentNode } from "@apollo/client";
 import type {
   AdminCreateUserMutation,
+  AdminSetUserBlockedMutation,
+  AdminSetUserBlockedMutationVariables,
   AdminSetUserDeletedMutation,
+  AdminSetUserSuspendedMutation,
+  AdminSetUserSuspendedMutationVariables,
   AdminUpdateUserMutation,
   AdminUserActivityQuery,
   AdminUserActivityQueryVariables,
@@ -196,6 +200,32 @@ export const adminSetUserDeletedMutationDocument: TypedDocumentNode<AdminSetUser
   ${ADMIN_USER_DETAIL_FIELDS}
   mutation AdminSetUserDeleted($id: Int!, $deleted: Boolean!) {
     adminSetUserDeleted(id: $id, deleted: $deleted) {
+      ...AdminUserDetailFields
+    }
+  }
+`;
+
+/** Suspend / unsuspend mutation — returns the post-write detail. */
+export const adminSetUserSuspendedMutationDocument: TypedDocumentNode<
+  AdminSetUserSuspendedMutation,
+  AdminSetUserSuspendedMutationVariables
+> = gql`
+  ${ADMIN_USER_DETAIL_FIELDS}
+  mutation AdminSetUserSuspended($id: Int!, $suspended: Boolean!, $periodDays: Int) {
+    adminSetUserSuspended(id: $id, suspended: $suspended, periodDays: $periodDays) {
+      ...AdminUserDetailFields
+    }
+  }
+`;
+
+/** Block / unblock mutation — returns the post-write detail. */
+export const adminSetUserBlockedMutationDocument: TypedDocumentNode<
+  AdminSetUserBlockedMutation,
+  AdminSetUserBlockedMutationVariables
+> = gql`
+  ${ADMIN_USER_DETAIL_FIELDS}
+  mutation AdminSetUserBlocked($id: Int!, $blocked: Boolean!) {
+    adminSetUserBlocked(id: $id, blocked: $blocked) {
       ...AdminUserDetailFields
     }
   }

@@ -107,6 +107,9 @@ import {
   SESSION_FEE_TAJWEED,
 } from "@/shared/constants/session-fees.constants";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
+import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
+
+const testOnRealPostgres = isPgliteProvider() ? test.skip : test;
 
 /** PostgreSQL error code for `raise_exception` (the REQ-040 trigger probe). */
 const PG_RAISE_EXCEPTION = "P0001";
@@ -992,31 +995,34 @@ describe("SessionLifecycleService — transactional flows (runInRollback)", () =
 
   // ── Tier 2: boundary contracts ──────────────────────────────────────
 
-  test("deadline boundary: confirmationDeadline = captured now + 86_400_000 ms EXACTLY (bracketed)", async () => {
-    await runInRollback(async tx => {
-      const actors = await createSessionActors(tx);
-      await setLaneBalances(tx, actors.studentUserId, { trial: 1 });
+  testOnRealPostgres(
+    "deadline boundary: confirmationDeadline = captured now + 86_400_000 ms EXACTLY (bracketed)",
+    async () => {
+      await runInRollback(async tx => {
+        const actors = await createSessionActors(tx);
+        await setLaneBalances(tx, actors.studentUserId, { trial: 1 });
 
-      const before = Date.now();
-      const created = await bookSession(
-        tx,
-        actors.studentUserId,
-        actors.teacherUserId,
-        SessionIntent.Hifz,
-        "key-deadline"
-      );
-      const after = Date.now();
+        const before = Date.now();
+        const created = await bookSession(
+          tx,
+          actors.studentUserId,
+          actors.teacherUserId,
+          SessionIntent.Hifz,
+          "key-deadline"
+        );
+        const after = Date.now();
 
-      expect(created.confirmationDeadline).toBeInstanceOf(Date);
-      if (!(created.confirmationDeadline instanceof Date)) {
-        throw new Error("deadline boundary: confirmationDeadline is not a Date");
-      }
-      const deadline = created.confirmationDeadline.getTime();
-      expect(deadline).toBeGreaterThanOrEqual(before + SESSION_CONFIRMATION_WINDOW_MS);
-      expect(deadline).toBeLessThanOrEqual(after + SESSION_CONFIRMATION_WINDOW_MS);
-      expect(SESSION_CONFIRMATION_WINDOW_MS).toBe(86_400_000);
-    });
-  });
+        expect(created.confirmationDeadline).toBeInstanceOf(Date);
+        if (!(created.confirmationDeadline instanceof Date)) {
+          throw new Error("deadline boundary: confirmationDeadline is not a Date");
+        }
+        const deadline = created.confirmationDeadline.getTime();
+        expect(deadline).toBeGreaterThanOrEqual(before + SESSION_CONFIRMATION_WINDOW_MS);
+        expect(deadline).toBeLessThanOrEqual(after + SESSION_CONFIRMATION_WINDOW_MS);
+        expect(SESSION_CONFIRMATION_WINDOW_MS).toBe(86_400_000);
+      });
+    }
+  );
 
   test("fee boundary: both intents carry the platform fee as a decimal STRING verbatim (never a number)", async () => {
     await runInRollback(async tx => {
@@ -2102,78 +2108,84 @@ describe("SessionLifecycleService — REQ-043 chaos (production tx path, committ
     expect(finalRow?.confirmedByTeacherAt?.getTime()).toBe(fulfillments[0]?.confirmedByTeacherAt?.getTime());
   });
 
-  test("REQ-043(d): two concurrent creations with ONE unit → exactly one session + one INSUFFICIENT_BALANCE, lanes never negative", async () => {
-    await setChaosBalances({ trial: 1 });
+  testOnRealPostgres(
+    "REQ-043(d): two concurrent creations with ONE unit → exactly one session + one INSUFFICIENT_BALANCE, lanes never negative",
+    async () => {
+      await setChaosBalances({ trial: 1 });
 
-    // The chaos block shares one committed student, so the count oracles are
-    // scoped per test: the race must add EXACTLY one session and one claim
-    // on top of the earlier tests' committed rows.
-    const baselineSessions = await countChaosSessions();
-    const baselineClaims = await countChaosClaims();
+      // The chaos block shares one committed student, so the count oracles are
+      // scoped per test: the race must add EXACTLY one session and one claim
+      // on top of the earlier tests' committed rows.
+      const baselineSessions = await countChaosSessions();
+      const baselineClaims = await countChaosClaims();
 
-    const outcomes = await Promise.allSettled([
-      chaosBook(SessionIntent.Hifz, `chaos-d-${randomUUID()}`),
-      chaosBook(SessionIntent.Hifz, `chaos-d-${randomUUID()}`),
-    ]);
+      const outcomes = await Promise.allSettled([
+        chaosBook(SessionIntent.Hifz, `chaos-d-${randomUUID()}`),
+        chaosBook(SessionIntent.Hifz, `chaos-d-${randomUUID()}`),
+      ]);
 
-    const fulfillments = outcomes.flatMap(outcome => (outcome.status === "fulfilled" ? [outcome.value] : []));
-    const rejections = outcomes.flatMap(outcome => (outcome.status === "rejected" ? [outcome.reason] : []));
-    expect(fulfillments).toHaveLength(1);
-    expect(rejections).toHaveLength(1);
-    expect(rejections[0]).toBeInstanceOf(ValidationError);
-    expect(rejectionCode(rejections[0])).toBe("INSUFFICIENT_BALANCE");
+      const fulfillments = outcomes.flatMap(outcome => (outcome.status === "fulfilled" ? [outcome.value] : []));
+      const rejections = outcomes.flatMap(outcome => (outcome.status === "rejected" ? [outcome.reason] : []));
+      expect(fulfillments).toHaveLength(1);
+      expect(rejections).toHaveLength(1);
+      expect(rejections[0]).toBeInstanceOf(ValidationError);
+      expect(rejectionCode(rejections[0])).toBe("INSUFFICIENT_BALANCE");
 
-    expect(await countChaosSessions()).toBe(baselineSessions + 1);
-    expect(await countChaosClaims()).toBe(baselineClaims + 1);
-    const balances = await readChaosBalances();
-    expect(balances.trial).toBe(0);
-    expect(balances.hifz).toBe(0);
-    expect(balances.tajweed).toBe(0);
-  });
-
-  test("REQ-043(e): the same key replayed concurrently N=4 times → exactly one session, one net debit, three DUPLICATE_REQUEST denials", async () => {
-    // Fund the paid lane with N units so every concurrent flow passes the
-    // ladder and reaches the claim insert — the genuine 23505 race. The
-    // losers' flows throw DUPLICATE_REQUEST, so their own ladder debits
-    // roll back: exactly ONE net debit survives (REQ-073).
-    await setChaosBalances({ hifz: 4 });
-    const sharedKey = `chaos-e-${randomUUID()}`;
-
-    // Per-test scoping (shared committed chaos student — see REQ-043(d)).
-    const baselineSessions = await countChaosSessions();
-    const baselineClaims = await countChaosClaims();
-
-    const outcomes = await Promise.allSettled([
-      chaosBook(SessionIntent.Hifz, sharedKey),
-      chaosBook(SessionIntent.Hifz, sharedKey),
-      chaosBook(SessionIntent.Hifz, sharedKey),
-      chaosBook(SessionIntent.Hifz, sharedKey),
-    ]);
-
-    const fulfillments = outcomes.flatMap(outcome => (outcome.status === "fulfilled" ? [outcome.value] : []));
-    const rejections = outcomes.flatMap(outcome => (outcome.status === "rejected" ? [outcome.reason] : []));
-    expect(fulfillments).toHaveLength(1);
-    expect(rejections).toHaveLength(3);
-    for (const rejection of rejections) {
-      expect(rejection).toBeInstanceOf(DomainError);
-      expect(rejectionCode(rejection)).toBe("DUPLICATE_REQUEST");
+      expect(await countChaosSessions()).toBe(baselineSessions + 1);
+      expect(await countChaosClaims()).toBe(baselineClaims + 1);
+      const balances = await readChaosBalances();
+      expect(balances.trial).toBe(0);
+      expect(balances.hifz).toBe(0);
+      expect(balances.tajweed).toBe(0);
     }
+  );
 
-    // One session, one claim, one net debit — every other flow rolled back.
-    expect(await countChaosSessions()).toBe(baselineSessions + 1);
-    expect(await countChaosClaims()).toBe(baselineClaims + 1);
-    const balances = await readChaosBalances();
-    expect(balances.hifz).toBe(3);
-    expect(balances.trial).toBe(0);
-    expect(balances.tajweed).toBe(0);
+  testOnRealPostgres(
+    "REQ-043(e): the same key replayed concurrently N=4 times → exactly one session, one net debit, three DUPLICATE_REQUEST denials",
+    async () => {
+      // Fund the paid lane with N units so every concurrent flow passes the
+      // ladder and reaches the claim insert — the genuine 23505 race. The
+      // losers' flows throw DUPLICATE_REQUEST, so their own ladder debits
+      // roll back: exactly ONE net debit survives (REQ-073).
+      await setChaosBalances({ hifz: 4 });
+      const sharedKey = `chaos-e-${randomUUID()}`;
 
-    const claimRows = await db
-      .select()
-      .from(sessionRequestIdempotency)
-      .where(eq(sessionRequestIdempotency.idempotencyKey, sharedKey));
-    expect(claimRows).toHaveLength(1);
-    expect(claimRows[0]?.sessionId).toBe(fulfillments[0]?.id);
-  });
+      // Per-test scoping (shared committed chaos student — see REQ-043(d)).
+      const baselineSessions = await countChaosSessions();
+      const baselineClaims = await countChaosClaims();
+
+      const outcomes = await Promise.allSettled([
+        chaosBook(SessionIntent.Hifz, sharedKey),
+        chaosBook(SessionIntent.Hifz, sharedKey),
+        chaosBook(SessionIntent.Hifz, sharedKey),
+        chaosBook(SessionIntent.Hifz, sharedKey),
+      ]);
+
+      const fulfillments = outcomes.flatMap(outcome => (outcome.status === "fulfilled" ? [outcome.value] : []));
+      const rejections = outcomes.flatMap(outcome => (outcome.status === "rejected" ? [outcome.reason] : []));
+      expect(fulfillments).toHaveLength(1);
+      expect(rejections).toHaveLength(3);
+      for (const rejection of rejections) {
+        expect(rejection).toBeInstanceOf(DomainError);
+        expect(rejectionCode(rejection)).toBe("DUPLICATE_REQUEST");
+      }
+
+      // One session, one claim, one net debit — every other flow rolled back.
+      expect(await countChaosSessions()).toBe(baselineSessions + 1);
+      expect(await countChaosClaims()).toBe(baselineClaims + 1);
+      const balances = await readChaosBalances();
+      expect(balances.hifz).toBe(3);
+      expect(balances.trial).toBe(0);
+      expect(balances.tajweed).toBe(0);
+
+      const claimRows = await db
+        .select()
+        .from(sessionRequestIdempotency)
+        .where(eq(sessionRequestIdempotency.idempotencyKey, sharedKey));
+      expect(claimRows).toHaveLength(1);
+      expect(claimRows[0]?.sessionId).toBe(fulfillments[0]?.id);
+    }
+  );
 });
 
 // ─── DEV3-012 dual confirmation + deadline sweeper ──────────────────────────

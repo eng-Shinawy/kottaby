@@ -22,14 +22,14 @@
 
 ## Phase 0: Pre-Implementation Baseline
 
-- [ ] 0.1 [Record baseline error counts & initialize deferred-items ledger]
+- [x] 0.1 [Record baseline error counts & initialize deferred-items ledger]
   - Record baseline counts: `bun tsgo` (capture exit + error count), `bun run biome:check` (capture count), and the lint service count — write all three into the baseline outcome.
   - Capture the pre-existing modified-file set: `git diff --name-only` output recorded verbatim in the outcome.
   - Initialize `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/deferred-items.md` from `.agents/spec-process-guide/templates/deferred-items-template.md`, PRE-SEEDED with the seven resolved-pointer rows from plan.md §Deferred-Items Ledger Pointers (D1 lapse sweep, D2 session-creation predicate consumption, D3 governance-notification, D4 DEV3-016 strict-guard backport ownership, D5 context-boundary governance gate, D6 audit_vocabulary widening, D7 SSR test seam) — ALL as resolved-pointer status, ZERO ❌/⚠️ markers.
   - Write `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/outcome/0-baseline-outcome.md` with counts, diff set, and ledger-initialization confirmation.
   - _Requirements: REQ-001_
 
-- [ ] 0.2 [Verify reuse substrate & conditional-shape probes (Reuse-Not-Rebuild guard)]
+- [x] 0.2 [Verify reuse substrate & conditional-shape probes (Reuse-Not-Rebuild guard)]
   - Verify-then-claim against the LIVE tree (read the files, record `path:line` anchors in the outcome):
     - `AdminUserRepository.setDeletedOnce` NULL-safe guarded UPDATE + RETURNING (`backend/db/repo/admin/admin-user.repository.ts:627-647`) and its zero-row classifier consumption.
     - `AuditService.createAuditLog(input, tx)` (`backend/services/admin/audit.service.ts:82-90`) and the private `buildAuditContract` closure inside `user-management.service.ts`.
@@ -45,7 +45,7 @@
   - IF any reuse artifact is missing → record a ❌ ledger entry in `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/deferred-items.md` and BLOCK dependent tasks — never fork a second writer/guard/transition engine.
   - _Requirements: REQ-004, REQ-020, REQ-061_
 
-- [ ] 0.3 [Phase 1.5 Plan-Review Gate]
+- [x] 0.3 [Phase 1.5 Plan-Review Gate]
   - Invoke `@plan-review` over the complete plan trio (`specs.md`, `plan.md`, `tasks.md`) for `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/`.
   - Resolve ALL findings (no silent skips); iterate until the review passes clean.
   - Write `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/outcome/plan-review-R1.md` with the verdict, findings, and resolutions.
@@ -58,7 +58,7 @@
 
 > Schema work is scope-excluded by REQ-045 (zero schema drift). This phase carries ONLY the canonical-type addition, the shared predicate module, its unit matrix, and the refactor-consumption — the foundation every later layer depends on.
 
-- [ ] 1.1 [Add `GovernanceProbeRowType` to canonical admin types]
+- [x] 1.1 [Add `GovernanceProbeRowType` to canonical admin types]
   - Modify `backend/types/admin/admin-user.types.ts` (EXISTING — add ONE interface, nothing else):
     ```typescript
     export interface GovernanceProbeRowType {
@@ -79,7 +79,7 @@
   - [ ] 1.1.SR **Semantic Review**: canonical placement only; readonly fields; no duplicated shape elsewhere.
   - [ ] 1.1.IV **Instruction Verification**: validate against `.agents/instructions/backend.instructions.md`.
 
-- [ ] 1.2 [Create shared suspension-window predicate `backend/lib/auth/suspension-window.ts`]
+- [x] 1.2 [Create shared suspension-window predicate `backend/lib/auth/suspension-window.ts`]
   - CREATE `backend/lib/auth/suspension-window.ts` — pure runtime module exporting:
     ```typescript
     export function isSuspensionActive(
@@ -97,7 +97,7 @@
   - [ ] 1.2.SR **Semantic Review**: pure function, no hidden Date construction leaks, `MS_PER_DAY` single source, zero dead code.
   - [ ] 1.2.IV **Instruction Verification**: `.agents/instructions/backend.instructions.md`.
 
-- [ ] 1.3 [Refactor `student-handshake.helpers.ts` to consume the shared predicate]
+- [x] 1.3 [Refactor `student-handshake.helpers.ts` to consume the shared predicate]
   - Modify `backend/services/students/student-handshake.helpers.ts` (lines 3-18): keep the isDeleted/isBlocked pre-checks; REPLACE ONLY the inline window math with `isSuspensionActive({ suspended, suspendedAt, suspendedPeriodDays }, new Date())`.
   - Behavior-preserving: NO semantic delta — the existing suite IS the regression net.
   - Instruction files: `.agents/instructions/backend.instructions.md`.
@@ -108,7 +108,7 @@
   - [ ] 1.3.SR **Semantic Review**: no residual duplicated window math; import hygiene.
   - [ ] 1.3.IV **Instruction Verification**: `.agents/instructions/backend.instructions.md`.
 
-- [ ] 1.4 [Add localized error keys — `errorsTranslations.adminUsers` group, both locales]
+- [x] 1.4 [Add localized error keys — `errorsTranslations.adminUsers` group, both locales]
   - Modify `shared/locale/types/errors/index.ts` (EXISTING flat-group shape at lines 36-44): add to the `adminUsers` group EXACTLY: `userAlreadySuspended`, `userNotSuspended`, `userAlreadyBlocked`, `userNotBlocked`, `userSelfSuspensionForbidden`, `userSelfBlockForbidden`, `suspensionPeriodInvalid`.
   - Modify `shared/locale/en/errors/index.ts` and `shared/locale/ar/errors/index.ts`: implement the seven keys in BOTH locales (Arabic slots carry Arabic script); NO new namespace; NO new top-level `ErrorsLabels` group; actor-governance denials REUSE existing flat `accountDeleted/accountBlocked/accountSuspended`.
   - Machine code ↔ key bijection: `USER_ALREADY_SUSPENDED`↔`userAlreadySuspended`, `USER_NOT_SUSPENDED`↔`userNotSuspended`, `USER_ALREADY_BLOCKED`↔`userAlreadyBlocked`, `USER_NOT_BLOCKED`↔`userNotBlocked`, `USER_SELF_SUSPENSION_FORBIDDEN`↔`userSelfSuspensionForbidden`, `USER_SELF_BLOCK_FORBIDDEN`↔`userSelfBlockForbidden`, `periodDays` validation ↔`suspensionPeriodInvalid`.
@@ -126,7 +126,7 @@
 
 > Phase 2.M Mid-Point Review Gate fires after task 2.4 and BEFORE Phase 3.
 
-- [ ] 2.1 [Write account-governance journey test — TEST-FIRST (before any service surface)]
+- [x] 2.1 [Write account-governance journey test — TEST-FIRST (before any service surface)]
   - Create `test/workflows/admin/account-governance.journey.test.ts` — one file for the Workflow 05 §5 cross-actor lifecycle (specs §2.9, steps 1-11). `test/workflows/` harness EXISTS (verified in 0.2): reuse `test/workflows/helpers/` + `test/workflows/AGENTS.md` rules; only ADD a per-domain cast helper `test/workflows/helpers/admin-governance-cast.ts` if the cast shape (Admin A/B, Teacher T, Governed Admin G, registered Student S) is not already expressible — record either choice in the outcome.
   - Actor provisioning (committed in `beforeAll`, tracked IDs, hard-delete in `afterAll`): Admin A & Admin B via `createTestUser` + `createTestAdmin` (REAL permission/role rows — NEVER monkey-patched); Teacher T via the REAL `RegistrationService.registerUser` teacher branch; Governed Admin G = admin row + `isBlocked: true`; Student S via REAL `registerUser` with a recorded password. Unique prefix `jrn_gov_<uuid8>`. ZERO `runInRollback` around service calls (services spawn their own transactions).
   - Sequential actor-attributed steps (each = service call with `actorUserId` → shared-state assertion → cross-actor visibility assertion → side-effect oracles):
@@ -147,7 +147,7 @@
   - Instruction files: `.agents/instructions/tests.instructions.md`, `test/workflows/AGENTS.md`.
   - _Requirements: REQ-090, REQ-091, REQ-092, REQ-093, REQ-094, REQ-095_
 
-- [ ] 2.2 [Create-or-consume shared admin guard module + strict window-aware variant]
+- [x] 2.2 [Create-or-consume shared admin guard module + strict window-aware variant]
   - Target: `backend/services/admin/admin-guards.helpers.ts`.
   - **Branch A (ABSENT — sibling DEV3-018 not landed):** CREATE the module via BEHAVIOR-PRESERVING extraction of the private `assertActorAdmin` (`user-management.service.ts:240-271`) — identical behavior; delete the private copy from `user-management.service.ts` and import the helper (DEV3-016's EXISTING methods keep RELAXED semantics — REQ-031; their existing suites are the byte-equivalence net). ADD:
     ```typescript
@@ -163,7 +163,7 @@
   - [ ] 2.2.SR **Semantic Review**: single canonical admin-gate home; no private copy survives; `DomainError` subclasses only; `logger` only.
   - [ ] 2.2.IV **Instruction Verification**: `.agents/instructions/backend.instructions.md` + auto-discovered AGENTS.md from sub-loop.
 
-- [ ] 2.3 [Extend `AdminUserRepository` — guarded governance transitions + classifier probe]
+- [x] 2.3 [Extend `AdminUserRepository` — guarded governance transitions + classifier probe]
   - Modify `backend/db/repo/admin/admin-user.repository.ts` (EXTEND — mirror `setDeletedOnce` at lines 627-647):
     - `setSuspendedOnce(id, target: boolean, periodDays: number | null, tx: DBTransaction): Promise<AdminUserSafeSelect | null>` — NULL-safe guarded single statement; suspend direction sets `suspended=true, suspended_at=now, suspended_period_days=<periodDays>, updated_at=now` guarded by `(suspended = false OR suspended IS NULL) AND (is_deleted = false OR is_deleted IS NULL)`; unsuspend direction clears ALL THREE to `false/NULL/NULL` guarded by `suspended = true AND (is_deleted = false OR is_deleted IS NULL)`; `RETURNING <SAFE_USER_SELECT>`.
     - `setBlockedOnce(id, target: boolean, tx): Promise<AdminUserSafeSelect | null>` — block sets `is_blocked=true, blocked_at=now, updated_at=now` guarded by `(is_blocked = false OR is_blocked IS NULL) AND (is_deleted …)`; unblock clears both guarded by `is_blocked = true AND (is_deleted …)`; `RETURNING <SAFE_USER_SELECT>`.
@@ -177,7 +177,7 @@
   - [ ] 2.3.SR **Semantic Review**: mirrors `setDeletedOnce` idioms; no duplicated guard-builder beyond shared SQL idioms; zero `tx`/`db` mixing.
   - [ ] 2.3.IV **Instruction Verification**: `.agents/instructions/backend.instructions.md`.
 
-- [ ] 2.4 [Extend `AdminUserManagementService` — `setUserSuspended` / `setUserBlocked`]
+- [x] 2.4 [Extend `AdminUserManagementService` — `setUserSuspended` / `setUserBlocked`]
   - Modify `backend/services/admin/user-management.service.ts` (EXTEND; `setUserDeleted` stays byte-untouched per REQ-020):
     ```typescript
     export async function setUserSuspended(id, suspended, periodDays: number | null, actorId, locale, outerTx?: DBTransaction): Promise<AdminUserDetailReturnType>;
@@ -200,7 +200,7 @@
   - [ ] 2.4.SR **Semantic Review**: `withTransaction` single boundary; `tx` propagated to EVERY inner call; `DomainError` subclasses only; happy-path silence; zero dead code; no cross-layer import.
   - [ ] 2.4.IV **Instruction Verification**: `.agents/instructions/backend.instructions.md` + auto-discovered AGENTS.md.
 
-- [ ] 2.5 [Chaos tier — concurrent single-winner proofs]
+- [x] 2.5 [Chaos tier — concurrent single-winner proofs]
   - Extend the governance test surface (dedicated chaos block in `backend/services/admin/user-governance.service.test.ts` or its sibling chaos file following the `user-management.chaos.test.ts:122-147` committed-fixture lifecycle): `Promise.allSettled` over (a) suspend×2 same target, (b) suspend⚡unsuspend opposing race, (c) block×2 — assert EXACTLY ONE winner, loser receives the REQ-013 conflict, final state ≡ winner's direction, and EXACTLY ONE new audit row for the winning direction; SKIP under `isPgliteProvider()` (`test/helpers/skip-when-pglite.ts:48-50`) with the skip recorded.
   - Verify: `bun run test/scripts/run-test.ts` on the chaos suite.
   - Instruction files: `.agents/instructions/tests.instructions.md`, `.agents/instructions/backend.instructions.md`.
@@ -217,7 +217,7 @@
 
 ## Phase 3: GraphQL Resolvers & API Handlers
 
-- [ ] 3.1 [Register `adminSetUserSuspended` / `adminSetUserBlocked` mutations]
+- [x] 3.1 [Register `adminSetUserSuspended` / `adminSetUserBlocked` mutations]
   - CREATE `backend/graphql/mutation/admin/admin-governance.mutation.ts`: registers BOTH fields —
     ```graphql
     adminSetUserSuspended(id: Int!, suspended: Boolean!, periodDays: Int): AdminUserDetail!
@@ -235,7 +235,7 @@
   - [ ] 3.1.SR **Semantic Review**: thin-resolver discipline; no business logic in the resolver; no try/catch swallowing.
   - [ ] 3.1.IV **Instruction Verification**: `.agents/instructions/backend.instructions.md`.
 
-- [ ] 3.2 [Auth boundary consumption — window-honest `assertUserActive` + SSR gate]
+- [x] 3.2 [Auth boundary consumption — window-honest `assertUserActive` + SSR gate]
   - Modify `backend/services/auth/auth.service.ts`: widen `assertUserActive`'s input type to include `{ suspendedAt, suspendedPeriodDays }` and change the denial condition to `user.isDeleted || user.isBlocked || isSuspensionActive(user, new Date())` (lines 91-98). Call sites (`login` ~line 156, `refreshToken` ~line 244) pass the SAME fetched row — ZERO call-site signature churn. Denial copy channel UNCHANGED (`t.accountBlocked` — wire-shape constancy).
   - Modify `backend/lib/auth/server-auth.ts`: `getServerUserContext` line 33 condition becomes `fetched.isDeleted || fetched.isBlocked || isSuspensionActive(fetched, new Date())`; the existing domain log line unchanged.
   - `createGraphQLContext` (`backend/graphql/gqlContextFactory.ts:167-239`) UNTOUCHED — verify byte-identical; this ticket makes NO context-level governance claim.
@@ -248,7 +248,7 @@
   - [ ] 3.2.SR **Semantic Review**: ONE condition line per gate; no duplicated window math; no log-shape change; login/refresh/SSR consume the SAME predicate (no divergence — redirect-loop class prevention).
   - [ ] 3.2.IV **Instruction Verification**: `.agents/instructions/backend.instructions.md`.
 
-- [ ] 3.3 [Wire-tier matrix — NEW `backend/graphql/test/admin-governance.matrix.test.ts`]
+- [x] 3.3 [Wire-tier matrix — NEW `backend/graphql/test/admin-governance.matrix.test.ts`]
   - Create the wire suite using `setupTestServerLifecycle` + `testClient`/`fetch`, mirroring `notification-integration.matrix.test.ts` patterns (seeded-admin credentials; `registerUser` for targets).
   - Matrix per mutation: anonymous → `UNAUTHORIZED`; student/parent/teacher → `FORBIDDEN` (pre-resolver, both lines proven); admin happy path payload ≡ post-write DB detail (wire ≡ oracle); invalid ids (`0`, `-5`, non-integer) → validation code; `periodDays` hostilities on the suspend direction → `VALIDATION` with `fields[]` naming `periodDays`; every conflict code (`USER_ALREADY_*`/`USER_NOT_*`/self-protection/`USER_ALREADY_DELETED`/unknown-id `USER_NOT_FOUND`) at its REQ-050 envelope; smuggled/undeclared args → `GRAPHQL_VALIDATION_FAILED`; the EXACT `$all` scope declaration pinned on both fields (introspection/materialization assertion à la `handshake-code-surface.test.ts:125-157`); HTTP governed-login probes: actively-suspended target's `login` → single-error `FORBIDDEN`; lapsed target's `login` → SUCCESS with session payload.
   - Verify: `bun run test/scripts/run-test.ts backend/graphql/test/admin-governance.matrix.test.ts`.
@@ -260,7 +260,7 @@
   - [ ] 3.3.SR **Semantic Review**: no duplicated fixture harnesses beyond the sanctioned pattern; teardown complete.
   - [ ] 3.3.IV **Instruction Verification**: `.agents/instructions/tests.instructions.md`.
 
-- [ ] 3.4 [Schema-surface baselines — reconcile-then-extend (documented, conditional)]
+- [x] 3.4 [Schema-surface baselines — reconcile-then-extend (documented, conditional)]
   - Using the 0.2 probe verdict: **IF STALE**, FIRST re-anchor `backend/graphql/test/schema-surface.test.ts` + `backend/graphql/test/sdl-static-assertions.test.ts` expected inventories to the LIVE built schema (empirical `printSchema(lexicographicSortSchema(graphQLSchema))` evidence captured in the outcome) as a DOCUMENTED reconciliation; **IF already reconciled** by a sibling, verify-only. THEN extend with `adminSetUserBlocked` + `adminSetUserSuspended` at SORTED positions (`adminCreateUser` < `adminSetUserBlocked` < `adminSetUserDeleted` < `adminSetUserSuspended` < `adminUpdateUser`) plus exact arg shapes (`id: Int!, suspended: Boolean!, periodDays: Int` / `id: Int!, blocked: Boolean!`) and the `$all` scope pins.
   - `handshake-code-surface.test.ts` frozen allowlist UNTOUCHED — verify green.
   - Both steps + rationale + probe evidence recorded in the task outcome — NEVER a silent baseline flip.
@@ -276,7 +276,7 @@
 
 ## Phase 4: Frontend GraphQL Documents, Stores & UI Views
 
-- [ ] 4.1 [Frontend mutation documents — extend admin shared documents]
+- [x] 4.1 [Frontend mutation documents — extend admin shared documents]
   - Modify `frontend/graphql/sharedDocuments/admin/admin-users.documents.ts`: ADD `adminSetUserSuspendedMutationDocument: TypedDocumentNode<AdminSetUserSuspendedMutation, AdminSetUserSuspendedMutationVariables>` and `adminSetUserBlockedMutationDocument` analog; BOTH named operations reusing the EXISTING `AdminUserDetailFields` fragment (`id` selected FIRST → Apollo merges into the same `AdminUserDetail:<id>` normalized entry — the detail page re-renders WITHOUT a refetch). NO `useLazyQuery`; hooks will come from `@apollo/client/react` in the view task.
   - NO `apolloCache.test.ts` or `typePolicies` changes (default normalization applies — verify `frontend/providers/apollo/apolloCache.test.ts:176-185` stays untouched/green).
   - Instruction files: `.agents/instructions/frontend.instructions.md`, `frontend/graphql/AGENTS.md` (verified existing).
@@ -287,7 +287,7 @@
   - [ ] 4.1.SR **Semantic Review**: fragment reuse; no bespoke inline selection duplicating the fragment.
   - [ ] 4.1.IV **Instruction Verification**: `.agents/instructions/frontend.instructions.md` + `frontend/graphql/AGENTS.md`.
 
-- [ ] 4.2 [i18n — `AdminUsers.governanceActions` group + `detail.governanceNote` copy fix, both locales]
+- [x] 4.2 [i18n — `AdminUsers.governanceActions` group + `detail.governanceNote` copy fix, both locales]
   - Modify `shared/locale/types/adminUsers/index.ts`: add ONE group `governanceActions` with EXACTLY 20 slots — `suspendAction`, `unsuspendAction`, `blockAction`, `unblockAction`, `suspendDialogTitle`, `suspendDialogMessage`, `suspendPeriodLabel`, `suspendPeriodHelper`, `unsuspendDialogTitle`, `unsuspendDialogMessage`, `blockDialogTitle`, `blockDialogMessage`, `unblockDialogTitle`, `unblockDialogMessage`, `confirm`, `cancel`, `suspendSuccessToast`, `unsuspendSuccessToast`, `blockSuccessToast`, `unblockSuccessToast`.
   - Modify the EXISTING `AdminUsers` namespace `en` and `ar` implementations: fill all 20 slots in both (Arabic slots in Arabic script); UPDATE the stale `detail.governanceNote` copy (currently "managed in the Governance module") in BOTH locales to describe inline management; UPDATE any component assertion referencing the old copy in the SAME changeset.
   - Typed-leaf parity is free via `AdminUsersLabels` — `bun tsgo` enforces both locales.
@@ -299,7 +299,7 @@
   - [ ] 4.2.SR **Semantic Review**: EXACTLY 20 slots — no extras; no hardcoded copy consumers introduced.
   - [ ] 4.2.IV **Instruction Verification**: `shared/AGENTS.md` checklist (existing-namespace extension).
 
-- [ ] 4.3 [Governance Actions UI — `GovernanceActionsSection` on the EXISTING detail page]
+- [x] 4.3 [Governance Actions UI — `GovernanceActionsSection` on the EXISTING detail page]
   - Files: CREATE `frontend/views/admin/users/components/GovernanceActionsSection.tsx` (client component — or the sibling path the VERIFIED container structure in 0.2 dictates; record the chosen path in the outcome) + minimal insertion into the EXISTING `AdminUserDetailContainer` (`frontend/views/admin/users/…` — verify-first per 0.2/REQ-063; if the container is absent from the live tree, escalate via the ledger rather than fabricating a different page). NO new route, NO nav change (`frontend/views/dashboard/navItems.ts` untouched).
   - Behavior: state-gated actions — Suspend (only `suspended === false`, opens dialog with REQUIRED `periodDays` field, client-mirrored integer `1..3650` gate), Unsuspend (only `suspended === true`), Block (`isBlocked === false`), Unblock (`isBlocked === true`); deleted target → actions disabled; `useMutation` with the two documents from 4.1; confirm DISABLED in-flight + `CircularProgress size={20}` (REQ-044); success → localized snackbar (the four toasts) + cache-merge re-render; conflict codes → inline `Alert` in-dialog carrying the SERVER-localized message via `extractErrorCode`/`extractErrorMessage` (`frontend/lib/graphql-error-utils.ts`), `severity="info"` for state conflicts / `"warning"` for `USER_ALREADY_DELETED`; `periodDays` `VALIDATION` → field-level error via the `fields[]` projection (`frontend/components/ui/fieldError.ts`); `FORBIDDEN` rides the existing `GraphQLErrorSurfaceHost` toast path.
   - i18n: `useAppTranslation(AdminUsers)` handle + property access (`t.governanceActions.*`) ONLY.
@@ -325,14 +325,14 @@
 
 ## Phase 5: Integration & Differential Testing
 
-- [ ] 5.1 [Full-suite integration run + regression nets]
+- [x] 5.1 [Full-suite integration run + regression nets]
   - Run and record: journey (`bun run test/scripts/run-test.ts test/workflows`), predicate suite, handshake regression suite, repo logic tier, service governance suite, chaos tier, wire matrix, schema-surface + sdl-static + SDL-parity suites, governed-tier notification matrix, documents contract test, UI component tier (`bun run test:ui:components`), translation parity suites.
   - DEV3-016 suites MUST be byte-green with ZERO edits (REQ-020 lock).
   - Differential check: REQ-001 baselines — `bun tsgo`, `bun run biome:check`, lint service counts ≡ baseline with ZERO new errors (any delta ⇒ fix or justified ledger entry).
   - Write `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/outcome/5-integration-outcome.md` with the full matrix of commands + results.
   - _Requirements: REQ-020, REQ-070, REQ-071, REQ-072, REQ-073, REQ-074, REQ-075_
 
-- [ ] 5.2 [Static locks & INV-U4 grep-lock suite]
+- [x] 5.2 [Static locks & INV-U4 grep-lock suite]
   - Add/static-verify the lock suite: (a) prove NO production-code hard-delete writer exists for `users`/`students`/`teacher`/`parents`/`applicants` — `.delete(` scan over `backend/db/repo/**` + `backend/services/**` excluding tests, honoring the test-janitorial whitelist (journey teardown + `db-cleanup.ts` helpers are whitelisted with an explicit, enumerated list — no glob-by-convenience); (b) prove the built schema exposes ZERO `hardDelete*`/`deleteUser`-class Mutation fields (inventory-pinned within the schema-surface assertions).
   - Zero-drift gate: `git diff -- backend/db/schema/** backend/db/migration/**` MUST be EMPTY — capture output in the outcome; `bun run db` NEVER invoked (attest).
   - Final ledger gate: `grep -c "❌\|⚠️" ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/deferred-items.md` = 0 (all forward items remain resolved-pointer rows D1-D7).
@@ -350,35 +350,35 @@
 
 > Launch the four review wave agents IN PARALLEL over the full changeset; each writes its finding set into `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/outcome/`. Resolve EVERY finding (fix or ledger-justified rejection) before Phase 7.
 
-- [ ] 6.1 [Wave: review-types] — canonical-type discipline: `GovernanceProbeRowType` placement; no local resolver types; no service-layer `.types.ts`; canonical imports everywhere; enum VALUE imports with members (`AuditActionType`, `UserRole`). Output: `outcome/6-review-types-outcome.md`.
-- [ ] 6.2 [Wave: review-backend] — atomicity (`withTransaction` single boundary, `tx` propagation), guarded-statement/no-TOCTOU construction, classifier honest disambiguation, `DomainError` taxonomy + localized keys, ONE domain log per denial / silent happy path, strict actor guard determinism, predicate fail-closed parity across BOTH auth boundaries + handshake consumption, JR-C-1 zero-audit-on-denial. Output: `outcome/6-review-backend-outcome.md`.
-- [ ] 6.3 [Wave: review-frontend] — MUI v9 `sx`-only, `theme.palette.*` only, `*Outlined` icons, `useAppTranslation(AdminUsers)` property access, in-flight disable, fragment reuse (cache merge without refetch), RTL correctness, no new routes/nav, no `useLazyQuery`. Output: `outcome/6-review-frontend-outcome.md`.
-- [ ] 6.4 [Wave: pentester] — BFLA double line (scopes + strict service re-check), BOLA actor sourcing, BOPLA mass-assignment absence (scalar args, no spreads, smuggling probes green), governance-window honesty (no false fail-closed context claim), denial-envelope consistency (no sibling-state leakage), audit-trail integrity under concurrency (A.5), permanent-lockout safety (1..3650 + fail-closed + always-available release path), INV-U4 grep-lock soundness (whitelist bypass analysis). Output: `outcome/6-pentester-outcome.md`.
-- [ ] 6.5 [Deferred-items cross-check] — re-read `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/deferred-items.md`; confirm ZERO ❌/⚠️; confirm resolved-pointer rows D1-D7 intact and referenced (never silently absorbed): lapsed-suspension sweep; session-creation predicate consumption; notification-on-governance; DEV3-016 strict-guard backport ownership; context-boundary gate; audit vocabulary widening; SSR test seam. Output appended to the integration outcome.
+- [x] 6.1 [Wave: review-types] — canonical-type discipline: `GovernanceProbeRowType` placement; no local resolver types; no service-layer `.types.ts`; canonical imports everywhere; enum VALUE imports with members (`AuditActionType`, `UserRole`). Output: `outcome/6-review-types-outcome.md`.
+- [x] 6.2 [Wave: review-backend] — atomicity (`withTransaction` single boundary, `tx` propagation), guarded-statement/no-TOCTOU construction, classifier honest disambiguation, `DomainError` taxonomy + localized keys, ONE domain log per denial / silent happy path, strict actor guard determinism, predicate fail-closed parity across BOTH auth boundaries + handshake consumption, JR-C-1 zero-audit-on-denial. Output: `outcome/6-review-backend-outcome.md`.
+- [x] 6.3 [Wave: review-frontend] — MUI v9 `sx`-only, `theme.palette.*` only, `*Outlined` icons, `useAppTranslation(AdminUsers)` property access, in-flight disable, fragment reuse (cache merge without refetch), RTL correctness, no new routes/nav, no `useLazyQuery`. Output: `outcome/6-review-frontend-outcome.md`.
+- [x] 6.4 [Wave: pentester] — BFLA double line (scopes + strict service re-check), BOLA actor sourcing, BOPLA mass-assignment absence (scalar args, no spreads, smuggling probes green), governance-window honesty (no false fail-closed context claim), denial-envelope consistency (no sibling-state leakage), audit-trail integrity under concurrency (A.5), permanent-lockout safety (1..3650 + fail-closed + always-available release path), INV-U4 grep-lock soundness (whitelist bypass analysis). Output: `outcome/6-pentester-outcome.md`.
+- [x] 6.5 [Deferred-items cross-check] — re-read `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/deferred-items.md`; confirm ZERO ❌/⚠️; confirm resolved-pointer rows D1-D7 intact and referenced (never silently absorbed): lapsed-suspension sweep; session-creation predicate consumption; notification-on-governance; DEV3-016 strict-guard backport ownership; context-boundary gate; audit vocabulary widening; SSR test seam. Output appended to the integration outcome.
 
 ---
 
 ## Phase 7: Knowledge Propagation & Documentation
 
-- [ ] 7.1 [Canonical doc — `docs/admin/account-governance.md`]
+- [x] 7.1 [Canonical doc — `docs/admin/account-governance.md`]
   - CREATE with sections: **Why** (four-state lifecycle, Workflow 05 §5 ownership); **Pattern** (guarded single-statement transitions + zero-row classifier + ONE in-tx audit row; audit-vocabulary mapping for block/unblock; the shared predicate + both auth consumers + handshake consumer); **Rules** (suspend window rules `1..3650` mandatory on ON direction; self-protection; uniform `USER_ALREADY_DELETED` deleted-target rule; axis independence; lapse = READ-ONLY on the auth path; strict active-actor guard on governance mutations); **What NOT to Do** (never SELECT-then-UPDATE governance; never hard-delete; never extend a suspension in place — use the audited unsuspend+re-suspend pair; never write on the auth path; never fork the predicate; never widen `audit_action_type` outside a governed schema decision); **Rollout Summary** (mutations, files, baseline reconciliation); **Related Documents** (user-management.md, jwt-authentication-service.md, workflow 05, state-machine-invariants §6).
   - _Requirements: REQ-080_
 
-- [ ] 7.2 [Inbound/outbound doc reconciliation pointers]
+- [x] 7.2 [Inbound/outbound doc reconciliation pointers]
   - `docs/admin/user-management.md` §6 scope-split row for DEV3-017 → flip to shipped (ONE line pointer; NO renumbering, NO re-litigating JR-C-1).
   - `docs/auth/jwt-authentication-service.md` §5.3/§5.7 → add note: the window predicate NOW EXISTS at `backend/lib/auth/suspension-window.ts` and is consumed by login/refresh/SSR; session-creation gating remains the owning consumer (forward pointer).
   - `docs/parents/handshake-code-discovery.md` → ONE-line pointer that window math lives in the shared predicate (its R3 table stays the semantic source).
   - `docs/specs/open-decisions-and-gaps.md` and `docs/specs/state-machine-invariants.md` — NOT edited (bindings by reference only).
   - _Requirements: REQ-081_
 
-- [ ] 7.3 [AGENTS.md propagation]
+- [x] 7.3 [AGENTS.md propagation]
   - `backend/services/AGENTS.md`: ONE rule line — governance mutations (suspend/block) use guarded single-statement transitions + the strict `assertActiveActorAdmin` + the Suspend/Reactivate audit-vocabulary mapping for block/unblock.
   - `backend/db/repo/AGENTS.md`: ONE entry — guarded governance-transition pattern (`setSuspendedOnce`/`setBlockedOnce` + `findGovernanceState` classifier) mirroring `setDeletedOnce`.
   - Root `AGENTS.md` Important References: add `docs/admin/account-governance.md` line.
   - Rules/references only — NO code dumps.
   - _Requirements: REQ-082_
 
-- [ ] 7.4 [Outcome synthesis & final gates]
+- [x] 7.4 [Outcome synthesis & final gates]
   - Write `ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/outcome/7-completion-outcome.md`: synthesis of ALL task outcomes; final verification table (every plan.md Verification Anchor 1-12 with command + result evidence); baseline diff = 0 attestation; zero-drift `git diff` attestation; codegen artifacts committed attestation; journey green attestation; final `grep -c "❌\|⚠️" ai/plans/sprint_3/dev3-017-account-soft-delete-governance-usersis-d/deferred-items.md` = 0 proof.
   - Confirm EVERY checkbox in this file is `[x]` and every task has a corresponding outcome file.
   - _Requirements: REQ-075, REQ-083_

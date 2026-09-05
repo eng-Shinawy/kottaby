@@ -11,10 +11,8 @@
  * non-positive duration), the child is treated as actively governed —
  * missing or invalid data must never widen discovery visibility.
  */
+import { isSuspensionActive } from "@/backend/lib/auth/suspension-window";
 import type { HandshakeDiscoveryRowType } from "@/backend/types";
-
-/** Milliseconds per day — the unit of `users.suspended_period_days`. */
-const MS_PER_DAY = 86_400_000;
 
 /**
  * Fail-closed: any governed state excludes the child from parent discovery by
@@ -43,17 +41,12 @@ export function isGovernanceExcludedFromDiscovery(
   if (governance.isDeleted || governance.isBlocked) {
     return true;
   }
-  if (!governance.suspended) {
-    return false;
-  }
-  // Fail-closed: `suspendedPeriodDays` is a plain nullable int with no CHECK
-  // constraint — a non-positive value is corrupt governance data (a zero-day
-  // window would compute `endsAt ≤ now` and misclassify an actively-suspended
-  // student as lapsed), so it is treated exactly like a missing one.
-  if (!governance.suspendedAt || governance.suspendedPeriodDays === null || governance.suspendedPeriodDays <= 0) {
-    return true;
-  }
-  const endsAt = new Date(governance.suspendedAt.getTime() + governance.suspendedPeriodDays * MS_PER_DAY);
-  // Strict comparison: a suspension window ending exactly at `now` has lapsed.
-  return endsAt.getTime() > now.getTime();
+  return isSuspensionActive(
+    {
+      suspended: governance.suspended,
+      suspendedAt: governance.suspendedAt,
+      suspendedPeriodDays: governance.suspendedPeriodDays,
+    },
+    now
+  );
 }

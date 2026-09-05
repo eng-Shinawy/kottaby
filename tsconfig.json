@@ -73,6 +73,11 @@
     "frontend/graphql/generated",
     "**/unRefactored_tests",
     // Sandbox-provided skills directory (gitignored, not part of the project).
-    "skills"
+    "skills",
+    // Sandbox VLM verification scripts (not part of the production codebase).
+    "scripts/vlm-apollo-server.ts",
+    "scripts/vlm-seed-fixtures.ts",
+    "scripts/pglite-bootstrap.ts",
+    "scripts/vlm-capture-screens.sh"
   ]
 }

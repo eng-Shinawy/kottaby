@@ -34,6 +34,7 @@ import { UserRepository } from "@/backend/db/repo";
 import { toUserRole, type UserRole } from "@/backend/enum/users/user-role.enum";
 import { AUTH_COOKIE_NAMES } from "@/backend/lib/auth/cookies";
 import { verifyAccessToken } from "@/backend/lib/auth/jwt";
+import { isSuspensionActive } from "@/backend/lib/auth/suspension-window";
 import { logger } from "@/backend/lib/logger";
 import type { RegistrationReturnType, UserSelectType } from "@/backend/types";
 
@@ -96,7 +97,18 @@ export const getServerUserContext = cache(async (): Promise<ServerUserContext> =
 
     // Governance: fail-closed for deleted / blocked / suspended accounts.
     // Mirrors the GraphQL context factory's behavior.
-    if (fetched.isDeleted || fetched.isBlocked || fetched.suspended) {
+    if (
+      fetched.isDeleted ||
+      fetched.isBlocked ||
+      isSuspensionActive(
+        {
+          suspended: fetched.suspended,
+          suspendedAt: fetched.suspendedAt,
+          suspendedPeriodDays: fetched.suspendedPeriodDays,
+        },
+        new Date()
+      )
+    ) {
       logger.logDomainError("SSR auth: governed account denied", {
         code: "SSR_GOVERNED_ACCOUNT",
         entity: "users",

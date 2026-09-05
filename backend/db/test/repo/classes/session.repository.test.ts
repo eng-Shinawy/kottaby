@@ -225,7 +225,7 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
   test("insertSession returns the inserted row with every server-generated column populated", async () => {
     await runInRollback(async tx => {
       const actors = await createSessionActors(tx);
-      const deadline = new Date(Date.now() + 60_000);
+      const deadline = new Date(Math.floor((Date.now() + 60_000) / 1000) * 1000);
 
       const inserted = await SessionRepository.insertSession(
         {
@@ -314,7 +314,7 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
   test("startSessionOnce moves a scheduled row to started, stamping startedAt/updatedAt from one instant", async () => {
     await runInRollback(async tx => {
       const actors = await createSessionActors(tx);
-      const deadline = new Date(Date.now() + 3_600_000);
+      const deadline = new Date(Math.floor((Date.now() + 3_600_000) / 1000) * 1000);
       const row = await insertSessionRow(tx, actors, { confirmationDeadline: deadline });
 
       const started = await SessionRepository.startSessionOnce(row.id, actors.teacherUserId, tx);

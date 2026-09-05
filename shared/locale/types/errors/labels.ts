@@ -84,6 +84,20 @@ export interface ErrorsLabels {
      * MUST NOT appear in the message — only generic copy.
      */
     readonly handshakeExhausted: string;
+    /** Conflict when suspending an account that is already suspended. */
+    readonly userAlreadySuspended: string;
+    /** Conflict when blocking an account that is already blocked. */
+    readonly userAlreadyBlocked: string;
+    /** Conflict when unsuspending an account that is not currently suspended. */
+    readonly userNotSuspended: string;
+    /** Conflict when unblocking an account that is not currently blocked. */
+    readonly userNotBlocked: string;
+    /** Self-protection deny: an admin attempted to suspend their own account. */
+    readonly userSelfSuspensionForbidden: string;
+    /** Self-protection deny: an admin attempted to block their own account. */
+    readonly userSelfBlockForbidden: string;
+    /** Validation reject: suspension periodDays must be a whole number between 1 and 3650. */
+    readonly suspensionPeriodInvalid: string;
   };
   /** Fail-closed deny when a stored notifications.type value is not a known NotificationType member. */
   readonly notificationTypeCorrupt: string;

@@ -13,7 +13,9 @@
  * Renders the prototype structure: a back-to-directory link row, the
  * full-width `UserDetailHero` (identity + inline actions), then a 2-column
  * grid (24px gutters, single-column below `md`):
- *  - inline-start column (5/12): `ProfileInfoCard`, `GovernanceCard`;
+ *  - inline-start column (5/12): `ProfileInfoCard`, `GovernanceCard`, and the
+ *    `GovernanceActionsSection` carrying the suspend / unsuspend / block /
+ *    unblock affordances + their confirm dialogs;
  *  - inline-end column (7/12): the role card (`TeacherApplicationCard`,
  *    `StudentStatusCard`, or the slim parent card) + `RecentActivityCard`.
  *
@@ -45,6 +47,7 @@ import {
   UserDetailLoading,
   UserDetailNotFound,
 } from "@/frontend/views/admin/users/detail";
+import { GovernanceActionsSection } from "@/frontend/views/admin/users/detail/GovernanceActionsSection";
 import { AdminUserSuccessSnackbar } from "@/frontend/views/admin/users/dialogs";
 import { useAdminUserDetail } from "@/frontend/views/admin/users/hooks";
 import { asDirectoryRole, directoryGovernanceOf } from "@/frontend/views/admin/users/utils";
@@ -113,6 +116,7 @@ export function AdminUserDetailContainer({ labels, userId }: AdminUserDetailCont
         <Stack spacing={3} sx={{ minWidth: 0, height: "100%" }}>
           <ProfileInfoCard user={user} labels={labels} formatDate={detail.fmtDate} onEdit={detail.openEdit} />
           <GovernanceCard user={user} governance={governance} labels={labels} formatTimestamp={detail.fmtTimestamp} />
+          <GovernanceActionsSection user={user} onToast={detail.setSnackbarMessage} />
         </Stack>
 
         <Stack spacing={3} sx={{ minWidth: 0, height: "100%" }}>

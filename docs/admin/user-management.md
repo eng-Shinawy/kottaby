@@ -170,7 +170,7 @@ DEV3-016 ships the **identity core + audit-write half** of Workflow 05. The othe
 |---|---|---|
 | Admin user CRUD (directory / detail / create / patch / soft-delete / reactivate) + audit-write contract | **DEV3-016** (this ticket) | — |
 | Cold-start bootstrapping (`is_approved=true` / `is_evaluator=true` writes on `teacher` row) | **DEV3-018** | The `applicants` row minted by DEV3-016's create-teacher path (D4 deferred-item); the audit-write contract |
-| Suspend / block governance windows (`suspended`, `suspended_period_days`, `is_blocked` mutations) | **DEV3-017** | The `users` governance columns READ by the directory + detail (REQ-021 — pure reads here); the in-tx audit-write contract |
+| Suspend / block governance windows (`suspended`, `suspended_period_days`, `is_blocked` mutations) | **DEV3-017** ✅ shipped — see `docs/admin/account-governance.md` | The `users` governance columns READ by the directory + detail (REQ-021 — pure reads here); the in-tx audit-write contract |
 | Direct student onboarding (subscription creation + payment recording + parent-link `students.parent_id` write) | **DEV3-019** | The `students` row minted by DEV3-016's create-student path (zeroed balances + handshake); the in-tx audit-write contract |
 | Audit-trail browsing UI (read-back of `audit_logs` rows) | **DEV3-020** | The `AuditService.createAuditLog` writer + `AuditLogWriteContract` (D5 resolved); imports by reference — never forks a second writer |
 | Session governance (reschedule / cancel / reassign sessions) | **DEV3-021** | The `users` directory + detail for actor resolution; the audit-write contract |

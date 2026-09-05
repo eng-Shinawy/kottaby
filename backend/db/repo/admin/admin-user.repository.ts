@@ -37,7 +37,7 @@
  *    builder, and the two scalar subselects.
  */
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
-import { db } from "@/backend/db";
+import { db, queryDb } from "@/backend/db";
 import {
   buildFilterChain,
   parentLinkedChildrenCountSubquery,
@@ -57,7 +57,27 @@ import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
-import type { AdminUserSafeSelect, AdminUserUpdateDbPatch, DBTransaction } from "@/backend/types";
+import type {
+  AdminUserSafeSelect,
+  AdminUserUpdateDbPatch,
+  DBQueryExecutor,
+  DBTransaction,
+  GovernanceProbeRowType,
+} from "@/backend/types";
+
+/**
+ * Type guard — narrows `DBQueryExecutor` to a Drizzle-backed executor that
+ * exposes the `.select()` builder API. `DBTransaction` (Drizzle's
+ * `PgAsyncTransaction`) and the global `db` instance both expose `.select()`;
+ * raw `Pool` / `PoolClient` from `pg` do not. The probe read uses this guard
+ * to branch between the transactional Drizzle path and the cold-path
+ * `queryDb` raw-parameterized-SQL path (Neon HTTP fast path when eligible).
+ * Mirrors the canonical pattern in `user.repository.ts` and
+ * `plan.repository.ts`.
+ */
+function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
+  return typeof tx === "object" && "select" in tx;
+}
 
 /**
  * Row-type re-exports keep the deep import path
@@ -394,5 +414,176 @@ export namespace AdminUserRepository {
       .where(eq(users.id, id))
       .limit(1);
     return rows.length > 0;
+  }
+
+  /**
+   * Single guarded `UPDATE` that flips `suspended` (and the matching
+   * `suspended_at` / `suspended_period_days` / `updated_at` columns)
+   * for one user — a one-statement atomic transition that holds a row
+   * lock for the duration of the predicate evaluation.
+   *
+   * The WHERE predicate uses NULL-safe inverse-state guards so a legacy
+   * NULL row reads correctly under three-valued SQL logic:
+   *  - suspend (target = true):    `(suspended = false OR suspended IS NULL)
+   *                                 AND (is_deleted = false OR is_deleted IS NULL)`
+   *  - unsuspend (target = false): `suspended = true
+   *                                 AND (is_deleted = false OR is_deleted IS NULL)`
+   *
+   * `periodDays` is persisted ONLY in the suspend direction; the unsuspend
+   * direction clears `suspended_period_days` to NULL regardless of the
+   * caller-supplied value (clearing all three columns atomically). The
+   * service layer validates `periodDays ∈ 1..3650` BEFORE invoking this
+   * repo method; the repo persists what it is given without re-validation.
+   *
+   * Two concurrent suspends of the same row therefore serialize: the
+   * first flips the state; the second's predicate no longer matches
+   * (because `suspended` is now `true`, not `false`/NULL) and the
+   * statement returns zero rows — the service layer translates that
+   * into the typed conflict (`USER_ALREADY_SUSPENDED` /
+   * `USER_NOT_SUSPENDED` / `USER_ALREADY_DELETED` / `USER_NOT_FOUND`)
+   * via a follow-up `findGovernanceState` probe.
+   *
+   * The `tx` parameter is REQUIRED (not optional) on this write: every
+   * governance transition MUST run inside a caller-supplied transaction
+   * so the audit-log row lands in the SAME tx (no out-of-band writes).
+   * The service layer's `withTransaction(outerTx, async tx => …)`
+   * wrapper always supplies one.
+   *
+   * @returns The post-write safe row, or `null` when zero rows matched
+   *          (the service layer disambiguates USER_NOT_FOUND vs the
+   *          typed CONFLICT via `findGovernanceState`).
+   */
+  export async function setSuspendedOnce(
+    id: number,
+    target: boolean,
+    periodDays: number | null,
+    tx: DBTransaction
+  ): Promise<AdminUserSafeSelect | null> {
+    const [row] = await (tx ?? db)
+      .update(users)
+      .set({
+        suspended: target,
+        suspendedAt: target ? new Date() : null,
+        suspendedPeriodDays: target ? periodDays : null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(users.id, id),
+          or(eq(users.isDeleted, false), isNull(users.isDeleted)) ?? sql`false`,
+          target ? (or(eq(users.suspended, false), isNull(users.suspended)) ?? sql`false`) : eq(users.suspended, true)
+        ) ?? sql`false`
+      )
+      .returning(SAFE_USER_SELECT);
+    return row ?? null;
+  }
+
+  /**
+   * Single guarded `UPDATE` that flips `is_blocked` (and the matching
+   * `blocked_at` / `updated_at` columns) for one user — a one-statement
+   * atomic transition that holds a row lock for the duration of the
+   * predicate evaluation.
+   *
+   * The WHERE predicate uses NULL-safe inverse-state guards so a legacy
+   * NULL row reads correctly under three-valued SQL logic:
+   *  - block (target = true):    `(is_blocked = false OR is_blocked IS NULL)
+   *                               AND (is_deleted = false OR is_deleted IS NULL)`
+   *  - unblock (target = false): `is_blocked = true
+   *                               AND (is_deleted = false OR is_deleted IS NULL)`
+   *
+   * Two concurrent blocks of the same row therefore serialize: the first
+   * flips the state; the second's predicate no longer matches (because
+   * `is_blocked` is now `true`, not `false`/NULL) and the statement
+   * returns zero rows — the service layer translates that into the
+   * typed conflict (`USER_ALREADY_BLOCKED` / `USER_NOT_BLOCKED` /
+   * `USER_ALREADY_DELETED` / `USER_NOT_FOUND`) via a follow-up
+   * `findGovernanceState` probe.
+   *
+   * The `tx` parameter is REQUIRED (not optional) on this write: every
+   * governance transition MUST run inside a caller-supplied transaction
+   * so the audit-log row lands in the SAME tx (no out-of-band writes).
+   * The service layer's `withTransaction(outerTx, async tx => …)`
+   * wrapper always supplies one.
+   *
+   * @returns The post-write safe row, or `null` when zero rows matched
+   *          (the service layer disambiguates USER_NOT_FOUND vs the
+   *          typed CONFLICT via `findGovernanceState`).
+   */
+  export async function setBlockedOnce(
+    id: number,
+    target: boolean,
+    tx: DBTransaction
+  ): Promise<AdminUserSafeSelect | null> {
+    const [row] = await (tx ?? db)
+      .update(users)
+      .set({
+        isBlocked: target,
+        blockedAt: target ? new Date() : null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(users.id, id),
+          or(eq(users.isDeleted, false), isNull(users.isDeleted)) ?? sql`false`,
+          target ? (or(eq(users.isBlocked, false), isNull(users.isBlocked)) ?? sql`false`) : eq(users.isBlocked, true)
+        ) ?? sql`false`
+      )
+      .returning(SAFE_USER_SELECT);
+    return row ?? null;
+  }
+
+  /**
+   * Five-column governance-state probe. Selects ONLY the probe columns
+   * (`isDeleted`, `suspended`, `suspendedAt`, `suspendedPeriodDays`,
+   * `isBlocked`) — NEVER `passwordHash`, NEVER `*`, NEVER any PII column.
+   * The structural absence of `passwordHash` is enforced by the explicit
+   * column pick (Drizzle path) and the explicit column list (raw-SQL
+   * path); the probe never reads the full row.
+   *
+   * Used by the service-layer classifier to disambiguate zero-row
+   * outcomes from `setSuspendedOnce` and `setBlockedOnce`:
+   *  - probe `null`                         → `USER_NOT_FOUND` (the id never existed)
+   *  - probe `isDeleted === true`           → `USER_ALREADY_DELETED` (governance
+   *                                           holds apply only to live accounts)
+   *  - probe axis already in requested state → `USER_ALREADY_SUSPENDED` /
+   *                                           `USER_NOT_SUSPENDED` /
+   *                                           `USER_ALREADY_BLOCKED` /
+   *                                           `USER_NOT_BLOCKED` per direction
+   *
+   * The probe is read-only and never writes. Accepts a broader
+   * `DBQueryExecutor` (transaction OR pool OR pool-client) so it can run
+   * inside the classifier's transaction (preferred — same snapshot as
+   * the guarded write) OR as a cold-path read (no `tx` supplied — falls
+   * back to the global pool via `queryDb`, Neon HTTP fast path when
+   * eligible).
+   *
+   * @returns The five-column probe row, or `null` when no user matches
+   *          the supplied id.
+   */
+  export async function findGovernanceState(id: number, tx?: DBQueryExecutor): Promise<GovernanceProbeRowType | null> {
+    if (tx && isDBTransaction(tx)) {
+      const [row] = await tx
+        .select({
+          isDeleted: users.isDeleted,
+          suspended: users.suspended,
+          suspendedAt: users.suspendedAt,
+          suspendedPeriodDays: users.suspendedPeriodDays,
+          isBlocked: users.isBlocked,
+        })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      return row ?? null;
+    }
+    const result = await queryDb<GovernanceProbeRowType>(
+      `SELECT is_deleted AS "isDeleted",
+              suspended,
+              suspended_at AS "suspendedAt",
+              suspended_period_days AS "suspendedPeriodDays",
+              is_blocked AS "isBlocked"
+       FROM users WHERE id = $1 LIMIT 1`,
+      [id]
+    );
+    return result.rows[0] ?? null;
   }
 }

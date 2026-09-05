@@ -307,7 +307,9 @@ type Mutation {
   """
   adminCertifyTeacherColdStart(makeEvaluator: Boolean = true, userId: Int!): AdminUserDetail!
   adminCreateUser(input: AdminCreateUserInput!): AdminUserDetail!
+  adminSetUserBlocked(blocked: Boolean!, id: Int!): AdminUserDetail!
   adminSetUserDeleted(deleted: Boolean!, id: Int!): AdminUserDetail!
+  adminSetUserSuspended(id: Int!, periodDays: Int, suspended: Boolean!): AdminUserDetail!
   adminUpdateUser(id: Int!, input: AdminUpdateUserInput!): AdminUserDetail!
 
   """
