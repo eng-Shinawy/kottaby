@@ -399,6 +399,7 @@ User-facing money errors are localized; operator-facing transport errors are not
 ## 12. Related Documents
 
 - [`subscription-purchase.md`](./subscription-purchase.md) — the port contract, purchase flow, activation service, ledger trigger
+- [`admin-subscription-management.md`](./admin-subscription-management.md) — the admin lifecycle operations over purchased subscriptions (extend / renew / cancel / plan change)
 - [`../graphql/error-handling-contract.md`](../graphql/error-handling-contract.md) — webhook route's exemption row + envelope machinery
 - `../IDEMPOTENCY.md` — purchase idempotency + duplicate semantics
 - `.agents/skills/paymob-payments/references/cheatsheet.md` — vendor endpoint catalogue + test cards (offline mirror)

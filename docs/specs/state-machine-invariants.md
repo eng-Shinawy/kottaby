@@ -170,6 +170,21 @@ stateDiagram-v2
 > (the window-vs-status lag is closed by the sweep). Full contract:
 > [`docs/billing/subscription-validity-window-expiry.md`](../billing/subscription-validity-window-expiry.md).
 
+> **Implementation reference (admin subscription lifecycle — the `active → cancelled` producer):**
+> the `Cancelled` state above now HAS a producer — the admin surface (`SubscriptionAdminService.cancelSubscription`
+> behind `adminCancelSubscription`, plus plan-change retiring the source row through the same guarded flip via
+> `SubscriptionRepository.cancelActiveOnce`): a guarded single-statement UPDATE
+> (`WHERE id = ? AND status = 'active'`, replay-safe, zero rows = replay/no-op or localized conflict) that patches
+> exactly `status` + `updated_at` and mints exactly one `Suspend` audit row inside the same transaction. As shipped,
+> admin cancellation is **balance-preserving**: no lane column is reachable from the cancelling statement and no
+> zeroing runs — a **deliberate asymmetry** with the expiry sweep's conditional zeroing above (expiry is the system
+> revoking value at window end; an admin cancel leaves the remaining balance intact). One-directional operational
+> form: the sweep's coverage guard treats `cancelled` as NON-covering, so a LATER sweep of ANOTHER covering
+> subscription may still zero a cancel-preserved lane. Renew + plan-change complete the admin writer set
+> (`renew:<id>` / `planChange:<id>:<planId>` claims; plan-change settles lanes exactly). Full transition table,
+> proration formula, and audit-verb mapping:
+> [`docs/billing/admin-subscription-management.md`](../billing/admin-subscription-management.md).
+
 ---
 
 ## 5. Wallet & Transaction Lifecycle
