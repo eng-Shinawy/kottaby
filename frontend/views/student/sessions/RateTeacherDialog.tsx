@@ -1,21 +1,11 @@
 "use client";
 
 import { useApolloClient, useMutation } from "@apollo/client/react";
-import { StarBorderOutlined, StarOutlined } from "@mui/icons-material";
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormHelperText,
-  Rating,
-  Stack,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, useMediaQuery, useTheme } from "@mui/material";
+import type { Theme } from "@mui/material/styles";
 import { type ReactNode, useState } from "react";
 import { submitTeacherEvaluationMutationDocument } from "@/frontend/graphql/sharedDocuments";
+import { RateTeacherRatingField } from "@/frontend/views/student/sessions/RateTeacherRatingField";
 import { handleRateTeacherMutationError } from "@/frontend/views/student/sessions/rateTeacherMutationError";
 import { updateCacheOnSubmitted } from "@/frontend/views/student/sessions/useMyTeacherEvaluations";
 import { Errors, Sessions, useAppTranslation } from "@/shared/locale";
@@ -48,14 +38,17 @@ import { Errors, Sessions, useAppTranslation } from "@/shared/locale";
  * app-scope surface cannot see (dialog slot, rated marker, eviction).
  *
  * Control discipline: MUI `Rating` 1..5 whole stars (`*Outlined` icons
- * only), per-star accessible labels resolved through the interpolated
- * `sessions.ratingStarAriaLabel(position)` template, the empty-value radio
- * labeled by `sessions.ratingEmptyLabelText` (no untranslated MUI copy),
+ * only, see {@link RateTeacherRatingField}), per-star accessible labels
+ * resolved through the interpolated `sessions.ratingStarAriaLabel(position)`
+ * template, the empty-value radio labeled by `sessions.ratingEmptyLabelText`
+ * (no untranslated MUI copy),
  * the inline validation error tied to the control via a conditional
  * `aria-describedby` (present only while the error is raised), dialog
  * title/cancel/submit copy from the `sessions` namespace, submit disabled
  * until a star is chosen, `aria-busy` on the submit while in flight,
- * dismissal gated while the mutation is pending, full-screen under `sm`,
+ * dismissal gated while the mutation is pending, full-screen under `sm`
+ * with the rating control centered in the sheet's free space so the
+ * viewport-sized composition stays deliberate,
  * transition collapse under `prefers-reduced-motion`.
  *
  * Form discipline: `React.SubmitEvent` (NEVER `FormEvent` — React 19 rules).
@@ -87,6 +80,22 @@ interface RateTeacherDialogProps {
   /** Everything else — error toast; the dialog stays open for a retry. */
   readonly onFailure: (message: string) => void;
 }
+
+/** Title styling: theme on-surface color; compact sheets center the title. */
+const dialogTitleSx = (compact: boolean) => (theme: Theme) => ({
+  color: theme.palette.onSurface,
+  ...(compact && { textAlign: "center" as const }),
+});
+
+/** Fullscreen-sheet composition: center the rating control in the free space. */
+const ratingContentSx = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 2,
+  py: 4,
+} as const;
 
 /** The teacher-rating dialog owning the `submitTeacherEvaluation` mutation. */
 export function RateTeacherDialog({
@@ -150,40 +159,37 @@ export function RateTeacherDialog({
       fullScreen={isCompactViewport}
       slotProps={{
         transition: { timeout: reducedMotion ? 0 : undefined },
-        paper: { component: "form", onSubmit: handleSubmit },
+        paper: {
+          component: "form",
+          onSubmit: handleSubmit,
+          // Compact sheet: cluster title + rating + actions as one centered block.
+          sx: isCompactViewport ? { justifyContent: "center" } : undefined,
+        },
       }}
       aria-labelledby="rate-teacher-dialog-title"
     >
-      <DialogTitle id="rate-teacher-dialog-title" sx={dialogTheme => ({ color: dialogTheme.palette.onSurface })}>
+      <DialogTitle id="rate-teacher-dialog-title" sx={dialogTitleSx(isCompactViewport)}>
         {t.rateTeacherDialogTitle}
       </DialogTitle>
-      <DialogContent sx={{ display: "grid", gap: 2 }}>
-        <Stack sx={{ alignItems: "center", py: 2, gap: 1 }}>
-          {/* The describedby names the helper text ONLY while it renders. */}
-          <Rating
-            name="teacher-rating"
-            value={rating}
-            getLabelText={t.ratingStarAriaLabel}
-            emptyLabelText={t.ratingEmptyLabelText}
-            aria-invalid={ratingFieldError !== null ? true : undefined}
-            aria-describedby={ratingFieldError !== null ? "rate-teacher-rating-error" : undefined}
-            icon={<StarOutlined fontSize="large" />}
-            emptyIcon={<StarBorderOutlined fontSize="large" />}
-            onChange={(_event, value) => {
-              setRating(value);
-              // Live validation relief — a new choice clears a raised flag.
-              setRatingFieldError(null);
-            }}
-          />
-          {ratingFieldError !== null ? (
-            <FormHelperText error id="rate-teacher-rating-error" aria-live="polite">
-              {ratingFieldError}
-            </FormHelperText>
-          ) : null}
-        </Stack>
+      <DialogContent sx={{ ...ratingContentSx, ...(isCompactViewport && { flex: "0 0 auto" }) }}>
+        <RateTeacherRatingField
+          value={rating}
+          compact={isCompactViewport}
+          fieldError={ratingFieldError}
+          onChange={value => {
+            setRating(value);
+            setRatingFieldError(null); // live validation relief — a new choice clears a raised flag
+          }}
+        />
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-        <Button onClick={onClose} disabled={loading} sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}>
+      <DialogActions sx={{ px: 3, pb: 3, pt: 2, gap: 1.5 }}>
+        <Button
+          onClick={onClose}
+          disabled={loading}
+          variant="outlined"
+          color="inherit"
+          sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}
+        >
           {t.rateTeacherDialogCancel}
         </Button>
         <Button

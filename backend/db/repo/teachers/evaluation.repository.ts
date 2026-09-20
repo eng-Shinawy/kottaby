@@ -21,10 +21,20 @@
  *    four meaningful columns; schema defaults fill the rest).
  *  - Reads run on the caller's transaction (Drizzle select) when one is
  *    supplied and fall back to raw parameterized SQL via `queryDb` (the
- *    Neon-HTTP-eligible pattern) otherwise. The read is caller-scoped:
- *    the evaluator id is the ONLY filter — no parameter exists through
- *    which a caller could widen the read toward other evaluators or a
- *    chosen rated subject.
+ *    Neon-HTTP-eligible pattern) otherwise. In `listByEvaluator`, the
+ *    read is caller-scoped: the evaluator id is the ONLY filter — no
+ *    parameter exists through which a caller could widen the read toward
+ *    other evaluators or a chosen rated subject.
+ *  - `aggregateLiveRatings` is the one exception to the dual-branch read
+ *    convention: a single-row SQL-template aggregate over a rated
+ *    subject's LIVE student-rating family (session-linked, scored,
+ *    non-deleted rows), keyed by the evaluated subject id. It takes a
+ *    REQUIRED `tx` because its result feeds the caller's same-transaction
+ *    write of that result — a standalone branch could read a different
+ *    snapshot than the write commits against. The mean is computed in
+ *    SQL (never by materializing rows and reducing them client-side) and
+ *    cast `::float8`, the count `::int`, so both arrive as JavaScript
+ *    numbers — a bare `numeric` mean reaches the driver as a string.
  *  - Soft-delete is exclusion-only: live rows are those whose
  *    `is_deleted` flag is false OR null (only an explicit deleted flag
  *    excludes — the same NULL-safe rule the platform analytics readers
@@ -36,10 +46,16 @@
  *    the caller decides what an empty list or a raw constraint error
  *    means.
  */
-import { and, desc, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { queryDb } from "@/backend/db";
 import { evaluations } from "@/backend/db/schema/teachers/evaluations";
-import type { DBQueryExecutor, DBTransaction, EvaluationInsertType, EvaluationSelectType } from "@/backend/types";
+import type {
+  DBQueryExecutor,
+  DBTransaction,
+  EvaluationInsertType,
+  EvaluationRatingAggregateType,
+  EvaluationSelectType,
+} from "@/backend/types";
 
 /**
  * Type guard — narrows `DBQueryExecutor` to `DBTransaction`.
@@ -125,5 +141,54 @@ export namespace EvaluationRepository {
       [evaluatorId, false]
     );
     return result.rows;
+  }
+
+  /**
+   * Aggregates one rated subject's LIVE student-rating family into a
+   * single row: `averageScore` is the SQL mean of `score` over the family
+   * on the table's 0-100 scale, `ratingCount` the sample size behind it.
+   *
+   * The family is exactly the rows with `evaluated_id` = the subject, a
+   * session link (applicant evaluations are the other flow on the shared
+   * table), a non-null score, and no explicit deleted flag (NULL-safe
+   * exclusion) — the score filter keeps the mean and the count agreeing
+   * on the same family. The mean is computed in SQL, never by
+   * materializing rows into the caller and reducing them there, and is
+   * cast `::float8` so it arrives as a JavaScript number: Drizzle `sql`
+   * templates bypass column mappers and a bare `numeric` mean reaches the
+   * driver as a string, contradicting the projection.
+   *
+   * `tx` is REQUIRED (no standalone branch): the result feeds the
+   * caller's same-transaction write of this value, so a read from any
+   * other executor could observe a different snapshot than the write
+   * commits against.
+   *
+   * @returns The aggregate; an empty family yields
+   *          `{ averageScore: null, ratingCount: 0 }` — SQL `avg` over
+   *          zero rows is NULL and `count(*)` is 0, an honest null rather
+   *          than a fabricated value.
+   */
+  export async function aggregateLiveRatings(
+    evaluatedId: number,
+    tx: DBTransaction
+  ): Promise<EvaluationRatingAggregateType> {
+    const [row] = await tx
+      .select({
+        averageScore: sql<number | null>`avg(${evaluations.score})::float8`.as("average_score"),
+        ratingCount: sql<number>`count(*)::int`.as("rating_count"),
+      })
+      .from(evaluations)
+      .where(
+        and(
+          eq(evaluations.evaluatedId, evaluatedId),
+          isNotNull(evaluations.sessionId),
+          isNotNull(evaluations.score),
+          or(eq(evaluations.isDeleted, false), isNull(evaluations.isDeleted))
+        )
+      );
+    return {
+      averageScore: row?.averageScore ?? null,
+      ratingCount: row?.ratingCount ?? 0,
+    };
   }
 }

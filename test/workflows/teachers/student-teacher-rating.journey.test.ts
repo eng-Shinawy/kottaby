@@ -29,6 +29,18 @@
  *      stays untouched.
  *   6. read-back — the rater's evaluation list is exactly the submitted
  *      rows, newest first; every other cast member's list is empty.
+ *   7. cached-average — every committed rating moves the rated teacher's
+ *      cached average to the exact recomputed mean of the live rating
+ *      family as a 2-decimal 0–5 string: the first 4★ commit lands
+ *      "4.00", the second session's 2★ commit lands "3.00" (recomputed
+ *      from the family, never incremented), the race's winning 5★ commit
+ *      lands "3.67" with an applicant-flow evaluation (no session link)
+ *      excluded; the admin directory's projected row carries the same
+ *      value, and every denied submission leaves the teacher row
+ *      byte-identical. While the service does not yet maintain the cached
+ *      average, exactly these assertions fail — the documented
+ *      pre-aggregation state, mirroring the rating service's own
+ *      test-first journey above.
  *
  * Layer contract (`test/workflows/AGENTS.md`):
  *  - NO `runInRollback` — fixtures commit in `beforeAll`; every row
@@ -65,12 +77,14 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/backend/db";
+import { TeacherRepository } from "@/backend/db/repo";
 import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transaction";
 import { wallet } from "@/backend/db/schema/billing/wallet";
 import { session } from "@/backend/db/schema/classes/session";
 import { sessionRequestIdempotency } from "@/backend/db/schema/classes/session-request-idempotency";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
 import { evaluations } from "@/backend/db/schema/teachers/evaluations";
+import { createTestEvaluation } from "@/backend/db/test/entity-setup";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
@@ -86,6 +100,7 @@ import type {
   EvaluationSubmitInput,
   SessionReturnType,
   SessionSubmitInput,
+  TeacherSelectType,
   TeacherTransactionSelectType,
   WalletSelectType,
 } from "@/backend/types";
@@ -106,12 +121,13 @@ import {
 const LOCALE = "en";
 
 /**
- * Idempotency keys for the four bookings (rated, scheduled, stamp-only,
- * race) — per-run unique via the journey prefix, carried verbatim into
- * the service (never trimmed, never coerced).
+ * Idempotency keys for the five bookings (rated, recomputed, scheduled,
+ * stamp-only, race) — per-run unique via the journey prefix, carried
+ * verbatim into the service (never trimmed, never coerced).
  */
 const JOURNEY_PREFIX = journeyPrefix("teachers");
 const KEY_RATED = `${JOURNEY_PREFIX}-rated`;
+const KEY_RECOMPUTED = `${JOURNEY_PREFIX}-recomputed`;
 const KEY_SCHEDULED = `${JOURNEY_PREFIX}-scheduled`;
 const KEY_STAMP_ONLY = `${JOURNEY_PREFIX}-stamp`;
 const KEY_RACE = `${JOURNEY_PREFIX}-race`;
@@ -140,11 +156,20 @@ let sessionStampOnly: SessionReturnType;
 /** Session C — booked by the student, dual-confirmed, then raced on (the duplicate leg). */
 let sessionRace: SessionReturnType;
 
+/** Session E — booked by the student, dual-confirmed, then rated 2★ (the recompute leg). */
+let sessionRecomputed: SessionReturnType;
+
 /** The rating row produced by the content leg (assigned by its step). */
 let ratedRating: EvaluationReturnType | undefined;
 
 /** The winning rating row of the concurrent duplicate leg. */
 let raceRating: EvaluationReturnType | undefined;
+
+/** The rating row of the recompute leg (assigned by its step). */
+let recomputedRating: EvaluationReturnType | undefined;
+
+/** The applicant-flow evaluation row (no session link) committed ahead of the race leg. */
+let applicantEvaluation: EvaluationSelectType | undefined;
 
 /**
  * The rating service's contract, declared test-side so this suite
@@ -250,6 +275,22 @@ function requiredRating(value: EvaluationReturnType | undefined, label: string):
   return value;
 }
 
+/** Narrows a nullable teacher read to a row, failing loudly when null. */
+function requiredTeacherRow(value: TeacherSelectType | null, label: string): TeacherSelectType {
+  if (value === null) {
+    throw new Error(`journey: expected a teacher row for ${label}`);
+  }
+  return value;
+}
+
+/** Narrows the captured applicant-flow evaluation row, failing loudly when absent. */
+function requiredApplicantEvaluation(value: EvaluationSelectType | undefined): EvaluationSelectType {
+  if (value === undefined) {
+    throw new Error("journey: expected the applicant evaluation row (a prerequisite leg failed)");
+  }
+  return value;
+}
+
 /** Narrows a nullable wallet read to a row, failing loudly when null. */
 function requiredWalletRow(value: WalletSelectType | null, label: string): WalletSelectType {
   if (value === null) {
@@ -267,6 +308,14 @@ function walletTotal(value: WalletSelectType | null): number {
 async function readEvaluationRow(id: number): Promise<EvaluationSelectType | null> {
   const rows = await db.select().from(evaluations).where(eq(evaluations.id, id)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Reads the rated teacher's row through the repository (cold read — the
+ * journey holds no transaction of its own).
+ */
+function readTeacherRow(): Promise<TeacherSelectType | null> {
+  return TeacherRepository.findById(cast.teacher.userId);
 }
 
 /** Number of live-or-not rating rows for one (session, rater) pair. */
@@ -395,10 +444,11 @@ beforeAll(async () => {
   await db.transaction(async tx => {
     cast = await buildSessionJourneyCast(tx, registry, {
       prefix: JOURNEY_PREFIX,
-      // The rating student books FOUR sessions (rated, scheduled,
-      // stamp-only, race): each booking holds one escrow unit and the
-      // confirmed one consumes it, so four lanes must be available.
-      primaryStudent: { trial: 2, hifz: 2 },
+      // The rating student books FIVE sessions (rated, recomputed,
+      // scheduled, stamp-only, race): each booking holds one escrow unit
+      // and the confirmed ones consume theirs, so five lanes must be
+      // available.
+      primaryStudent: { trial: 2, hifz: 3 },
     });
   });
   // No realtime delivery for the whole suite: every publish is recorded.
@@ -525,7 +575,54 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
     expect(await countNotificationsForUser(cast.admin.userId)).toBe(notificationsOthersBefore[3]);
   });
 
+  test("step 3a — the first rating's commit maintains the rated teacher's cached average", async () => {
+    // One live rating row (score 80) behind the cached column: the stored
+    // average is 80 / 20, the exact 2-decimal string "4.00".
+    const teacherRow = requiredTeacherRow(await readTeacherRow(), "the rated teacher");
+    expect(teacherRow.averageRating).toBe("4.00");
+  });
+
+  test("step 3b — a second dual-confirmed session rated 2★ recomputes the average over the full family", async () => {
+    sessionRecomputed = await bookTrackedSession(
+      cast.primaryStudent.userId,
+      KEY_RECOMPUTED,
+      "key recomputed (student)"
+    );
+    const confirmed = await driveToDualConfirmation(sessionRecomputed);
+    sessionRecomputed = confirmed;
+
+    const submitted = await studentEvaluationService().submitTeacherEvaluation(
+      cast.primaryStudent.userId,
+      sessionRecomputed.id,
+      { rating: 2 },
+      LOCALE
+    );
+    recomputedRating = submitted;
+    registry.track("evaluations", submitted.id);
+    expect(submitted.evaluatedId).toBe(cast.teacher.userId);
+    expect(submitted.evaluatorId).toBe(cast.primaryStudent.userId);
+    expect(submitted.sessionId).toBe(sessionRecomputed.id);
+    expect(submitted.score).toBe(40);
+    expect(await countEvaluationsFor(sessionRecomputed.id, cast.primaryStudent.userId)).toBe(1);
+
+    // Two live rating rows (80 + 40): the stored average is (80 + 40) / 2 / 20 —
+    // the exact string "3.00", recomputed from the family, never incremented
+    // from the prior "4.00".
+    const teacherRow = requiredTeacherRow(await readTeacherRow(), "the rated teacher after the second rating");
+    expect(teacherRow.averageRating).toBe("3.00");
+  });
+
+  test("step 3c — the admin teacher directory observes the maintained average", async () => {
+    // The directory's projected row shape, read straight from the
+    // repository — the journey asserts the data tier, not a GraphQL tier.
+    const directory = await TeacherRepository.listDirectory({}, 10, 0);
+    const directoryRow = directory.rows.find(row => row.id === cast.teacher.userId);
+    expect(directoryRow).toBeDefined();
+    expect(directoryRow?.averageRating).toBe("3.00");
+  });
+
   test("step 4 — a sequential re-submit is denied as already-submitted and writes nothing", async () => {
+    const teacherRowBefore = requiredTeacherRow(await readTeacherRow(), "the teacher row before the denial");
     const caught = await expectServiceDenial(
       "EVALUATION_ALREADY_SUBMITTED",
       errorTexts().evaluationAlreadySubmitted,
@@ -549,11 +646,32 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
       expect(rowAfter.score).toBe(80);
       expect(rowAfter.createdAt.getTime()).toBe(rated.createdAt.getTime());
     }
+
+    // The denied submission left the rated teacher's row byte-identical.
+    expect(await readTeacherRow()).toEqual(teacherRowBefore);
+  });
+
+  test("step 4a — an applicant evaluation of the same teacher exists outside the rating family", async () => {
+    // The applicant flow's evaluation row carries NO session link and is
+    // not a student rating — it must never join the rated teacher's live
+    // rating family. It commits here, ahead of the race leg's rating, so
+    // the winner's recompute provably skips it.
+    await db.transaction(async tx => {
+      applicantEvaluation = await createTestEvaluation(tx, cast.teacher.userId, cast.secondTeacher.userId, null, {
+        score: 90,
+      });
+      registry.track("evaluations", applicantEvaluation.id);
+    });
+    expect(applicantEvaluation?.evaluatedId).toBe(cast.teacher.userId);
+    expect(applicantEvaluation?.sessionId).toBeNull();
+    expect(applicantEvaluation?.score).toBe(90);
   });
 
   test("step 5 — two concurrent submits on a fresh dual-confirmed session: exactly ONE row, one loser denied", async () => {
     sessionRace = await bookTrackedSession(cast.primaryStudent.userId, KEY_RACE, "key race (student)");
     await driveToDualConfirmation(sessionRace);
+
+    const teacherRowBefore = requiredTeacherRow(await readTeacherRow(), "the teacher row before the race");
 
     // Both submissions are dispatched concurrently on the production
     // path — each opens its own top-level transaction, and the UNIQUE
@@ -604,6 +722,34 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
 
     // Exactly ONE row exists for the raced pair.
     expect(await countEvaluationsFor(sessionRace.id, cast.primaryStudent.userId)).toBe(1);
+
+    // The loser's rollback wrote nothing, and the only teacher-row columns
+    // a committed rating may move are the cached average and its update
+    // stamp — every other column is byte-identical (the exact post-race
+    // average is asserted by the next step).
+    const teacherRowAfter = requiredTeacherRow(await readTeacherRow(), "the teacher row after the race");
+    expect(teacherRowAfter.id).toBe(teacherRowBefore.id);
+    expect(teacherRowAfter.isApproved).toBe(teacherRowBefore.isApproved);
+    expect(teacherRowAfter.isEvaluator).toBe(teacherRowBefore.isEvaluator);
+    expect(teacherRowAfter.isOnline).toBe(teacherRowBefore.isOnline);
+    expect(teacherRowAfter.subjects).toBe(teacherRowBefore.subjects);
+    expect(teacherRowAfter.requestPreference).toBe(teacherRowBefore.requestPreference);
+    expect(teacherRowAfter.createdAt).toEqual(teacherRowBefore.createdAt);
+  });
+
+  test("step 5a — the race's winning rating joins the family: the recompute excludes the applicant evaluation", async () => {
+    // The winner (score 100) joins the live family {80, 40}: the stored
+    // average is (80 + 40 + 100) / 3 / 20 — the exact string "3.67". The
+    // applicant evaluation committed before the race (score 90, no session
+    // link) contributes nothing to the family.
+    const teacherRow = requiredTeacherRow(await readTeacherRow(), "the rated teacher after the race");
+    expect(teacherRow.averageRating).toBe("3.67");
+
+    // The applicant row is still on record — excluded, not removed.
+    const applicant = requiredApplicantEvaluation(applicantEvaluation);
+    const applicantRow = await readEvaluationRow(applicant.id);
+    expect(applicantRow?.sessionId).toBeNull();
+    expect(applicantRow?.score).toBe(90);
   });
 
   test("step 6 — a `scheduled` session is denied as not-completed, zero rows", async () => {
@@ -612,6 +758,7 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
     expect(sessionScheduled.confirmedByTeacherAt).toBeNull();
     expect(sessionScheduled.confirmedByStudentAt).toBeNull();
 
+    const teacherRowBefore = requiredTeacherRow(await readTeacherRow(), "the teacher row before the denial");
     const caught = await expectServiceDenial(
       "EVALUATION_SESSION_NOT_COMPLETED",
       errorTexts().evaluationSessionNotCompleted,
@@ -626,6 +773,9 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
     expect(caught).toBeInstanceOf(ConflictError);
 
     expect(await countEvaluationsFor(sessionScheduled.id, cast.primaryStudent.userId)).toBe(0);
+
+    // The denied submission left the rated teacher's row byte-identical.
+    expect(await readTeacherRow()).toEqual(teacherRowBefore);
   });
 
   test("step 7 — a teacher-stamp-only session (student stamp absent) is denied the same way, zero rows", async () => {
@@ -639,6 +789,9 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
     expect(completed.confirmedByTeacherAt).not.toBeNull();
     expect(completed.confirmedByStudentAt).toBeNull();
 
+    // Snapshotted after the completion handshake (the start flow moves the
+    // teacher's availability flag): the DENIAL must leave the row identical.
+    const teacherRowBefore = requiredTeacherRow(await readTeacherRow(), "the teacher row before the denial");
     const caught = await expectServiceDenial(
       "EVALUATION_SESSION_NOT_COMPLETED",
       errorTexts().evaluationSessionNotCompleted,
@@ -653,9 +806,14 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
     expect(caught).toBeInstanceOf(ConflictError);
 
     expect(await countEvaluationsFor(sessionStampOnly.id, cast.primaryStudent.userId)).toBe(0);
+
+    // The denied submission left the rated teacher's row byte-identical.
+    expect(await readTeacherRow()).toEqual(teacherRowBefore);
   });
 
   test("step 8 — another student and an unknown id get the byte-identical not-found denial; the owner's row is untouched", async () => {
+    const teacherRowBefore = requiredTeacherRow(await readTeacherRow(), "the teacher row before the oracle denials");
+
     // A real non-participant targets a REAL session: oracle-denied.
     const foreignDenial = await expectServiceDenial("SESSION_NOT_FOUND", errorTexts().sessionNotFound, () =>
       studentEvaluationService().submitTeacherEvaluation(
@@ -689,25 +847,37 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
     expect(rowBefore).not.toBeNull();
     const rowAfter = await readEvaluationRow(rated.id);
     expect(rowAfter).toEqual(rowBefore);
+
+    // The denied probes left the rated teacher's row byte-identical too.
+    expect(await readTeacherRow()).toEqual(teacherRowBefore);
   });
 
   test("step 9 — the rater's evaluation list is exactly the submitted rows, newest first; nobody else's", async () => {
     const ownRows = await studentEvaluationService().listMyTeacherEvaluations(cast.primaryStudent.userId);
-    expect(ownRows).toHaveLength(2);
+    expect(ownRows).toHaveLength(3);
 
     const rated = requiredRating(ratedRating, "content leg");
     const raced = requiredRating(raceRating, "duplicate leg");
+    const recomputed = requiredRating(recomputedRating, "second session leg");
 
-    // Newest first: the raced row (submitted later) leads. Every field of
+    // Newest first: the raced row (submitted later) leads, the second
+    // session's 2★ row follows, the content row is oldest. Every field of
     // each read-back row equals the row the submission returned.
     const newest = ownRows[0];
-    const oldest = ownRows[1];
+    const middle = ownRows[1];
+    const oldest = ownRows[2];
     expect(newest?.id).toBe(raced.id);
     expect(newest?.sessionId).toBe(sessionRace.id);
     expect(newest?.score).toBe(100);
     expect(newest?.evaluatorId).toBe(cast.primaryStudent.userId);
     expect(newest?.evaluatedId).toBe(cast.teacher.userId);
     expect(newest?.createdAt.getTime()).toBe(raced.createdAt.getTime());
+    expect(middle?.id).toBe(recomputed.id);
+    expect(middle?.sessionId).toBe(sessionRecomputed.id);
+    expect(middle?.score).toBe(40);
+    expect(middle?.evaluatorId).toBe(cast.primaryStudent.userId);
+    expect(middle?.evaluatedId).toBe(cast.teacher.userId);
+    expect(middle?.createdAt.getTime()).toBe(recomputed.createdAt.getTime());
     expect(oldest?.id).toBe(rated.id);
     expect(oldest?.sessionId).toBe(sessionRated.id);
     expect(oldest?.score).toBe(80);
@@ -723,16 +893,21 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
 
   test("step 10 — teardown worklist is complete: every service-created row is tracked for the afterAll hard-delete", () => {
     expect(registry.ids("session").toSorted((a, b) => a - b)).toEqual(
-      [sessionRated.id, sessionScheduled.id, sessionStampOnly.id, sessionRace.id].toSorted((a, b) => a - b)
-    );
-    expect(registry.ids("session_request_idempotency")).toHaveLength(4);
-    expect(registry.ids("evaluations").toSorted((a, b) => a - b)).toEqual(
-      [requiredRating(ratedRating, "content leg").id, requiredRating(raceRating, "duplicate leg").id].toSorted(
+      [sessionRated.id, sessionScheduled.id, sessionStampOnly.id, sessionRace.id, sessionRecomputed.id].toSorted(
         (a, b) => a - b
       )
     );
+    expect(registry.ids("session_request_idempotency")).toHaveLength(5);
+    expect(registry.ids("evaluations").toSorted((a, b) => a - b)).toEqual(
+      [
+        requiredRating(ratedRating, "content leg").id,
+        requiredRating(raceRating, "duplicate leg").id,
+        requiredRating(recomputedRating, "second session leg").id,
+        requiredApplicantEvaluation(applicantEvaluation).id,
+      ].toSorted((a, b) => a - b)
+    );
     // 14 fixture rows (7 users + 2 students + 2 teachers + 1 applicant +
-    // 1 parent + 1 admin) + 4 sessions + 4 idempotency claims + 2 ratings.
-    expect(registry.trackedCount()).toBe(24);
+    // 1 parent + 1 admin) + 5 sessions + 5 idempotency claims + 4 ratings.
+    expect(registry.trackedCount()).toBe(28);
   });
 });

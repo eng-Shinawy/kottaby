@@ -1,6 +1,7 @@
 /**
  * EvaluationRepository tests — the `evaluations` table's data-access layer
- * (`insertOnce`, `listByEvaluator`) against the live test database.
+ * (`insertOnce`, `listByEvaluator`, `aggregateLiveRatings`) against the live
+ * test database.
  *
  * Per `backend/db/test/AGENTS.md`:
  *  - Rollback-isolated tests run inside `runInRollback`; `tx` is passed to
@@ -53,6 +54,15 @@
  *    write, no global-handle fallback, caller-scoped read (no rated-subject
  *    filter parameter), no i18n/logger/console, one namespace, no
  *    plan-artifact references.
+ *  - aggregateLiveRatings tier (runInRollback): the live family mean is
+ *    the exact JS-number average with the honest sample count; applicant
+ *    rows (NULL session), soft-deleted rows, and NULL-score rows are each
+ *    excluded from BOTH the mean and the count; an empty family and a
+ *    fully-excluded family yield the honest `{ averageScore: null,
+ *    ratingCount: 0 }`; scale boundaries 20/100 arrive as exact JS
+ *    numbers (the float8 cast guarantee); absurd subject ids are
+ *    bound-parameter safe — no match, and an id beyond the int4 domain is
+ *    rejected loudly by the parameter typing (raw 22003).
  *  - tx propagation: an insert made with the explicit `tx` inside
  *    `runInRollback` is absent afterwards, observed via a fresh executor
  *    read against the table.
@@ -79,7 +89,7 @@ import {
 } from "@/backend/db/test/entity-setup";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
-import type { DBTransaction, EvaluationSelectType } from "@/backend/types";
+import type { DBTransaction, EvaluationRatingAggregateType, EvaluationSelectType } from "@/backend/types";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
 /** PostgreSQL error code for `unique_violation`. */
@@ -87,6 +97,9 @@ const PG_UNIQUE_VIOLATION = "23505";
 
 /** PostgreSQL error code for `foreign_key_violation`. */
 const PG_FOREIGN_KEY_VIOLATION = "23503";
+
+/** PostgreSQL error code for `numeric_value_out_of_range`. */
+const PG_NUMERIC_VALUE_OUT_OF_RANGE = "22003";
 
 /** The `evaluations` select-shape keys (TS property names), locale-sorted. */
 const EVALUATION_ROW_KEYS = [
@@ -127,6 +140,13 @@ async function createConfirmedSession(tx: DBTransaction, cast: Omit<RatingCast, 
     confirmedByTeacherAt: new Date(),
     confirmedByStudentAt: new Date(),
   });
+}
+
+/** Creates one extra rater (user + student role-child row) beyond the primary cast. */
+async function createExtraRater(tx: DBTransaction): Promise<number> {
+  const raterUser = await createTestUser(tx, { role: "student" });
+  await createTestStudent(tx, raterUser.id);
+  return raterUser.id;
 }
 
 /**
@@ -440,6 +460,143 @@ describe("EvaluationRepository — transactional paths (runInRollback)", () => {
   });
 });
 
+describe("EvaluationRepository.aggregateLiveRatings — the live-family aggregate (runInRollback)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("the live family mean is the exact JS-number average with the honest sample count", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const ratedSession = await createConfirmedSession(tx, cast);
+      const raterTwo = await createExtraRater(tx);
+      const raterThree = await createExtraRater(tx);
+      await createTestEvaluation(tx, cast.evaluatedId, raterTwo, ratedSession.id, { score: 60 });
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, ratedSession.id, { score: 80 });
+      await createTestEvaluation(tx, cast.evaluatedId, raterThree, ratedSession.id, { score: 100 });
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate.averageScore).toBe(80);
+      expect(aggregate.ratingCount).toBe(3);
+      // The float8 cast is the guarantee: both values arrive as JS
+      // numbers, never the strings a bare numeric would produce.
+      expect(typeof aggregate.averageScore).toBe("number");
+      expect(typeof aggregate.ratingCount).toBe("number");
+    });
+  });
+
+  // ─── Tier 2: boundary / exclusion matrix ────────────────────────────
+
+  test("applicant rows (NULL session_id) are excluded from both the mean and the count", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const ratedSession = await createConfirmedSession(tx, cast);
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, ratedSession.id, { score: 60 });
+      // The applicant shape: the same rated subject, no session, score 90.
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, null, { score: 90 });
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate).toEqual({ averageScore: 60, ratingCount: 1 });
+    });
+  });
+
+  test("soft-deleted rating rows are excluded from both the mean and the count", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const ratedSession = await createConfirmedSession(tx, cast);
+      const deletedRater = await createExtraRater(tx);
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, ratedSession.id, { score: 60 });
+      await createTestEvaluation(tx, cast.evaluatedId, deletedRater, ratedSession.id, {
+        isDeleted: true,
+        deletedAt: new Date(),
+        score: 100,
+      });
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate).toEqual({ averageScore: 60, ratingCount: 1 });
+    });
+  });
+
+  test("NULL-score rows are excluded from both the mean and the count", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const ratedSession = await createConfirmedSession(tx, cast);
+      const unscoredRater = await createExtraRater(tx);
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, ratedSession.id, { score: 60 });
+      await createTestEvaluation(tx, cast.evaluatedId, unscoredRater, ratedSession.id, { score: null });
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate).toEqual({ averageScore: 60, ratingCount: 1 });
+    });
+  });
+
+  test("an empty family yields the honest null aggregate (never a fabricated zero)", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate).toEqual({ averageScore: null, ratingCount: 0 });
+    });
+  });
+
+  test("a rated subject whose rows are ALL excluded (only applicant rows) yields the honest null too", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, null, { score: 90 });
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate).toEqual({ averageScore: null, ratingCount: 0 });
+    });
+  });
+
+  test("the 0-100 scale floor: a single score-20 rating aggregates as the exact JS number 20", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const ratedSession = await createConfirmedSession(tx, cast);
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, ratedSession.id, { score: 20 });
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate.averageScore).toBe(20);
+      expect(aggregate.ratingCount).toBe(1);
+    });
+  });
+
+  test("the 0-100 scale ceiling: a single score-100 rating aggregates as the exact JS number 100", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const ratedSession = await createConfirmedSession(tx, cast);
+      await createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, ratedSession.id, { score: 100 });
+
+      const aggregate = await EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx);
+
+      expect(aggregate.averageScore).toBe(100);
+      expect(aggregate.ratingCount).toBe(1);
+    });
+  });
+
+  // ─── Tier 4: absurd ids ─────────────────────────────────────
+
+  test("absurd rated-subject ids are bound-parameter safe: no match, and an unrepresentable id is rejected loudly", async () => {
+    await runInRollback(async tx => {
+      // Zero and negative ids bind fine and match nothing.
+      expect(await EvaluationRepository.aggregateLiveRatings(0, tx)).toEqual({ averageScore: null, ratingCount: 0 });
+      expect(await EvaluationRepository.aggregateLiveRatings(-7, tx)).toEqual({ averageScore: null, ratingCount: 0 });
+      // An id beyond the int4 column's domain cannot silently coerce into
+      // a match: the parameter typing itself rejects it with the raw
+      // numeric-out-of-range violation, untranslated.
+      const rangeError = await expectRepoError(() =>
+        EvaluationRepository.aggregateLiveRatings(Number.MAX_SAFE_INTEGER + 1, tx)
+      );
+      expect(hasPostgresErrorCode(rangeError, PG_NUMERIC_VALUE_OUT_OF_RANGE)).toBe(true);
+    });
+  });
+});
+
 describe("EvaluationRepository — concurrency tier (committed fixtures, independent transactions)", () => {
   // Two transactions racing for the same unique key need real PostgreSQL's
   // cross-connection index-entry serialization. PGlite is single-connection
@@ -485,6 +642,41 @@ describe("EvaluationRepository — concurrency tier (committed fixtures, indepen
       if (rejection?.status !== "rejected") throw new Error("expected one rejected outcome");
       expect(hasPostgresErrorCode(rejection.reason, PG_UNIQUE_VIOLATION)).toBe(true);
       expect(constraintNameOf(rejection.reason)).toBe("evaluations_session_evaluator_unique");
+    }
+  );
+
+  testOnRealPostgres(
+    "two concurrent aggregateLiveRatings reads of one committed family agree on a stable aggregate",
+    async () => {
+      const cast = await createCommittedCast();
+      const secondRaterId = await db.transaction(async tx => {
+        const rater = await createTestUser(tx, { role: "student" });
+        await createTestStudent(tx, rater.id);
+        committedUserIds.push(rater.id);
+        return rater.id;
+      });
+      const first = await db.transaction(tx =>
+        createTestEvaluation(tx, cast.evaluatedId, cast.evaluatorId, cast.sessionId, { score: 80 })
+      );
+      const second = await db.transaction(tx =>
+        createTestEvaluation(tx, cast.evaluatedId, secondRaterId, cast.sessionId, { score: 60 })
+      );
+      committedEvaluationIds.push(first.id, second.id);
+
+      const outcomes = await Promise.allSettled([
+        db.transaction(tx => EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx)),
+        db.transaction(tx => EvaluationRepository.aggregateLiveRatings(cast.evaluatedId, tx)),
+      ]);
+
+      const aggregates: EvaluationRatingAggregateType[] = [];
+      for (const outcome of outcomes) {
+        if (outcome.status !== "fulfilled") throw new Error("expected both concurrent reads to resolve");
+        aggregates.push(outcome.value);
+      }
+      // Both readers of the same committed family agree on the full mean —
+      // a read cannot corrupt the family and cannot double-count.
+      expect(aggregates[0]).toEqual({ averageScore: 70, ratingCount: 2 });
+      expect(aggregates[1]).toEqual(aggregates[0]);
     }
   );
 });
@@ -573,13 +765,17 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
       signatures.push(repoSource.slice(start, close));
       start = repoSource.indexOf("export async function ", close);
     }
-    expect(signatures).toHaveLength(2);
+    expect(signatures).toHaveLength(3);
     expect(signatures[0]?.startsWith("export async function insertOnce(")).toBe(true);
     // The write's tx is REQUIRED and is the LAST parameter.
     expect(signatures[0]?.trimEnd().endsWith("tx: DBTransaction")).toBe(true);
     expect(signatures[1]?.startsWith("export async function listByEvaluator(")).toBe(true);
     // The read's executor is OPTIONAL and is the LAST parameter.
     expect(signatures[1]?.trimEnd().endsWith("tx?: DBQueryExecutor")).toBe(true);
+    expect(signatures[2]?.startsWith("export async function aggregateLiveRatings(")).toBe(true);
+    // The aggregate's tx is REQUIRED and is the LAST parameter — it is a
+    // same-transaction read whose result feeds a write on that tx.
+    expect(signatures[2]?.trimEnd().endsWith("tx: DBTransaction")).toBe(true);
   });
 
   test("source: bound parameters only, no wildcard select, no prepared statements, no SQL line comments", () => {
@@ -589,8 +785,13 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
     expect(repoSource.includes("sql.placeholder")).toBe(false);
     expect(repoSource.includes("inArray")).toBe(false);
     expect(repoSource.includes("sql.raw")).toBe(false);
-    expect(repoSource.includes("${")).toBe(false);
     expect(repoSource.includes("--")).toBe(false);
+    // The ONLY template interpolation is the Drizzle schema-column ref
+    // inside the aggregate's sql fragment (bound, parameterized — never
+    // a JS value concatenated into SQL text).
+    const interpolations = repoSource.match(/\$\{[^}]*\}/g) ?? [];
+    expect(interpolations).toHaveLength(1);
+    expect(interpolations[0]).toContain("evaluations.score");
   });
 
   test("source: soft-delete exclusion is NULL-safe on both read paths", () => {
@@ -599,10 +800,11 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
   });
 
   test("source: caller-scoped read, database-owned arbiter, no i18n/logger/console, one namespace", () => {
-    // The ONLY numeric filter parameter is the caller's evaluator id — no
-    // rated-subject (evaluatedId) parameter exists to widen the read.
+    // The list read stays caller-scoped: the evaluator id is its only
+    // filter. The aggregate is keyed BY the rated subject, so its single
+    // `evaluatedId` parameter is the family's key, not a widening knob.
     expect(repoSource.match(/evaluatorId: number/g) ?? []).toHaveLength(1);
-    expect(repoSource.includes("evaluatedId: number")).toBe(false);
+    expect(repoSource.match(/evaluatedId: number/g) ?? []).toHaveLength(1);
     // The write-once arbiter is the database's — no SELECT-then-INSERT
     // guard, no error translation in the repository.
     expect(repoSource.includes("evaluations_session_evaluator_unique")).toBe(true);

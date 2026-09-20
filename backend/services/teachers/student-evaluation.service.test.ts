@@ -47,6 +47,16 @@
  *    no notifications, no audit rows); the denial log contract (exactly one
  *    bounded `logDomainError` entry per denial, zero on happy paths, never
  *    the submitted payload content).
+ *
+ * Cached-average coverage: the submission maintains the rated teacher's
+ * cached `average_rating` in the SAME transaction — a single rating stores
+ * its own star value ("4.00"); the stored value is recomputed from the
+ * live rating family, never incremented (seeded family ⇒ exact "3.50");
+ * applicant (session-less) and soft-deleted rows never fold into the mean;
+ * boundary families store exactly "1.00" and "5.00"; a duplicate and every
+ * denial leg leave the teacher row byte-identical (full-row snapshots);
+ * concurrent same-teacher submissions both commit and land within family
+ * bounds (committed-fixture block, real-PostgreSQL gated).
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -54,13 +64,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/backend/db";
-import { EvaluationRepository, SessionRepository } from "@/backend/db/repo";
+import { EvaluationRepository, SessionRepository, TeacherRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { session } from "@/backend/db/schema/classes/session";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
 import { evaluations } from "@/backend/db/schema/teachers/evaluations";
 import { users } from "@/backend/db/schema/users/users";
 import {
+  createTestEvaluation,
   createTestSession,
   createTestStudent,
   createTestTeacherRow,
@@ -421,6 +432,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
     await runInRollback(async tx => {
       const actors = await createRatingActors(tx);
       const rated = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      const teacherBefore = await TeacherRepository.findById(actors.teacherUserId, tx);
 
       // The pre-DB denial is a pure guard (no database access at all), so
       // the five malformed shapes run as one parallel batch.
@@ -441,6 +453,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       expectDatabaseCalls(0, 0);
       expect(await countEvaluationsFor(tx, rated.id, actors.studentUserId)).toBe(0);
       expectBoundedDenialLogs("VALIDATION", "session", malformedIds.length);
+      expect(await TeacherRepository.findById(actors.teacherUserId, tx)).toEqual(teacherBefore);
     });
   });
 
@@ -448,6 +461,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
     await runInRollback(async tx => {
       const actors = await createRatingActors(tx);
       const rated = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      const teacherBefore = await TeacherRepository.findById(actors.teacherUserId, tx);
 
       // The rejections: below the floor, above the ceiling, a fractional
       // star, the NaN shape, and a string-coerced payload that skipped the
@@ -483,6 +497,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       for (const call of logCalls()) {
         expect(JSON.stringify(call.ctx)).not.toContain("TEACHER");
       }
+      expect(await TeacherRepository.findById(actors.teacherUserId, tx)).toEqual(teacherBefore);
     });
   });
 
@@ -491,6 +506,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       const actors = await createRatingActors(tx);
       const foreignStudentUserId = await createSecondStudent(tx);
       const rated = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      const teacherBefore = await TeacherRepository.findById(actors.teacherUserId, tx);
 
       const foreignError = await expectRepoError(() => submitRating(tx, foreignStudentUserId, rated.id, 4));
       expect(foreignError).toBeInstanceOf(NotFoundError);
@@ -505,6 +521,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       expect(await countEvaluationsFor(tx, rated.id, foreignStudentUserId)).toBe(0);
       expect(await countEvaluationsFor(tx, rated.id, actors.studentUserId)).toBe(0);
       expectBoundedDenialLogs("SESSION_NOT_FOUND", "session", 2);
+      expect(await TeacherRepository.findById(actors.teacherUserId, tx)).toEqual(teacherBefore);
     });
   });
 
@@ -512,6 +529,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
     await runInRollback(async tx => {
       const actors = await createRatingActors(tx);
       const stampedAt = new Date();
+      const teacherBefore = await TeacherRepository.findById(actors.teacherUserId, tx);
 
       // The constructible states: the two pre-start states, a cancelled
       // session, a completed row with only the teacher's stamp (the real
@@ -542,6 +560,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       );
 
       expectBoundedDenialLogs("EVALUATION_SESSION_NOT_COMPLETED", "session", unratableStates.length);
+      expect(await TeacherRepository.findById(actors.teacherUserId, tx)).toEqual(teacherBefore);
     });
   });
 
@@ -550,6 +569,9 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       const actors = await createRatingActors(tx);
       const rated = await insertSessionRow(tx, actors, dualConfirmedOverrides());
       const original = await submitRating(tx, actors.studentUserId, rated.id, 4);
+      // The happy write legitimately moved the cached average; the DENIAL
+      // that follows must leave that post-write state byte-identical.
+      const teacherBeforeDenial = await TeacherRepository.findById(actors.teacherUserId, tx);
       logSpyBox.spy?.mockClear();
 
       const error = await expectRepoError(() => submitRating(tx, actors.studentUserId, rated.id, 5));
@@ -571,6 +593,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       if (isRecord(ctx)) {
         expect(ctx.entity).toBe("session");
       }
+      expect(await TeacherRepository.findById(actors.teacherUserId, tx)).toEqual(teacherBeforeDenial);
     });
   });
 
@@ -584,6 +607,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       // on it immediately, durable only when the caller commits).
       const submitted = await submitRating(tx, actors.studentUserId, first.id, 3);
       expect(await countEvaluationsFor(tx, first.id, actors.studentUserId)).toBe(1);
+      const teacherBeforeDenial = await TeacherRepository.findById(actors.teacherUserId, tx);
 
       // The duplicate denial fails INSIDE its savepoint: the savepoint
       // rolls back, the typed conflict propagates, and the caller's
@@ -591,6 +615,7 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       const duplicateError = await expectRepoError(() => submitRating(tx, actors.studentUserId, first.id, 5));
       expectDomainDenial(duplicateError, "EVALUATION_ALREADY_SUBMITTED", t().evaluationAlreadySubmitted);
       expect(await countEvaluationsFor(tx, first.id, actors.studentUserId)).toBe(1);
+      expect(await TeacherRepository.findById(actors.teacherUserId, tx)).toEqual(teacherBeforeDenial);
 
       // The same outer transaction still accepts further work.
       const followUp = await submitRating(tx, actors.studentUserId, second.id, 2);
@@ -686,6 +711,117 @@ describe("StudentEvaluationService — transactional write pipeline (runInRollba
       // read-back did not move any counter either.
       expect(await StudentEvaluationService.listMyTeacherEvaluations(actors.studentUserId, tx)).toEqual([submitted]);
       expect(notificationsAfter).toBe(notificationsBefore);
+      expectZeroLogCalls();
+    });
+  });
+
+  test('cached average — a single 4★ rating stores exactly "4.00" on the rated teacher\'s row', async () => {
+    await runInRollback(async tx => {
+      const actors = await createRatingActors(tx);
+      const rated = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      expect((await TeacherRepository.findById(actors.teacherUserId, tx))?.averageRating).toBeNull();
+
+      await submitRating(tx, actors.studentUserId, rated.id, 4);
+
+      // One live rating (score 80) ⇒ the star-scale mean is exactly 4.00,
+      // stored as the column's decimal string.
+      expect((await TeacherRepository.findById(actors.teacherUserId, tx))?.averageRating).toBe("4.00");
+      expectZeroLogCalls();
+    });
+  });
+
+  test('cached average — recomputed from the live family, never incremented (seeded 60+50 ⇒ "3.50" after a 5★)', async () => {
+    await runInRollback(async tx => {
+      const actors = await createRatingActors(tx);
+      const seedRater = await createSecondStudent(tx);
+
+      // Two live (session-linked) ratings for the SAME teacher, scores 60
+      // and 50 — the family the fresh 5★ (100) submission joins.
+      const seedSessionOne = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      const seedSessionTwo = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      await createTestEvaluation(tx, actors.teacherUserId, seedRater, seedSessionOne.id, { score: 60 });
+      await createTestEvaluation(tx, actors.teacherUserId, seedRater, seedSessionTwo.id, { score: 50 });
+
+      const submissionSession = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      await submitRating(tx, actors.studentUserId, submissionSession.id, 5);
+
+      // (60 + 50 + 100) / 3 = 70 on the 0-100 scale ⇒ 70 / 20 = "3.50" —
+      // an incremental merge onto the pre-submission state could never
+      // produce this exact value.
+      expect((await TeacherRepository.findById(actors.teacherUserId, tx))?.averageRating).toBe("3.50");
+      expectZeroLogCalls();
+    });
+  });
+
+  test("cached average — applicant evaluations (no session link) never fold into the mean", async () => {
+    await runInRollback(async tx => {
+      const actors = await createRatingActors(tx);
+      const applicantRater = await createSecondStudent(tx);
+
+      // An applicant-evaluation row for the same teacher: session-less,
+      // score 90 — a different flow's score on the shared table.
+      await createTestEvaluation(tx, actors.teacherUserId, applicantRater, null, { score: 90 });
+      // One live rating (60) so the family the submission joins is exactly
+      // {60}, with the applicant row present on the same teacher.
+      const seedRater = await createSecondStudent(tx);
+      const seedSession = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      await createTestEvaluation(tx, actors.teacherUserId, seedRater, seedSession.id, { score: 60 });
+
+      const submissionSession = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      await submitRating(tx, actors.studentUserId, submissionSession.id, 4);
+
+      // (60 + 80) / 2 / 20 = "3.50" — the applicant row's 90 never entered
+      // the mean (its inclusion would read "3.83").
+      expect((await TeacherRepository.findById(actors.teacherUserId, tx))?.averageRating).toBe("3.50");
+      expectZeroLogCalls();
+    });
+  });
+
+  test("cached average — a soft-deleted rating never folds into the mean", async () => {
+    await runInRollback(async tx => {
+      const actors = await createRatingActors(tx);
+      const seedRater = await createSecondStudent(tx);
+      const seedSession = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      await createTestEvaluation(tx, actors.teacherUserId, seedRater, seedSession.id, {
+        score: 100,
+        isDeleted: true,
+        deletedAt: new Date(),
+      });
+
+      const submissionSession = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      await submitRating(tx, actors.studentUserId, submissionSession.id, 4);
+
+      // The deleted 100 is excluded: the family is exactly the new 80 ⇒
+      // "4.00" (its inclusion would read "4.50").
+      expect((await TeacherRepository.findById(actors.teacherUserId, tx))?.averageRating).toBe("4.00");
+      expectZeroLogCalls();
+    });
+  });
+
+  test('cached average — boundary families: an all-20 family stores "1.00" and an all-100 family stores "5.00"', async () => {
+    await runInRollback(async tx => {
+      // All-floor family: two seeded 20s + a 1★ (20) submission ⇒ 20 / 20.
+      const floorActors = await createRatingActors(tx);
+      const floorRater = await createSecondStudent(tx);
+      const floorSeedOne = await insertSessionRow(tx, floorActors, dualConfirmedOverrides());
+      const floorSeedTwo = await insertSessionRow(tx, floorActors, dualConfirmedOverrides());
+      await createTestEvaluation(tx, floorActors.teacherUserId, floorRater, floorSeedOne.id, { score: 20 });
+      await createTestEvaluation(tx, floorActors.teacherUserId, floorRater, floorSeedTwo.id, { score: 20 });
+      const floorSubmission = await insertSessionRow(tx, floorActors, dualConfirmedOverrides());
+      await submitRating(tx, floorActors.studentUserId, floorSubmission.id, 1);
+      expect((await TeacherRepository.findById(floorActors.teacherUserId, tx))?.averageRating).toBe("1.00");
+
+      // All-ceiling family: two seeded 100s + a 5★ (100) submission ⇒ 100 / 20.
+      const ceilingActors = await createRatingActors(tx);
+      const ceilingRater = await createSecondStudent(tx);
+      const ceilingSeedOne = await insertSessionRow(tx, ceilingActors, dualConfirmedOverrides());
+      const ceilingSeedTwo = await insertSessionRow(tx, ceilingActors, dualConfirmedOverrides());
+      await createTestEvaluation(tx, ceilingActors.teacherUserId, ceilingRater, ceilingSeedOne.id, { score: 100 });
+      await createTestEvaluation(tx, ceilingActors.teacherUserId, ceilingRater, ceilingSeedTwo.id, { score: 100 });
+      const ceilingSubmission = await insertSessionRow(tx, ceilingActors, dualConfirmedOverrides());
+      await submitRating(tx, ceilingActors.studentUserId, ceilingSubmission.id, 5);
+      expect((await TeacherRepository.findById(ceilingActors.teacherUserId, tx))?.averageRating).toBe("5.00");
+
       expectZeroLogCalls();
     });
   });
@@ -823,6 +959,130 @@ describe("StudentEvaluationService — production tx path (committed fixtures)",
   });
 });
 
+// ─── Concurrent same-teacher submissions (committed fixtures) ────────────
+
+describe("StudentEvaluationService — concurrent same-teacher submissions (committed fixtures)", () => {
+  let raceTeacherUserId = 0;
+  let raceStudentOneId = 0;
+  let raceStudentTwoId = 0;
+  let raceStudentThreeId = 0;
+  let raceSessionOneId = 0;
+  let raceSessionTwoId = 0;
+  let raceSessionThreeId = 0;
+
+  beforeAll(async () => {
+    await db.transaction(async tx => {
+      const actors = await createRatingActors(tx);
+      const rivalStudentId = await createSecondStudent(tx);
+      const healingStudentId = await createSecondStudent(tx);
+      raceTeacherUserId = actors.teacherUserId;
+      raceStudentOneId = actors.studentUserId;
+      raceStudentTwoId = rivalStudentId;
+      raceStudentThreeId = healingStudentId;
+      // Three dual-confirmed sessions of the SAME teacher — two for the
+      // concurrent pair, one for the sequential convergence read-back.
+      const first = await insertSessionRow(tx, actors, dualConfirmedOverrides());
+      const second = await insertSessionRow(
+        tx,
+        { teacherUserId: actors.teacherUserId, studentUserId: rivalStudentId },
+        dualConfirmedOverrides()
+      );
+      const third = await insertSessionRow(
+        tx,
+        { teacherUserId: actors.teacherUserId, studentUserId: healingStudentId },
+        dualConfirmedOverrides()
+      );
+      raceSessionOneId = first.id;
+      raceSessionTwoId = second.id;
+      raceSessionThreeId = third.id;
+    });
+    logSpyBox.spy = installLogSpy();
+  });
+
+  beforeEach(() => {
+    logSpyBox.spy?.mockClear();
+  });
+
+  afterAll(async () => {
+    logSpyBox.spy?.mockRestore();
+
+    // FK-safe hard delete: rating rows → the sessions → the shared-PK users
+    // (the rater FK is RESTRICT, so the evaluation rows go first; the
+    // residue probe makes a leaking teardown fail loudly).
+    const raceSessionIds = [raceSessionOneId, raceSessionTwoId, raceSessionThreeId].filter(id => id > 0);
+    const raceUserIds = [raceTeacherUserId, raceStudentOneId, raceStudentTwoId, raceStudentThreeId].filter(
+      id => id > 0
+    );
+    if (raceSessionIds.length > 0) {
+      await db.delete(evaluations).where(inArray(evaluations.sessionId, raceSessionIds));
+      await db.delete(session).where(inArray(session.id, raceSessionIds));
+    }
+    if (raceUserIds.length > 0) {
+      await db.delete(users).where(inArray(users.id, raceUserIds));
+    }
+    if (raceTeacherUserId > 0) {
+      expect(await db.$count(evaluations, eq(evaluations.evaluatedId, raceTeacherUserId))).toBe(0);
+    }
+  });
+
+  testOnRealPostgres(
+    "two concurrent same-teacher submissions both commit within family bounds; the next sequential submission converges exactly",
+    async () => {
+      expect((await TeacherRepository.findById(raceTeacherUserId))?.averageRating).toBeNull();
+
+      // 2★ (40) and 4★ (80) race on two sessions of the SAME teacher —
+      // no unique conflict is possible (different sessions), so both
+      // transactions insert, recompute, and write the cached average.
+      const outcomes = await Promise.allSettled([
+        StudentEvaluationService.submitTeacherEvaluation(raceStudentOneId, raceSessionOneId, { rating: 2 }, LOCALE),
+        StudentEvaluationService.submitTeacherEvaluation(raceStudentTwoId, raceSessionTwoId, { rating: 4 }, LOCALE),
+      ]);
+
+      const fulfilled = outcomes.flatMap(outcome => (outcome.status === "fulfilled" ? [outcome.value] : []));
+      const rejected = outcomes.flatMap(outcome => (outcome.status === "rejected" ? [outcome.reason] : []));
+      expect(fulfilled).toHaveLength(2);
+      expect(rejected).toHaveLength(0);
+      expect(fulfilled.map(row => row.evaluatedId)).toEqual([raceTeacherUserId, raceTeacherUserId]);
+      // `allSettled` preserves submission order, so the scores are read in
+      // that same deterministic order.
+      expect(fulfilled.map(row => row.score)).toEqual([40, 80]);
+
+      // Both rating rows committed — and the CHECK was never violated (a
+      // clamped-exceeding write would have rejected its submission).
+      expect(await db.$count(evaluations, inArray(evaluations.sessionId, [raceSessionOneId, raceSessionTwoId]))).toBe(
+        2
+      );
+
+      // Under READ COMMITTED each recompute sees some valid subset of the
+      // two-row family, so the stored value is one of the exact subset
+      // means — 40/20, (40+80)/2/20, 80/20 — never double-counted, never
+      // outside the family's bounds.
+      const stored = await TeacherRepository.findById(raceTeacherUserId);
+      const storedRating = stored?.averageRating;
+      if (typeof storedRating !== "string") {
+        throw new Error("cached average not stored as a decimal string (read-back integrity failure)");
+      }
+      expect(storedRating).toMatch(/^\d\.\d{2}$/);
+      expect(Number(storedRating)).toBeGreaterThanOrEqual(2);
+      expect(Number(storedRating)).toBeLessThanOrEqual(4);
+      expect(["2.00", "3.00", "4.00"]).toContain(storedRating);
+      expectZeroLogCalls();
+
+      // The next sequential submission recomputes from the full committed
+      // family: (40 + 80 + 100) / 3 / 20 = "3.67" — the self-healing
+      // property of the recompute-from-source contract.
+      const healing = await StudentEvaluationService.submitTeacherEvaluation(
+        raceStudentThreeId,
+        raceSessionThreeId,
+        { rating: 5 },
+        LOCALE
+      );
+      expect(healing.score).toBe(100);
+      expect((await TeacherRepository.findById(raceTeacherUserId))?.averageRating).toBe("3.67");
+    }
+  );
+});
+
 // ─── Source pins (the import/log hygiene contract, text-level) ───────────
 
 describe("StudentEvaluationService — source pins", () => {
@@ -858,7 +1118,8 @@ describe("StudentEvaluationService — source pins", () => {
     }
 
     // The ONLY cross-surface-shaped import is the shared tx helper; the
-    // repository barrel is reachable ONLY by the two rating-surface repos.
+    // repository barrel is reachable ONLY by the rating-surface repos: the
+    // evaluation surface plus the teacher row its aggregation maintains.
     const txHelperImports = specifiers.filter(specifier => specifier.includes("@/backend/lib/db/"));
     expect(new Set(txHelperImports)).toEqual(new Set(["@/backend/lib/db/with-transaction"]));
     const barrelImport = /import \{([^}]+)\} from "@\/backend\/db\/repo";/.exec(serviceSource);
@@ -870,7 +1131,7 @@ describe("StudentEvaluationService — source pins", () => {
           .map(member => member.trim())
           .filter(member => member.length > 0)
       )
-    ).toEqual(new Set(["EvaluationRepository", "SessionRepository"]));
+    ).toEqual(new Set(["EvaluationRepository", "SessionRepository", "TeacherRepository"]));
   });
 
   test("source: zero dynamic imports, zero console.*, zero raw process.env reads, zero type assertions", () => {

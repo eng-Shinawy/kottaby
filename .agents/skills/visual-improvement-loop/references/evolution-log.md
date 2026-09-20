@@ -208,3 +208,25 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   failed-ELIGIBLE kept a success-toned chip because eligibility reads as good news — the eligibility
   copy lives in the zone body; the chip stays in the failed (warning) family. → promoted:
   `references/fix-patterns.md` (new row, updated in this change).
+
+### 2026-09-20 — teacher_average_rating_aggregation_update (visual-improvement-loop run: 19 captures, 3 pages, EN+AR, pglite dev rig)
+
+- MUI `Rating` star a11y names live on the label element TEXT, not the hidden input's `aria-label`
+  (null) — star-selection capture rigs must match `label.textContent`. → landed:
+  `references/capture-protocol.md` (Version & environment gotchas, updated in this change).
+- Host-scoped cookie mismatch: inject on `localhost` + navigate `127.0.0.1` bounces guarded pages
+  exactly like auth failure — unify ONE origin across inject + captures + precheck. → landed:
+  `references/capture-protocol.md` (Sessions & auth, updated in this change).
+- Fullscreen-sheet dialogs need the WHOLE block clustered (paper justifyContent:center + content
+  flex:0 0 auto + centered title on compact) — centering only the middle while actions stay
+  bottom-pinned re-scores just as badly as top-anchoring. → landed: `references/fix-patterns.md`
+  (new row with measured before/after, updated in this change).
+- Pre-existing/sandbox: `lint:type-aware` in-process service OOM-kills below a 2.5 GB child heap in a
+  4 GB cgroup — run sub-loops with `LINT_MAX_OLD_SPACE_MB=2560 LINT_QUEUE_CONCURRENCY=1` and the dev
+  server stopped. → plan outcome only (sandbox-specific sizing).
+- Journey race-leg (concurrent submits) scores 11/4 on the PGlite single-connection rig vs 15/15 on
+  PostgreSQL — proven pre-existing/environmental via `git stash` cross-check (same 11/4 on clean
+  branch). → plan outcome only (rig-specific).
+- Landing provisioning rows with `OVERRIDING SYSTEM VALUE` does not advance identity sequences —
+  later auto-inserts collide; `setval(pg_get_serial_sequence(...), MAX(id))` after manual-ID loads.
+  → plan outcome only (rig-specific).

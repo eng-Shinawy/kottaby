@@ -72,6 +72,7 @@ The pipeline order is the contract (each stage fails closed before the next):
   3. `session_id` always populated (and SET NULL only if the session row itself is ever deleted — a historical rating then becomes a standalone record);
   4. immutability — no update/delete surface exists; exclusion is soft-delete (`is_deleted`/`deleted_at`) only.
 - The ratings themselves are **not** exposed on any teacher-facing surface yet; visibility/averaging surfaces are the aggregation consumer's scope. Until then, `myTeacherEvaluations` (the rater's own history, newest first — `EvaluationRepository.listByEvaluator`, repo :100) is the only read surface.
+- **Shipped status:** this aggregation contract is now IMPLEMENTED by the submission flow itself — the cached average is recomputed from the live family and written to the teacher row inside the rating's OWN transaction (insert → aggregate → convert → guarded update → commit). Canonical contract: [`docs/teachers/teacher-average-rating.md`](./teacher-average-rating.md). The two repository methods (`EvaluationRepository.aggregateLiveRatings`, `TeacherRepository.updateAverageRating`) compose ONLY inside this submission flow's transaction — TODAY the submission is the column's single writer, and that same-transaction discipline is the guarantee over the column. The one sanctioned future composer is the documented moderation-recompute hook (`docs/teachers/teacher-average-rating.md` §6–§7): when it ships, it MUST run the same two methods inside ITS OWN transaction, never as a second ad-hoc writer.
 
 ---
 

@@ -56,7 +56,14 @@ export function SessionRowLifecycleCtas({
           onClick={() => disputeIntent(sessionId)}
           startIcon={<DisputeActionIcon fontSize="small" />}
           data-testid={`session-action-${sessionId}-dispute`}
-          sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}
+          sx={{
+            minHeight: { xs: 44, sm: 40 },
+            px: 3,
+            // The lifecycle group hugs the inline end on wide rows — a lone
+            // dispute CTA on a wrapped line stays end-aligned like every
+            // other card's dispute CTA instead of snapping to the start.
+            marginInlineStart: { sm: "auto" },
+          }}
         >
           {t.openDispute}
         </Button>

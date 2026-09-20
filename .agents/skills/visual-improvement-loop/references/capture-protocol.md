@@ -69,6 +69,13 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
 - Storybook iframes do NOT receive the app's `next/font` CSS variables — Arabic (and other webfont
   scripts) render in a fallback font. Never flag Arabic shaping/tracking from a Storybook capture
   without confirming computed styles (`letterSpacing`, `fontFamily`) via `agent-browser eval`.
+- MUI `Rating` star a11y names live on the LABEL element TEXT ("Star 4 of 5" / "النجمة 4 من 5") and
+  the radio's accessible name — NOT on the hidden input's `aria-label` attribute (null). Star-click
+  rigs must match `label.textContent`, not `input[aria-label]` (observed 2026-09-20).
+- One origin everywhere (host-scoped cookies, observed 2026-09-20): cookies injected for `localhost`
+  are NOT sent to `127.0.0.1` — a guarded page navigated on the other host bounces to login exactly
+  like an expired session. Unify `browser-login.ts --inject`, every capture URL, and the precheck on
+  ONE origin before blaming auth.
 
 ## Useful DOM-first verifications (don't need pixels)
 

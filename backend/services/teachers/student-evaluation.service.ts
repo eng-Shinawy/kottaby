@@ -18,7 +18,14 @@
  *    non-participant student onto the identical session-not-found denial
  *    (a foreign id is byte-indistinguishable from one that never was),
  *    rejects a session whose handshake has not finished, and inserts the
- *    rating. The rater is ALWAYS the caller-supplied student id — there is
+ *    rating; the transaction then re-averages the rated teacher's live
+ *    rating family and writes the result — divided back onto the star
+ *    scale and formatted to exactly two decimals — into the teacher row's
+ *    cached average column. The recompute reads the stored rows (never an
+ *    incremental merge), so the cache is a pure function of the family the
+ *    transaction sees; a teacher row missing at that write is an internal
+ *    invariant break, logged once and raised untranslated. The rater is
+ *    ALWAYS the caller-supplied student id — there is
  *    no client-owned identity channel — and the rated subject is the
  *    session row's teacher, never an argument. The per-(session, evaluator)
  *    unique constraint is the write-once arbiter: a duplicate surfaces as
@@ -32,9 +39,11 @@
  *    free-text notes, and the server-managed update stamp stripped from
  *    the returned shape.
  *
- * Cross-surface purity: the service writes to the `evaluations` table
- * ONLY — zero notification, audit, wallet, ledger, or session-row writes,
- * and it never imports the notification or audit surfaces.
+ * Cross-surface purity: the service writes to the `evaluations` table and
+ * — inside that SAME transaction — to the rated teacher's row, where ONLY
+ * the cached average column moves; zero notification, audit, wallet,
+ * ledger, or session-row writes, and it never imports the notification or
+ * audit surfaces.
  *
  * All user-facing messages resolve through `getServerTranslations(locale)`;
  * every denial logs exactly ONE bounded `logger.logDomainError` entry
@@ -44,9 +53,9 @@
  * flow receives the SAME transaction.
  */
 
-import { EvaluationRepository, SessionRepository } from "@/backend/db/repo";
+import { EvaluationRepository, SessionRepository, TeacherRepository } from "@/backend/db/repo";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
-import { ConflictError, NotFoundError, ValidationError } from "@/backend/lib/errors";
+import { ConflictError, DomainError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import {
   assertPositiveSafeSessionId,
@@ -80,9 +89,10 @@ type ErrorsTranslations = ReturnType<typeof getServerTranslations>["errorsTransl
  * The ONE bounded denial-log entry a rejection emits: code, entity, entity
  * id, locale — never the submitted payload, never a counterparty value.
  * The `entity` label names the table `entityId` points AT, not the flow's
- * subject — every arm here carries a SESSION id, so the label is
- * consistently `"session"` (the sibling session-gate taxonomy in
- * `session-lifecycle.enforcement.ts` / `session-report.service.ts`).
+ * subject — `"session"` for every session-gated arm (the sibling
+ * session-gate taxonomy in `session-lifecycle.enforcement.ts` /
+ * `session-report.service.ts`), and `"teacher"` when the failing entity is
+ * the rated teacher's row (the aggregation's missing-profile failure).
  */
 function logDenial(message: string, code: string, entity: string, entityId: number, locale: string): void {
   logger.logDomainError(message, { code, entity, entityId, locale });
@@ -115,9 +125,14 @@ function toEvaluationReturnType(row: EvaluationSelectType): EvaluationReturnType
 /**
  * The transactional body of a rating submission: resolves the eligibility
  * probe on the caller's transaction, applies the participant oracle and
- * the completion gate, then inserts the rating with every stored column
+ * the completion gate, inserts the rating with every stored column
  * derived server-side (the rated subject from the probe row, the rater
- * from the caller, the score from the whole-star input).
+ * from the caller, the score from the whole-star input), then recomputes
+ * the rated teacher's cached average over the live rating family and
+ * writes it to the teacher row on the SAME transaction — a recompute from
+ * the stored rows, never an incremental merge. A teacher row missing at
+ * that write is an invariant break: one bounded log entry, then a plain
+ * internal error (the transaction rolls back with zero residual rows).
  */
 async function submitWithinTransaction(
   studentUserId: number,
@@ -171,6 +186,25 @@ async function submitWithinTransaction(
     },
     tx
   );
+  const aggregate = await EvaluationRepository.aggregateLiveRatings(probe.teacherId, tx);
+  if (aggregate.averageScore === null) {
+    // Unreachable by construction (the just-inserted row is live), but the
+    // honest-null contract is defended here: no live family ⇒ nothing to
+    // write, and the cached average keeps its previous value.
+    return toEvaluationReturnType(row);
+  }
+  const averageRating = (aggregate.averageScore / SCORE_POINTS_PER_STAR).toFixed(2);
+  const updatedTeacher = await TeacherRepository.updateAverageRating(probe.teacherId, averageRating, tx);
+  if (!updatedTeacher) {
+    logDenial(
+      "Teacher rating aggregation failed: the rated teacher's profile row is missing",
+      "TEACHER_PROFILE_MISSING",
+      "teacher",
+      probe.teacherId,
+      locale
+    );
+    throw new DomainError("TEACHER_PROFILE_MISSING", "Student evaluation failed: the rated teacher has no teacher row");
+  }
   return toEvaluationReturnType(row);
 }
 
@@ -189,7 +223,11 @@ export namespace StudentEvaluationService {
    * handshake has not finished (wrong status or either stamp missing) is
    * the typed not-completed conflict, and otherwise the rating is inserted
    * with the score derived server-side (`rating × 20`), the rater derived
-   * from the caller, and the rated subject derived from the session row.
+   * from the caller, and the rated subject derived from the session row —
+   * and the rated teacher's cached average is recomputed over the live
+   * rating family and written to the teacher row inside the SAME
+   * transaction (a rollback of the submission is a rollback of the average
+   * move with it).
    * A (session, rater) pair that already carries a rating surfaces the
    * typed write-once conflict — the unique constraint is the arbiter, the
    * stored rating stays byte-identical, and every other failure inside the

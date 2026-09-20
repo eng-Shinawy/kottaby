@@ -1,14 +1,17 @@
 /**
  * TeacherRepository tests — `lockForCertificationCheck` (certification lock)
- * against the live `kottaby_test_db` PostgreSQL instance.
+ * and `updateAverageRating` (the cached-rating write) against the live
+ * `kottaby_test_db` PostgreSQL instance.
  *
  * Per `backend/db/test/AGENTS.md`:
  *  - Rollback-isolated tests run inside `runInRollback`; `tx` is passed to
  *    EVERY repo call, entity-setup helper, and direct Drizzle query.
  *  - Entities are created ONLY via `entity-setup.ts` helpers plus a
  *    file-local shared-PK teacher-row helper — never seed data.
- *  - No `expect(...).rejects.toThrow()` — the method signals a missing row
- *    by returning `null`, so this suite has no throwing paths to probe.
+ *  - No `expect(...).rejects.toThrow()` — the lock signals a missing row by
+ *    returning `null`, and the cached-rating write's one error path (the
+ *    raw CHECK violation) is probed through `expectRepoError` inside an
+ *    explicit SAVEPOINT bracket so the outer transaction stays queryable.
  *  - The concurrency tier must commit its fixtures (a row lock held across
  *    two independent transactions cannot live inside one rolled-back tx);
  *    those fixtures are registered and hard-deleted in `afterAll`.
@@ -42,6 +45,15 @@
  *    applicant's users.id resolving to null (an applicants row never
  *    mints certification), a governed account's flags surfaced verbatim,
  *    and idempotent re-locking inside one transaction.
+ *
+ * updateAverageRating tier (the cached-rating write, runInRollback):
+ *  - Tier 1: the exact decimal string is stored and returned; the write
+ *    refreshes `updated_at`; a recompute overwrites the prior value.
+ *  - Tier 2: an unknown id returns null and writes nothing; the payload
+ *    touches nothing beyond `average_rating` and `updated_at`.
+ *  - Tier 4: a rating beyond the 0-5 clamp raises the raw
+ *    `teacher_average_rating_check` violation (untranslated, savepoint
+ *    probe), and static pins assert the guarded REQUIRED-tx write shape.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -52,8 +64,12 @@ import { db } from "@/backend/db";
 import { TeacherRepository } from "@/backend/db/repo";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
-import { createTestApplicant, createTestUser } from "@/backend/db/test/entity-setup";
-import { runInRollback } from "@/backend/db/test/test-utils";
+import {
+  createTestTeacherRow as createTeacherRowFixture,
+  createTestApplicant,
+  createTestUser,
+} from "@/backend/db/test/entity-setup";
+import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import type { DBTransaction } from "@/backend/types";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
@@ -634,5 +650,115 @@ describe("TeacherRepository.findForEvaluationGateById", () => {
   test("source: no template interpolation, no prepared statements in the evaluation lock read", () => {
     expect(repoFindForEvaluationGateSource().includes("${")).toBe(false);
     expect(repoFindForEvaluationGateSource().includes(".prepare(")).toBe(false);
+  });
+});
+
+/** The updateAverageRating slice of the repository source (the static pin target). */
+function repoUpdateAverageRatingSource(): string {
+  const source = readFileSync(join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts"), "utf8");
+  const start = source.indexOf("export async function updateAverageRating(");
+  return source.slice(start, source.indexOf("\n  }", start));
+}
+
+describe("TeacherRepository.updateAverageRating (the cached-rating write)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("stores the exact decimal string, refreshes updatedAt, and returns the updated row", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      // The fixture stamp is pinned to the epoch so the refresh is
+      // unambiguous: now() is strictly later.
+      await createTeacherRowFixture(tx, user.id, { updatedAt: new Date(0) });
+
+      const row = await TeacherRepository.updateAverageRating(user.id, "4.25", tx);
+
+      expect(row).not.toBeNull();
+      if (!row) throw new Error("expected the updated teacher row");
+      expect(row.id).toBe(user.id);
+      // Drizzle numeric mode: the rating round-trips as the exact string.
+      expect(row.averageRating).toBe("4.25");
+      expect(row.updatedAt.getTime()).toBeGreaterThan(0);
+      // Independent read-back oracle (same tx — read-your-writes).
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.averageRating).toBe("4.25");
+      expect(reread?.updatedAt.getTime()).toBeGreaterThan(0);
+    });
+  });
+
+  test("a recompute overwrites the prior value in place (never merged or incremented)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTeacherRowFixture(tx, user.id, { averageRating: "4.25" });
+
+      const row = await TeacherRepository.updateAverageRating(user.id, "3.00", tx);
+
+      expect(row?.averageRating).toBe("3.00");
+    });
+  });
+
+  // ─── Tier 2: boundary / honest failure ──────────────────────────────
+
+  test("returns null for an unknown teacher id and writes nothing", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentTeacherId(tx);
+
+      const row = await TeacherRepository.updateAverageRating(absentId, "4.25", tx);
+
+      expect(row).toBeNull();
+      // Zero writes: no row appeared for the absent id.
+      const [absent] = await tx.select().from(teacher).where(eq(teacher.id, absentId));
+      expect(absent).toBeUndefined();
+    });
+  });
+
+  test("the payload touches nothing beyond average_rating and updated_at", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTeacherRowFixture(tx, user.id, { isEvaluator: true, subjects: '["quran"]' });
+      const [prior] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+
+      await TeacherRepository.updateAverageRating(user.id, "2.50", tx);
+
+      const [after] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(after?.isApproved).toBe(prior?.isApproved);
+      expect(after?.isEvaluator).toBe(prior?.isEvaluator);
+      expect(after?.isOnline).toBe(prior?.isOnline);
+      expect(after?.subjects).toBe(prior?.subjects);
+      expect(after?.requestPreference).toBe(prior?.requestPreference);
+      expect(after?.createdAt).toEqual(prior?.createdAt);
+    });
+  });
+
+  // ─── Tier 4: the CHECK violation surfaces untranslated (savepoint probe)
+
+  test("a rating beyond the 0-5 clamp raises the RAW teacher_average_rating_check violation", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTeacherRowFixture(tx, user.id, { averageRating: "4.25" });
+
+      await tx.execute(sql`savepoint teacher_average_rating_check_probe`);
+      const checkError = await expectRepoError(() => TeacherRepository.updateAverageRating(user.id, "9.99", tx));
+      await tx.execute(sql`rollback to savepoint teacher_average_rating_check_probe`);
+
+      expect(constraintNameOf(checkError)).toBe("teacher_average_rating_check");
+      // The repository surfaces the raw driver error untouched — no domain
+      // error class, no translated message (the service layer owns both).
+      expect(checkError.constructor.name).not.toBe("ConflictError");
+      expect(checkError.constructor.name).not.toBe("DomainError");
+      // The savepoint bracket kept the transaction queryable and the prior
+      // rating intact — the failed statement left no residue.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.averageRating).toBe("4.25");
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  test("source: updateAverageRating is a REQUIRED-tx guarded write returning the row or null", () => {
+    expect(repoUpdateAverageRatingSource()).toContain("export async function updateAverageRating(");
+    expect(repoUpdateAverageRatingSource()).toContain("teacherId: number");
+    expect(repoUpdateAverageRatingSource()).toContain("averageRating: string");
+    expect(repoUpdateAverageRatingSource()).toContain("tx: DBTransaction");
+    expect(repoUpdateAverageRatingSource()).toContain(".returning()");
   });
 });

@@ -134,7 +134,12 @@ export function LoginForm() {
             </Alert>
           ) : null}
 
-          <AuthSubmitButton label={t.loginSubmit} loading={loading} />
+          {/* Extra rhythm beat before the primary CTA — the uniform
+              stack gap reads tight between the options row and the
+              form-submitting action. */}
+          <Box sx={{ mt: 1.5 }}>
+            <AuthSubmitButton label={t.loginSubmit} loading={loading} />
+          </Box>
         </Stack>
       </Box>
 

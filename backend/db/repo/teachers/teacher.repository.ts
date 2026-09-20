@@ -30,6 +30,15 @@
  *    field-by-field (no spread of caller objects), and the guarded UPDATE
  *    folds its precondition (`is_approved = false`) into the WHERE clause so
  *    the predicate and the mutation are one statement (no TOCTOU window).
+ *  - `updateAverageRating` is the cached-average write in that same guarded
+ *    single-statement form: row identity in the WHERE clause, a member-built
+ *    payload (the already-converted 0-5 decimal-string rating plus
+ *    `updated_at`), `RETURNING` the row. The value is an exact decimal
+ *    string (Drizzle numeric mode is string-typed — a JS float would
+ *    round-trip through float64), the database's
+ *    `teacher_average_rating_check` is the final clamp, and a zero-row
+ *    result means the id had no teacher row (the caller owns the
+ *    semantics).
  *  - No prepared statements on writes; no `inArray`; raw driver errors
  *    (e.g. a duplicate-PK `23505`) surface untranslated — the service layer
  *    owns error mapping.
@@ -433,6 +442,46 @@ export namespace TeacherRepository {
         updatedAt: sql`now()`,
       })
       .where(eq(teacher.id, id))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Writes the teacher's cached `average_rating` in ONE guarded UPDATE:
+   * row identity in the WHERE clause, `RETURNING` the updated row.
+   *
+   * The value arrives already converted to the column's 0-5 decimal(3,2)
+   * scale as an exact decimal string (Drizzle numeric mode is
+   * string-typed — a JS float would round-trip through float64 and break
+   * the column's exact-decimal discipline) and is clamped by the
+   * database's `teacher_average_rating_check`: an out-of-range value
+   * surfaces as the raw `23514` violation, untranslated (a violated clamp
+   * is a defect to surface loudly, never to mask). The payload is built
+   * member-by-member — the rating string plus `updated_at` — never a
+   * spread of a caller object, so no client-controlled byte reaches the
+   * row. No prepared statement (writes are excluded), no `inArray`.
+   *
+   * `tx` is REQUIRED: the write joins the caller's atomic unit of work, so
+   * the rating row that produced this value commits or rolls back with it.
+   * The only intended caller is the evaluation submission flow (single-
+   * writer discipline over the cached column).
+   *
+   * @param teacherId  The teacher row's id (shared PK with `users.id`).
+   * @param averageRating  The cached average as an exact decimal string,
+   *                       e.g. "4.25".
+   * @param tx  REQUIRED transaction — never the global handle.
+   * @returns The updated teacher row, or `null` when zero rows matched
+   *          (no `teacher` row for the id — the caller owns the semantics).
+   */
+  export async function updateAverageRating(
+    teacherId: number,
+    averageRating: string,
+    tx: DBTransaction
+  ): Promise<TeacherSelectType | null> {
+    const [row] = await tx
+      .update(teacher)
+      .set({ averageRating, updatedAt: sql`now()` })
+      .where(eq(teacher.id, teacherId))
       .returning();
     return row ?? null;
   }
