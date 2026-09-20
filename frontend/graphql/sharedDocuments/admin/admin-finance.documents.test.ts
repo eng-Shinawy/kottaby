@@ -312,7 +312,7 @@ describe("admin-finance documents — id + selection shapes", () => {
 
   test("the AdminWithdrawalQueuePage wrapper selects the honest envelope and no id (embedded value type)", () => {
     const wrapper = selectionPath(operationOrThrow(adminPendingWithdrawalsQueryDocument), "adminPendingWithdrawals");
-    expect(fieldNames(wrapper)).toEqual(["items", "totalCount", "page", "pageSize"]);
+    expect(fieldNames(wrapper)).toEqual(["items", "totalCount", "totalAmount", "page", "pageSize"]);
     expect(fieldNames(wrapper)).not.toContain("id");
   });
 

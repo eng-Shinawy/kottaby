@@ -89,6 +89,7 @@ export const adminFinanceEn: AdminFinanceLabels = {
   forbiddenBody: "You don't have permission to view the financial auditing console.",
   paymentsEmpty: "No payments match the current filters.",
   withdrawalsEmpty: "No withdrawal requests are pending.",
+  withdrawalsPendingTotal: (total: string) => `Pending payout total: ${total} EGP`,
   inspectorEmpty: "No wallet transactions to display.",
   walletEmptyHint: "Pick a teacher above to review their balance and recent transactions.",
 };

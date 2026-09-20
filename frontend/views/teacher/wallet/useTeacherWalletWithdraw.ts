@@ -24,6 +24,8 @@ import { Errors, useAppTranslation, Wallet } from "@/shared/locale";
 /** Wiring the withdrawal mutation needs from the container. */
 export interface TeacherWalletWithdrawWiring {
   readonly setNotice: (notice: ContainerNotice) => void;
+  /** Fired after an ACCEPTED payout write (the ledger re-bases on it). */
+  readonly onSettled?: () => void;
 }
 
 export interface TeacherWalletWithdraw {
@@ -39,7 +41,7 @@ export interface TeacherWalletWithdraw {
 export function useTeacherWalletWithdraw(wiring: TeacherWalletWithdrawWiring): TeacherWalletWithdraw {
   const t = useAppTranslation(Wallet);
   const te = useAppTranslation(Errors);
-  const { setNotice } = wiring;
+  const { setNotice, onSettled } = wiring;
 
   // Withdrawal-dialog open slot + the in-flight submit marker.
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
@@ -78,6 +80,9 @@ export function useTeacherWalletWithdraw(wiring: TeacherWalletWithdrawWiring): T
           setInFlight(false);
           setWithdrawDialogOpen(false);
           setNotice({ message: t.withdrawSuccessNotice, severity: "success" });
+          // The ledger is a separate paginated read — the new pending row
+          // reshuffled it, so re-base on a fresh first page.
+          onSettled?.();
         },
         onError: mutationError => {
           setInFlight(false);
@@ -93,7 +98,7 @@ export function useTeacherWalletWithdraw(wiring: TeacherWalletWithdrawWiring): T
         },
       });
     },
-    [requestWithdrawal, te, t, setNotice]
+    [requestWithdrawal, te, t, setNotice, onSettled]
   );
 
   return { withdrawDialogOpen, openDialog, closeDialog, inFlight, handleWithdraw };

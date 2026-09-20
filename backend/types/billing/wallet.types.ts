@@ -15,4 +15,18 @@ export type WalletViewType = {
   readonly transactions: readonly TeacherTransactionSelectType[];
 };
 
+/**
+ * One page of the caller's paginated ledger read (`myWalletLedger`): the
+ * newest-first window plus the pagination truth (`totalCount` + `hasMore`)
+ * so the client can drive a "load more" affordance without guessing.
+ * The row shape is the SAME canonical `teacher_transaction` select row the
+ * `Wallet.transactions` page exposes — one ledger row type across both
+ * surfaces.
+ */
+export type WalletLedgerPageViewType = {
+  readonly rows: readonly TeacherTransactionSelectType[];
+  readonly totalCount: number;
+  readonly hasMore: boolean;
+};
+
 type TeacherTransactionSelectType = typeof teacherTransaction.$inferSelect;

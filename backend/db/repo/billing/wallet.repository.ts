@@ -271,6 +271,45 @@ export namespace WalletRepository {
   }
 
   /**
+   * One offset page of the newest-first ledger for one wallet — the
+   * teacher self-service "load more" primitive (`myWalletLedger`). Same
+   * ordering (`id` DESC) and row shape as `listRecentTransactions`; the
+   * service clamps the window, the repository executes it verbatim.
+   *
+   * @returns Up to `limit` ledger rows starting at `offset`, newest first.
+   */
+  export async function listTransactionsPage(
+    walletId: number,
+    limit: number,
+    offset: number,
+    tx?: DBTransaction
+  ): Promise<TeacherTransactionSelectType[]> {
+    const executor = tx ?? db;
+    return executor
+      .select()
+      .from(teacherTransaction)
+      .where(eq(teacherTransaction.walletId, walletId))
+      .orderBy(desc(teacherTransaction.id))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  /**
+   * Total ledger row count for one wallet — the pagination truth behind
+   * the paged read (`hasMore` = offset + rows.length < count).
+   *
+   * @returns The number of ledger rows the wallet carries.
+   */
+  export async function countTransactions(walletId: number, tx?: DBTransaction): Promise<number> {
+    const executor = tx ?? db;
+    const rows = await executor
+      .select({ total: sql<number>`count(*)::int` })
+      .from(teacherTransaction)
+      .where(eq(teacherTransaction.walletId, walletId));
+    return rows[0]?.total ?? 0;
+  }
+
+  /**
    * Newest-first admin-audit page over one wallet's `teacher_transaction`
    * ledger with optional type/status/date-window filters — one-to-one
    * delegation to the admin module (same signature and behavior).
@@ -340,6 +379,18 @@ export namespace WalletRepository {
    */
   export async function countPendingWithdrawals(tx?: DBTransaction): Promise<number> {
     return walletRepositoryAdminImpl.countPendingWithdrawals(tx);
+  }
+
+  /**
+   * Sum of the pending-withdrawal settlement queue amounts — the exact same
+   * predicate as `listPendingWithdrawals` / `countPendingWithdrawals`
+   * (analytics-counter parity), aggregated server-side as a decimal TEXT
+   * string (money discipline: never a JS number).
+   *
+   * @returns The queue's total pending amount as a decimal string.
+   */
+  export async function sumPendingWithdrawals(tx?: DBTransaction): Promise<string> {
+    return walletRepositoryAdminImpl.sumPendingWithdrawals(tx);
   }
 
   /**

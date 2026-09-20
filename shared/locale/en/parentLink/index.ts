@@ -40,6 +40,10 @@ export const parentLinkEn: ParentLinkLabels = {
   outgoingEmptyBody: "When you send a link request, its status will appear here.",
   sendRequestAction: "Send link request",
   sendRequestSuccessToast: "Link request sent.",
-  requestPendingNotice: "A link request to this student is already pending.",
+  // Inline INFO alert for the SUCCESSFUL send (mutation resolved with a row).
+  // Success-flavored copy — the "already pending" conflict wording belongs to
+  // the `denied` path (`errors.parentLinkAlreadyPending`), not this branch
+  // (QA finding: success toast + conflict notice rendered together).
+  requestPendingNotice: "Link request sent — it stays pending until the student approves it.",
   sendUnavailableNotice: "This link request can't be sent right now. Please try again later.",
 };

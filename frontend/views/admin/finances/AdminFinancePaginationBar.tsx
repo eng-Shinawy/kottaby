@@ -39,6 +39,12 @@ export function AdminFinancePaginationBar({
   onPageChange,
 }: Readonly<AdminFinancePaginationBarProps>): ReactNode {
   const t = useAppTranslation(AdminFinance);
+  // An empty dataset has nothing to page — the bar (caption + dead disabled
+  // controls) reads as UI noise over an empty state, so it renders nothing.
+  // The count caption (a separate element) still explains the emptiness.
+  if (totalCount === 0) {
+    return null;
+  }
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page + 1, totalPages);
 

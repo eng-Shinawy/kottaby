@@ -21,8 +21,9 @@
  * targets, keyboard-focusable dialog (`aria-labelledby`).
  */
 
-import { TextField } from "@mui/material";
+import { Stack, TextField } from "@mui/material";
 import { type ReactNode, useEffect, useState } from "react";
+import { SettlementAmountRow } from "@/frontend/views/admin/finances/SettlementAmountRow";
 import {
   GovernanceDialogActions,
   GovernanceFormDialog,
@@ -32,6 +33,9 @@ import { AdminFinance, Errors, useAppTranslation } from "@/shared/locale";
 interface RejectWithdrawalDialogProps {
   /** The teacher whose withdrawal is being rejected (the testids key on it). */
   readonly transactionId: string;
+  /** The pending amount (pre-formatted, the queue row's own display form) —
+   *  shown so the rejection context names the restored sum, not just the id. */
+  readonly amount: string;
   readonly open: boolean;
   /** Dismiss intent — ignored while the mutation is pending. */
   readonly onClose: () => void;
@@ -46,6 +50,7 @@ interface RejectWithdrawalDialogProps {
 /** Confirm-and-reject dialog for one pending withdrawal (mandatory reason). */
 export function RejectWithdrawalDialog({
   transactionId,
+  amount,
   open,
   onClose,
   onSubmit,
@@ -116,6 +121,11 @@ export function RejectWithdrawalDialog({
         />
       }
     >
+      {/* The denial context — the amount the teacher will get back. Reuse of
+          the approve dialog's labeled value row (one recipe, both dialogs). */}
+      <Stack sx={{ mb: 2 }}>
+        <SettlementAmountRow amount={amount} testId="reject-withdrawal-amount" />
+      </Stack>
       <TextField
         label={t.rejectReasonLabel}
         placeholder={t.rejectReasonPlaceholder}

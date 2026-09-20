@@ -64,7 +64,7 @@ graph LR
 *Rationale:* The guarded `balance >= amount` debit predicate is what makes drain races lose by construction.
 
 **D3 — The "422" AC reconciles to the typed transport code.**
-*Context:* Ticket says "rejected with 422 'Insufficient wallet balance'"; GraphQL has no per-error HTTP status; the shipped denial is `ConflictError("WALLET_INSUFFICIENT_FUNDS", …)` riding `errors[].extensions.code` (`docs/graphql/domain-error-extensions-code.md:9`; taxonomy `backend/lib/errors/error-code-taxonomy.ts:52-62`); the teacher UI routes on the CODE (`useTeacherWalletWithdraw.ts:86-91`).
+*Context:* Ticket says "rejected with 422 'Insufficient wallet balance'"; GraphQL has no per-error HTTP status; the shipped denial is `ConflictError("WALLET_INSUFFICIENT_FUNDS", …)` riding `errors[].extensions.code` (`docs/graphql/domain-error-extensions-code.md:9`; taxonomy `backend/lib/errors/error-code-taxonomy.ts:45-47`); the teacher UI routes on the CODE (`useTeacherWalletWithdraw.ts:86-91`).
 *Decision:* REQ-104 records the reconciliation as the binding ruling; no code change.
 
 **D4 — One journey leg is genuinely missing; it ships inside this plan.**
@@ -405,7 +405,7 @@ Run via `bun run test/scripts/run-test.ts test/workflows/billing/admin-financial
 | A5 | Settlement model canonical doc | `docs/billing/admin-financial-auditing.md` §2 `:46` · §3 `:71` · §5 `:148-158` |
 | A6 | Invariants | `docs/specs/state-machine-invariants.md` INV-W1..W8 `:191-198` |
 | A7 | Journey harness rules | `test/workflows/AGENTS.md:8-97` |
-| A8 | Error taxonomy / wire codes | `backend/lib/errors/error-code-taxonomy.ts:52-62` · `docs/graphql/domain-error-extensions-code.md` |
+| A8 | Error taxonomy / wire codes | `backend/lib/errors/error-code-taxonomy.ts:45-47` · `docs/graphql/domain-error-extensions-code.md` |
 | A9 | Client error routing | `frontend/views/teacher/wallet/useTeacherWalletWithdraw.ts:86-91` |
 | A10 | Prior ratifications (reserve-at-request) | `ai/finished_plans/milestone_3_parent_portal_admin_governance/admin-financial-auditing-payments-wallet/plan.md:34-37` · `ai/finished_plans/milestone_2_matching_notifications_escrow/fee_escrow_and_teacher_wallet_crediting-crediting/specs.md:48` |
 

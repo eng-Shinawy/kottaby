@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 // audit-R4: shared keyboard-focus ring (v9 ButtonBase ships none).
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import type { MyNotificationsQuery_myNotifications_items } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 import { resolveNotificationRoute } from "@/frontend/lib/notification-route-resolution";
 import { Common, Notifications, useAppLocale, useAppTranslation } from "@/shared/locale";
 
@@ -147,8 +147,25 @@ function NotificationDrawerList({
               >
                 {item.title}
               </Typography>
-              <Typography variant="caption" sx={theme => ({ color: theme.palette.text.secondary, flexShrink: 0 })}>
-                <time dateTime={item.createdAt}>{formatApplicantDate(item.createdAt, locale)}</time>
+              <Typography
+                variant="caption"
+                dir="ltr"
+                title={formatApplicantDate(item.createdAt, locale)}
+                sx={theme => ({
+                  color: theme.palette.text.secondary,
+                  flexShrink: 0,
+                  // ASCII stamp in an isolated LTR box — the ICU `ar` stamp
+                  // embeds RLM controls that visually reorder the stamp
+                  // against the row's RTL base direction ("19/09/2026، 16:52"
+                  // renders as "16:52 2026/09/19"); the byte-stable ASCII
+                  // stamp + isolate detaches it (round-4 drawer QA finding,
+                  // same class as the round-1 wallet stamps). The locale-aware
+                  // full stamp rides the native `title` tooltip.
+                  unicodeBidi: "isolate",
+                  fontVariantNumeric: "tabular-nums",
+                })}
+              >
+                <time dateTime={item.createdAt}>{formatLedgerStamp(item.createdAt)}</time>
               </Typography>
             </Stack>
             {item.body === null ? null : (

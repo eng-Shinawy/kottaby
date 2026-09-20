@@ -89,7 +89,7 @@ export function DisputeCaseReportBlock({
 }>): ReactNode {
   return (
     <Stack sx={{ gap: 1.5 }}>
-      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+      <Typography variant="body2" sx={{ fontWeight: 600, unicodeBidi: "isolate" }} dir="auto">
         {notes}
       </Typography>
       <SessionMetaCell label={ratingLabel} value={rating.toString()} />
@@ -108,7 +108,11 @@ export function DisputeCaseRecitationBlock({
       <Typography variant="body2" sx={{ fontWeight: 600 }}>
         {recitation.name}
       </Typography>
-      <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
+      <Typography
+        variant="body2"
+        sx={theme => ({ color: theme.palette.text.secondary, unicodeBidi: "isolate" })}
+        dir="auto"
+      >
         {recitation.description ?? NO_VALUE_PLACEHOLDER}
       </Typography>
     </Stack>

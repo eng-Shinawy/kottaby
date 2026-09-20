@@ -15,6 +15,7 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 import type { SubmitSessionReportInput } from "@/frontend/graphql/generated/gql/graphql";
 import { toCodegenSubmitInput } from "@/frontend/views/teacher/sessions/sessionReportConversions";
 import { ReviewState } from "@/frontend/views/teacher/sessions/TeacherSessionReportDialog.parts";
+import { TeacherSessionReportHomeworkReview } from "@/frontend/views/teacher/sessions/TeacherSessionReportHomeworkReview";
 import { SubmitForm } from "@/frontend/views/teacher/sessions/TeacherSessionReportSubmitForm";
 import {
   buildSubmitPayload,
@@ -62,7 +63,7 @@ export function TeacherSessionReportDialog({
     madi: null,
     previousGrades: null,
   });
-  const { reportQuery, historyQuery, loading, hasReport } = useTeacherSessionReportQueries({
+  const { reportQuery, homeworkQuery, historyQuery, loading, hasReport } = useTeacherSessionReportQueries({
     sessionId,
     studentId,
     open,
@@ -110,7 +111,16 @@ export function TeacherSessionReportDialog({
         {mode === "review" && reportQuery.data?.sessionReport ? (
           <ReviewState report={reportQuery.data.sessionReport} t={t} />
         ) : null}
-        {mode === "prepare" || mode === "submit" ? (
+        {mode === "review" || mode === "prepare" ? (
+          // The session's homework row was fetched by the queries hook but
+          // never rendered — review mode shows the recorded Jadid/Madi, prepare
+          // mode the current assignment to build the report on.
+          <TeacherSessionReportHomeworkReview homework={homeworkQuery.data?.sessionHomework ?? null} t={t} />
+        ) : null}
+        {/* Prepare mode is the read-only review above — the editable
+            sub-forms have no submit path for a started session (the
+            mutation denies it server-side), so they are submit-only. */}
+        {mode === "submit" ? (
           <SubmitForm
             mode={mode}
             form={form}

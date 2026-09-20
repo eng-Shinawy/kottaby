@@ -403,6 +403,7 @@ type AdminWithdrawalQueuePage {
   items: [AdminWithdrawalQueueRow!]!
   page: Int!
   pageSize: Int!
+  totalAmount: String!
   totalCount: Int!
 }
 
@@ -1373,6 +1374,11 @@ type Query {
   myWallet: Wallet!
 
   """
+  One newest-first page of the caller's own teacher ledger (the paginated companion of `myWallet`). The window is clamped server-side to the documented envelope (limit 1..50, offset >= 0) and the payload carries the pagination truth (totalCount + hasMore). Teacher-only; the wallet address is the verified context identity — there is no caller-supplied lookup surface.
+  """
+  myWalletLedger(limit: Int!, offset: Int!): WalletLedgerPage!
+
+  """
   The gated child's homework rows (each carrying the two parallel Jadid/Madi track blocks), newest-session-first, paged. Track block composition preserves per-field nullability — a null grade stays null, a fully-null track block collapses to null, never fabricated zeros.
   """
   parentChildHomework(page: Int, pageSize: Int, studentId: Int!): ParentHomeworkPage!
@@ -1845,4 +1851,10 @@ type Wallet {
 enum WalletAdjustmentDirection {
   Credit
   Debit
+}
+
+type WalletLedgerPage {
+  hasMore: Boolean!
+  rows: [TeacherTransaction!]!
+  totalCount: Int!
 }

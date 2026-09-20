@@ -5,18 +5,16 @@
  * (the admin financial auditing console): the payments audit panel, the
  * withdrawal payout queue, and the teacher wallet inspector.
  *
- * Tab state mirrors the teachers surface's shareable-URL contract: the
- * active tab lives in the `?tab=` query string (values `payments` |
- * `withdrawals` | `wallet`; ANY unknown/absent value resolves to the
- * default payments tab — fail-safe single-direction flag) and is mirrored
- * back through `router.replace` (`{ scroll: false }`, no history churn).
- * The wallet tab additionally reads the `?teacherId=` deep link once on
- * mount (a sanitized numeric token — junk falls back to the unpicked
- * picker state), and the picker's own selection writes the param back.
+ * Tab state mirrors the teachers surface's shareable-URL contract — the
+ * bidirectional `?tab=` / `?teacherId=` wiring lives in
+ * {@link useFinancesUrlState}; this container is the view over it.
  *
  * Panels stay MOUNTED while hidden (the `hidden` attribute — the MUI
  * TabPanel recipe) so switching tabs preserves each tab's filter/page
- * state; all three tab queries run from mount.
+ * state; all three tab queries run from mount. The withdrawals tab label
+ * carries a LIVE pending-count badge (the same queue document at the
+ * narrowest window; the settlement mutations refetch it by name, so it
+ * self-updates on every approve/reject).
  *
  * The settlement/adjustment mutations live in the panels' dialogs; every
  * outcome surfaces a container-level snackbar through
@@ -31,17 +29,15 @@
  */
 
 import { Box, Card, Stack, Tab, Tabs } from "@mui/material";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { type ReactNode, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { DirectoryPageHeader } from "@/frontend/views/admin/directory-shared/DirectoryPageHeader";
-import {
-  type FinancesTab,
-  parseFinancesUrlTab,
-  parseTeacherIdParam,
-} from "@/frontend/views/admin/finances/finances-url-state";
+import type { FinancesTab } from "@/frontend/views/admin/finances/finances-url-state";
 import { PaymentsAuditPanel } from "@/frontend/views/admin/finances/PaymentsAuditPanel";
+import { usePendingWithdrawalCount } from "@/frontend/views/admin/finances/useAdminFinanceQueries";
+import { useFinancesUrlState } from "@/frontend/views/admin/finances/useFinancesUrlState";
 import { WalletInspectorPanel } from "@/frontend/views/admin/finances/WalletInspectorPanel";
 import { WithdrawalQueuePanel } from "@/frontend/views/admin/finances/WithdrawalQueuePanel";
+import { WithdrawalsTabLabel } from "@/frontend/views/admin/finances/WithdrawalsTabLabel";
 import { useAppTranslation } from "@/shared/locale/client";
 import { AdminFinance } from "@/shared/locale/namespaces/adminFinance";
 
@@ -52,7 +48,9 @@ const TAB_IDS: Readonly<Record<FinancesTab, { tab: string; panel: string }>> = {
   wallet: { tab: "finances-tab-wallet", panel: "finances-panel-wallet" },
 };
 
-/** The tab order of the strip, as a typed guard (no unsafe key cast). */
+/**
+ * The tab order of the strip, as a typed guard (no unsafe key cast).
+ */
 const TAB_ORDER: readonly FinancesTab[] = ["payments", "withdrawals", "wallet"];
 
 /**
@@ -61,46 +59,11 @@ const TAB_ORDER: readonly FinancesTab[] = ["payments", "withdrawals", "wallet"];
  */
 export function AdminFinancesContainer(): ReactNode {
   const t = useAppTranslation(AdminFinance);
+  // The withdrawals-tab badge: live pending-queue depth.
+  const pendingCount = usePendingWithdrawalCount();
 
-  // ── Shareable-URL wiring ────────────────────────────────────────────
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
-  const [activeTab, setActiveTab] = useState<FinancesTab>(() => parseFinancesUrlTab(searchParams));
-  // The wallet picker's deep-link seed — read ONCE on mount (a live params
-  // ref would re-seed on every URL write; the picker owns later edits) as
-  // the initial picker selection.
-  const [teacherIdSeed] = useState<number | null>(() => parseTeacherIdParam(searchParams));
-  // The picker's CURRENT selection (initialized from the mount seed and
-  // mirrored back into the URL by the write effect below — the wallet
-  // tab's own key). Handed down to the panel so the wallet query follows
-  // every picker change.
-  const [walletTeacherId, setWalletTeacherId] = useState<number | null>(teacherIdSeed);
-
-  // Sync the picked teacher down to the panel when the URL seed changes
-  // (mount-once read; the picker's own writes flow back up through here).
-  const handleWalletTeacherChange = (teacherId: number | null): void => {
-    setWalletTeacherId(teacherId);
-  };
-
-  // URL write effect — mirrors the ACTIVE tab's view back into the query
-  // string (defaults omitted: a pristine surface shares as the bare path).
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (activeTab !== "payments") {
-      params.set("tab", activeTab);
-    }
-    if (activeTab === "wallet" && walletTeacherId !== null) {
-      params.set("teacherId", String(walletTeacherId));
-    }
-    const urlQuery = params.toString();
-    const currentQuery = searchParams.toString();
-    if (currentQuery !== urlQuery) {
-      router.replace(urlQuery === "" ? pathname : `${pathname}?${urlQuery}`, { scroll: false });
-    }
-    // `currentQuery` re-runs the guard whenever the URL changes; after the
-    // replace it already mirrors the active view, so the effect skips.
-  }, [activeTab, walletTeacherId, router, pathname, searchParams]);
+  // ── Shareable-URL wiring (tab + picker seed, mirrored back to ?tab/?teacherId) ──
+  const { activeTab, setActiveTab, walletTeacherId, setWalletTeacherId } = useFinancesUrlState();
 
   const tabLabels: Readonly<Record<FinancesTab, string>> = {
     payments: t.paymentsTab,
@@ -136,7 +99,17 @@ export function AdminFinancesContainer(): ReactNode {
             <Tab
               key={tab}
               value={tab}
-              label={tabLabels[tab]}
+              label={
+                tab === "withdrawals" ? (
+                  <WithdrawalsTabLabel
+                    label={tabLabels[tab]}
+                    count={pendingCount}
+                    countTitle={t.pendingWithdrawalsCount(pendingCount)}
+                  />
+                ) : (
+                  tabLabels[tab]
+                )
+              }
               id={TAB_IDS[tab].tab}
               aria-controls={TAB_IDS[tab].panel}
               sx={{ minHeight: 48, textTransform: "none", fontWeight: 600, fontSize: 15 }}
@@ -174,7 +147,7 @@ export function AdminFinancesContainer(): ReactNode {
         aria-labelledby={TAB_IDS.wallet.tab}
         hidden={activeTab !== "wallet"}
       >
-        <WalletInspectorPanel initialTeacherId={walletTeacherId} onTeacherChange={handleWalletTeacherChange} />
+        <WalletInspectorPanel initialTeacherId={walletTeacherId} onTeacherChange={setWalletTeacherId} />
       </Box>
     </Stack>
   );

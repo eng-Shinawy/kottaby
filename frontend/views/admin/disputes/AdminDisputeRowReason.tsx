@@ -57,9 +57,15 @@ export function AdminDisputeRowReason({ sessionId, reason, t }: Readonly<AdminDi
       <Typography
         data-testid={`admin-dispute-reason-${sessionId}`}
         variant="body2"
+        dir="auto"
         sx={theme => ({
           color: theme.palette.text.secondary,
           minWidth: 0,
+          // Free-text run (Latin OR Arabic) — the isolate keeps the sentence's
+          // punctuation on the correct side against the RTL base direction
+          // (round-4 dispute-row QA finding; HTML attr survives the cssjanus
+          // flip that a CSS `direction` declaration would not).
+          unicodeBidi: "isolate",
           ...(reasonExpanded
             ? {}
             : {

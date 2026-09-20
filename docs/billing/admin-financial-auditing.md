@@ -116,7 +116,7 @@ rows still raise on any update.
 ## 4. Adjustment Vocabulary
 
 Manual balance corrections ride the EXISTING `transaction_type` vocabulary — no pgEnum change, no
-signed amounts (`teacher_transaction.amount` has a `>= 0` CHECK). Direction lives in the service
+signed amounts (`teacher_transaction.amount` has a `> 0` CHECK). Direction lives in the service
 enum `WalletAdjustmentDirection` (`backend/enum/billing/wallet-adjustment-direction.enum.ts`:
 `Credit`/`Debit`) and in the audit details — never as a column.
 
@@ -192,7 +192,11 @@ All three list surfaces share one contract:
   `repeatable read` isolation (`readInSnapshot` in the service — the audit-trail precedent), so
   `totalCount` and `items` can never tear across a concurrent producer commit. The surrounding
   identity/probe reads (admin gate, wallet probes, settlement probes) stay best-effort reads
-  outside that snapshot — no write decision trusts them.
+  outside that snapshot — no write decision trusts them. The pending-withdrawal queue
+  additionally aggregates `totalAmount` — the WHOLE queue's pending payout sum — inside the
+  same snapshot over the same predicate as `items`/`totalCount` (`WalletRepository.sumPendingWithdrawals`),
+  so the queue header renders an honest payout total for ANY queue size (the client-side page
+  sum it replaced was a partial figure on multi-page queues and had to be hidden there).
 - **Ordering:** payments audit and wallet ledger newest-first (`id DESC`); the pending-withdrawal
   queue oldest-first (`createdAt ASC`, `id` as the stable tie-breaker — longest-waiting first,
   so a backfilled row cannot be stranded behind insertion-order rows).
@@ -288,3 +292,17 @@ Short list of environment/test lessons from shipping this feature that stay true
   `bun --env-file=.env.test run scripts/lint-service.ts …`, and migrations via
   `bun --env-file=.env.test run backend/db/scripts/migrate.ts` directly. Test runners
   (`bun run test/scripts/run-test.ts`) load env themselves.
+
+---
+
+## Verification addendum (2026-09-18)
+
+Closed-the-loop verification of this reference (plan: `ai/plans/milestone_2_matching_notifications_escrow/teacher_withdrawal_workflow_&_admin_approval-withdrawal_workflow_admin_approval/`) re-proved the settlement model end-to-end. Facts landed by that run, all cited against the live tree and the plan's outcome records:
+
+- **Failed-row re-settle denial is journey-proven (step 8, `test/workflows/billing/admin-financial-auditing.journey.test.ts:935-992`).** Re-attempting BOTH `approveWithdrawal` and `rejectWithdrawal` on a settled-`failed` row denies with the localized not-pending conflict (`withdrawalNotPending` via `ConflictError`), leaves the ledger row `failed`, byte-compares the restored balance unchanged, adds zero audit rows, and dispatches nothing.
+- **DBML ↔ Drizzle ↔ live DB now agree on the amount bound (three-way agreement).** The `teacher_transaction.amount` DBML annotation was repaired to `amount > 0` (`db/schema.dbml:372`), matching the authoritative Drizzle CHECK (`backend/db/schema/billing/teacher-transaction.ts:50`) and the live-DB `teacher_transaction_amount_check`; the strict bound is test-locked by the zero-amount-movement probe (`backend/db/test/repo/billing/wallet.repository.test.ts:725-742`, `constraintNameOf` === `teacher_transaction_amount_check`).
+- **The §6.3 sequence diagram (`docs/workflows/03-session-lifecycle-escrow.md:149-160`) now states the reserve-at-request model** — reserve at request (`:149`), settle the reservation at decision (`:155`), restore on reject (`:160`) — replacing the superseded debit-at-approval wording; structure and audit-trail step preserved, mermaid validation green.
+- **Race discipline re-proven on real connections — concurrent double-settle (step 6, `test/workflows/billing/admin-financial-auditing.journey.test.ts:824-865`):** two concurrent approve calls (same admin actor) target the same pending request → exactly one approve wins (the loser receives the localized not-pending conflict), exactly one audit row, and one balance movement — the reserve was already taken at request time, so the winning approve settles the reservation instead of debiting again.
+- **settle∥new-request (step 7, `:867-933`):** the SAME-wallet race has NO loser — both legs land valid (A settles `completed`, B files as a fresh `pending` request carrying its own reserved debit) and the final balance arithmetic is exact: `start − A − B` (two request-time reserves; the settle adds no second debit). The guarded pending predicate remains the arbiter (§7), no `SELECT FOR UPDATE` anywhere.
+- **Verification evidence base:** 8 suites green this plan-run — **142 tests / 0 failures** (150 executions counting the journey suite's consecutive stability re-run) — captured under real PostgreSQL 17.11 (`DB_PROVIDER=postgres`); consolidated per-suite results and anchors in `ai/plans/milestone_2_matching_notifications_escrow/teacher_withdrawal_workflow_&_admin_approval-withdrawal_workflow_admin_approval/outcome/verification-matrix.md`; provider-switch record in `ai/plans/milestone_2_matching_notifications_escrow/teacher_withdrawal_workflow_&_admin_approval-withdrawal_workflow_admin_approval/outcome/environment-addendum.md`.
+- **Zero-dispatch withdrawal behavior re-confirmed:** `backend/enum/notifications/notification-type.enum.ts:10-18` defines no withdrawal-related notification type, every settlement journey leg asserts `expectNoDispatches()` plus zero notification rows, and the withdrawal-notification forward contract (notifications deferred to future work) stays recorded in the plan's forward-item ledger (mapped in `ai/plans/milestone_2_matching_notifications_escrow/teacher_withdrawal_workflow_&_admin_approval-withdrawal_workflow_admin_approval/outcome/verification-matrix.md`).

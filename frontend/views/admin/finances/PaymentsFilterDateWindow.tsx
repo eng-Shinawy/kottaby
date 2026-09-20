@@ -36,7 +36,11 @@ export function PaymentsFilterDateWindow({
 }: Readonly<PaymentsFilterDateWindowProps>): ReactNode {
   const t = useAppTranslation(AdminFinance);
   return (
-    <Stack sx={{ flexDirection: { xs: "column", sm: "row" }, gap: 2 }}>
+    // The from/to pair shares ONE row at every breakpoint: on the narrowest
+    // screens stacking them doubled the filter card's height and pushed the
+    // payments table entirely below the fold; half-width date inputs stay
+    // comfortably usable at 390px.
+    <Stack sx={{ flexDirection: "row", gap: 1.5 }}>
       <TextField
         fullWidth
         type="date"

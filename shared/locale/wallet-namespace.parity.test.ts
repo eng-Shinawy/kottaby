@@ -73,6 +73,7 @@ const WALLET_STRING_KEYS = [
   "createdAt",
   "ledgerEmptyTitle",
   "ledgerEmptyBody",
+  "withdrawalLedgerDescription",
 ] as const;
 
 /** Sampled keys for the sync-resolution + Arabic-script gates. */

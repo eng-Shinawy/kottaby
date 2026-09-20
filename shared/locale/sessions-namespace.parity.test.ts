@@ -213,13 +213,15 @@ const MANDATED_SESSIONS_KEYS = [
  * Keys whose values are TEMPLATE FUNCTIONS (the `DashboardLabels.welcome`
  * precedent) instead of plain strings — the arbitration count line
  * interpolates the honest total, the per-star rating aria label
- * interpolates the star position, and the Surah/Juz label resolves a
- * `SurahJuzRef` enum member value to its localized display name.
+ * interpolates the star position, the Surah/Juz label resolves a
+ * `SurahJuzRef` enum member value to its localized display name, and the
+ * grade-chip aria label composes the locale-controlled grade copy.
  */
 const FUNCTION_LABEL_KEYS: ReadonlySet<string> = new Set([
   "adminDisputesCountLine",
   "ratingStarAriaLabel",
   "surahJuzLabel",
+  "reportGradeAriaLabel",
 ]);
 
 /** Keys resolved through `getTranslations(locale)` in the sync-resolution tier. */
@@ -306,6 +308,13 @@ function stringLeafOf(localeMap: object, path: string, localeName: string): stri
   return node;
 }
 
+/** Sample arguments per function-label family (see {@link FUNCTION_LABEL_KEYS}). */
+function sampleArgsFor(key: string): unknown[] {
+  if (key === "surahJuzLabel") return ["juz_2"];
+  if (key === "reportGradeAriaLabel") return ["Jadid grade", 92];
+  return [2];
+}
+
 /**
  * Reads one label slot accepting BOTH value shapes: plain-string keys read
  * directly; template-function keys (see {@link FUNCTION_LABEL_KEYS}) resolve
@@ -318,17 +327,10 @@ function resolvedLabelOf(localeMap: object, key: string, localeName: string): st
     if (typeof fn !== "function") {
       throw new Error(`${localeName}.${key} must be a template function`);
     }
-    // Reflect.apply (not a direct call): the value is only known as
-    // `Function` here — invoking through the Reflect channel keeps the
-    // unsafe-call lint table satisfied while the result is re-narrowed.
-    // The Surah/Juz label takes a string ref argument; the numeric-key
-    // family takes a number. Pass a sample that satisfies BOTH signatures:
-    // `"juz_2"` is a valid ref for `surahJuzLabel` AND (cast at the call
-    // site of the numeric family) yields a valid sample result. The two
-    // families are exercised in detail by their dedicated test blocks; the
-    // generic loop only asserts the resolved value is a non-empty string.
-    const sampleArg: unknown = key === "surahJuzLabel" ? "juz_2" : 2;
-    const value: unknown = Reflect.apply(fn, undefined, [sampleArg]);
+    // Sample arguments per function-label family: the Surah/Juz label takes
+    // a string ref; the grade-chip aria label takes (gradeLabel, grade);
+    // the numeric-key family (count line, star aria) takes one number.
+    const value: unknown = Reflect.apply(fn, undefined, sampleArgsFor(key));
     if (typeof value !== "string" || value.length === 0) {
       throw new Error(`${localeName}.${key} must resolve to a non-empty localized string`);
     }

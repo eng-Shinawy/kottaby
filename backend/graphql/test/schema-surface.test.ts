@@ -2099,7 +2099,7 @@ describe("Admin financial row/page object shapes — exact field sets + per-fiel
     expect(Object.hasOwn(fields, "id")).toBe(false);
   });
 
-  test("AdminWithdrawalQueuePage wrapper exposes EXACTLY items/page/pageSize/totalCount", () => {
+  test("AdminWithdrawalQueuePage wrapper exposes EXACTLY items/page/pageSize/totalCount/totalAmount", () => {
     const pageType = graphQLSchema.getType("AdminWithdrawalQueuePage");
 
     if (!(pageType instanceof GraphQLObjectType)) {
@@ -2111,12 +2111,14 @@ describe("Admin financial row/page object shapes — exact field sets + per-fiel
       "items",
       "page",
       "pageSize",
+      "totalAmount",
       "totalCount",
     ]);
     expect(fields.items?.type.toString()).toBe("[AdminWithdrawalQueueRow!]!");
     expect(fields.page?.type.toString()).toBe("Int!");
     expect(fields.pageSize?.type.toString()).toBe("Int!");
     expect(fields.totalCount?.type.toString()).toBe("Int!");
+    expect(fields.totalAmount?.type.toString()).toBe("String!");
     // Wrapper is an embedded value object — no `id` (rows inside `items`
     // are the normalizable entities).
     expect(Object.hasOwn(fields, "id")).toBe(false);

@@ -2,12 +2,12 @@
 
 /**
  * WalletLedgerTableCard — the desktop (≥`md`) transaction ledger table
- * card of the admin wallet inspector (`/admin/finances`, wallet tab),
- * extracted from the original monolithic table as a focused sibling
- * component: type, status, amount (exact decimal string, grouped for
- * display only), description, date, over the shared header cell + footer
- * atoms. Loading renders stable-key skeleton rows; a zero page renders the
- * inspector's empty state.
+ * card of the admin wallet inspector (`/admin/finances`, wallet tab):
+ * type, status, amount, description, date over the shared header cell +
+ * footer atoms. The row unit lives in `WalletLedgerTableRow` (extracted
+ * to keep both modules under the file-size tier). Loading renders
+ * stable-key skeleton rows; a zero page renders the inspector's empty
+ * state.
  *
  * All copy comes from the `AdminFinance` namespace; MUI v9 `sx`-only
  * discipline, theme-palette colors.
@@ -16,19 +16,11 @@
 import { Card, Skeleton, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import type { AdminTeacherWalletQuery_adminTeacherWallet_transactions } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
-import { formatMoneyAmount } from "@/frontend/views/admin/analytics/platform-analytics-display";
 import { DirectoryHeaderCell } from "@/frontend/views/admin/directory-shared/DirectoryHeaderCell";
 import { directoryTableCardSx } from "@/frontend/views/admin/directory-shared/directory-skins";
 import { AdminFinancePaginationBar } from "@/frontend/views/admin/finances/AdminFinancePaginationBar";
 import { WalletLedgerSkeletonKeys } from "@/frontend/views/admin/finances/adminFinanceSkeletonKeys";
-import {
-  ledgerStatusLabel,
-  ledgerStatusTone,
-  ledgerTypeLabel,
-  ledgerTypeTone,
-} from "@/frontend/views/admin/finances/walletLedgerDisplay";
-import { TonalChip } from "@/frontend/views/admin/users/ui";
+import { WalletLedgerTableRow } from "@/frontend/views/admin/finances/WalletLedgerTableRow";
 import type { AdminFinanceLabels } from "@/shared/locale/types/adminFinance";
 
 interface WalletLedgerTableCardProps {
@@ -40,52 +32,6 @@ interface WalletLedgerTableCardProps {
   readonly pageSize: number;
   readonly totalCount: number;
   readonly onPageChange: (page: number) => void;
-}
-
-/** One ledger row: type/status chips, right-aligned money + date, description. */
-function LedgerRow({
-  tx,
-  index,
-  locale,
-  labels,
-}: Readonly<{
-  tx: AdminTeacherWalletQuery_adminTeacherWallet_transactions;
-  index: number;
-  locale: string;
-  labels: AdminFinanceLabels;
-}>): ReactNode {
-  return (
-    <TableRow
-      sx={theme => ({
-        ...(index % 2 === 1 && { backgroundColor: theme.palette.action.hover }),
-        "&:hover": { backgroundColor: theme.palette.action.selected },
-      })}
-    >
-      <TableCell sx={theme => ({ borderBottom: `1px solid ${theme.palette.border.light}` })}>
-        <TonalChip outlined tone={ledgerTypeTone(tx.type)} label={ledgerTypeLabel(tx.type, labels)} />
-      </TableCell>
-      <TableCell sx={theme => ({ borderBottom: `1px solid ${theme.palette.border.light}` })}>
-        <TonalChip tone={ledgerStatusTone(tx.status)} label={ledgerStatusLabel(tx.status, labels)} />
-      </TableCell>
-      <TableCell
-        sx={theme => ({
-          borderBottom: `1px solid ${theme.palette.border.light}`,
-          fontVariantNumeric: "tabular-nums",
-          textAlign: "end",
-        })}
-      >
-        <Typography variant="body2" sx={{ fontWeight: 700 }}>
-          {formatMoneyAmount(tx.amount)}
-        </Typography>
-      </TableCell>
-      <TableCell sx={theme => ({ borderBottom: `1px solid ${theme.palette.border.light}` })}>
-        <Typography variant="body2">{tx.description}</Typography>
-      </TableCell>
-      <TableCell sx={theme => ({ borderBottom: `1px solid ${theme.palette.border.light}`, textAlign: "end" })}>
-        <Typography variant="body2">{formatApplicantDate(tx.createdAt, locale)}</Typography>
-      </TableCell>
-    </TableRow>
-  );
 }
 
 /** Desktop (≥md) transaction ledger table card — the hand-rolled MUI table. */
@@ -137,7 +83,7 @@ export function WalletLedgerTableCard({
             </TableRow>
           ) : null}
           {transactions.map((tx, index) => (
-            <LedgerRow key={tx.id} tx={tx} index={index} locale={locale} labels={labels} />
+            <WalletLedgerTableRow key={tx.id} tx={tx} index={index} locale={locale} labels={labels} />
           ))}
         </TableBody>
       </Table>

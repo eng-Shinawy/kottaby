@@ -65,6 +65,10 @@ export function useAdminPendingWithdrawals() {
       : undefined);
   const items = pageData?.adminPendingWithdrawals.items ?? [];
   const totalCount = pageData?.adminPendingWithdrawals.totalCount ?? 0;
+  // The WHOLE queue's pending payout sum — aggregated server-side over the
+  // same predicate as `items` (page-size independent), so the queue header
+  // renders an honest total for multi-page queues too.
+  const totalAmount = pageData?.adminPendingWithdrawals.totalAmount ?? "0";
   const hasError = Boolean(error);
 
   const setPageSize = (nextPageSize: number): void => {
@@ -75,6 +79,7 @@ export function useAdminPendingWithdrawals() {
   return {
     items,
     totalCount,
+    totalAmount,
     page,
     pageSize,
     setPage,
@@ -94,7 +99,16 @@ export function useAdminPendingWithdrawals() {
  */
 export function useApproveWithdrawal(callbacks: MutationOutcomeCallbacks) {
   const [approveWithdrawal, { loading }] = useMutation(approveWithdrawalMutationDocument, {
-    refetchQueries: ["AdminPendingWithdrawals", "AdminTeacherWallet", "AdminStudentPayments"],
+    refetchQueries: [
+      "AdminPendingWithdrawals",
+      // The tab badge runs the SAME document at its own window ({page:1,
+      // pageSize:1}) — the by-NAME entry above does not guarantee that
+      // instance refetches, so the badge descriptor is listed explicitly
+      // (the badge must clear the instant the queue drains).
+      { query: adminPendingWithdrawalsQueryDocument, variables: { page: 1, pageSize: 1 } },
+      "AdminTeacherWallet",
+      "AdminStudentPayments",
+    ],
     awaitRefetchQueries: false,
     onCompleted: () => {
       callbacks.onSettled();
@@ -116,7 +130,13 @@ export function useApproveWithdrawal(callbacks: MutationOutcomeCallbacks) {
  */
 export function useRejectWithdrawal(callbacks: MutationOutcomeCallbacks) {
   const [rejectWithdrawal, { loading }] = useMutation(rejectWithdrawalMutationDocument, {
-    refetchQueries: ["AdminPendingWithdrawals", "AdminTeacherWallet", "AdminStudentPayments"],
+    refetchQueries: [
+      "AdminPendingWithdrawals",
+      // Same badge-instance refetch as the approve arm (see the comment there).
+      { query: adminPendingWithdrawalsQueryDocument, variables: { page: 1, pageSize: 1 } },
+      "AdminTeacherWallet",
+      "AdminStudentPayments",
+    ],
     awaitRefetchQueries: false,
     onCompleted: () => {
       callbacks.onSettled();
@@ -130,4 +150,24 @@ export function useRejectWithdrawal(callbacks: MutationOutcomeCallbacks) {
   };
 
   return { reject, loading };
+}
+
+/**
+ * usePendingWithdrawalCount — the withdrawals TAB BADGE read: the same
+ * `AdminPendingWithdrawals` document at the narrowest window
+ * (`pageSize: 1`) so `totalCount` is the only payload that matters. Lives
+ * beside the settlement mutations it depends on: those list this query
+ * instance as an EXPLICIT refetch descriptor ({query, variables}) — the
+ * by-NAME refetch does not reliably hit this instance — so the badge
+ * clears the instant the queue drains; the light poll keeps it honest
+ * when another admin (or a new teacher request) changes the queue behind
+ * this tab.
+ */
+export function usePendingWithdrawalCount(): number {
+  const { data } = useQuery(adminPendingWithdrawalsQueryDocument, {
+    variables: { page: 1, pageSize: 1 },
+    fetchPolicy: "cache-and-network",
+    pollInterval: 30_000,
+  });
+  return data?.adminPendingWithdrawals.totalCount ?? 0;
 }

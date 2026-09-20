@@ -37,7 +37,7 @@
  */
 
 import { UserRole } from "@/backend/enum/users/user-role.enum";
-import { WalletPothosObject } from "@/backend/graphql/pothos/billing/wallet.pothos";
+import { WalletLedgerPagePothosObject, WalletPothosObject } from "@/backend/graphql/pothos/billing/wallet.pothos";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { UnauthorizedError } from "@/backend/lib/errors";
 import { WalletService } from "@/backend/services";
@@ -58,10 +58,41 @@ gqlSchemaBuilder.queryField("myWallet", t =>
     resolve: async (_root, _args, ctx) => {
       // TypeScript narrowing only — see `query/teachers/applicant.query.ts`.
       if (!ctx.user) {
-        throw new UnauthorizedError("Authentication required.");
+        throw new UnauthorizedError((await ctx.t("errorsTranslations")).unauthorized);
       }
       // Zero arguments: the wallet address is the verified context identity.
       return WalletService.getMyWallet(ctx.user.id, ctx.locale);
+    },
+  })
+);
+
+// Side-effect: register the `myWalletLedger` query field — the paginated
+// ledger companion (`myWallet` always carries the first 50-row page; this
+// field serves every window beyond it for the client's "load more").
+gqlSchemaBuilder.queryField("myWalletLedger", t =>
+  t.field({
+    type: WalletLedgerPagePothosObject,
+    args: {
+      limit: t.arg.int({ required: true }),
+      offset: t.arg.int({ required: true }),
+    },
+    description:
+      "One newest-first page of the caller's own teacher ledger (the paginated companion of `myWallet`). The window is clamped server-side to the documented envelope (limit 1..50, offset >= 0) and the payload carries the pagination truth (totalCount + hasMore). Teacher-only; the wallet address is the verified context identity — there is no caller-supplied lookup surface.",
+    // Explicit `$all` conjunction per the same 401/403 split as `myWallet`.
+    authScopes: {
+      $all: {
+        authenticated: true,
+        role: [UserRole.Teacher],
+      },
+    },
+    resolve: async (_root, args, ctx) => {
+      // TypeScript narrowing only — see `query/teachers/applicant.query.ts`.
+      if (!ctx.user) {
+        throw new UnauthorizedError((await ctx.t("errorsTranslations")).unauthorized);
+      }
+      // Zero lookup arguments beyond the window: the wallet address is the
+      // verified context identity (BOLA-proof by construction).
+      return WalletService.getMyWalletLedgerPage(ctx.user.id, args.limit, args.offset, ctx.locale);
     },
   })
 );

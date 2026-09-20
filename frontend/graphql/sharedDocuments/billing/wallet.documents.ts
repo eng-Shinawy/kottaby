@@ -1,5 +1,7 @@
 import { gql, type TypedDocumentNode } from "@apollo/client";
 import type {
+  MyWalletLedgerQuery,
+  MyWalletLedgerQueryVariables,
   MyWalletQuery,
   MyWalletQueryVariables,
   RequestWithdrawalMutation,
@@ -52,6 +54,34 @@ export const myWalletQueryDocument: TypedDocumentNode<MyWalletQuery, MyWalletQue
         createdAt
         updatedAt
       }
+    }
+  }
+`;
+
+/**
+ * `myWalletLedger(limit: Int!, offset: Int!)` — one newest-first page of
+ * the caller's own ledger (the paginated companion of `myWallet`, teacher
+ * only). The payload is a `WalletLedgerPage` window (NOT the `Wallet`
+ * entity — no cache-normalization collision with `Wallet:<id>`): the row
+ * selection is byte-identical to the `Wallet.transactions` selection above
+ * so one row shape flows through both surfaces.
+ */
+export const myWalletLedgerQueryDocument: TypedDocumentNode<MyWalletLedgerQuery, MyWalletLedgerQueryVariables> = gql`
+  query MyWalletLedger($limit: Int!, $offset: Int!) {
+    myWalletLedger(limit: $limit, offset: $offset) {
+      rows {
+        id
+        walletId
+        sessionId
+        amount
+        description
+        type
+        status
+        createdAt
+        updatedAt
+      }
+      totalCount
+      hasMore
     }
   }
 `;

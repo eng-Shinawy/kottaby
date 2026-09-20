@@ -46,6 +46,6 @@ export const parentLinkAr: ParentLinkLabels = {
   outgoingEmptyBody: "عندما ترسل طلب ربط، ستظهر حالته هنا.",
   sendRequestAction: "إرسال طلب ربط",
   sendRequestSuccessToast: "تم إرسال طلب الربط.",
-  requestPendingNotice: "لديك طلب ربط قيد الانتظار لهذا الطالب بالفعل.",
+  requestPendingNotice: "تم إرسال طلب الربط — سيبقى قيد الانتظار حتى يوافق الطالب على الربط.",
   sendUnavailableNotice: "تعذر إرسال طلب الربط الآن. يرجى المحاولة لاحقاً.",
 };

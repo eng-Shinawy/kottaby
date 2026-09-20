@@ -89,3 +89,36 @@ export function formatDayMonth(iso: string, locale: string): string {
   // \u2066 = LRI (left-to-right isolate), \u2069 = PDI (pop directional isolate).
   return `\u2066${formatted}\u2069`;
 }
+
+/**
+ * Formats an ISO-8601 instant as a PURE-ASCII numeric ledger stamp
+ * (`dd/MM/yyyy HH:mm` — UTC components, 24-hour clock, Latin digits, a
+ * single ASCII space between the date and the time).
+ *
+ * Built for the FINANCIAL-table date cells (teacher wallet ledger, admin
+ * withdrawals queue, wallet inspector): those render inside a
+ * `dir="ltr"` + `unicode-bidi: isolate` box, and an ICU `ar` stamp is
+ * hostile there — its embedded RLM controls (strong RTL marks around the
+ * separators) reorder the neutral punctuation INSIDE the LTR box and
+ * visually mash the fragments ("1912:13 .2026/09/"; QA finding). Unlike
+ * `formatApplicantDate` (whose option set mirrors the backend cooldown
+ * contract and must not move), this helper emits no bidi controls and no
+ * locale punctuation at all — the glyph order is byte-stable in both
+ * document directions and across ICU builds (small-ICU sandbox vs. CI
+ * full-ICU render identically). Pair it with the isolate box; the
+ * locale-aware `formatApplicantDate` remains available for hover tooltips.
+ *
+ * @param iso - ISO-8601 instant (pass non-null values only).
+ * @returns The `dd/MM/yyyy HH:mm` stamp, or `""` for an unparseable input
+ *   (callers render the empty string as an empty cell rather than "Invalid Date").
+ */
+export function formatLedgerStamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = String(date.getUTCFullYear());
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
+}

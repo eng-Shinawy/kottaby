@@ -95,6 +95,13 @@ export interface AdminWithdrawalQueueRow {
 export interface AdminWithdrawalQueuePageReturnType {
   items: readonly AdminWithdrawalQueueRow[];
   totalCount: number;
+  /**
+   * The WHOLE queue's pending payout sum (decimal string, server-side
+   * `SUM` over the same predicate as `items`/`totalCount`) — page-size
+   * independent, so the UI can render the total for multi-page queues
+   * without the partial-figure masquerade the client-side page sum risked.
+   */
+  totalAmount: string;
   page: number;
   pageSize: number;
 }

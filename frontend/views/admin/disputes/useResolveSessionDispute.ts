@@ -4,6 +4,10 @@ import { useMutation } from "@apollo/client/react";
 import { resolveSessionDisputeMutationDocument } from "@/frontend/graphql/sharedDocuments";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { isNotFoundErrorFamily, normalizeGraphQLErrorCode } from "@/frontend/providers/apollo/error-link.map";
+import {
+  ADMIN_DISPUTE_ANALYTICS_FIELD,
+  applyResolutionToAnalytics,
+} from "@/frontend/views/admin/disputes/resolveAnalyticsConvergence";
 import { Errors, Sessions, useAppTranslation } from "@/shared/locale";
 
 /**
@@ -147,6 +151,23 @@ export function useResolveSessionDispute({
             removeSessionFromAdminQueue(existing, removedEntityId, resolved.id),
         },
       });
+      // The all-time aggregate snapshot converges TOO — without this arm
+      // the glance card (open disputes / resolved total / per-outcome
+      // chips) keeps the pre-arbitration numbers until an unrelated
+      // refetch (the stale-stats drift observed in browser QA). The
+      // resolved payload's own `resolutionOutcome` names the counter.
+      // (Captured in a const BEFORE the closure — a property access inside
+      // a callback loses the guard's narrowing.)
+      const resolutionOutcome = resolved.resolutionOutcome;
+      if (resolutionOutcome !== null) {
+        cache.modify({
+          id: "ROOT_QUERY",
+          fields: {
+            [ADMIN_DISPUTE_ANALYTICS_FIELD]: (existing: unknown) =>
+              applyResolutionToAnalytics(existing, resolutionOutcome),
+          },
+        });
+      }
     },
     onCompleted: data => {
       onResolved(data.resolveSessionDispute.id);

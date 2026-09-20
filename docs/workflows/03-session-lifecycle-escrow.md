@@ -146,17 +146,17 @@ sequenceDiagram
 
     Teacher->>System: Request withdrawal from wallet
     System->>System: Create teacher_transaction (type = withdrawal, status = pending)
-    System->>Admin: Notify withdrawal request
+    System->>System: Reserve: deduct wallet.balance (guarded balance >= amount)
+    note over System,Admin: No notification dispatch exists yet — the admin queue surface is polled, not pushed
     Admin->>System: Review withdrawal request
     alt Admin approves
         Admin->>System: Approve withdrawal
         System->>System: Set transaction status = completed
-        System->>System: Deduct from wallet.balance
-        System-->>Teacher: Withdrawal processed
+        System->>System: Settle the reservation: status pending → completed (balance already reserved at request)
     else Admin rejects
         Admin->>System: Reject withdrawal
         System->>System: Set transaction status = failed
-        System-->>Teacher: Withdrawal rejected notification
+        System->>System: Restore: wallet.balance += amount (compensation for the request-time reserve)
     end
     System->>System: Log admin action to audit trail
 ```

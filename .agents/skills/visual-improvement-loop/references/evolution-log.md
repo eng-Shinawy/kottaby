@@ -209,6 +209,24 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   copy lives in the zone body; the chip stays in the failed (warning) family. → promoted:
   `references/fix-patterns.md` (new row, updated in this change).
 
+- 2026-09-19 (teacher-withdrawal-plan visual run): Three reusable lessons landed in this change.
+  (1) A nested second top-level `db.transaction(..., {isolationLevel})` opened inside a
+  `withTransaction` block hard-fails on single-connection providers (PGlite: "Failed query: begin
+  isolation level …") and silently splits snapshots on pooled Postgres — when a visual run's
+  pre-check console gate surfaces provider-specific GraphQL INTERNAL_SERVER_ERRORs, arbitrate the
+  provider's transaction semantics BEFORE touching styles; the fix shape (live tx handle +
+  savepoint join, isolation on the withTransaction config) now exists in
+  `backend/services/billing/admin-financial-auditing.service.read.helpers.ts`. → promoted:
+  `references/capture-protocol.md` (objective pre-checks hand-off note).
+  (2) Nested git worktrees cannot run `next dev --turbopack`: Turbopack resolves only inside the
+  project root and a nested worktree has no node_modules; a hardlink copy (`cp -al`) of the parent
+  node_modules into the worktree resolves it at zero disk cost (symlinks are banned in this
+  sandbox). → landed: `references/capture-protocol.md` (sandbox setup section).
+  (3) In a 4GB sandbox the running dev server + the per-file sub-loop's type-aware eslint child
+  OOM-kill each other (SIGKILL/SIGABRT with zero lint findings) — gates and captures must not run
+  concurrently: stop the dev server for the gate run, restart for recapture. → landed:
+  `references/capture-protocol.md` (batch capture discipline).
+
 ## 2026-09-19 — Admin Subscription Management (dev-server + PGlite run)
 
 - PGlite data dirs are EXCLUSIVE per process: seeding `db/pglite` via an external `pglite-sql.ts`

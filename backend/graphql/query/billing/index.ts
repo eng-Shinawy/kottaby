@@ -9,7 +9,7 @@
  *  - Wired via side-effect barrels: this barrel → `query/index.ts` →
  *    `gqlSchema.ts`.
  *  - `subscription-admin.query.ts` registers `adminStudentSubscriptions`.
- *  - `wallet.query.ts` registers `myWallet`.
+ *  - `wallet.query.ts` registers `myWallet` and `myWalletLedger`.
  */
 import "./subscription-admin.query";
 import "./wallet.query";

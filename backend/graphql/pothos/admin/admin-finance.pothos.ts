@@ -109,7 +109,11 @@ export const AdminTeacherWalletPothosObject = gqlSchemaBuilder
 /**
  * `AdminWithdrawalQueuePage` — paginated pending-withdrawal queue
  * envelope (oldest-first: longest-waiting request first). Echoes `page` +
- * `pageSize`. Embedded wrapper — NO `id` field.
+ * `pageSize`, and carries `totalAmount` — the WHOLE queue's pending payout
+ * sum aggregated server-side over the same predicate as `items`
+ * (decimal string; page-size independent, so the UI can render the total
+ * for multi-page queues without a partial-figure masquerade). Embedded
+ * wrapper — NO `id` field.
  */
 export const AdminWithdrawalQueuePagePothosObject = gqlSchemaBuilder
   .objectRef<AdminWithdrawalQueuePageReturnType>("AdminWithdrawalQueuePage")
@@ -120,6 +124,7 @@ export const AdminWithdrawalQueuePagePothosObject = gqlSchemaBuilder
         resolve: parent => [...parent.items],
       }),
       totalCount: t.exposeInt("totalCount"),
+      totalAmount: t.exposeString("totalAmount"),
       page: t.exposeInt("page"),
       pageSize: t.exposeInt("pageSize"),
     }),

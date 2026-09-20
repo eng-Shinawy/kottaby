@@ -41,12 +41,13 @@
 import { useQuery } from "@apollo/client/react";
 import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import SavingsOutlinedIcon from "@mui/icons-material/SavingsOutlined";
-import { Button, Stack } from "@mui/material";
+import { Box, Button, Stack } from "@mui/material";
 import { type ReactNode, useCallback, useState } from "react";
 import { NoticeSnackbar } from "@/frontend/components/ui/NoticeSnackbar";
 import { myWalletQueryDocument } from "@/frontend/graphql/sharedDocuments";
 import { type ContainerNotice, SNACKBAR_AUTOHIDE_MS } from "@/frontend/views/teacher/wallet/teacherWalletShared";
 import { useTeacherWalletWithdraw } from "@/frontend/views/teacher/wallet/useTeacherWalletWithdraw";
+import { useWalletLedgerPaging } from "@/frontend/views/teacher/wallet/useWalletLedgerPaging";
 import { WalletBalanceCard } from "@/frontend/views/teacher/wallet/WalletBalanceCard";
 import { WalletBody } from "@/frontend/views/teacher/wallet/WalletBody";
 import { WithdrawDialog } from "@/frontend/views/teacher/wallet/WithdrawDialog";
@@ -70,12 +71,36 @@ export function TeacherWalletContainer(): ReactNode {
 
   const { data, loading, error } = useQuery(myWalletQueryDocument);
 
-  const withdraw = useTeacherWalletWithdraw({ setNotice });
+  // The ledger "load more" machine — a failed older-window fetch surfaces
+  // through the shared snackbar (the ledger itself stays as-is).
+  const handleLedgerError = useCallback((): void => {
+    setNotice({ severity: "error", message: t.genericError });
+  }, [t]);
+  const paging = useWalletLedgerPaging(handleLedgerError);
+  // A settlement reshuffles the ledger — re-base it on a fresh first page.
+  const handleWithdrawSettled = useCallback((): void => {
+    paging.reset();
+  }, [paging]);
+
+  const withdraw = useTeacherWalletWithdraw({ setNotice, onSettled: handleWithdrawSettled });
 
   const walletRow = data?.myWallet;
 
   return (
-    <Stack data-testid="wallet-page" spacing={3} sx={{ p: { xs: 2, sm: 3 }, width: "100%" }}>
+    <Stack
+      data-testid="wallet-page"
+      spacing={3}
+      sx={{
+        p: { xs: 2, sm: 3 },
+        width: "100%",
+        // Measured chrome above this column: the sticky app bar (64px toolbar
+        // + 1px border) plus the shell Container's vertical padding (24px per
+        // side at `sm`, 32px at `md`). Sizing the column to that remainder on
+        // `sm+` lets the ledger card stretch to the viewport's bottom edge;
+        // mobile keeps its natural, content-driven height.
+        minHeight: { sm: "calc(100dvh - 113px)", md: "calc(100dvh - 129px)" },
+      }}
+    >
       {/* ── Balance header ─────────────────────────────────────────────── */}
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ alignItems: "stretch" }}>
         <WalletBalanceCard
@@ -84,6 +109,7 @@ export function TeacherWalletContainer(): ReactNode {
           value={walletRow?.balance}
           currency={walletRow?.currency}
           loading={loading && walletRow === undefined}
+          tone="primary"
           icon={<AccountBalanceWalletOutlinedIcon fontSize="small" />}
         />
         <WalletBalanceCard
@@ -110,7 +136,9 @@ export function TeacherWalletContainer(): ReactNode {
       </Button>
 
       {/* ── Swapping body ──────────────────────────────────────────────── */}
-      <WalletBody error={error} loading={loading} data={data} locale={locale} t={t} />
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <WalletBody error={error} loading={loading} data={data} locale={locale} t={t} paging={paging} />
+      </Box>
 
       {/* ── Withdrawal dialog (single slot) ────────────────────────────── */}
       {withdraw.withdrawDialogOpen && walletRow !== undefined ? (

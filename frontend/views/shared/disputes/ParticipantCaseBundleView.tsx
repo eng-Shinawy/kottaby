@@ -4,7 +4,7 @@ import { Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { SessionMetaCell } from "@/frontend/components/ui/sessionList";
 import type { StudentDisputeCaseQuery } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 import { AdminDisputeEscrowChip } from "@/frontend/views/admin/disputes/AdminDisputeEscrowChip";
 import { NO_VALUE_PLACEHOLDER } from "@/frontend/views/shared/disputes/DisputeCasePrimitives";
 import { SESSION_FEE_CURRENCY } from "@/shared/constants";
@@ -53,8 +53,7 @@ export function ParticipantCaseSessionFacts({
   const tid = (suffix: string) => `${surface}-dispute-case-${suffix}`;
   const session = caseView.session;
   const feeText = session.fee === null ? NO_VALUE_PLACEHOLDER : `${session.fee} ${SESSION_FEE_CURRENCY}`;
-  const disputedText =
-    session.disputedAt === null ? NO_VALUE_PLACEHOLDER : formatApplicantDate(session.disputedAt, locale);
+  const disputedText = session.disputedAt === null ? NO_VALUE_PLACEHOLDER : formatLedgerStamp(session.disputedAt);
   const counterpartyLabel = caseView.counterpartyName ?? `#${caseView.counterpartyId}`;
 
   return (
@@ -77,7 +76,11 @@ export function ParticipantCaseSessionFacts({
         </Stack>
         <Stack sx={{ gap: 1.5, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline" }}>
           <SessionMetaCell label={t.fee} value={feeText} />
-          <SessionMetaCell label={t.disputedAtLabel} value={disputedText} />
+          <SessionMetaCell
+            label={t.disputedAtLabel}
+            value={disputedText}
+            stampTitle={session.disputedAt === null ? undefined : formatApplicantDate(session.disputedAt, locale)}
+          />
           <SessionMetaCell label={counterpartyLabelText} value={counterpartyLabel} />
         </Stack>
       </Stack>
@@ -88,7 +91,7 @@ export function ParticipantCaseSessionFacts({
           <Typography variant="overline" sx={theme => ({ color: theme.palette.text.secondary })}>
             {t.disputeReasonMeta}
           </Typography>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, unicodeBidi: "isolate" }} dir="auto">
             {session.disputeReason}
           </Typography>
         </Stack>

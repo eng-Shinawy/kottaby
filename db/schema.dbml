@@ -369,7 +369,7 @@ Table teacher_transaction {
   wallet_id   integer             [not null]
   session_id  integer
   description varchar(255)
-  amount      decimal(10,2)       [not null, check: `amount >= 0`]
+  amount      decimal(10,2)       [not null, check: `amount > 0`]
   type        transaction_type    [not null]
   status      transaction_status  [not null, default: 'pending']
   created_at  timestamp           [default: `now()`]

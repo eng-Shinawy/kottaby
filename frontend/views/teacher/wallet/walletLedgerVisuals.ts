@@ -62,25 +62,6 @@ export function signedAmount(row: MyWalletQuery_myWallet_transactions): string {
 }
 
 /**
- * Amount color tone — the MUI palette token per ledger type (ProfileView
- * palette-callback pattern). Exhaustive switch, no nested ternaries.
- */
-export function amountTone(type: MyWalletQuery_myWallet_transactions["type"], palette: Palette): string {
-  switch (type) {
-    case WireTransactionType.Earning:
-      return palette.success.main;
-    case WireTransactionType.Withdrawal:
-      return palette.error.main;
-    case WireTransactionType.Bonus:
-      return palette.info.main;
-    case WireTransactionType.ArbitrationReversal:
-      return palette.error.main;
-  }
-  const exhaustive: never = type;
-  throw new Error(`Unexpected transaction type: ${String(exhaustive)}`);
-}
-
-/**
  * Ledger avatar tone — the Material 3 container/on-container pair per
  * ledger type (ProfileView pattern). Exhaustive switch.
  */

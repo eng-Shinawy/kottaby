@@ -32,6 +32,12 @@ export interface WalletLabels {
   readonly amountPlaceholder: string;
   /** Live available-balance hint under the amount field (ICU {balance}). */
   readonly availableBalanceHint: (balance: string) => string;
+  /**
+   * Live preview under the quick-amount chips — the wallet balance that will
+   * remain once the typed request is accepted and its funds frozen
+   * (ICU {remaining}; renders only while the typed amount is client-valid).
+   */
+  readonly balanceAfterRequest: (remaining: string) => string;
   /** Withdrawal dialog submit CTA. */
   readonly withdrawSubmit: string;
   /** Success snackbar after an accepted withdrawal request. */
@@ -59,6 +65,41 @@ export interface WalletLabels {
   readonly statusFailed: string;
   /** Ledger column label — row timestamp. */
   readonly createdAt: string;
+  /** Ledger desktop column header — the type + description column. */
+  readonly ledgerColumnTransaction: string;
+  /** Ledger desktop column header — the row status column. */
+  readonly ledgerColumnStatus: string;
+  /** Ledger desktop column header — the signed-amount column. */
+  readonly ledgerColumnAmount: string;
+  /** Ledger card footer — every fetched row is on screen (count of visible, total fetched). */
+  readonly ledgerShownAll: (visibleCount: number, fetchedCount: number) => string;
+  /**
+   * Ledger card footer — a page window with a KNOWN server total still
+   * partially unloaded (count of visible, total on the server).
+   */
+  readonly ledgerShownPage: (visibleCount: number, totalCount: number) => string;
+  /**
+   * Ledger card footer — a full first page whose server total is not yet
+   * known (the "load more" affordance may reveal older rows).
+   */
+  readonly ledgerShownLatest: (visibleCount: number) => string;
+  /** Ledger "load more" CTA — fetches the next page of older rows. */
+  readonly ledgerLoadMore: string;
+  /**
+   * Ledger description written on the pending-withdrawal debit row (the
+   * server composes it per the requester's locale — `wallet.service`).
+   */
+  readonly withdrawalLedgerDescription: string;
+  /** Withdraw dialog — accessible name of the quick-amount chip group. */
+  readonly quickAmountsAria: string;
+  /** Withdraw dialog — the 25% quick-amount chip label. */
+  readonly quickAmountQuarter: string;
+  /** Withdraw dialog — the 50% quick-amount chip label. */
+  readonly quickAmountHalf: string;
+  /** Withdraw dialog — the 100% quick-amount chip label. */
+  readonly quickAmountFull: string;
+  /** Ledger header — accessible label of the CSV export button. */
+  readonly exportCsv: string;
   /** Empty-ledger title. */
   readonly ledgerEmptyTitle: string;
   /** Empty-ledger body. */

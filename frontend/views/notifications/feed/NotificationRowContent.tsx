@@ -14,7 +14,7 @@ import { NotificationsOutlined } from "@mui/icons-material";
 import { Box, Chip, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import type { MyNotificationsQuery_myNotifications_items } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 import { NOTIFICATION_TYPE_ICONS, NOTIFICATION_TYPE_LABEL_ACCESSORS } from "@/frontend/views/notifications/utils";
 import type { NotificationsLabels } from "@/shared/locale/types/notifications";
 
@@ -106,8 +106,22 @@ export function NotificationRowContent({
           variant="outlined"
           sx={theme => ({ minHeight: 28, color: theme.palette.text.secondary })}
         />
-        <Typography variant="caption" sx={theme => ({ color: theme.palette.text.secondary })}>
-          <time dateTime={notification.createdAt}>{formatApplicantDate(notification.createdAt, locale)}</time>
+        <Typography
+          variant="caption"
+          dir="ltr"
+          title={formatApplicantDate(notification.createdAt, locale)}
+          sx={theme => ({
+            color: theme.palette.text.secondary,
+            // ASCII stamp in an isolated LTR box — the ICU `ar` stamp embeds
+            // RLM controls that visually reorder the stamp against the row's
+            // RTL base direction (round-4 feed QA finding, same class as the
+            // round-1 wallet stamps). The locale-aware full stamp rides the
+            // native `title` tooltip.
+            unicodeBidi: "isolate",
+            fontVariantNumeric: "tabular-nums",
+          })}
+        >
+          <time dateTime={notification.createdAt}>{formatLedgerStamp(notification.createdAt)}</time>
         </Typography>
       </Stack>
     </Stack>

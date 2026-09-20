@@ -18,6 +18,7 @@ export const checkoutAr: CheckoutLabels = {
     if (days <= 10) return `صالحة لمدة ${days} أيام`;
     return `صالحة لمدة ${days} يوماً`;
   },
+  perSessionLine: (amount: string) => `≈ ${amount} للحصة`,
   laneHifz: "الحفظ",
   laneTajweed: "التجويد",
   laneReviews: "المراجعة",

@@ -20,11 +20,11 @@ import { Card, Stack, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import type { AdminPendingWithdrawalsQuery_adminPendingWithdrawals_items } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 import { formatMoneyAmount } from "@/frontend/views/admin/analytics/platform-analytics-display";
 import { directoryPanelCardSx } from "@/frontend/views/admin/directory-shared/directory-skins";
 import { WITHDRAWALS_SKELETON_KEYS } from "@/frontend/views/admin/finances/adminFinanceSkeletonKeys";
-import { QueueSettleButtons } from "@/frontend/views/admin/finances/WithdrawalQueueRows";
+import { QueueSettleButtons } from "@/frontend/views/admin/finances/WithdrawalQueueSettleButtons";
 import { withdrawalStatusLabel, withdrawalStatusTone } from "@/frontend/views/admin/finances/withdrawalStatusDisplay";
 import { TonalChip } from "@/frontend/views/admin/users/ui";
 import { useAppTranslation } from "@/shared/locale/client";
@@ -85,7 +85,24 @@ function WithdrawalMobileCardRow({
           <Typography variant="caption" component="p" sx={theme => ({ color: theme.palette.text.secondary })}>
             {t.requestedAtHeader}
           </Typography>
-          <Typography variant="body2">{formatApplicantDate(item.transaction.createdAt, locale)}</Typography>
+          <Typography
+            variant="body2"
+            dir="ltr"
+            title={formatApplicantDate(item.transaction.createdAt, locale)}
+            sx={theme => ({
+              // Isolated LTR box + pure-ASCII stamp: the ICU `ar` stamp embeds
+              // RLM controls that mash the visible order inside an RTL cell
+              // (QA finding) — the numeric stamp pins the glyph order, and the
+              // locale-aware full stamp rides the native tooltip.
+              unicodeBidi: "isolate",
+              fontVariantNumeric: "tabular-nums",
+              whiteSpace: "nowrap",
+              color: theme.palette.text.secondary,
+              cursor: "default",
+            })}
+          >
+            {formatLedgerStamp(item.transaction.createdAt)}
+          </Typography>
         </Stack>
         <QueueSettleButtons
           transactionId={item.transaction.id}

@@ -356,6 +356,53 @@ describe("WalletRepository.listPendingWithdrawals + countPendingWithdrawals", ()
       expect(page2.map(row => row.transaction.id)).toEqual([third.id]);
     });
   });
+
+  test("sumPendingWithdrawals aggregates the same predicate as a decimal string (money discipline)", async () => {
+    await runInRollback(async tx => {
+      // The aggregate is a GLOBAL sum (no wallet filter) — the demo/test DB
+      // may carry committed pending rows, so the assertions run on the DELTA
+      // around this test's own writes (same posture as the
+      // `toBeGreaterThanOrEqual` count test above).
+      const before = Number(await WalletRepository.sumPendingWithdrawals(tx));
+
+      const { walletId } = await createTeacherWithWallet(tx);
+      await createTestTeacherTransaction(tx, walletId, null, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Pending,
+        amount: "100.00",
+      });
+      await createTestTeacherTransaction(tx, walletId, null, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Pending,
+        amount: "75.50",
+      });
+      // The excluded shapes: a settled withdrawal, a failed withdrawal, and
+      // a pending EARNING — none of them joins the pending sum.
+      await createTestTeacherTransaction(tx, walletId, null, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Completed,
+        amount: "999.00",
+      });
+      await createTestTeacherTransaction(tx, walletId, null, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Failed,
+        amount: "888.00",
+      });
+      await createTestTeacherTransaction(tx, walletId, null, {
+        type: TransactionType.Earning,
+        status: TransactionStatus.Pending,
+        amount: "777.00",
+      });
+
+      const after = await WalletRepository.sumPendingWithdrawals(tx);
+      // Money discipline: the aggregate rides back as a decimal STRING.
+      expect(typeof after).toBe("string");
+      // Exactly the two pending withdrawals — scale-2 values are exact in
+      // binary floating point, so the delta comparison is honest here.
+      expect(Number(after) - before).toBe(175.5);
+      expect(after).toMatch(/^\d+(\.\d{2})?$/);
+    });
+  });
 });
 
 describe("WalletRepository.findSettlementProbe", () => {

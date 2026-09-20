@@ -158,6 +158,7 @@ export const sessionsAr: SessionsLabels = {
   reportAlreadyGradedLabel: "تم التقييم",
   reportGradeJadidLabel: "درجة الجديد",
   reportGradeMadiLabel: "درجة المراجعة",
+  reportGradeAriaLabel: (gradeLabel, grade) => `${gradeLabel}: ${grade}`,
   reportTrackEmptyLabel: "لا يوجد واجب لهذا المسار.",
   reportHistorySectionTitle: "سجل الواجب",
   reportHistoryEmptyMessage: "لا يوجد واجب سابق لهذا الطالب بعد.",

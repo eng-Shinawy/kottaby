@@ -6,6 +6,11 @@
  * select whose visible value is vertically centered, with a leading empty
  * ("any") option followed by the caller's labelled options. Callers narrow
  * the reported string back to their filter union.
+ *
+ * The label stays SHRUNKEN (persistent notch label) — the same grammar as
+ * the toolbar's country text field. Without this, an empty select hides its
+ * display value behind the placeholder-positioned label and the toolbar
+ * mixes two label styles (QA finding).
  */
 
 import { FormControl, InputLabel, MenuItem, Select } from "@mui/material";
@@ -35,7 +40,9 @@ export function DirectoryFilterSelect({
 }: DirectoryFilterSelectProps): ReactNode {
   return (
     <FormControl sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" } }}>
-      <InputLabel htmlFor={id}>{label}</InputLabel>
+      <InputLabel htmlFor={id} shrink>
+        {label}
+      </InputLabel>
       <Select
         id={id}
         value={value}

@@ -220,6 +220,33 @@ export async function countPendingWithdrawals(tx?: DBTransaction): Promise<numbe
 }
 
 /**
+ * Sum of the pending-withdrawal settlement queue amounts — the exact same
+ * predicate as `listPendingWithdrawals` / `countPendingWithdrawals`
+ * (analytics-counter parity), aggregated server-side so the admin queue
+ * header can render the payout total for ANY queue size (the round-4
+ * feature: the client previously summed only the current page, which the
+ * financial-copy honesty rule then had to hide for multi-page queues).
+ * Money discipline: the decimal SUM rides back as a TEXT decimal string —
+ * never a JS number.
+ *
+ * @returns The queue's total pending amount as a decimal string (`"0"` when
+ *   the queue is empty — COALESCE, never null).
+ */
+export async function sumPendingWithdrawals(tx?: DBTransaction): Promise<string> {
+  const executor = tx ?? db;
+  const rows = await executor
+    .select({ total: sql<string>`coalesce(sum(${teacherTransaction.amount}), 0)::text` })
+    .from(teacherTransaction)
+    .where(
+      and(
+        eq(teacherTransaction.type, TransactionType.Withdrawal),
+        eq(teacherTransaction.status, TransactionStatus.Pending)
+      )
+    );
+  return rows[0]?.total ?? "0";
+}
+
+/**
  * Narrows the raw `$inferSelect` pgEnum string-literal unions to the
  * canonical TS enums via the exhaustive map arms above (lexically identical
  * values — the same pure type-level narrowing the payment repository's

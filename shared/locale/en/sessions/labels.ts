@@ -162,6 +162,7 @@ export const sessionsEn: SessionsLabels = {
   reportAlreadyGradedLabel: "Already graded",
   reportGradeJadidLabel: "Jadid grade",
   reportGradeMadiLabel: "Madi grade",
+  reportGradeAriaLabel: (gradeLabel, grade) => `${gradeLabel}: ${grade}`,
   reportTrackEmptyLabel: "No assignment for this track.",
   reportHistorySectionTitle: "Homework history",
   reportHistoryEmptyMessage: "This student has no prior homework yet.",

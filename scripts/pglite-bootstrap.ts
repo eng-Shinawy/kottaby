@@ -43,7 +43,12 @@ async function main() {
       const statements = sql
         .split("--> statement-breakpoint")
         .map(s => s.trim())
-        .filter(s => s.length > 0 && !s.startsWith("--"));
+        // Strip leading comment lines but KEEP the statement: chunks that
+        // begin with a header comment (drizzle wraps custom SQL files in
+        // them) would otherwise be dropped wholesale, silently skipping
+        // the statement the comments document.
+        .map(s => s.replace(/^(?:\s*--[^\n]*\n)+/, "").trim())
+        .filter(s => s.length > 0);
 
       for (const stmt of statements) {
         try {
@@ -67,12 +72,15 @@ async function main() {
     }
   }
 
-  // Also apply custom immutability triggers + functions if present
-  const customFiles = [
-    join(process.cwd(), "backend/db/migration/1-extensions.sql"),
-    join(process.cwd(), "backend/db/migration/2-functions.sql"),
-    join(process.cwd(), "backend/db/migration/3-immutability-triggers.sql"),
-  ];
+  // 1-extensions.sql has no drizzle wrapper of its own (every other
+  // backend/db/migration file is wrapped as a timestamped `custom_N-*`
+  // drizzle migration dir), so it is applied here once. Files 2/3 must NOT
+  // be re-applied here: their drizzle dirs already ran in timestamp order,
+  // and later migrations (5-teacher-transaction-settlement) REPLACE the
+  // functions those files define — re-running them after the drizzle set
+  // would clobber the settlement carve-out back to the strict
+  // "everything is immutable" guard.
+  const customFiles = [join(process.cwd(), "backend/db/migration/1-extensions.sql")];
   for (const file of customFiles) {
     try {
       const sql = readFileSync(file, "utf-8");

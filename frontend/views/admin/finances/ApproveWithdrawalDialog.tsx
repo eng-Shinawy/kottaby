@@ -20,8 +20,9 @@
  * targets, keyboard-focusable dialog (`aria-labelledby`).
  */
 
-import { Typography } from "@mui/material";
+import { Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { SettlementAmountRow } from "@/frontend/views/admin/finances/SettlementAmountRow";
 import {
   GovernanceDialogActions,
   GovernanceFormDialog,
@@ -31,6 +32,8 @@ import { AdminFinance, Common, useAppTranslation } from "@/shared/locale";
 interface ApproveWithdrawalDialogProps {
   /** The teacher whose withdrawal is being approved (the copy names them). */
   readonly teacherName: string;
+  /** The pending amount (pre-formatted, the queue row's own display form). */
+  readonly amount: string;
   readonly open: boolean;
   /** Dismiss intent — ignored while the mutation is pending. */
   readonly onClose: () => void;
@@ -45,6 +48,7 @@ interface ApproveWithdrawalDialogProps {
 /** Confirm-and-settle dialog for one pending withdrawal (no reason field). */
 export function ApproveWithdrawalDialog({
   teacherName,
+  amount,
   open,
   onClose,
   onSubmit,
@@ -78,9 +82,15 @@ export function ApproveWithdrawalDialog({
         />
       }
     >
-      <Typography variant="body2" component="p" sx={theme => ({ color: theme.palette.text.secondary })}>
-        {teacherName}
-      </Typography>
+      {/* The settlement context: WHO (the teacher) and HOW MUCH — the amount
+          is the confirm's whole point, so it renders as a labeled value row
+          instead of being buried in a sentence. */}
+      <Stack spacing={1} sx={{ mb: 0.5 }}>
+        <Typography variant="body2" component="p" sx={theme => ({ color: theme.palette.text.secondary })}>
+          {teacherName}
+        </Typography>
+        <SettlementAmountRow amount={amount} testId="approve-withdrawal-amount" />
+      </Stack>
     </GovernanceFormDialog>
   );
 }

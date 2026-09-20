@@ -28,6 +28,7 @@ import { Stack } from "@mui/material";
 import { type ReactNode, useState } from "react";
 import { NoticeSnackbar } from "@/frontend/components/ui/NoticeSnackbar";
 import type { AdminPendingWithdrawalsQuery_adminPendingWithdrawals_items } from "@/frontend/graphql/generated/gql/graphql";
+import { formatMoneyAmount } from "@/frontend/views/admin/analytics/platform-analytics-display";
 import { ApproveWithdrawalDialog } from "@/frontend/views/admin/finances/ApproveWithdrawalDialog";
 import { RejectWithdrawalDialog } from "@/frontend/views/admin/finances/RejectWithdrawalDialog";
 import {
@@ -69,6 +70,7 @@ function WithdrawalSettleDialogs({
         <ApproveWithdrawalDialog
           key={`approve-${approveTarget.transaction.id}`}
           teacherName={approveTarget.teacherName}
+          amount={formatMoneyAmount(approveTarget.transaction.amount)}
           open
           onClose={onCloseApprove}
           onSubmit={() => {
@@ -83,6 +85,7 @@ function WithdrawalSettleDialogs({
         <RejectWithdrawalDialog
           key={`reject-${rejectTarget.transaction.id}`}
           transactionId={rejectTarget.transaction.id}
+          amount={formatMoneyAmount(rejectTarget.transaction.amount)}
           open
           onClose={onCloseReject}
           onSubmit={reason => {

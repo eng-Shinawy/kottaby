@@ -106,7 +106,9 @@ export const adminTeacherWalletQueryDocument: TypedDocumentNode<
  * Pending-withdrawal queue for admins — oldest-first (longest-waiting
  * request first). Each row embeds the pending `TeacherTransaction`
  * (normalized via its `id`) plus the resolved teacher name and the
- * requester's current wallet balance at read time.
+ * requester's current wallet balance at read time. `totalAmount` is the
+ * WHOLE queue's pending payout sum aggregated server-side (page-size
+ * independent — honest totals for multi-page queues).
  */
 export const adminPendingWithdrawalsQueryDocument: TypedDocumentNode<
   AdminPendingWithdrawalsQuery,
@@ -127,6 +129,7 @@ export const adminPendingWithdrawalsQueryDocument: TypedDocumentNode<
         walletBalance
       }
       totalCount
+      totalAmount
       page
       pageSize
     }

@@ -4,7 +4,7 @@ import { Button, Stack, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { SessionMetaCell, SessionRowCardShell } from "@/frontend/components/ui/sessionList";
 import type { AdminDisputedSessionsQuery_adminDisputedSessions_items_session } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 import { AdminDisputeEscrowChip } from "@/frontend/views/admin/disputes/AdminDisputeEscrowChip";
 import { AdminDisputeRowReason } from "@/frontend/views/admin/disputes/AdminDisputeRowReason";
 import { SESSION_FEE_CURRENCY } from "@/shared/constants";
@@ -80,9 +80,11 @@ export function AdminDisputeRow({
   const locale = useAppLocale();
 
   const feeText = session.fee === null ? NO_VALUE_PLACEHOLDER : `${session.fee} ${SESSION_FEE_CURRENCY}`;
-  const createdText = formatApplicantDate(session.createdAt, locale);
-  const disputedText =
-    session.disputedAt === null ? NO_VALUE_PLACEHOLDER : formatApplicantDate(session.disputedAt, locale);
+  // ASCII stamps + locale-aware tooltips via SessionMetaCell's stamp
+  // treatment (the ICU `ar` stamp's RLM controls scramble punctuation in
+  // the row's RTL flow — round-1 wallet QA finding, same class).
+  const createdText = formatLedgerStamp(session.createdAt);
+  const disputedText = session.disputedAt === null ? NO_VALUE_PLACEHOLDER : formatLedgerStamp(session.disputedAt);
   const intentText = session.intent ?? NO_VALUE_PLACEHOLDER;
   const studentLabel = studentName ?? `#${session.studentId}`;
   const teacherLabel = teacherName ?? `#${session.teacherId}`;
@@ -116,8 +118,16 @@ export function AdminDisputeRow({
         </Stack>
         <Stack sx={{ gap: 1.5, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline" }}>
           <SessionMetaCell label={t.fee} value={feeText} />
-          <SessionMetaCell label={t.createdAt} value={createdText} />
-          <SessionMetaCell label={t.disputedAtLabel} value={disputedText} />
+          <SessionMetaCell
+            label={t.createdAt}
+            value={createdText}
+            stampTitle={formatApplicantDate(session.createdAt, locale)}
+          />
+          <SessionMetaCell
+            label={t.disputedAtLabel}
+            value={disputedText}
+            stampTitle={session.disputedAt === null ? undefined : formatApplicantDate(session.disputedAt, locale)}
+          />
           <SessionMetaCell label={t.participantsLabel} value={participantsText} />
         </Stack>
       </Stack>

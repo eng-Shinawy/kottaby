@@ -48,6 +48,12 @@
  *      states (A completed, B pending with its own reserved debit) and
  *      the balance arithmetic is exact (final balance = start − A − B,
  *      no double-debit of A).
+ *   8. Failed-row replay leg — a fresh payout request is rejected (the
+ *      row flips to `failed` and the reserve is restored), then BOTH
+ *      settlement paths are re-attempted on the decided row: each denial
+ *      is the localized not-pending conflict, the ledger row stays
+ *      `failed`, the balance stays byte-identical to the post-restore
+ *      value, the replays add zero audit rows, and nothing fans out.
  *
  * Layer rules honored (`test/workflows/AGENTS.md`):
  * - fixtures COMMITTED in `beforeAll` inside ONE committing transaction;
@@ -148,6 +154,8 @@ const TXN_ENTITY_TYPE = "teacher_transaction";
 const PAYOUT_PRIMARY = "100.00";
 const PAYOUT_REJECTED = "50.00";
 const PAYOUT_RACED = "20.00";
+/** Failed-row replay leg amount (a fresh request, rejected, then re-attempted for settlement denial). */
+const PAYOUT_REJECTED_REPLAY = "60.00";
 /** Concurrent settle + new-request race amounts (step 7). */
 const PAYOUT_NEW_REQUEST = "15.00";
 /** Manual adjustment amounts. */
@@ -294,6 +302,16 @@ async function expectInsufficientFunds(fn: () => Promise<unknown>): Promise<void
     throw new Error("expectInsufficientFunds: expected a ConflictError");
   }
   expect(error.message).toContain(ERRORS_EN.insufficientBalance);
+}
+
+/** The not-pending conflict: ConflictError + the localized copy. */
+async function expectNotPending(fn: () => Promise<unknown>): Promise<void> {
+  const error = await expectJourneyError(fn);
+  expect(error).toBeInstanceOf(ConflictError);
+  if (!(error instanceof ConflictError)) {
+    throw new Error("expectNotPending: expected a ConflictError");
+  }
+  expect(error.message).toContain(ERRORS_EN.withdrawalNotPending);
 }
 
 // ─── Read-back oracles (direct Drizzle — never via the service) ──────────────
@@ -910,6 +928,66 @@ describe("cross-actor journey: admin financial auditing (payout settlement + adj
     expect(await readAuditsForTransaction(pendingB.id)).toHaveLength(0);
 
     // The race leg is silent: zero dispatches, and the DB agrees.
+    expectNoDispatches();
+    expect(await countNotificationsForUser(teacherB.userId)).toBe(0);
+  });
+
+  test("step 8 — Failed-row replay: both settle paths deny a rejected withdrawal, the restore holds, and the replays write nothing", async () => {
+    // Fund check: this leg files its OWN fresh withdrawal — the earlier
+    // steps' net balance effects are already asserted there.
+    const walletBefore = await readWalletRow(teacherB.userId);
+
+    // Teacher: the fresh payout reserves its own debit.
+    const requested = await WalletService.requestWithdrawal(teacherB.userId, PAYOUT_REJECTED_REPLAY, LOCALE);
+    const pending = newestPendingWithdrawal(requested.transactions);
+    ledgerTxnIds.push(pending.id);
+    expect(pending.amount).toBe(PAYOUT_REJECTED_REPLAY);
+    expect(decimalValue(requested.wallet.balance)).toBe(
+      decimalValue(walletBefore.balance) - Number(PAYOUT_REJECTED_REPLAY)
+    );
+
+    // Admin: the rejection flips the row to failed and restores the reserve.
+    const rejected = await AdminFinancialAuditingService.rejectWithdrawal(
+      adminActor.userId,
+      pending.id,
+      prefixedReason("failed-row replay probe"),
+      LOCALE
+    );
+    expect(rejected.id).toBe(pending.id);
+    expect(rejected.status).toBe(TransactionStatus.Failed);
+    const walletAfterRejection = await readWalletRow(teacherB.userId);
+    expect(walletAfterRejection.balance).toBe(walletBefore.balance);
+
+    // Exactly ONE audit row records the rejection.
+    const rejectionAudits = await readAuditsForTransaction(pending.id);
+    expect(rejectionAudits).toHaveLength(1);
+    expect(rejectionAudits[0]?.actionType).toBe(AuditActionType.Override);
+
+    // The replay baseline: everything measured below is the denials' effect.
+    const adminAuditsBefore = await countAuditLogsForActor(adminActor.userId);
+
+    // Re-settle attempts on the now-failed row: both settle paths fail
+    // closed at the settlement PROBE with the localized not-pending conflict
+    // (service.ts:207-214 approve / :292-299 reject) — the guarded-UPDATE
+    // miss is the concurrent-race-only path, not this sequential replay.
+    await expectNotPending(() =>
+      AdminFinancialAuditingService.approveWithdrawal(adminActor.userId, pending.id, LOCALE)
+    );
+    await expectNotPending(() =>
+      AdminFinancialAuditingService.rejectWithdrawal(adminActor.userId, pending.id, prefixedReason("replay"), LOCALE)
+    );
+
+    // The denials wrote nothing: the ledger row stays failed, the balance is
+    // byte-identical to the post-restore value (no compensating second
+    // restore, no double-settle debit), and the audit trail gained nothing.
+    const row = await readLedgerRow(pending.id);
+    expect(row.status).toBe(TransactionStatus.Failed);
+    const walletAfterReplays = await readWalletRow(teacherB.userId);
+    expect(walletAfterReplays.balance).toBe(walletAfterRejection.balance);
+    expect(await readAuditsForTransaction(pending.id)).toHaveLength(1);
+    expect(await countAuditLogsForActor(adminActor.userId)).toBe(adminAuditsBefore);
+
+    // The denied replays are silent: zero dispatches, and the DB agrees.
     expectNoDispatches();
     expect(await countNotificationsForUser(teacherB.userId)).toBe(0);
   });

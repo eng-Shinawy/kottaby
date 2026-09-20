@@ -21,7 +21,14 @@ export function SessionRowCancelReason({ sessionId, reason }: Readonly<SessionRo
   const t = useAppTranslation(Sessions);
 
   return (
-    <Tooltip title={reason} placement="top">
+    <Tooltip
+      title={
+        // Same auto-dir isolate as the row run — the portal shares the RTL
+        // base direction and would scramble a Latin reason the same way.
+        <span dir="auto">{reason}</span>
+      }
+      placement="top"
+    >
       <Stack
         data-testid={`session-cancel-reason-${sessionId}`}
         sx={{
@@ -44,7 +51,16 @@ export function SessionRowCancelReason({ sessionId, reason }: Readonly<SessionRo
         <Typography
           variant="body2"
           noWrap
-          sx={theme => ({ color: theme.palette.text.secondary, minWidth: 0, flex: "1 1 0" })}
+          dir="auto"
+          sx={theme => ({
+            color: theme.palette.text.secondary,
+            minWidth: 0,
+            flex: "1 1 0",
+            // Free-text run (Latin OR Arabic) in an RTL row — isolate keeps
+            // the sentence's punctuation on the correct side (round-4 sweep
+            // with the dispute-reason fix).
+            unicodeBidi: "isolate",
+          })}
         >
           {reason}
         </Typography>

@@ -17,13 +17,38 @@ export interface PlanPurchaseCardProps {
 }
 
 /**
+ * Derives the comparison-aid per-session amount from the bundle price —
+ * the honest floor: a zero/absent session count yields `null` (no line) so
+ * the card never shows "≈ 0.00 per session" on malformed catalog data.
+ * Exact minor-unit integer arithmetic over the wire decimal string (the
+ * `decimal(10,2)` grammar): binary floating point never touches the value,
+ * so `"2.01" / 2` renders "1.01" (half-up), never the float artifact
+ * `"1.00"`.
+ */
+function perSessionAmount(price: string, sessionCount: number): string | null {
+  if (!Number.isFinite(sessionCount) || sessionCount <= 0) return null;
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(price.trim());
+  if (match === null) return null;
+  const minorUnits = Number(match[1]) * 100 + Number(match[2].padEnd(2, "0").slice(0, 2));
+  if (!Number.isSafeInteger(minorUnits)) return null;
+  // Half-up integer division: floor((2n + d) / 2d) — no float anywhere.
+  const perSessionMinor = Math.floor((2 * minorUnits + sessionCount) / (2 * sessionCount));
+  const whole = Math.floor(perSessionMinor / 100);
+  const cents = perSessionMinor % 100;
+  return `${whole}.${String(cents).padStart(2, "0")}`;
+}
+
+/**
  * PlanPurchaseCard — one plan-tier presentation card per prototype (the
- * `student-plan-catalog-default-*` screens): title, prominent price, the
- * sessions + validity chips, and the Buy CTA.
+ * `student-plan-catalog-default-*` screens): title, prominent price with a
+ * derived per-session comparison line, the sessions + validity chips, and
+ * the Buy CTA.
  */
 export function PlanPurchaseCard({ plan, onBuy, buying }: Readonly<PlanPurchaseCardProps>): React.ReactElement {
   const t = useAppTranslation(Checkout);
   const laneLabel = plan.balanceLane === null ? t.laneGeneralLabel : resolveLaneLabel(plan.balanceLane, t);
+  const currencyLabel = plan.currency === "EGP" ? t.currencyEgp : undefined;
+  const perSession = perSessionAmount(plan.price, plan.sessionCount);
 
   return (
     <Card
@@ -44,10 +69,21 @@ export function PlanPurchaseCard({ plan, onBuy, buying }: Readonly<PlanPurchaseC
             {plan.title}
           </Typography>
           <Typography variant="h4" sx={theme => ({ fontWeight: 700, color: theme.palette.primary.light })}>
-            <span dir="ltr">
-              {formatPlanAmount(plan.price, plan.currency, plan.currency === "EGP" ? t.currencyEgp : undefined)}
-            </span>
+            <span dir="ltr">{formatPlanAmount(plan.price, plan.currency, currencyLabel)}</span>
           </Typography>
+          {perSession !== null ? (
+            <Typography
+              data-testid={`plan-per-session-${plan.id}`}
+              variant="caption"
+              sx={theme => ({
+                color: theme.palette.onSurfaceVariant,
+                fontVariantNumeric: "tabular-nums",
+                mt: -1,
+              })}
+            >
+              <span dir="ltr">{t.perSessionLine(formatPlanAmount(perSession, plan.currency, currencyLabel))}</span>
+            </Typography>
+          ) : null}
           <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
             <Chip
               icon={<EventOutlined />}

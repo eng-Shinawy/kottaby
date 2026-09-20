@@ -7,7 +7,10 @@
  * idempotent `ON CONFLICT DO NOTHING` ensure, so a brand-new certified
  * teacher gets an honest zeroed wallet instead of an error) with a
  * newest-first ledger page capped at `WALLET_LEDGER_PAGE_LIMIT` (50) rows —
- * the documented v1 surface cap (full pagination is a forward item, F10).
+ * the first page of the surface. `getMyWalletLedgerPage` is its paginated
+ * companion (the F10 forward item, now delivered): one clamped offset page
+ * plus the pagination truth (`totalCount` / `hasMore`) for the client's
+ * "load more" affordance.
  *
  * `requestWithdrawal` is the debit-on-request payout slice: ONE `pending`
  * `withdrawal` ledger row plus a GUARDED balance debit in ONE transaction
@@ -41,12 +44,13 @@ import { TeacherRepository, UserRepository, WalletRepository } from "@/backend/d
 import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { ConflictError, DomainError, ForbiddenError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
-import type { DBTransaction, WalletViewType } from "@/backend/types";
+import type { DBTransaction, WalletLedgerPageViewType, WalletViewType } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /**
- * The v1 ledger surface cap (R-301): the newest 50 rows, newest first.
- * Full pagination is a recorded forward item (F10).
+ * The v1 ledger surface cap (R-301): the newest 50 rows, newest first —
+ * both the `getMyWallet` page size and the upper bound of one
+ * `getMyWalletLedgerPage` window (pagination rides this envelope).
  */
 const WALLET_LEDGER_PAGE_LIMIT = 50;
 
@@ -182,6 +186,51 @@ export namespace WalletService {
   }
 
   /**
+   * R-301 (paginated companion, the F10 forward item) — one offset page of
+   * the caller's own ledger, newest first, with the pagination truth
+   * (`totalCount` + `hasMore`). The window is clamped defensively to the
+   * documented surface envelope (limit 1..50, offset >= 0) — the client is
+   * the only caller, and an out-of-envelope request degrades to a smaller
+   * page instead of an error. The same governance re-check + teacher-profile
+   * assertion as `getMyWallet` guard the read (BOLA-proof: zero lookup
+   * arguments — the wallet address is the verified context identity).
+   *
+   * @param callerUserId  The acting teacher's id (context-resolved
+   *     server-side; shared PK with the users table).
+   * @param rawLimit  Requested page size (clamped to 1..50).
+   * @param rawOffset  Requested offset (floored at 0).
+   * @param locale  Active request locale (for the localized error messages).
+   * @param outerTx  Optional outer transaction. When provided (test path),
+   *     the flow runs inside a SAVEPOINT on it; production callers omit it
+   *     and the service opens its own transaction.
+   */
+  export async function getMyWalletLedgerPage(
+    callerUserId: number,
+    rawLimit: number,
+    rawOffset: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<WalletLedgerPageViewType> {
+    const t = getServerTranslations(locale).errorsTranslations;
+
+    return withTransaction(outerTx, async tx => {
+      // Governance re-check — the acting teacher must be governance-clean.
+      await assertActorGovernanceClean(callerUserId, t, tx);
+      // The wallet FK targets the teacher table — no profile row, no wallet.
+      await assertTeacherProfileExists(callerUserId, t, tx);
+
+      const wallet = await WalletRepository.ensureWalletOnce(callerUserId, tx);
+      const limit = Math.min(Math.max(Math.trunc(rawLimit), 1), WALLET_LEDGER_PAGE_LIMIT);
+      const offset = Math.max(Math.trunc(rawOffset), 0);
+      const [rows, totalCount] = await Promise.all([
+        WalletRepository.listTransactionsPage(wallet.id, limit, offset, tx),
+        WalletRepository.countTransactions(wallet.id, tx),
+      ]);
+      return { rows, totalCount, hasMore: offset + rows.length < totalCount };
+    });
+  }
+
+  /**
    * R-302 — requests a payout of `amount` from the caller's own wallet:
    * ONE `pending` `withdrawal` ledger row plus a GUARDED balance debit,
    * atomically, inside ONE transaction.
@@ -217,6 +266,10 @@ export namespace WalletService {
     outerTx?: DBTransaction
   ): Promise<WalletViewType> {
     const t = getServerTranslations(locale).errorsTranslations;
+    // The ledger description is user-visible data: composed per the
+    // requester's locale (the wallet labels bundle — one string, both
+    // locales, compile-typed parity).
+    const walletLabels = getServerTranslations(locale).walletTranslations;
 
     // Pre-DB validation FIRST — a malformed amount never reaches SQL.
     const amount = assertValidWithdrawalAmount(rawAmount, t);
@@ -235,7 +288,7 @@ export namespace WalletService {
         {
           walletId: wallet.id,
           amount,
-          description: "Withdrawal request (pending payout)",
+          description: walletLabels.withdrawalLedgerDescription,
         },
         tx
       );

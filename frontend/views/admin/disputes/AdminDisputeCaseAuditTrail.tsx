@@ -3,7 +3,7 @@
 import { Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import type { AdminDisputeCaseQuery_adminDisputeCase_auditTrail } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 import type { AppLocale } from "@/shared/locale";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
 
@@ -66,8 +66,21 @@ export function AdminDisputeCaseAuditTrail({
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
                   {entry.actionType}
                 </Typography>
-                <Typography variant="caption" sx={theme => ({ color: theme.palette.text.secondary })}>
-                  {formatApplicantDate(entry.createdAt, locale)}
+                <Typography
+                  variant="caption"
+                  dir="ltr"
+                  title={formatApplicantDate(entry.createdAt, locale)}
+                  sx={theme => ({
+                    color: theme.palette.text.secondary,
+                    // ASCII stamp in an isolated LTR box — the ICU `ar`
+                    // stamp's RLM controls scramble the punctuation against
+                    // the RTL base direction (round-1 wallet QA finding).
+                    unicodeBidi: "isolate",
+                    whiteSpace: "nowrap",
+                    fontVariantNumeric: "tabular-nums",
+                  })}
+                >
+                  {formatLedgerStamp(entry.createdAt)}
                 </Typography>
               </Stack>
               <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>

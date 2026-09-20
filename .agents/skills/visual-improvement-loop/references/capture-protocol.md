@@ -108,3 +108,30 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
 - In memory-tight sandboxes the full component suite OOM-kills silently mid-run (exit 137, zero
   fail lines, lock released normally) — run the affected component files targeted (same preloads)
   and free dev-server memory first.
+
+## Provider-error arbitration (added 2026-09-19)
+
+- When the objective pre-check's console gate surfaces provider-specific GraphQL
+  INTERNAL_SERVER_ERRORs (e.g. PGlite: "Failed query: begin isolation level repeatable read"),
+  arbitrate the provider's TRANSACTION semantics before touching styles — the classic shape is a
+  second top-level `db.transaction(..., { isolationLevel })` opened inside an open
+  `withTransaction` block: it hard-fails on single-connection providers (PGlite) and silently
+  splits snapshots on pooled Postgres. Canonical fix: pass the LIVE tx handle down (drizzle nests
+  via savepoints) and put the isolation level on `withTransaction`'s config argument (see
+  `backend/services/billing/admin-financial-auditing.service.read.helpers.ts` for the landed shape).
+
+## Nested-worktree dev server (added 2026-09-19)
+
+- `next dev --turbopack` resolves packages only inside the project root, so a nested git worktree
+  cannot reach the parent checkout's node_modules and fails with "Could not find the Next.js
+  package (next/package.json)". Symlinks are banned in this sandbox — hardlink-copy instead:
+  `cp -al <parent>/node_modules <worktree>/node_modules` (zero extra disk, symlinked .bin entries
+  survive the copy).
+
+## Gates and captures must not share the sandbox's memory (added 2026-09-19)
+
+- In a ~4GB sandbox the running dev server (turbopack, 2GB heap cap) plus the per-file sub-loop's
+  type-aware eslint child OOM-kill each other — eslint dies with SIGKILL/SIGABRT and zero lint
+  findings, which the gate reports as a lint FAILURE. Stop the dev server before running sub-loop
+  gates (`pkill -f next-server`), run the gates with `LINT_QUEUE_CONCURRENCY=1
+  LINT_MAX_OLD_SPACE_MB=1536`, then restart the dev server for recapture.

@@ -187,6 +187,13 @@ export interface AdminFinanceLabels {
   readonly paymentsEmpty: string;
   /** Withdrawal queue empty state — no pending requests. */
   readonly withdrawalsEmpty: string;
+  /**
+   * Withdrawal queue summary strip — the EGP total of the pending payout
+   * amounts visible on the CURRENT page (renders only while the whole queue
+   * fits on one page, so the figure is never a partial sum presented as the
+   * full queue total — honesty rule for financial copy).
+   */
+  readonly withdrawalsPendingTotal: (total: string) => string;
   /** Wallet inspector empty state — no transactions to display. */
   readonly inspectorEmpty: string;
   /** Unpicked-picker hint under the empty-state copy. */

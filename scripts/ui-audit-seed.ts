@@ -5,6 +5,7 @@
  * Run AFTER scripts/pglite-bootstrap.ts on a fresh PGlite dir.
  * Usage: bun run scripts/ui-audit-seed.ts
  */
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { hash } from "bcryptjs";
@@ -74,10 +75,15 @@ async function seedDemoUsers(pg: PGlite): Promise<DemoUserIds> {
 /** Role-detail child rows (students / applicants / parents) for the demo users. */
 async function ensureRoleDetailRows(pg: PGlite, ids: DemoUserIds): Promise<void> {
   const now = new Date();
+  // Canonical handshake-code shape (`KSB-` + 8 uppercase hex) — mirrors
+  // `generateHandshakeCode` in `backend/services/shared/user-provisioning.helpers.ts`.
+  // An off-format code (the earlier ad-hoc `HS-…` literal) made the parent
+  // handshake lookup permanently fail client-side validation (QA finding).
+  const handshakeCode = `KSB-${randomUUID().replace(/-/g, "").toUpperCase().slice(0, 8)}`;
   await pg.query(
     `INSERT INTO students (id, handshake_code, balance_trial, created_at, updated_at)
      SELECT $1, $2, 0, $3, $3 WHERE NOT EXISTS (SELECT 1 FROM students WHERE id = $1)`,
-    [ids.studentId, `HS-${ids.studentId}${Date.now().toString(36).toUpperCase()}`, now]
+    [ids.studentId, handshakeCode, now]
   );
   await pg.query(
     `INSERT INTO applicants (id, status, created_at, updated_at)

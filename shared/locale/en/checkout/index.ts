@@ -9,6 +9,7 @@ export const checkoutEn: CheckoutLabels = {
   buyButton: "Subscribe",
   sessionsIncludedLine: (count: number) => `Includes ${count} ${count === 1 ? "session" : "sessions"}`,
   validityLine: (days: number) => `Valid for ${days} ${days === 1 ? "day" : "days"}`,
+  perSessionLine: (amount: string) => `≈ ${amount} per session`,
   laneHifz: "Hifz",
   laneTajweed: "Tajweed",
   laneReviews: "Reviews",

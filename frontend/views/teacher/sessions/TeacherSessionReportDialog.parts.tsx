@@ -9,8 +9,8 @@
  * because they share the form-state setters the dialog owns.
  */
 
-import { MenuItem, Rating, Select, Stack, TextField, Typography } from "@mui/material";
-import type { ReactNode } from "react";
+import { FormControl, InputLabel, MenuItem, Rating, Select, Stack, TextField, Typography } from "@mui/material";
+import { type ReactNode, useId } from "react";
 import { SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
 import type { HomeWorkBlockInput } from "@/backend/types";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
@@ -38,6 +38,9 @@ export function AssignmentBlock({
   t,
 }: Readonly<AssignmentBlockProps>): ReactNode {
   const defaultSurah = SurahJuzRef.SurahAlFatihah;
+  // Per-instance label id: the block renders twice (Jadid + Madi), so a
+  // static id would duplicate across the dialog and break the association.
+  const surahJuzLabelId = useId();
   return (
     <Stack sx={{ gap: 1 }}>
       <Typography variant="subtitle2">{title}</Typography>
@@ -55,17 +58,25 @@ export function AssignmentBlock({
           onChange={event => handleAyahChange(event.target.value, "toAyah", block, onChange, defaultSurah)}
         />
       </Stack>
-      <Select
-        label={surahJuzPickerLabel}
-        value={block?.surahJuz ?? ""}
-        onChange={event => handleSurahChange(event.target.value, block, onChange)}
-      >
-        {SURAH_JUZ_OPTIONS.map(option => (
-          <MenuItem key={option} value={option}>
-            {t.surahJuzLabel(option)}
-          </MenuItem>
-        ))}
-      </Select>
+      {/* A bare `Select` ignores its `label` prop — the FormControl +
+          InputLabel pairing is what actually renders the floating label
+          (previously the pickers rendered as unlabeled empty boxes). The
+          labelId wires the visible label to the control for screen readers. */}
+      <FormControl fullWidth size="small">
+        <InputLabel id={surahJuzLabelId}>{surahJuzPickerLabel}</InputLabel>
+        <Select
+          labelId={surahJuzLabelId}
+          label={surahJuzPickerLabel}
+          value={block?.surahJuz ?? ""}
+          onChange={event => handleSurahChange(event.target.value, block, onChange)}
+        >
+          {SURAH_JUZ_OPTIONS.map(option => (
+            <MenuItem key={option} value={option}>
+              {t.surahJuzLabel(option)}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
     </Stack>
   );
 }

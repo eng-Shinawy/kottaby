@@ -88,6 +88,7 @@ export const adminFinanceAr: AdminFinanceLabels = {
   forbiddenBody: "ليست لديك صلاحية لعرض لوحة التدقيق المالي.",
   paymentsEmpty: "لا توجد مدفوعات تطابق عوامل التصفية الحالية.",
   withdrawalsEmpty: "لا توجد طلبات سحب معلقة.",
+  withdrawalsPendingTotal: (total: string) => `إجمالي المبالغ المعلّقة: ${total} ج.م`,
   inspectorEmpty: "لا توجد حركات محفظة للعرض.",
   walletEmptyHint: "اختر معلماً من الأعلى لعرض رصيده وأحدث حركاته.",
 };

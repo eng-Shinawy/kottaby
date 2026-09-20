@@ -7,11 +7,13 @@
  *  - Locale tag fallback rules (only exact "en" -> English, all others -> "ar").
  *  - Deterministic UTC timezone behavior across offset ISO representations.
  *  - Day/Month tick formatting with bidi mark removal and LTR isolate wrapping (\u2066...\u2069).
+ *  - Ledger stamp formatting (`formatLedgerStamp` — pure-ASCII numeric stamp
+ *    for the financial-table date cells; no bidi controls, no locale punctuation).
  *  - Edge case dates (leap days, year transitions).
  */
 
 import { describe, expect, test } from "bun:test";
-import { formatApplicantDate, formatDayMonth } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatDayMonth, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 
 describe("formatApplicantDate — timestamp formatting contract", () => {
   const TEST_ISO = "2026-08-27T13:00:00.000Z";
@@ -146,5 +148,38 @@ describe("formatDayMonth — chart axis tick formatting contract", () => {
     const expectedUtcDayMonth = formatDayMonth("2026-08-26T20:00:00.000Z", "en");
 
     expect(formatDayMonth(offsetIso, "en")).toBe(expectedUtcDayMonth);
+  });
+});
+
+describe("formatLedgerStamp — financial-table numeric stamp contract", () => {
+  test("renders the day-first dd/MM/yyyy HH:mm ASCII stamp from UTC components", () => {
+    expect(formatLedgerStamp("2026-08-27T13:00:00.000Z")).toBe("27/08/2026 13:00");
+  });
+
+  test("pads single-digit day/month/hour/minute fields to two digits", () => {
+    expect(formatLedgerStamp("2026-01-04T05:07:00.000Z")).toBe("04/01/2026 05:07");
+  });
+
+  test("contains no bidi controls and no locale punctuation (RLM/LRM/isolates)", () => {
+    const stamps = [formatLedgerStamp("2026-08-27T13:00:00.000Z"), formatLedgerStamp("2026-12-31T23:59:00.000Z")];
+    for (const stamp of stamps) {
+      expect(stamp).not.toMatch(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/);
+      expect(stamp).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
+    }
+  });
+
+  test("uses UTC regardless of the host timezone (offset ISO in, UTC components out)", () => {
+    // 2026-08-27T01:00:00+05:00 is 2026-08-26T20:00:00Z — the previous UTC day.
+    expect(formatLedgerStamp("2026-08-27T01:00:00+05:00")).toBe("26/08/2026 20:00");
+  });
+
+  test("locale independence — the same instant stamps identically for every app locale", () => {
+    // The helper takes NO locale: the ar/en renders are byte-identical by
+    // construction (the ICU-embedded RLM scramble cannot happen).
+    expect(formatLedgerStamp("2026-08-27T13:00:00.000Z")).toBe("27/08/2026 13:00");
+  });
+
+  test("unparseable input renders the empty string (not 'Invalid Date')", () => {
+    expect(formatLedgerStamp("not-a-date")).toBe("");
   });
 });

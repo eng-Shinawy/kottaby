@@ -4,7 +4,7 @@ import { Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { SessionMetaCell } from "@/frontend/components/ui/sessionList";
 import type { AdminDisputeCaseQuery_adminDisputeCase_session } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 import { AdminDisputeEscrowChip } from "@/frontend/views/admin/disputes/AdminDisputeEscrowChip";
 import { SESSION_FEE_CURRENCY } from "@/shared/constants";
 import type { AppLocale } from "@/shared/locale";
@@ -48,8 +48,7 @@ export function AdminDisputeCaseSessionFacts({
   locale,
 }: Readonly<AdminDisputeCaseSessionFactsProps>): ReactNode {
   const feeText = session.fee === null ? NO_VALUE_PLACEHOLDER : `${session.fee} ${SESSION_FEE_CURRENCY}`;
-  const disputedText =
-    session.disputedAt === null ? NO_VALUE_PLACEHOLDER : formatApplicantDate(session.disputedAt, locale);
+  const disputedText = session.disputedAt === null ? NO_VALUE_PLACEHOLDER : formatLedgerStamp(session.disputedAt);
   const disputeReason = session.disputeReason ?? NO_VALUE_PLACEHOLDER;
   const studentLabel = studentName ?? `#${session.studentId}`;
   const teacherLabel = teacherName ?? `#${session.teacherId}`;
@@ -73,7 +72,11 @@ export function AdminDisputeCaseSessionFacts({
       </Stack>
       <Stack sx={{ gap: 1.5, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline" }}>
         <SessionMetaCell label={t.fee} value={feeText} />
-        <SessionMetaCell label={t.disputedAtLabel} value={disputedText} />
+        <SessionMetaCell
+          label={t.disputedAtLabel}
+          value={disputedText}
+          stampTitle={session.disputedAt === null ? undefined : formatApplicantDate(session.disputedAt, locale)}
+        />
         <SessionMetaCell label={t.participantsLabel} value={participantsText} />
       </Stack>
       <Stack sx={{ gap: 0.5 }}>

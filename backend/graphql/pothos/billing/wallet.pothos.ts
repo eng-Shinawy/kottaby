@@ -35,7 +35,7 @@ import { TransactionStatus } from "@/backend/enum/billing/transaction-status.enu
 import { TransactionType } from "@/backend/enum/billing/transaction-type.enum";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { TransactionStatusPothosEnum, TransactionTypePothosEnum } from "@/backend/graphql/pothos/shared/enum.pothos";
-import type { TeacherTransactionSelectType, WalletViewType } from "@/backend/types";
+import type { TeacherTransactionSelectType, WalletLedgerPageViewType, WalletViewType } from "@/backend/types";
 
 /**
  * Maps the `transaction_type` pgEnum value carried by the canonical
@@ -152,3 +152,32 @@ export const WalletPothosObject = gqlSchemaBuilder.objectRef<WalletViewType>("Wa
     }),
   }),
 });
+
+/**
+ * The canonical `WalletLedgerPage` GraphQL object — one page of the
+ * teacher's self-service paginated ledger (`myWalletLedger`, the F10
+ * forward item). Producers return `WalletLedgerPageViewType`
+ * (`{ rows, totalCount, hasMore }`).
+ *
+ * Deliberately NOT an entity (no `id`): the page is a read window, not a
+ * cacheable row — Apollo embeds it under its query, so page fetches never
+ * collide with the normalized `Wallet:<id>` convergence the withdrawal
+ * mutation rides.
+ */
+export const WalletLedgerPagePothosObject = gqlSchemaBuilder
+  .objectRef<WalletLedgerPageViewType>("WalletLedgerPage")
+  .implement({
+    fields: t => ({
+      // The newest-first window — the SAME canonical row object the
+      // `Wallet.transactions` page exposes (one ledger row type, both
+      // surfaces).
+      rows: t.field({
+        type: [TeacherTransactionPothosObject],
+        resolve: parent => parent.rows,
+      }),
+      // Pagination truth — the wallet's total ledger row count.
+      totalCount: t.exposeInt("totalCount"),
+      // Pagination truth — whether a further page exists after this one.
+      hasMore: t.exposeBoolean("hasMore"),
+    }),
+  });

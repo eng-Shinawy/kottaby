@@ -20,7 +20,6 @@
  * `logger.logDomainError` with bounded context only.
  */
 
-import { db } from "@/backend/db";
 import { StudentPaymentRepository, TeacherRepository, UserRepository, WalletRepository } from "@/backend/db/repo";
 import { escapeLikeWildcards } from "@/backend/lib/db/escape-like-wildcards";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
@@ -46,31 +45,27 @@ import { getServerTranslations } from "@/shared/locale/server-graphql";
 type ErrorsTranslations = ReturnType<typeof getServerTranslations>["errorsTranslations"];
 
 /**
- * Runs the paired count + page reads inside ONE consistent snapshot. When
- * the caller supplied a transaction, execution joins it as a nested block;
- * otherwise a fresh top-level transaction opens at the `repeatable read`
- * isolation level so the count and the listing observe the same committed
- * state.
+ * Runs the paired count + page reads joined to the caller's transaction as
+ * a nested savepoint block — the reads observe exactly the caller's
+ * snapshot on every provider. Re-entering a second top-level transaction
+ * while one is already open on the same connection fails on a
+ * single-connection provider (PGlite) and silently splits the reads across
+ * two snapshots on a pooled one — so callers always pass the LIVE handle
+ * from their `withTransaction` block, and open that transaction at the
+ * `repeatable read` isolation level through `withTransaction`'s config
+ * when the count + page pair must observe one consistent committed state.
  *
  * The guarantee covers the count + page PAIR — plus whatever the callback
  * reads before them (the wallet inspection's wallet probe and its
  * teacher-name resolution share the same snapshot, so the rendered balance
- * can never be older than the ledger rows beside it). The admin gate and
- * the mutation-path settlement probes are NOT part of this snapshot: the
- * gate runs first on the caller's transaction, and the settlement probes
- * run on a SEPARATE top-level transaction when no outer transaction is
- * supplied — best-effort, non-authoritative reads that no write decision
- * ever trusts (every guarded repo primitive re-asserts its predicate in
- * SQL; the probes exist for human-readable error disambiguation only).
+ * can never be older than the ledger rows beside it). The mutation-path
+ * settlement probes run on their own transaction and remain
+ * non-authoritative reads that no write decision ever trusts (every
+ * guarded repo primitive re-asserts its predicate in SQL; the probes exist
+ * for human-readable error disambiguation only).
  */
-async function readInSnapshot<T>(
-  outerTx: DBTransaction | undefined,
-  fn: (tx: DBTransaction) => Promise<T>
-): Promise<T> {
-  if (outerTx) {
-    return outerTx.transaction(fn);
-  }
-  return db.transaction(fn, { isolationLevel: "repeatable read" });
+function readInSnapshot<T>(tx: DBTransaction, fn: (snapshotTx: DBTransaction) => Promise<T>): Promise<T> {
+  return tx.transaction(fn);
 }
 
 /**
@@ -144,31 +139,40 @@ export async function listStudentPaymentsForAdmin(
   locale: string,
   outerTx?: DBTransaction
 ): Promise<AdminStudentPaymentPageReturnType> {
-  return withTransaction(outerTx, async tx => {
-    await assertActorAdminActive(actorUserId, locale, tx);
+  return withTransaction(
+    outerTx,
+    async tx => {
+      await assertActorAdminActive(actorUserId, locale, tx);
 
-    const normalized: NormalizedAdminPaymentFilters = {
-      studentId: filters.studentId ?? null,
-      studentNameSearch:
-        filters.studentNameSearch === null ? null : `%${escapeLikeWildcards(filters.studentNameSearch)}%`,
-      status: filters.status ?? null,
-      paymentGateway: filters.paymentGateway ?? null,
-      from: filters.from ?? null,
-      to: filters.to ?? null,
-    };
-    const { resolvedPage, resolvedPageSize, offset } = resolvePageBounds(page ?? 1, pageSize ?? undefined, locale);
+      const normalized: NormalizedAdminPaymentFilters = {
+        studentId: filters.studentId ?? null,
+        studentNameSearch:
+          filters.studentNameSearch === null ? null : `%${escapeLikeWildcards(filters.studentNameSearch)}%`,
+        status: filters.status ?? null,
+        paymentGateway: filters.paymentGateway ?? null,
+        from: filters.from ?? null,
+        to: filters.to ?? null,
+      };
+      const { resolvedPage, resolvedPageSize, offset } = resolvePageBounds(page ?? 1, pageSize ?? undefined, locale);
 
-    const [pageRows, totalCount] = await readInSnapshot(
-      outerTx,
-      async (snapshotTx): Promise<[AdminStudentPaymentRow[], number]> => {
-        const count = await StudentPaymentRepository.countForAdminAudit(normalized, snapshotTx);
-        const rows = await StudentPaymentRepository.listForAdminAudit(normalized, resolvedPageSize, offset, snapshotTx);
-        return [rows, count];
-      }
-    );
+      const [pageRows, totalCount] = await readInSnapshot(
+        tx,
+        async (snapshotTx): Promise<[AdminStudentPaymentRow[], number]> => {
+          const count = await StudentPaymentRepository.countForAdminAudit(normalized, snapshotTx);
+          const rows = await StudentPaymentRepository.listForAdminAudit(
+            normalized,
+            resolvedPageSize,
+            offset,
+            snapshotTx
+          );
+          return [rows, count];
+        }
+      );
 
-    return { items: pageRows, totalCount, page: resolvedPage, pageSize: resolvedPageSize };
-  });
+      return { items: pageRows, totalCount, page: resolvedPage, pageSize: resolvedPageSize };
+    },
+    { isolationLevel: "repeatable read" }
+  );
 }
 
 /**
@@ -198,54 +202,58 @@ export async function getTeacherWalletForAdmin(
 ): Promise<AdminTeacherWalletReturnType> {
   const t = getServerTranslations(locale).errorsTranslations;
 
-  return withTransaction(outerTx, async tx => {
-    await assertActorAdminActive(actorUserId, locale, tx);
-    const { resolvedPage, resolvedPageSize, offset } = resolvePageBounds(page ?? 1, pageSize ?? undefined, locale);
+  return withTransaction(
+    outerTx,
+    async tx => {
+      await assertActorAdminActive(actorUserId, locale, tx);
+      const { resolvedPage, resolvedPageSize, offset } = resolvePageBounds(page ?? 1, pageSize ?? undefined, locale);
 
-    // Snapshot consistency: the wallet probe, the teacher-name resolution,
-    // and the count + page pair share ONE consistent snapshot, so the
-    // rendered balance can never be older than the ledger rows beside it.
-    return readInSnapshot(outerTx, async (snapshotTx): Promise<AdminTeacherWalletReturnType> => {
-      const probe = await WalletRepository.findAdminWalletProbe(teacherId, snapshotTx);
-      const teacherName = await resolveTeacherName(teacherId, probe, t, snapshotTx);
+      // Snapshot consistency: the wallet probe, the teacher-name resolution,
+      // and the count + page pair share ONE consistent snapshot, so the
+      // rendered balance can never be older than the ledger rows beside it.
+      return readInSnapshot(tx, async (snapshotTx): Promise<AdminTeacherWalletReturnType> => {
+        const probe = await WalletRepository.findAdminWalletProbe(teacherId, snapshotTx);
+        const teacherName = await resolveTeacherName(teacherId, probe, t, snapshotTx);
 
-      // Honest empty state: no wallet row → null-pair amounts + empty page.
-      if (!probe) {
+        // Honest empty state: no wallet row → null-pair amounts + empty page.
+        if (!probe) {
+          return {
+            balance: null,
+            totalEarning: null,
+            currency: ADMIN_WALLET_CURRENCY_LABEL,
+            teacherId,
+            teacherName,
+            transactions: [],
+            totalCount: 0,
+            page: resolvedPage,
+            pageSize: resolvedPageSize,
+          };
+        }
+
+        const count = await WalletRepository.countTransactionsForAdmin(probe.wallet.id, txFilters, snapshotTx);
+        const rows = await WalletRepository.listTransactionsForAdmin(
+          probe.wallet.id,
+          txFilters,
+          resolvedPageSize,
+          offset,
+          snapshotTx
+        );
+
         return {
-          balance: null,
-          totalEarning: null,
+          balance: probe.wallet.balance,
+          totalEarning: probe.wallet.totalEarning,
           currency: ADMIN_WALLET_CURRENCY_LABEL,
           teacherId,
           teacherName,
-          transactions: [],
-          totalCount: 0,
+          transactions: rows,
+          totalCount: count,
           page: resolvedPage,
           pageSize: resolvedPageSize,
         };
-      }
-
-      const count = await WalletRepository.countTransactionsForAdmin(probe.wallet.id, txFilters, snapshotTx);
-      const rows = await WalletRepository.listTransactionsForAdmin(
-        probe.wallet.id,
-        txFilters,
-        resolvedPageSize,
-        offset,
-        snapshotTx
-      );
-
-      return {
-        balance: probe.wallet.balance,
-        totalEarning: probe.wallet.totalEarning,
-        currency: ADMIN_WALLET_CURRENCY_LABEL,
-        teacherId,
-        teacherName,
-        transactions: rows,
-        totalCount: count,
-        page: resolvedPage,
-        pageSize: resolvedPageSize,
-      };
-    });
-  });
+      });
+    },
+    { isolationLevel: "repeatable read" }
+  );
 }
 
 /**
@@ -255,9 +263,9 @@ export async function getTeacherWalletForAdmin(
  * balance, oldest first (longest-waiting first).
  *
  * Pure read: zero writes, zero audit rows. The paired count + listing
- * share ONE repeatable-read snapshot (same contract as the other lists);
- * the probe reads around it remain best-effort, non-authoritative reads
- * outside that snapshot (see `readInSnapshot`).
+ * share ONE repeatable-read snapshot (same contract as the other lists —
+ * the list transaction opens at `repeatable read` via `withTransaction`'s
+ * config and `readInSnapshot` joins it as a savepoint block).
  */
 export async function listPendingWithdrawalsForAdmin(
   actorUserId: number,
@@ -266,21 +274,26 @@ export async function listPendingWithdrawalsForAdmin(
   locale: string,
   outerTx?: DBTransaction
 ): Promise<AdminWithdrawalQueuePageReturnType> {
-  return withTransaction(outerTx, async tx => {
-    await assertActorAdminActive(actorUserId, locale, tx);
-    const { resolvedPage, resolvedPageSize, offset } = resolvePageBounds(page ?? 1, pageSize ?? undefined, locale);
+  return withTransaction(
+    outerTx,
+    async tx => {
+      await assertActorAdminActive(actorUserId, locale, tx);
+      const { resolvedPage, resolvedPageSize, offset } = resolvePageBounds(page ?? 1, pageSize ?? undefined, locale);
 
-    const [pageRows, totalCount] = await readInSnapshot(
-      outerTx,
-      async (snapshotTx): Promise<[AdminWithdrawalQueueRow[], number]> => {
-        const count = await WalletRepository.countPendingWithdrawals(snapshotTx);
-        const rows = await WalletRepository.listPendingWithdrawals(resolvedPageSize, offset, snapshotTx);
-        return [rows, count];
-      }
-    );
+      const [pageRows, totalCount, totalAmount] = await readInSnapshot(
+        tx,
+        async (snapshotTx): Promise<[AdminWithdrawalQueueRow[], number, string]> => {
+          const count = await WalletRepository.countPendingWithdrawals(snapshotTx);
+          const rows = await WalletRepository.listPendingWithdrawals(resolvedPageSize, offset, snapshotTx);
+          const sum = await WalletRepository.sumPendingWithdrawals(snapshotTx);
+          return [rows, count, sum];
+        }
+      );
 
-    return { items: pageRows, totalCount, page: resolvedPage, pageSize: resolvedPageSize };
-  });
+      return { items: pageRows, totalCount, totalAmount, page: resolvedPage, pageSize: resolvedPageSize };
+    },
+    { isolationLevel: "repeatable read" }
+  );
 }
 
 // Exported for the namespace file's mutation paths only (the read helpers

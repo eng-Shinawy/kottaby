@@ -358,6 +358,11 @@ export interface SessionsLabels {
   readonly reportGradeJadidLabel: string;
   /** Field label — the Madi track's grade input. */
   readonly reportGradeMadiLabel: string;
+  /**
+   * Read-only grade chip — the complete accessible name, composed by the
+   * locale (separator and ordering are copy decisions, never hardcoded).
+   */
+  readonly reportGradeAriaLabel: (gradeLabel: string, grade: number) => string;
   /** Empty-state label — a track block is absent on the prior homework. */
   readonly reportTrackEmptyLabel: string;
 

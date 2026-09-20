@@ -34,6 +34,12 @@ export interface CheckoutLabels {
   readonly sessionsIncludedLine: (count: number) => string;
   /** Plan card feature line — the validity window in days (ICU {days}). */
   readonly validityLine: (days: number) => string;
+  /**
+   * Plan card derived-price line — the bundle price divided by the included
+   * session count, shown as a comparison aid under the prominent total
+   * (ICU {amount}; the amount arrives pre-formatted with currency label).
+   */
+  readonly perSessionLine: (amount: string) => string;
   /** Balance-lane vocabulary — mirrors the Hifz credit-lane value. */
   readonly laneHifz: string;
   /** Balance-lane vocabulary — mirrors the Tajweed credit-lane value. */

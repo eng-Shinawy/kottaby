@@ -5,6 +5,10 @@
  * renders VERBATIM (a decimal string) beside the currency label — never
  * reformatted, never computed. Extracted verbatim from
  * `TeacherWalletContainer` (the max-lines split).
+ *
+ * The `tone` prop differentiates the two header cards at a glance: the
+ * spendable balance wears the PRIMARY container tint (it drives the
+ * withdrawal CTA), lifetime earnings keep the quiet SECONDARY tint.
  */
 
 import { Avatar, Box, Paper, Skeleton, Stack, Typography } from "@mui/material";
@@ -17,6 +21,8 @@ export interface WalletBalanceCardProps {
   readonly currency: string | undefined;
   readonly loading: boolean;
   readonly icon: ReactNode;
+  /** Icon-tile tone — `"primary"` marks the spendable-balance card. */
+  readonly tone?: "primary" | "secondary";
 }
 
 /** One tinted-icon balance summary card — see the module docblock. */
@@ -27,6 +33,7 @@ export function WalletBalanceCard({
   currency,
   loading,
   icon,
+  tone = "secondary",
 }: Readonly<WalletBalanceCardProps>): ReactNode {
   return (
     <Paper
@@ -45,11 +52,12 @@ export function WalletBalanceCard({
       <Avatar
         variant="rounded"
         sx={theme => ({
-          bgcolor: theme.palette.secondaryContainer,
-          color: theme.palette.onSecondaryContainer,
           width: 44,
           height: 44,
           borderRadius: 2,
+          ...(tone === "primary"
+            ? { bgcolor: theme.palette.primaryContainer, color: theme.palette.onPrimaryContainer }
+            : { bgcolor: theme.palette.secondaryContainer, color: theme.palette.onSecondaryContainer }),
         })}
       >
         {icon}
