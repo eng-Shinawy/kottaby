@@ -5,10 +5,14 @@
  * admin student directory, opened by clicking a desktop row / mobile card
  * or through the per-row view-details quick action.
  *
- * The drawer is PRESENTATIONAL: it renders only fields the directory item
- * already carries (no extra queries, no mutations) grouped in section
- * cards — identity, balances, parent placement, languages, free trial, and
- * record. Every caption comes from the `AdminStudents` namespace; data
+ * The drawer is mostly PRESENTATIONAL: it renders only fields the
+ * directory item already carries (no extra queries, no mutations) grouped
+ * in section cards — identity, balances, parent placement, languages,
+ * free trial, and record. The ONE exception is the subscription-
+ * management section (below balances), which hosts its own admin-only
+ * read + lifecycle mutations via `SubscriptionAdminSection` — the page is
+ * `withPageAuth([Admin])`-gated, so that section never renders elsewhere.
+ * Every caption comes from the `AdminStudents` namespace; data
  * values render verbatim.
  *
  * Layout: the shell, the shared section primitives and the shared
@@ -40,6 +44,7 @@ import {
   StudentLanguageChips,
   StudentTrialContent,
 } from "@/frontend/views/admin/students/AdminStudentRowCells";
+import { SubscriptionAdminSection } from "@/frontend/views/admin/students/subscriptions/SubscriptionAdminSection";
 import type { AppLocale } from "@/shared/locale";
 import type { AdminStudentsLabels } from "@/shared/locale/types/adminStudents";
 
@@ -94,6 +99,7 @@ export function AdminStudentDetailDrawer({
         onCopyEmail={onCopyEmail}
       />
       <StudentDrawerBalancesSection student={student} labels={labels} />
+      <SubscriptionAdminSection key={String(student.id)} userId={student.id} />
       <StudentDrawerPlacementSection student={student} labels={labels} />
       <StudentDrawerLanguagesSection student={student} labels={labels} />
       <StudentDrawerTrialSection student={student} labels={labels} locale={locale} />

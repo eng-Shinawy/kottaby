@@ -586,6 +586,12 @@ export interface AdminUsersLabels {
     readonly pageTitle: string;
     /** Subtitle line under the page heading. */
     readonly pageSubtitle: string;
+    /**
+     * Chip label shown in the heading band while any filter is applied —
+     * the at-a-glance "this listing is narrowed" marker (the trail itself
+     * always renders the honest filtered rows).
+     */
+    readonly filteredViewLabel: string;
 
     /** Filter bar control labels for the audit-trail query. */
     readonly filters: {
@@ -593,6 +599,12 @@ export interface AdminUsersLabels {
       readonly actorIdLabel: string;
       /** Label for the entity-type filter select. */
       readonly entityTypeLabel: string;
+      /**
+       * Helper line under the free-text entity-type filter — clarifies that
+       * the filter matches the recorded WIRE value exactly (the chips in the
+       * trail are localized display labels, the filter is not).
+       */
+      readonly entityTypeHint: string;
       /** Label for the entity-id filter input. */
       readonly entityIdLabel: string;
       /** Label for the action-type filter select. */
@@ -605,6 +617,11 @@ export interface AdminUsersLabels {
       readonly applyAction: string;
       /** Clear-filters button label — restores the unfiltered trail. */
       readonly clearAction: string;
+      /**
+       * Caption line naming the entity-type quick-pick chip group beneath
+       * the filter grid (the chips fill the free-text entity-type draft).
+       */
+      readonly quickPickCaption: string;
     };
 
     /** Table column headers and details-expansion affordances. */
@@ -631,6 +648,50 @@ export interface AdminUsersLabels {
       readonly noEntityIdValue: string;
       /** Select-option label for the unfiltered (every-action) action-type entry. */
       readonly allActionsOption: string;
+      /** Copy-entity-reference action label (copies `<type> #<id>`). */
+      readonly entityRefCopy: string;
+      /** Transient copied-confirmation label of the entity-reference copy action. */
+      readonly entityRefCopied: string;
+      /**
+       * Accessible name of the actor cell's account link — the navigation
+       * target is the acting account's admin detail page.
+       */
+      readonly actorLinkLabel: string;
+      /**
+       * Accessible name of the entity-id cell's account link, rendered when
+       * the entry's entity type is `user` — the target is that user's
+       * admin detail page.
+       */
+      readonly userEntityLinkLabel: string;
+    };
+
+    /**
+     * Localized display labels for the canonical entity-type wire values the
+     * backend mints into the audit trail. Resolution runs through
+     * `entityTypeLabelOf` (wire snake_case → key); a value outside this
+     * vocabulary renders verbatim instead of blank.
+     */
+    readonly entityTypeLabels: {
+      /** `user` — user-management actions. */
+      readonly user: string;
+      /** `teacher` — teacher lifecycle actions. */
+      readonly teacher: string;
+      /** `session` — class/session actions. */
+      readonly session: string;
+      /** `subscription` — subscription lifecycle actions. */
+      readonly subscription: string;
+      /** `plan` — plan-catalog actions. */
+      readonly plan: string;
+      /** `teacher_transaction` — wallet settlement actions. */
+      readonly teacherTransaction: string;
+      /** `parent_link_request` — parent-link workflow actions. */
+      readonly parentLinkRequest: string;
+      /** `parent_link_request_decision` — link-request decision actions. */
+      readonly parentLinkRequestDecision: string;
+      /** `parent_link_request_expiry` — link-request sweep actions. */
+      readonly parentLinkRequestExpiry: string;
+      /** `notification_broadcast` — broadcast actions. */
+      readonly notificationBroadcast: string;
     };
 
     /** Empty-state copy rendered when no audit entries match the filters. */
@@ -647,6 +708,25 @@ export interface AdminUsersLabels {
       readonly title: string;
       /** Error-state body line explaining the failure. */
       readonly message: string;
+    };
+
+    /** CSV export of the trail page the view currently holds. */
+    readonly export: {
+      /** Visible label + accessible name of the export action. */
+      readonly exportPageCsv: string;
+      /** Tooltip copy while the trail is empty — nothing to export. */
+      readonly exportPageCsvEmpty: string;
+      /** Success line after the download starts (`{count}` = exported rows). */
+      readonly exportedRows: string;
+      /** Failure line when the browser download could not be prepared. */
+      readonly exportFailed: string;
+      /** Visible label + accessible name of the export-all action. */
+      readonly exportAllCsv: string;
+      /**
+       * Success line after a capped export-all download (`{count}` = the
+       * exported rows, `{total}` = the filter's full match count).
+       */
+      readonly exportTruncated: string;
     };
   };
 }

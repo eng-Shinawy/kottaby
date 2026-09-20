@@ -463,6 +463,57 @@ enum BroadcastAudienceType {
   Role
 }
 
+"""
+Input for cancelling an active subscription while preserving its balance lanes.
+"""
+input CancelSubscriptionInput {
+  """
+  Optional free-text reason for the cancellation (trimmed and bounded to 200 characters server-side).
+  """
+  reason: String
+
+  """ID of the active subscription row to cancel."""
+  subscriptionId: ID!
+}
+
+"""
+Input for changing an active subscription onto a different plan in the same balance lane.
+"""
+input ChangeSubscriptionPlanInput {
+  """
+  ID of the target plan (must be active and credit the same balance lane; server-guarded).
+  """
+  newPlanId: ID!
+
+  """ID of the active subscription row to re-plan."""
+  subscriptionId: ID!
+}
+
+"""
+Result of an admin plan change: the new subscription row and the applied proration settlement.
+"""
+type ChangeSubscriptionPlanPayload {
+  """
+  Sessions carried on top of the target plan's full session count (upgrades only; zero on downgrades and replays).
+  """
+  carrySessions: Int!
+
+  """
+  Derived direction from the two plans' per-session unit values (a unit-value tie breaks on session count).
+  """
+  direction: ProrationDirection!
+
+  """
+  Remaining sessions forfeited by a downgrade (zero on upgrades and replays) — ids/ints vocabulary mirrors the audit row.
+  """
+  forfeitedSessions: Int!
+
+  """
+  The NEW active subscription row on the target plan (the first change's row on a replay).
+  """
+  subscription: StudentSubscription!
+}
+
 """Input fields required to create a new lesson."""
 input CreateLessonInput {
   """Identifier of the subscription plan this lesson belongs to."""
@@ -552,6 +603,17 @@ type EvaluationLoopStatus {
 
   """Remaining evaluation credits (0..5)."""
   remainingCredits: Int!
+}
+
+"""Input for extending an active subscription's validity window."""
+input ExtendSubscriptionInput {
+  """
+  Whole number of days to add to the window's current end (>= 1, server-validated).
+  """
+  days: Int!
+
+  """ID of the subscription row to extend."""
+  subscriptionId: ID!
 }
 
 enum Gender {
@@ -660,10 +722,34 @@ type Mutation {
   adminCancelSession(input: AdminSessionCancelInput!): Session!
 
   """
+  Cancels an active subscription while preserving its balance lanes untouched. Admin-only; a replay of an already-applied cancel surfaces an idempotent conflict instead of a second write.
+  """
+  adminCancelSubscription(
+    """The active subscription selector and an optional bounded reason."""
+    input: CancelSubscriptionInput!
+  ): StudentSubscription!
+
+  """
   Admin-only cold-start certification (INV-TV1(b) / FR-3.9): promotes an existing teacher-role user to a certified founding Sheikh — inserts or elevates the teacher row (is_approved=true, is_evaluator per flag), finalizes any applicants row (passed, cooldown cleared), appends one override audit row, and notifies the teacher. Repeat calls answer TEACHER_ALREADY_CERTIFIED.
   """
   adminCertifyTeacherColdStart(makeEvaluator: Boolean = true, userId: Int!): AdminUserDetail!
+
+  """
+  Changes an active subscription onto a different active plan in the same balance lane with prorated settlement: the old row is cancelled, the owner's lane is settled to the prepared exact total (target plan's session count plus the computed carry on upgrades; the remainder forfeited on downgrades), and a fresh period opens on the target plan. Admin-only; a duplicate change replays the first result.
+  """
+  adminChangeSubscriptionPlan(
+    """The active subscription selector and the target plan id."""
+    input: ChangeSubscriptionPlanInput!
+  ): ChangeSubscriptionPlanPayload!
   adminCreateUser(input: AdminCreateUserInput!): AdminUserDetail!
+
+  """
+  Extends an active subscription's validity window by a whole number of days. Admin-only; the new window end is derived server-side from the row's current end date.
+  """
+  adminExtendSubscription(
+    """The subscription selector and the day count to add."""
+    input: ExtendSubscriptionInput!
+  ): StudentSubscription!
 
   """
   Join one started session as a read-only observer (admin-only, audit-only — no session column changes). Rows that are not started are SESSION_INVALID_TRANSITION conflicts with zero audit rows.
@@ -674,6 +760,14 @@ type Mutation {
   Reassign one scheduled session to a different certified teacher (admin-only; scheduled rows only). The candidate's certification is asserted under lock — an unapproved candidate is TEACHER_NOT_CERTIFIED and leaves the row untouched.
   """
   adminReassignTeacher(input: AdminSessionReassignInput!): Session!
+
+  """
+  Renews an expired subscription into a fresh active period: a new row (same owner, fresh plan snapshot), the owner's lane credited the plan's full session count, and the student junction row. Admin-only; a duplicate renew replays the first result.
+  """
+  adminRenewSubscription(
+    """The expired subscription selector."""
+    input: RenewSubscriptionInput!
+  ): StudentSubscription!
 
   """
   Reschedule one session's timing pair (admin-only guarded transition; scheduled/started rows only). Ordering and the past-grace window are validated before any read; zero-row misses are SESSION_INVALID_TRANSITION conflicts.
@@ -1137,6 +1231,11 @@ type PlatformAnalyticsUsers {
   totalCount: Int!
 }
 
+enum ProrationDirection {
+  Downgrade
+  Upgrade
+}
+
 """
 Whitelist for a purchase attempt — the plan selector is the only client-owned field.
 """
@@ -1196,6 +1295,14 @@ type Query {
   """
   adminSessions(filter: AdminSessionListFilterInput!, page: Int = 1, pageSize: Int = 25): SessionPage!
   adminStudentPayments(filters: AdminStudentPaymentsFilterInput, page: Int, pageSize: Int): AdminStudentPaymentPage!
+
+  """
+  Lists one student's subscriptions across every lifecycle status, newest first. Admin-only; the results include only rows owned by the addressed user.
+  """
+  adminStudentSubscriptions(
+    """The student owner's user id whose subscriptions are listed."""
+    userId: ID!
+  ): [StudentSubscription!]!
   adminStudents(filters: AdminStudentFiltersInput, page: Int, pageSize: Int): AdminStudentPage!
   adminStudentsExport(filters: AdminStudentFiltersInput): AdminStudentExportEnvelope!
   adminTeacherApplicants(filters: AdminApplicantFiltersInput, page: Int, pageSize: Int): AdminApplicantPage!
@@ -1355,6 +1462,12 @@ input RegisterUserInput {
   role: RegisterPublicRole!
 }
 
+"""Input for renewing an expired subscription into a fresh active period."""
+input RenewSubscriptionInput {
+  """ID of the expired subscription row to renew."""
+  subscriptionId: ID!
+}
+
 input RequestWithdrawalInput {
   """The payout amount as a decimal string (e.g. "125.00")."""
   amount: String!
@@ -1502,6 +1615,16 @@ type StudentPayment {
 
 """A student subscription linking a purchaser to a catalog plan."""
 type StudentSubscription {
+  """
+  How many audit-trail entries the trail holds for this subscription (the admin drawer's per-row trail-depth badge). Read-only; a row with no history answers 0.
+  """
+  auditEntriesCount: Int!
+
+  """
+  The most recent audit-trail entry for this subscription (the drawer's trail teaser), or null when the trail holds no entries for the row.
+  """
+  auditTrailPeek: StudentSubscriptionAuditPeek
+
   """Timestamp when the subscription record was created."""
   createdAt: String!
 
@@ -1540,6 +1663,19 @@ type StudentSubscription {
 
   """Timestamp when the subscription record was last modified."""
   updatedAt: String!
+}
+
+"""
+The most recent audit-trail entry for one subscription (the drawer's trail teaser).
+"""
+type StudentSubscriptionAuditPeek {
+  """
+  Canonical action type of the most recent trail entry (fail-closed certified server-side).
+  """
+  actionType: AuditActionType!
+
+  """Timestamp of the most recent trail entry (ISO-8601 UTC)."""
+  at: String!
 }
 
 input SubmitSessionReportInput {

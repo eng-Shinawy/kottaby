@@ -21,6 +21,7 @@
  *  - `TransactionType`, `TransactionStatus` (billing ledger vocabulary)
  *  - `PaymentGateway`, `PaymentStatus`, `SubscriptionStatus`,
  *    `SubscriptionCreditLane` (subscription purchase + settlement vocabulary)
+ *  - `ProrationDirection` (admin plan-change upgrade/downgrade vocabulary)
  *  - `AdminUserGovernanceFilter` (active|suspended|blocked|deleted — admin directory filter)
  *  - `NotificationType` (the nine notification kinds)
  *  - `BroadcastAudienceType` (all|role|country|plan — admin broadcast cohort kinds)
@@ -35,6 +36,7 @@
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { PaymentGateway } from "@/backend/enum/billing/payment-gateway.enum";
 import { PaymentStatus } from "@/backend/enum/billing/payment-status.enum";
+import { ProrationDirection } from "@/backend/enum/billing/proration-direction.enum";
 import { SubscriptionCreditLane } from "@/backend/enum/billing/subscription-credit-lane.enum";
 import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
 import { TransactionStatus } from "@/backend/enum/billing/transaction-status.enum";
@@ -353,4 +355,20 @@ export const BroadcastAudienceTypePothosEnum = gqlSchemaBuilder.enumType(Broadca
  */
 export const SurahJuzRefPothosEnum = gqlSchemaBuilder.enumType(SurahJuzRef, {
   name: "SurahJuzRef",
+});
+
+/**
+ * GraphQL `ProrationDirection` enum (upgrade|downgrade) — the derived
+ * direction of an admin plan change, computed from the two plans'
+ * per-session unit values (a unit-value tie breaks on session count).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/billing/proration-direction.enum.ts`). There is NO pgEnum
+ * backing this vocabulary — it is a pure service-time computation result
+ * on the `adminChangeSubscriptionPlan` payload, never a stored column
+ * value. Backs the `direction` field on the `ChangeSubscriptionPlanPayload`
+ * object.
+ */
+export const ProrationDirectionPothosEnum = gqlSchemaBuilder.enumType(ProrationDirection, {
+  name: "ProrationDirection",
 });

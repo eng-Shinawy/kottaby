@@ -275,15 +275,18 @@ export const adminUsersEn: AdminUsersLabels = {
   auditTrail: {
     pageTitle: "Audit trail",
     pageSubtitle: "Immutable record of every administrative action across the platform.",
+    filteredViewLabel: "Filtered view",
     filters: {
       actorIdLabel: "Actor ID",
       entityTypeLabel: "Entity type",
+      entityTypeHint: "Matches the recorded value exactly — e.g. subscription, plan, user.",
       entityIdLabel: "Entity ID",
       actionTypeLabel: "Action type",
       fromDateLabel: "From date",
       toDateLabel: "To date",
       applyAction: "Apply",
       clearAction: "Clear",
+      quickPickCaption: "Quick entity-type filters",
     },
     table: {
       whenHeader: "When",
@@ -297,6 +300,22 @@ export const adminUsersEn: AdminUsersLabels = {
       noDetailsValue: "—",
       noEntityIdValue: "—",
       allActionsOption: "All actions",
+      entityRefCopy: "Copy entity reference",
+      entityRefCopied: "Copied",
+      actorLinkLabel: "Open the acting account",
+      userEntityLinkLabel: "Open the affected user account",
+    },
+    entityTypeLabels: {
+      user: "User",
+      teacher: "Teacher",
+      session: "Session",
+      subscription: "Subscription",
+      plan: "Plan",
+      teacherTransaction: "Teacher transaction",
+      parentLinkRequest: "Parent link request",
+      parentLinkRequestDecision: "Link request decision",
+      parentLinkRequestExpiry: "Link request expiry",
+      notificationBroadcast: "Notification broadcast",
     },
     emptyState: {
       title: "No audit entries",
@@ -306,6 +325,14 @@ export const adminUsersEn: AdminUsersLabels = {
     errorState: {
       title: "Could not load the audit trail",
       message: "Something went wrong while fetching the audit trail. Try again.",
+    },
+    export: {
+      exportPageCsv: "Export page as CSV",
+      exportPageCsvEmpty: "Nothing to export yet",
+      exportedRows: "Exported {count} entries.",
+      exportFailed: "Could not prepare the CSV export.",
+      exportAllCsv: "Export all (filtered)",
+      exportTruncated: "Exported the first {count} of {total} entries.",
     },
   },
 };

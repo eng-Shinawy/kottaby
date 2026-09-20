@@ -37,9 +37,14 @@
 
 import { PlanPothosObject } from "@/backend/graphql/pothos/billing/plan.pothos";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
-import { PaymentGatewayPothosEnum, SubscriptionStatusPothosEnum } from "@/backend/graphql/pothos/shared/enum.pothos";
+import {
+  AuditActionTypePothosEnum,
+  PaymentGatewayPothosEnum,
+  SubscriptionStatusPothosEnum,
+} from "@/backend/graphql/pothos/shared/enum.pothos";
 import { PlanCatalogService } from "@/backend/services/billing/plan-catalog.service";
-import type { SubscriptionReturnType } from "@/backend/types";
+import { SubscriptionAdminService } from "@/backend/services/billing/subscription-admin.service";
+import type { SubscriptionAuditTrailPeek, SubscriptionReturnType } from "@/backend/types";
 
 /**
  * The canonical `StudentSubscription` GraphQL object type (the
@@ -97,6 +102,41 @@ export const SubscriptionPothosObject = gqlSchemaBuilder
       updatedAt: t.string({
         description: "Timestamp when the subscription record was last modified.",
         resolve: parent => parent.updatedAt.toISOString(),
+      }),
+      auditEntriesCount: t.int({
+        description:
+          "How many audit-trail entries the trail holds for this subscription (the admin drawer's per-row trail-depth badge). Read-only; a row with no history answers 0.",
+        resolve: parent => SubscriptionAdminService.auditEntriesCount(parent.id),
+      }),
+      auditTrailPeek: t.field({
+        type: SubscriptionAuditTrailPeekPothosObject,
+        nullable: true,
+        description:
+          "The most recent audit-trail entry for this subscription (the drawer's trail teaser), or null when the trail holds no entries for the row.",
+        resolve: parent => SubscriptionAdminService.auditTrailPeek(parent.id),
+      }),
+    }),
+  });
+
+/**
+ * `StudentSubscriptionAuditPeek` — the embedded value object carrying the
+ * subscription's most recent trail entry (action type + instant). No `id`
+ * of its own (not a normalizable entity — exactly one peek per row); the
+ * canonical action enum rides the shared audit enum, and the instant is
+ * serialized ISO-8601 UTC like every timestamp on the row.
+ */
+export const SubscriptionAuditTrailPeekPothosObject = gqlSchemaBuilder
+  .objectRef<SubscriptionAuditTrailPeek>("StudentSubscriptionAuditPeek")
+  .implement({
+    description: "The most recent audit-trail entry for one subscription (the drawer's trail teaser).",
+    fields: t => ({
+      actionType: t.expose("actionType", {
+        type: AuditActionTypePothosEnum,
+        description: "Canonical action type of the most recent trail entry (fail-closed certified server-side).",
+      }),
+      at: t.string({
+        description: "Timestamp of the most recent trail entry (ISO-8601 UTC).",
+        resolve: parent => parent.at.toISOString(),
       }),
     }),
   });

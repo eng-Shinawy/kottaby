@@ -20,6 +20,7 @@ import { parentMonitoringAr } from "@/shared/locale/ar/parentMonitoring";
 import { plansAr } from "@/shared/locale/ar/plans";
 import { recitationAr } from "@/shared/locale/ar/recitation";
 import { sessionsAr } from "@/shared/locale/ar/sessions";
+import { subscriptionAdminAr } from "@/shared/locale/ar/subscriptionAdmin";
 import { walletAr } from "@/shared/locale/ar/wallet";
 import type { Translations } from "@/shared/locale/types/message";
 
@@ -47,4 +48,5 @@ export const arMessages: Translations = {
   parentLinkTranslations: parentLinkAr,
   parentMonitoringTranslations: parentMonitoringAr,
   analyticsTranslations: analyticsAr,
+  subscriptionAdminTranslations: subscriptionAdminAr,
 };

@@ -35,6 +35,10 @@ import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 /**
  * Canonical ledger IDs of deferred audit producers for future admin surfaces that have not yet shipped.
  * Statically declared in TypeScript to keep anti-drift tests independent of markdown plan files.
+ *
+ * D-001's composite subscription row is REPLACED by the per-mutation wired
+ * subscription rows above; the id itself stays reserved here (never
+ * renumbered) so a future subscription-surface deferral can reference it again.
  */
 export const DEFERRED_ADMIN_ACTION_IDS = ["D-001", "D-002", "D-003"] as const;
 type DeferredAdminActionId = (typeof DEFERRED_ADMIN_ACTION_IDS)[number];
@@ -225,15 +229,37 @@ export const ADMIN_ACTION_CENSUS: readonly AdminActionCensusEntry[] = [
     kind: "wired",
   },
 
-  // ── Deferred producers (ledger-backed future surfaces) ─────────────────────
+  // ── Admin subscription lifecycle (SubscriptionAdminService) ────────────────
   {
-    mutationField: "(future) adminExtendSubscription / adminCancelSubscription",
-    serviceEntry: "subscription management surface — unshipped",
-    expectedActionTypes: [AuditActionType.Update, AuditActionType.Suspend],
+    mutationField: "adminExtendSubscription",
+    serviceEntry: "SubscriptionAdminService.extendSubscription",
+    expectedActionTypes: [AuditActionType.Update],
     expectedEntityType: "subscription",
-    kind: "deferred",
-    deferredRef: "D-001",
+    kind: "wired",
   },
+  {
+    mutationField: "adminRenewSubscription",
+    serviceEntry: "SubscriptionAdminService.renewSubscription",
+    expectedActionTypes: [AuditActionType.Create],
+    expectedEntityType: "subscription",
+    kind: "wired",
+  },
+  {
+    mutationField: "adminCancelSubscription",
+    serviceEntry: "SubscriptionAdminService.cancelSubscription",
+    expectedActionTypes: [AuditActionType.Suspend],
+    expectedEntityType: "subscription",
+    kind: "wired",
+  },
+  {
+    mutationField: "adminChangeSubscriptionPlan",
+    serviceEntry: "SubscriptionAdminService.changeSubscriptionPlan",
+    expectedActionTypes: [AuditActionType.Override],
+    expectedEntityType: "subscription",
+    kind: "wired",
+  },
+
+  // ── Deferred producers (ledger-backed future surfaces) ─────────────────────
   {
     mutationField: "(future) adminResetUserPassword",
     serviceEntry: "credential administration — unshipped",

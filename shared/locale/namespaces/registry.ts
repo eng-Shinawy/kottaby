@@ -26,6 +26,7 @@ import { ParentMonitoring } from "@/shared/locale/namespaces/parentMonitoring";
 import { Plans } from "@/shared/locale/namespaces/plans";
 import { Recitation } from "@/shared/locale/namespaces/recitation";
 import { Sessions } from "@/shared/locale/namespaces/sessions";
+import { SubscriptionAdmin } from "@/shared/locale/namespaces/subscriptionAdmin";
 import { Wallet } from "@/shared/locale/namespaces/wallet";
 
 export const namespaces = {
@@ -51,5 +52,6 @@ export const namespaces = {
   Plans,
   Recitation,
   Sessions,
+  SubscriptionAdmin,
   Wallet,
 } as const;

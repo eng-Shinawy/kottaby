@@ -66,6 +66,21 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
   captures in retry loops gated on DOM state (evaluate the expected marker; retry up to 3×).
 - The console dump is CUMULATIVE for the session — `agent-browser console --clear` after each
   navigation so the pre-check gate judges only the current page's entries.
+- `document.title` may be PAGE-LOCAL (namespace-driven), not the brand string — the precheck
+  `--expect-title` guard must target the page's own title ("المستخدمون", "Students", "سجل التدقيق"),
+  else every capture fails the title gate spuriously. Read the actual title from a probe capture first.
+- PGlite data dirs are EXCLUSIVE per process: mutating `db/pglite` through an external script while
+  the dev server holds it FORKS the view — the server keeps serving its pre-boot page cache (rows
+  inserted externally stayed invisible to GraphQL until a full server restart). Rule: server
+  STOPPED → mutate → server RESTART (same discipline `reset-state.sh` already prescribes).
+- Seed users share `ADMIN_PASSWORD` (`seed-config.defaultAdminCredential`) — changing the env's
+  admin credentials silently changes every demo user's password; capture-run login failures may be
+  seed-config drift, not a bug.
+- In sandboxes where the HARNESS can flip the working tree back to the default branch between tool
+  calls (check `git reflog` — a checkout seconds after yours is the tell): never assume HEAD across
+  tool calls. Re-verify `git branch --show-current` immediately before every
+  `git add`/`commit`/`push`, and treat the remote branch ref as authoritative for CI.
+
 - Storybook iframes do NOT receive the app's `next/font` CSS variables — Arabic (and other webfont
   scripts) render in a fallback font. Never flag Arabic shaping/tracking from a Storybook capture
   without confirming computed styles (`letterSpacing`, `fontFamily`) via `agent-browser eval`.

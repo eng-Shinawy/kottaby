@@ -256,7 +256,7 @@ input RenewSubscriptionInput { subscriptionId: ID! }
 input CancelSubscriptionInput { subscriptionId: ID!, reason: String }
 input ChangeSubscriptionPlanInput { subscriptionId: ID!, newPlanId: ID! }
 
-enum ProrationDirection { UPGRADE DOWNGRADE }
+enum ProrationDirection { Upgrade Downgrade }
 
 type ChangeSubscriptionPlanPayload {
   subscription: StudentSubscription!
@@ -266,7 +266,7 @@ type ChangeSubscriptionPlanPayload {
 }
 ```
 
-(The `StudentSubscription` object already exposes `id`, `planId`, `plan`, `status`, `startDate`, `endDate`, `paymentMethod`, `createdAt`, `updatedAt` — verified at `pothos/billing/subscription.pothos.ts:48-101`.)
+(The `StudentSubscription` object already exposes `id`, `planId`, `plan`, `status`, `startDate`, `endDate`, `paymentMethod`, `createdAt`, `updatedAt` — verified at `pothos/billing/subscription.pothos.ts:48-101`. The `ProrationDirection` wire spelling follows the Pothos enum-member KEY convention — `Upgrade`/`Downgrade` on the wire, matching e.g. `WalletAdjustmentDirection` → `Credit`/`Debit`.)
 
 ### 5.1 GraphQL Permission Matrix
 

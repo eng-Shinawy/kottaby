@@ -59,6 +59,33 @@ interface SubscriptionPurchaseErrorsLabels {
   readonly planPriceOutOfRange: string;
 }
 
+/**
+ * Admin subscription-lifecycle failures surfaced to operators through the
+ * `errors` namespace. Each leaf is a self-contained sentence (no key echo)
+ * consumed by the admin services via property access on the localized
+ * bundle: `errorsTranslations.subscriptionAdmin.<key>`. Subscription ids,
+ * plan ids, and other admin-authored identifiers MUST NOT appear in these
+ * strings — only generic, user-facing copy.
+ */
+interface SubscriptionAdminErrorsLabels {
+  /** Active-only deny: extend, cancel, or plan change targeted a subscription whose status is not `active`. */
+  readonly notActive: string;
+  /** Expired-only deny: renewal targeted a subscription whose status is not `expired`. */
+  readonly notExpired: string;
+  /** Plan-change reject: the target plan credits a different balance lane than the source plan (cross-lane migration unsupported). */
+  readonly incompatibleLane: string;
+  /** Plan-change reject: the target plan row is inactive. */
+  readonly inactivePlan: string;
+  /** Plan-change reject: the target plan is the subscription's current plan. */
+  readonly samePlan: string;
+  /** Validation reject: the requested extension or the resulting validity window exceeds the maximum allowed interval, or the resulting/target plan's session count exceeds the maximum session ceiling — the window/interval bound and the session-count ceiling (renew + plan-change) share this key. */
+  readonly prorationOverflow: string;
+  /** Replay conflict: this subscription was already renewed — the original result is replayed. */
+  readonly alreadyRenewed: string;
+  /** Replay conflict: this subscription's plan was already changed — the original result is replayed. */
+  readonly alreadyPlanChanged: string;
+}
+
 export interface ErrorsLabels {
   readonly unauthorized: string;
   readonly forbidden: string;
@@ -89,6 +116,8 @@ export interface ErrorsLabels {
   readonly lessonCatalog: LessonCatalogErrorsLabels;
   /** Subscription-purchase domain failures (plan gating, lane gating, idempotency, reference conflicts, settlement mismatch). */
   readonly subscriptionPurchase: SubscriptionPurchaseErrorsLabels;
+  /** Admin subscription-lifecycle failures (state denials, plan-change guards, proration bounds, replay conflicts). */
+  readonly subscriptionAdmin: SubscriptionAdminErrorsLabels;
   /** "Teacher application not found." — self-applicants lookup miss → NotFoundError("APPLICANT"). */
   readonly applicantNotFound: string;
   /**

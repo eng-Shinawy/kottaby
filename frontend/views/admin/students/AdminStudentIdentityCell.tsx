@@ -15,7 +15,7 @@
  * `DirectoryViewDetailsButton`).
  */
 
-import { Box, TableCell, Typography } from "@mui/material";
+import { Box, TableCell, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { DirectoryCopyEmailButton } from "@/frontend/views/admin/directory-shared/DirectoryCopyEmailButton";
 import { DirectoryViewDetailsButton } from "@/frontend/views/admin/directory-shared/DirectoryViewDetailsButton";
@@ -67,25 +67,31 @@ export function StudentIdentityCell({
             {student.name}
           </Typography>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
-            <Typography
-              variant="body2"
-              component="div"
-              title={student.email}
-              dir="ltr"
-              sx={theme => ({
-                fontSize: 13,
-                color: theme.palette.text.secondary,
-                unicodeBidi: "isolate",
-                textAlign: "start",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                flex: 1,
-                minWidth: 0,
-              })}
-            >
-              {student.email}
-            </Typography>
+            {/* MUI Tooltip (not a bare `title`) — the email is the row's
+                identification datum and the column truncates it mid-address,
+                so the full value must be reachable through a visible hover /
+                focus affordance as well as the copy action. */}
+            <Tooltip title={student.email} placement="top" enterDelay={350} arrow>
+              <Typography
+                variant="body2"
+                component="div"
+                dir="ltr"
+                sx={theme => ({
+                  fontSize: 13,
+                  color: theme.palette.text.secondary,
+                  unicodeBidi: "isolate",
+                  textAlign: "start",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                  minWidth: 0,
+                  cursor: "default",
+                })}
+              >
+                {student.email}
+              </Typography>
+            </Tooltip>
             <DirectoryCopyEmailButton
               email={student.email}
               copied={emailCopied}

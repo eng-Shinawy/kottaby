@@ -22,11 +22,23 @@
  */
 
 // The generated module carries BOTH the wire `AdminAuditLogFiltersInput` type
-// and the RUNTIME `AuditActionType` enum (the `ACTION_VALUES` vocabulary and
-// `actionLabelsOf` keys read its members) in one import — the enum is a value
-// here, not a type-only reference.
-import { type AdminAuditLogFiltersInput, AuditActionType } from "@/frontend/graphql/generated/gql/graphql";
-import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
+// and the `AuditActionType` enum; both are type-only references here (the
+// runtime vocabularies moved to `audit-trail-vocabulary.ts`, re-exported
+// below so the module's import surface stays stable).
+import type { AdminAuditLogFiltersInput, AuditActionType } from "@/frontend/graphql/generated/gql/graphql";
+
+export { ACTION_VALUES, actionLabelsOf, ENTITY_TYPE_WIRE_VALUES, entityTypeLabelOf } from "./audit-trail-vocabulary";
+
+/**
+ * Retryable-failure classification for the shared notice seam; `null` =
+ * generic. Pure plumbing (the load-error notice's `retryableKind` prop is
+ * this module's vocabulary), housed with the other JSX-free helpers.
+ */
+export function retryableKindOf(errorCode: string | null): "RATE_LIMITED" | "SERVICE_UNAVAILABLE" | null {
+  if (errorCode === "RATE_LIMITED" || errorCode === "RATE_LIMIT_EXCEEDED") return "RATE_LIMITED";
+  if (errorCode === "SERVICE_UNAVAILABLE") return "SERVICE_UNAVAILABLE";
+  return null;
+}
 
 /**
  * Deep-link filter seed passed by the server route after its sanitize step
@@ -81,33 +93,48 @@ const NO_FILTERS: AppliedAuditTrailFilters = {
   to: null,
 };
 
+/**
+ * `true` when ANY applied filter member is active — the heading band's
+ * "filtered view" chip and any other at-a-glance narrowed-listing marker
+ * key off this one rule so the indicator can never disagree with the wire
+ * variables.
+ */
+export function hasActiveFilters(applied: AppliedAuditTrailFilters): boolean {
+  return (
+    applied.actionType !== null ||
+    applied.actorId !== null ||
+    applied.entityType !== null ||
+    applied.entityId !== null ||
+    applied.from !== null ||
+    applied.to !== null
+  );
+}
+
+/** The entity-id cell's rendering decision, discriminated for the view layer. */
+export type AuditEntityIdContent =
+  | { readonly kind: "null" }
+  | { readonly kind: "accountLink"; readonly userId: number }
+  | { readonly kind: "plainId"; readonly entityId: number };
+
+/**
+ * Resolves the entity-id cell's rendering decision: absent ids render the
+ * em-dash placeholder, `user`-entity rows render the account deep link,
+ * and every other entity renders the plain fixed-pitch id atom. Both
+ * renderers (desktop row, mobile card) share this ONE decision so the two
+ * can never disagree about which entries navigate.
+ */
+export function auditEntityIdContentOf(entry: {
+  readonly entityType: string;
+  readonly entityId: number | null;
+}): AuditEntityIdContent {
+  if (entry.entityId === null) return { kind: "null" };
+  if (entry.entityType === "user") return { kind: "accountLink", userId: entry.entityId };
+  return { kind: "plainId", entityId: entry.entityId };
+}
+
 const DAY_MS = 86_400_000;
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ID_PATTERN = /^\d+$/;
-
-/** Generated enum values rendered by the action-type Select and the Action column. */
-export const ACTION_VALUES: readonly AuditActionType[] = [
-  AuditActionType.Create,
-  AuditActionType.Update,
-  AuditActionType.Delete,
-  AuditActionType.Reactivate,
-  AuditActionType.Override,
-  AuditActionType.Adjust,
-  AuditActionType.Suspend,
-];
-
-/** Localized action labels keyed by the generated enum (Record lookup — no enum switch). */
-export function actionLabelsOf(activity: AdminUsersLabels["activity"]): Record<AuditActionType, string> {
-  return {
-    [AuditActionType.Create]: activity.actionCreate,
-    [AuditActionType.Update]: activity.actionUpdate,
-    [AuditActionType.Delete]: activity.actionDelete,
-    [AuditActionType.Reactivate]: activity.actionReactivate,
-    [AuditActionType.Override]: activity.actionOverride,
-    [AuditActionType.Adjust]: activity.actionAdjust,
-    [AuditActionType.Suspend]: activity.actionSuspend,
-  };
-}
 
 /**
  * Parses a `YYYY-MM-DD` date-input value into UTC midnight. Malformed or

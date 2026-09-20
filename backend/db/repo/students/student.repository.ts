@@ -39,7 +39,10 @@
  * unchanged. The subscription-lane expiry zeroing
  * (`zeroLaneIfNoCoveringSubscription` and its frozen
  * `ZERO_LANE_BALANCE_COLUMNS` map) follows the same extraction pattern in
- * the sibling `student.repository.zero-lane.helpers.ts` module. The admin
+ * the sibling `student.repository.zero-lane.helpers.ts` module. The exact
+ * lane-value settlement write (`setLaneBalanceValue` and its frozen
+ * `LANE_BALANCE_VALUE_SETTERS` map) follows the same extraction pattern in
+ * the sibling `student.repository.lane-value.helpers.ts` module. The admin
  * student directory listing (`listDirectory` with its filter-chain builder,
  * aliased parent join handle and the two directory contracts) follows the
  * same extraction pattern in the sibling
@@ -57,6 +60,7 @@ import type {
   NormalizedAdminStudentFilters,
 } from "@/backend/db/repo/students/student.repository.directory.helpers";
 import * as studentRepositoryDirectoryImpl from "@/backend/db/repo/students/student.repository.directory.helpers";
+import * as studentRepositoryLaneValueImpl from "@/backend/db/repo/students/student.repository.lane-value.helpers";
 import * as studentRepositoryZeroLaneImpl from "@/backend/db/repo/students/student.repository.zero-lane.helpers";
 import { students } from "@/backend/db/schema/students/students";
 import { users } from "@/backend/db/schema/users/users";
@@ -278,6 +282,26 @@ export namespace StudentRepository {
   }
 
   /**
+   * Reads a `students` row by primary key under a `FOR UPDATE` row lock —
+   * the subscription plan-change flow's owner-row certification read. The
+   * lock (held to the transaction's end) serializes the balance read with
+   * the caller's later exact-value lane settlement, so a concurrent booking
+   * debit can never commit in between.
+   *
+   * `tx` is REQUIRED (not optional): a locking read without a transaction
+   * releases its lock as soon as the statement finishes, which would make
+   * the read→settle serialization meaningless (mirrors the teacher
+   * repository's `lockForCertificationCheck` convention).
+   *
+   * @returns The locked student row, or `null` when no `students` row
+   *          exists for the id (the caller owns the not-found handling).
+   */
+  export async function findByIdForUpdate(studentId: number, tx: DBTransaction): Promise<StudentSelectType | null> {
+    const rows = await tx.select().from(students).where(eq(students.id, studentId)).for("update");
+    return rows[0] ?? null;
+  }
+
+  /**
    * Atomically grants free trial session credits to a student exactly once.
    *
    * Single conditional UPDATE guarded by the trial_granted_at marker — predicate
@@ -420,6 +444,39 @@ export namespace StudentRepository {
     tx?: DBTransaction
   ): Promise<StudentSelectType | null> {
     return studentRepositoryCreditLaneImpl.creditLaneBalance(studentId, lane, amount, tx);
+  }
+
+  /**
+   * Sets ONE student balance lane to an EXACT value (`SET balance_<lane> =
+   * <value> ... RETURNING`) — the admin plan-change settlement write: the
+   * old lane's remaining contribution is superseded by the new plan's
+   * prepared total (its full session count plus a computed carry on the
+   * upgrade leg) in a single statement, so a concurrent booking debit
+   * cannot interleave a relative increment. The lane column resolves
+   * exclusively through the frozen `SubscriptionCreditLane`-keyed setter
+   * map (caller strings can never select a column); the `balance_* >= 0`
+   * CHECK constraints backstop the server-computed value — a violation
+   * (a negative target, unreachable through the service's arithmetic)
+   * surfaces as the raw 23514 for the service tier to translate into the
+   * localized conflict.
+   *
+   * Implementation lives in the sibling
+   * `student.repository.lane-value.helpers.ts` module (same extraction
+   * convention as `creditLaneBalance`); this method is a one-to-one
+   * delegation wrapper, so the public API (name, signature, behavior) is
+   * unchanged.
+   *
+   * @returns The updated student row, or null when the student does not
+   *   exist (the caller decides what the miss means — the repository raises
+   *   nothing).
+   */
+  export async function setLaneBalanceValue(
+    studentId: number,
+    lane: SubscriptionCreditLane,
+    newValue: number,
+    tx?: DBTransaction
+  ): Promise<StudentSelectType | null> {
+    return studentRepositoryLaneValueImpl.setLaneBalanceValue(studentId, lane, newValue, tx);
   }
 
   /** boolean for lanes-zeroed counting). */

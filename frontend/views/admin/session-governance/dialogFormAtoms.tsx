@@ -1,27 +1,17 @@
 "use client";
 
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
-import type { ReactNode } from "react";
-
 /**
  * Shared form-dialog atoms for the admin session-governance dialogs
- * (cancel / reschedule / reassign — `/admin/session-governance`).
- *
- * The three dialogs are structural siblings of the participant cancel +
- * arbitration dialogs (portal/dialog/form discipline, `React.SubmitEvent`,
- * dismissal gated while the mutation is in flight). The repeated shell —
- * the gated `Dialog` + `DialogTitle` + grid `DialogContent`, and the
- * dismiss/submit `DialogActions` pair — lives HERE exactly once and the
- * dialogs compose it; the sibling participant/arbitration dialogs keep
- * their own shells (out of this surface's blast radius).
- *
- * The dismissal gate enforces the `onClose` prop contract at the dialog
- * itself: backdrop click and Escape are IGNORED while the mutation is
- * pending (the cancel Button is separately disabled while loading).
- *
- * MUI v9 discipline: `sx`-only styling, theme-palette colors, ≥44px touch
- * targets, keyboard-focusable dialog (`aria-labelledby` + focusable fields).
+ * (cancel / reschedule / reassign — `/admin/session-governance`): thin
+ * locale-shaped wrappers over the cross-surface atoms
+ * (`frontend/views/admin/shared/dialogFormAtoms`) binding the governance
+ * surface's `sm` dialog and the Common `cancel` label vocabulary. The
+ * prop contracts (and the suites' submitTestId) stay local so the three
+ * dialogs' import surface is untouched by the shared extraction.
  */
+
+import type { ReactNode } from "react";
+import { AdminDialogActionsPair, AdminFormDialog } from "@/frontend/views/admin/shared/dialogFormAtoms";
 
 interface GovernanceFormDialogProps {
   /** Whether the dialog is mounted-open. */
@@ -43,38 +33,8 @@ interface GovernanceFormDialogProps {
 }
 
 /** The gated form-dialog shell: Dialog + title + grid content (actions passed through). */
-export function GovernanceFormDialog({
-  open,
-  onClose,
-  loading,
-  onSubmit,
-  titleId,
-  title,
-  children,
-  actions,
-}: Readonly<GovernanceFormDialogProps>): ReactNode {
-  const handleDialogClose = (): void => {
-    if (!loading) {
-      onClose();
-    }
-  };
-
-  return (
-    <Dialog
-      open={open}
-      onClose={handleDialogClose}
-      fullWidth
-      maxWidth="sm"
-      slotProps={{ paper: { component: "form", onSubmit } }}
-      aria-labelledby={titleId}
-    >
-      <DialogTitle id={titleId} sx={theme => ({ color: theme.palette.onSurface })}>
-        {title}
-      </DialogTitle>
-      <DialogContent sx={{ display: "grid", gap: 2 }}>{children}</DialogContent>
-      {actions}
-    </Dialog>
-  );
+export function GovernanceFormDialog(props: Readonly<GovernanceFormDialogProps>): ReactNode {
+  return <AdminFormDialog {...props} maxWidth="sm" />;
 }
 
 interface GovernanceDialogActionsProps {
@@ -105,46 +65,17 @@ export function GovernanceDialogActions({
   submitLabel,
   submitTestId,
   submitDisabled,
-  submitColor = "primary",
+  submitColor,
 }: Readonly<GovernanceDialogActionsProps>): ReactNode {
   return (
-    <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-      {/* Outlined cancel — a bare text button beside a contained primary
-          reads as non-interactive; the outlined variant gives the dismiss
-          affordance equal control quality (still ONE contained primary). */}
-      <Button
-        onClick={onClose}
-        disabled={loading}
-        variant="outlined"
-        color="inherit"
-        sx={{ minHeight: { xs: 44, sm: 40 }, px: 3, whiteSpace: "nowrap" }}
-      >
-        {cancelLabel}
-      </Button>
-      <Button
-        type="submit"
-        variant="contained"
-        color={submitColor}
-        disabled={loading || (submitDisabled ?? false)}
-        data-testid={submitTestId}
-        sx={theme => ({
-          minHeight: { xs: 44, sm: 40 },
-          px: 3,
-          whiteSpace: "nowrap",
-          // A disabled destructive submit keeps its error identity (dimmed
-          // error-container pair instead of the neutral disabled wash) —
-          // the destructive intent must read before the form is valid.
-          ...(submitColor === "error" && {
-            "&.Mui-disabled": {
-              bgcolor: theme.palette.errorContainer,
-              color: theme.palette.onErrorContainer,
-              opacity: 0.6,
-            },
-          }),
-        })}
-      >
-        {submitLabel}
-      </Button>
-    </DialogActions>
+    <AdminDialogActionsPair
+      onClose={onClose}
+      loading={loading}
+      dismissLabel={cancelLabel}
+      submitLabel={submitLabel}
+      submitTestId={submitTestId}
+      submitDisabled={submitDisabled}
+      submitColor={submitColor}
+    />
   );
 }

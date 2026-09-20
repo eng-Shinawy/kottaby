@@ -17,11 +17,17 @@ import type { ReactNode } from "react";
 
 interface DirectoryDrawerSectionProps {
   readonly label: string;
+  /**
+   * Optional trailing header action (an icon button in the section's
+   * pinned header row) — absent on every plain section, present only
+   * where a section owns a header-level quick action.
+   */
+  readonly action?: ReactNode;
   readonly children: ReactNode;
 }
 
 /** Section card — radius 12, `border.light` outline, uppercase pinned header. */
-export function DirectoryDrawerSection({ label, children }: DirectoryDrawerSectionProps): ReactNode {
+export function DirectoryDrawerSection({ label, action, children }: DirectoryDrawerSectionProps): ReactNode {
   return (
     <Box
       component="section"
@@ -34,19 +40,21 @@ export function DirectoryDrawerSection({ label, children }: DirectoryDrawerSecti
         p: 2,
       })}
     >
-      <Typography
-        variant="overline"
-        component="h3"
-        sx={theme => ({
-          display: "block",
-          color: theme.palette.text.secondary,
-          fontWeight: 700,
-          letterSpacing: "0.06em",
-          marginBottom: 1,
-        })}
-      >
-        {label}
-      </Typography>
+      <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", gap: 1, marginBottom: 1 }}>
+        <Typography
+          variant="overline"
+          component="h3"
+          sx={theme => ({
+            display: "block",
+            color: theme.palette.text.secondary,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+          })}
+        >
+          {label}
+        </Typography>
+        {action}
+      </Stack>
       {children}
     </Box>
   );

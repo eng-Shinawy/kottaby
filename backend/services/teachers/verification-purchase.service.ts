@@ -78,6 +78,7 @@ import { ConflictError, isPgUniqueViolation, NotFoundError, ValidationError } fr
 import { logger } from "@/backend/lib/logger";
 import { getPaymentGateway } from "@/backend/services/billing/payment-gateway/payment-gateway.factory";
 import {
+  assertNotReservedAdminClaimKey,
   assertPlanUnchangedSinceCheckout,
   isCarryableIdempotencyKey,
   isPositiveSafeId,
@@ -475,6 +476,10 @@ export namespace VerificationPurchaseService {
       });
       throw new ValidationError(t.subscriptionPurchase.idempotencyKeyRequired);
     }
+    // The reserved admin claim namespace is never a carryable client key —
+    // a squat there would block the admin renew / plan-change flows for a
+    // targeted row (the guard is a validation reject BEFORE any DB work).
+    assertNotReservedAdminClaimKey("Verification purchase", idempotencyKey, applicantUserId, t);
 
     // The plan resolve — server-side only, from the ACTIVE catalog by
     // exact title match against the shared constant. The read rides the

@@ -20,6 +20,7 @@ import { parentMonitoringEn } from "@/shared/locale/en/parentMonitoring";
 import { plansEn } from "@/shared/locale/en/plans";
 import { recitationEn } from "@/shared/locale/en/recitation";
 import { sessionsEn } from "@/shared/locale/en/sessions";
+import { subscriptionAdminEn } from "@/shared/locale/en/subscriptionAdmin";
 import { walletEn } from "@/shared/locale/en/wallet";
 import type { Translations } from "@/shared/locale/types/message";
 
@@ -47,4 +48,5 @@ export const enMessages: Translations = {
   parentLinkTranslations: parentLinkEn,
   parentMonitoringTranslations: parentMonitoringEn,
   analyticsTranslations: analyticsEn,
+  subscriptionAdminTranslations: subscriptionAdminEn,
 };

@@ -8,6 +8,8 @@
  *    time and has no named exports.
  *  - Wired via side-effect barrels: this barrel → `query/index.ts` →
  *    `gqlSchema.ts`.
+ *  - `subscription-admin.query.ts` registers `adminStudentSubscriptions`.
  *  - `wallet.query.ts` registers `myWallet`.
  */
+import "./subscription-admin.query";
 import "./wallet.query";

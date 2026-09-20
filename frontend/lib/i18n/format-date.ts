@@ -37,8 +37,12 @@ const APPLICANT_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
  * Resolves an app locale string to an Intl locale tag using the SAME
  * fallback rule as the backend lifecycle service (`resolveLocaleTag`):
  * only exact `"en"` selects English — anything else renders Arabic.
+ *
+ * Exported so the sibling i18n formatting modules (the audit trail's
+ * relative stamps) resolve locale tags through the ONE fallback rule
+ * instead of minting a second private copy.
  */
-function resolveLocaleTag(locale: string): "ar" | "en" {
+export function resolveLocaleTag(locale: string): "ar" | "en" {
   return locale === "en" ? "en" : "ar";
 }
 

@@ -35,6 +35,8 @@ interface AuditTrailFilterBarProps {
   /** Sanitized deep-link seed — pre-fills the drafts on first mount. */
   readonly initialFilters: AuditTrailFiltersSeed | undefined;
   readonly labels: AdminUsersLabels["auditTrail"]["filters"];
+  /** The full auditTrail label block — the quick-pick chips' vocabulary. */
+  readonly auditTrailLabels: AdminUsersLabels["auditTrail"];
   readonly allActionsOption: string;
   readonly actionLabels: Record<AuditActionType, string>;
   /** Drafts and the bar stay interactive only while no data has settled. */
@@ -50,6 +52,7 @@ interface AuditTrailFilterBarProps {
 export function AuditTrailFilterBar({
   initialFilters,
   labels,
+  auditTrailLabels,
   allActionsOption,
   actionLabels,
   fieldsDisabled,
@@ -80,6 +83,7 @@ export function AuditTrailFilterBar({
         drafts={drafts}
         onDraftChange={handleDraftChange}
         labels={labels}
+        auditTrailLabels={auditTrailLabels}
         allActionsOption={allActionsOption}
         actionLabels={actionLabels}
         fieldsDisabled={fieldsDisabled}

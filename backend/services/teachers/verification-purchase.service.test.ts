@@ -384,6 +384,34 @@ describe("VerificationPurchaseService — purchase (Tier 1: branches)", () => {
     });
   });
 
+  test("a reserved admin-namespace key (`subscription-admin:…`) → localized validation denial — zero writes", async () => {
+    await runInRollback(async tx => {
+      const { user } = await createApplicantFixture(tx);
+      await ensureVerificationPlanRow(tx);
+
+      // The admin subscription flows mint their claim keys server-side
+      // under the reserved `subscription-admin:` prefix — a client key
+      // squatting it could pre-claim (and permanently block) the admin
+      // renew / plan-change flows for a targeted row, so this purchase
+      // boundary refuses to carry it (the sibling subscription-purchase
+      // suite pins the same guard; the mirrored denial here keeps the
+      // verification flow's identical boundary honest).
+      const err = await expectRepoError(() =>
+        VerificationPurchaseService.purchase(user.id, "subscription-admin:renew:1", "en", tx)
+      );
+      expectDomainDenial(err, "VALIDATION", t().validation);
+      if (err instanceof ValidationError) {
+        const fieldError = err.fields?.find(entry => entry.field === "idempotencyKey");
+        expect(fieldError?.code).toBe("RESERVED_ADMIN_IDEMPOTENCY_KEY");
+        expect(fieldError?.message).toBe(t().validation);
+      }
+
+      // Zero writes: no pair, no claim — the squat never lands.
+      const counts = await ledgerCounts(tx, user.id);
+      expect(counts).toEqual({ subs: 0, payments: 0, claims: 0 });
+    });
+  });
+
   test("no active plan with the canonical title → the plan-not-purchasable denial — zero writes", async () => {
     await runInRollback(async tx => {
       const { user } = await createApplicantFixture(tx);

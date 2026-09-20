@@ -10,8 +10,12 @@
  * spinner busy state. The tooltip switches to the honest "nothing to
  * export" copy while disabled; a `<span>` wrapper keeps the tooltip
  * reachable on a disabled button (disabled elements emit no pointer
- * events). Labels flow in via plain strings (the caller's `export` label
- * slice) — nothing is hardcoded.
+ * events). The tooltip runs as a DESCRIPTION (`describeChild` — the span
+ * receives only `aria-describedby`, an attribute a generic `<span>` may
+ * carry): MUI's label mode would pin `aria-label` onto the non-interactive
+ * wrapper, which the accessibility tree rejects. The button's own name
+ * comes from its visible text. Labels flow in via plain strings (the
+ * caller's `export` label slice) — nothing is hardcoded.
  */
 
 import { FileDownloadOutlined as DownloadIcon } from "@mui/icons-material";
@@ -39,7 +43,7 @@ export function DirectoryExportCsvButton({
   exportDisabled,
 }: DirectoryExportCsvButtonProps): ReactNode {
   return (
-    <Tooltip title={exportDisabled ? exportCsvEmptyLabel : exportLabel} placement="top">
+    <Tooltip title={exportDisabled ? exportCsvEmptyLabel : exportLabel} placement="top" describeChild>
       <Box component="span" sx={{ display: "inline-flex", flexShrink: 0 }}>
         <Button
           variant="text"
@@ -47,7 +51,6 @@ export function DirectoryExportCsvButton({
           onClick={onExportCsv}
           loading={exportLoading}
           disabled={exportDisabled}
-          aria-label={exportLabel}
           sx={theme => ({ minHeight: 44, flexShrink: 0, color: theme.palette.text.secondary })}
         >
           {exportLabel}

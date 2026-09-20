@@ -76,6 +76,7 @@ import { logger } from "@/backend/lib/logger";
 import { getPaymentGateway } from "@/backend/services/billing/payment-gateway/payment-gateway.factory";
 import { MAX_INTERVAL_DAYS, MAX_SESSION_COUNT } from "@/backend/services/billing/plan-catalog.helpers";
 import {
+  assertNotReservedAdminClaimKey,
   assertPlanUnchangedSinceCheckout,
   isCarryableIdempotencyKey,
   isPositiveSafeId,
@@ -509,6 +510,10 @@ export namespace SubscriptionPurchaseService {
       });
       throw new ValidationError(t.subscriptionPurchase.idempotencyKeyRequired);
     }
+    // The reserved admin claim namespace is never a carryable client key —
+    // a squat there would block the admin renew / plan-change flows for a
+    // targeted row (the guard is a validation reject BEFORE any DB work).
+    assertNotReservedAdminClaimKey("Subscription purchase", idempotencyKey, studentUserId, t);
 
     // The plan read feeding the checkout input — active-only, outside the
     // purchase transaction (a missing or deactivated plan never reaches

@@ -212,8 +212,12 @@ export function translateDbError(error: unknown, conflictMessage: string): unkno
  * Traverses the error + cause chain looking for a PG error with the given code.
  * Drizzle wraps PG errors in `DrizzleQueryError`; the original `pg.Error` (with
  * `.code === "23505"`) lives in `.cause`.
+ *
+ * Shared walker: besides the unique-violation translation leg here, the
+ * subscription-admin write-error legs (check-constraint / integer-out-of-range /
+ * deadlock) resolve through the same cycle-safe traversal.
  */
-function hasPgCode(error: unknown, code: string): boolean {
+export function hasPgCode(error: unknown, code: string): boolean {
   let current: unknown = error;
   const seen = new Set<unknown>();
   while (current instanceof Error && !seen.has(current)) {

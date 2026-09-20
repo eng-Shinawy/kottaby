@@ -209,6 +209,35 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   copy lives in the zone body; the chip stays in the failed (warning) family. → promoted:
   `references/fix-patterns.md` (new row, updated in this change).
 
+## 2026-09-19 — Admin Subscription Management (dev-server + PGlite run)
+
+- PGlite data dirs are EXCLUSIVE per process: seeding `db/pglite` via an external `pglite-sql.ts`
+  process while the dev server holds the dir FORKS the view — the server's in-process instance
+  keeps serving its pre-boot page cache (two of five externally-inserted rows were invisible to
+  GraphQL until a full server restart; the external process saw all five). Rule: server STOPPED →
+  mutate → server RESTART, same as `reset-state.sh` already prescribes. → landed:
+  `references/capture-protocol.md` (PGlite discipline, updated in this change).
+- A bilingual caption composed of mixed-direction fragments (price "450.00 EGP" + Arabic counted
+  forms) joined into ONE string scrambles under the bidi algorithm in RTL — digits visually
+  interleave with the wrong fragment. Fix shape: render each fragment as its own
+  `unicodeBidi: isolate` span inside a flex row (which mirrors with the document direction), pin
+  the Latin-heavy fragment `dir="ltr"`, keep the logical order in `aria-label`. → landed:
+  `references/fix-patterns.md` (new row: "mixed-direction caption fragments", updated in this
+  change).
+- Sandboxed environments where the HARNESS may flip the working tree back to the default branch
+  between tool calls (observed via reflog, seconds after an explicit feature-branch checkout):
+  never assume HEAD across tool calls — re-verify `git branch --show-current` immediately before
+  every `git add`/`commit`/`push`, and treat the remote branch ref as authoritative for CI. →
+  landed: `references/capture-protocol.md` (worktree hygiene, updated in this change).
+- Seed users share `ADMIN_PASSWORD` (`seed-config.defaultAdminCredential`) — changing the env's
+  admin credentials silently changes every demo user's password; login failures on capture runs
+  may be seed-config, not a bug. → landed: `references/capture-protocol.md` (Sessions & auth,
+  updated in this change).
+- `document.title` on this app is page-local (namespace-driven), not the brand string — the
+  capture harness `--expect-title` guard must target the page title ("المستخدمون", "Students",
+  "سجل التدقيق"), else every capture fails the title gate spuriously. → landed:
+  `references/capture-protocol.md` (title guard note, updated in this change).
+
 ### 2026-09-20 — teacher_average_rating_aggregation_update (visual-improvement-loop run: 19 captures, 3 pages, EN+AR, pglite dev rig)
 
 - MUI `Rating` star a11y names live on the label element TEXT, not the hidden input's `aria-label`

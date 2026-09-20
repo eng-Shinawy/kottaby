@@ -107,14 +107,17 @@ import {
 // ─── .test.ts — the single sanctioned growth history) ────────────────────────
 
 /**
- * Root mutation fields — the refreshed 40-op baseline: the prior auth
+ * Root mutation fields — the refreshed 49-op baseline: the prior auth
  * quartet + notification read-latch pair + users-locale surface, the
  * reconciled admin-user-management trio (3 mutations) + the
  * session quartet + dispute pair + post-confirmation dispute entry + confirm
  * + payout, the sanctioned admin-governance pair + the
  * session-governance quartet + the subscription purchase write + the
- * session-report write + the financial-auditing trio + the student-evaluation
- * rating write.
+ * admin subscription-management quartet (extend / renew / cancel /
+ * change plan) + the session-report write + the financial-auditing trio
+ * + the student-evaluation rating write + the curriculum lesson CRUD trio
+ * (create / update / delete — merged from main) + the evaluation-booking
+ * write (`bookEvaluationSession` — merged from main).
  * Sorted alphabetically (mirrors the
  * live `printSchema(lexicographicSortSchema(graphQLSchema))` Mutation root
  * inventory verbatim). Re-anchored to the live schema as a documented
@@ -125,22 +128,29 @@ const FROZEN_MUTATION_FIELDS = [
   "adjustTeacherWallet",
   "adminBroadcastNotification",
   "adminCancelSession",
+  "adminCancelSubscription",
   "adminCertifyTeacherColdStart",
+  "adminChangeSubscriptionPlan",
   "adminCreateUser",
+  "adminExtendSubscription",
   "adminJoinSession",
   "adminReassignTeacher",
+  "adminRenewSubscription",
   "adminRescheduleSession",
   "adminSetUserBlocked",
   "adminSetUserDeleted",
   "adminSetUserSuspended",
   "adminUpdateUser",
   "approveWithdrawal",
+  "bookEvaluationSession",
   "cancelParentLinkRequest",
   "cancelSession",
   "completeSession",
   "confirmSessionCompletion",
+  "createLesson",
   "createPlan",
   "createSession",
+  "deleteLesson",
   "login",
   "logout",
   "markAllNotificationsRead",
@@ -148,6 +158,7 @@ const FROZEN_MUTATION_FIELDS = [
   "openPostConfirmationDispute",
   "openSessionDispute",
   "purchaseSubscription",
+  "purchaseVerificationPlan",
   "refreshToken",
   "registerUser",
   "rejectWithdrawal",
@@ -160,6 +171,7 @@ const FROZEN_MUTATION_FIELDS = [
   "startSession",
   "submitSessionReport",
   "submitTeacherEvaluation",
+  "updateLesson",
   "updateMyLocale",
   "updatePlan",
 ] as const;
@@ -182,7 +194,9 @@ const FROZEN_MUTATION_FIELDS = [
  * `adminTeacherApplicantsExport` — the sanctioned export-all read
  * surface, pinned as the documented one-time reconciliation in the same
  * convention) + the student-evaluation caller-scoped read
- * (`myTeacherEvaluations`). Sorted alphabetically (mirrors the live
+ * (`myTeacherEvaluations`) + the evaluation-loop reads merged from main
+ * (`availableEvaluators` / `myEvaluationLoopStatus` / `myEvaluationSessions`)
+ * + the per-plan curriculum read (`planLessons` — merged from main). Sorted alphabetically (mirrors the live
  * `printSchema(lexicographicSortSchema(graphQLSchema))` Query root
  * inventory verbatim, with locale-aware case handling:
  * `adminUsers` precedes `adminUserStats` because the locale comparator
@@ -203,6 +217,7 @@ const FROZEN_QUERY_FIELDS = [
   "adminStudentPayments",
   "adminStudents",
   "adminStudentsExport",
+  "adminStudentSubscriptions",
   "adminTeacherApplicants",
   "adminTeacherApplicantsExport",
   "adminTeachers",
@@ -212,9 +227,12 @@ const FROZEN_QUERY_FIELDS = [
   "adminUserDetail",
   "adminUsers",
   "adminUserStats",
+  "availableEvaluators",
   "findStudentByHandshakeCode",
   "me",
   "myApplicantProfile",
+  "myEvaluationLoopStatus",
+  "myEvaluationSessions",
   "myHandshakeCode",
   "myIncomingParentLinkRequests",
   "myLinkedChildren",
@@ -231,12 +249,14 @@ const FROZEN_QUERY_FIELDS = [
   "parentChildReports",
   "parentChildSessions",
   "planCatalog",
+  "planLessons",
   "recitationReadings",
   "sessionById",
   "sessionHomework",
   "sessionRecitation",
   "sessionReport",
   "studentDisputeCase",
+  "studentHomeworkHistory",
   "teacherDisputeCase",
 ] as const;
 
@@ -373,12 +393,12 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     }
   });
 
-  test("Mutation root is EXACTLY the refreshed frozen 40-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the session-report write + the student-evaluation rating write + the financial-auditing trio on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
+  test("Mutation root is EXACTLY the refreshed frozen 49-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 48-op baseline (the sanctioned dispute-resolution reads — the admin dispute analytics/case pair + the student/teacher dispute-case pair + the financial-auditing trio + the parent-portal read quintet + the student-evaluation caller-scoped read; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 54-op baseline (the sanctioned dispute-resolution reads — the admin dispute analytics/case pair + the student/teacher dispute-case pair + the financial-auditing trio + the parent-portal read quintet + the student-evaluation caller-scoped read + the evaluation-loop read trio + the per-plan curriculum read; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -463,9 +483,19 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
     const bandEnd = sorted.indexOf("adminUpdateUser");
     expect(bandStart).toBeGreaterThanOrEqual(0);
     expect(bandEnd).toBeGreaterThan(bandStart);
-    const expectedBandWindow = [...adminBandMutationNames, "adminCertifyTeacherColdStart"].toSorted((a, b) =>
-      a.localeCompare(b)
-    );
+    const expectedBandWindow = [
+      ...adminBandMutationNames,
+      // The admin subscription-management quartet sorts inside the band
+      // (cancel/change-plan between `adminCancelSession` and
+      // `adminCreateUser`; extend between `adminCreateUser` and
+      // `adminJoinSession`; renew between `adminReassignTeacher` and
+      // `adminRescheduleSession`).
+      "adminCancelSubscription",
+      "adminChangeSubscriptionPlan",
+      "adminExtendSubscription",
+      "adminRenewSubscription",
+      "adminCertifyTeacherColdStart",
+    ].toSorted((a, b) => a.localeCompare(b));
     expect(sorted.slice(bandStart, bandEnd + 1)).toEqual(expectedBandWindow);
   });
 });

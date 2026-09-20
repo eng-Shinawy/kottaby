@@ -6,14 +6,16 @@
  * (`AuditTrailMobileCards`): a small text Button toggling the entry's
  * verbatim `details` JSON, rendered inside a `dir="auto"` pre-formatted
  * element (mixed-direction JSON blobs must not be re-flowed by bidi
- * rules).
+ * rules) revealed through a height `Collapse` (unmounts when hidden; the
+ * transition is a cheap height/opacity tween — no transform jank inside
+ * the table row).
  *
  * Extracted so the two audit-trail renderers cannot drift apart — this
  * fragment is byte-shared by design (jscpd clone gate) and every label /
  * style change lands here exactly once.
  */
 
-import { Box, Button } from "@mui/material";
+import { Box, Button, Collapse } from "@mui/material";
 import type { ReactNode } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 
@@ -52,7 +54,7 @@ export function AuditDetailsDisclosure({
       >
         {isExpanded ? hideLabel : showLabel}
       </Button>
-      {isExpanded ? (
+      <Collapse in={isExpanded} unmountOnExit exit={false} timeout={220}>
         <Box
           component="pre"
           dir="auto"
@@ -66,7 +68,7 @@ export function AuditDetailsDisclosure({
         >
           {details}
         </Box>
-      ) : null}
+      </Collapse>
     </>
   );
 }

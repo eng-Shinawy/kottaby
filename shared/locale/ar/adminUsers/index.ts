@@ -274,15 +274,18 @@ export const adminUsersAr: AdminUsersLabels = {
   auditTrail: {
     pageTitle: "سجل التدقيق",
     pageSubtitle: "سجل غير قابل للتغيير لجميع الإجراءات الإدارية على المنصة.",
+    filteredViewLabel: "عرض مُرشَّح",
     filters: {
       actorIdLabel: "معرّف المنفّذ",
       entityTypeLabel: "نوع الكيان",
+      entityTypeHint: "يطابق القيمة المسجّلة حرفياً — مثل subscription أو plan أو user.",
       entityIdLabel: "معرّف الكيان",
       actionTypeLabel: "نوع الإجراء",
       fromDateLabel: "من تاريخ",
       toDateLabel: "إلى تاريخ",
       applyAction: "تطبيق",
       clearAction: "مسح",
+      quickPickCaption: "مرشحات سريعة لنوع الكيان",
     },
     table: {
       whenHeader: "الوقت",
@@ -296,6 +299,22 @@ export const adminUsersAr: AdminUsersLabels = {
       noDetailsValue: "—",
       noEntityIdValue: "—",
       allActionsOption: "جميع الإجراءات",
+      entityRefCopy: "نسخ مرجع الكيان",
+      entityRefCopied: "تم النسخ",
+      actorLinkLabel: "عرض حساب المنفّذ",
+      userEntityLinkLabel: "عرض حساب المستخدم المعنيّ",
+    },
+    entityTypeLabels: {
+      user: "مستخدم",
+      teacher: "معلم",
+      session: "جلسة",
+      subscription: "اشتراك",
+      plan: "خطة",
+      teacherTransaction: "معاملة معلم",
+      parentLinkRequest: "طلب ربط ولي أمر",
+      parentLinkRequestDecision: "قرار طلب الربط",
+      parentLinkRequestExpiry: "انتهاء طلب الربط",
+      notificationBroadcast: "إشعار جماعي",
     },
     emptyState: {
       title: "لا توجد سجلات تدقيق",
@@ -304,6 +323,14 @@ export const adminUsersAr: AdminUsersLabels = {
     errorState: {
       title: "تعذّر تحميل سجل التدقيق",
       message: "حدث خطأ أثناء جلب سجل التدقيق. حاول مرة أخرى.",
+    },
+    export: {
+      exportPageCsv: "تصدير الصفحة كملف CSV",
+      exportPageCsvEmpty: "لا يوجد ما يُصدَّر بعد",
+      exportedRows: "تم تصدير المدخلات ({count}).",
+      exportFailed: "تعذّر تجهيز ملف التصدير.",
+      exportAllCsv: "تصدير الكل (المُرشَّح)",
+      exportTruncated: "تم تصدير أول {count} من أصل {total} من المدخلات.",
     },
   },
 };

@@ -16,10 +16,12 @@
  *    mapping from the *token* lookup, which lives in `DirectoryRowCells` as
  *    theme-callback sx (the M3 container/`on<Color>Container` pairs).
  *  - `formatDirectoryRelativeTime` renders `lastActiveAt` as localized
- *    relative copy via `Intl.RelativeTimeFormat` (the repo has no shared
- *    relative-time helper — this small inline one is per-plan).
+ *    relative copy, delegating to the platform's shared relative-time
+ *    module (`frontend/lib/i18n/relative-time.ts`) with the em-dash
+ *    fallback kept local.
  */
 
+import { formatUnboundedRelativeTime } from "@/frontend/lib/i18n/relative-time";
 import type { AdminSurfaceRole } from "@/frontend/views/admin/users/ui";
 import type { AppLocale } from "@/shared/locale";
 
@@ -94,42 +96,19 @@ export function governanceLabel(
 }
 
 /**
- * Cascading magnitude table for relative-time bucketing, largest unit last.
- * Each entry stops promotion once the absolute duration (in the running
- * unit) drops below `amount` — the standard `Intl.RelativeTimeFormat`
- * ticking-clock ladder (seconds → minutes → hours → days → weeks → months →
- * years).
- */
-const RELATIVE_TIME_DIVISIONS: ReadonlyArray<{ readonly amount: number; readonly unit: Intl.RelativeTimeFormatUnit }> =
-  [
-    { amount: 60, unit: "second" },
-    { amount: 60, unit: "minute" },
-    { amount: 24, unit: "hour" },
-    { amount: 7, unit: "day" },
-    { amount: 4.34524, unit: "week" }, // average weeks per month
-    { amount: 12, unit: "month" },
-    { amount: Number.POSITIVE_INFINITY, unit: "year" },
-  ];
-
-/**
  * Localized relative-time rendering of an ISO-8601 server timestamp
  * (`lastActiveAt`). Returns the em-dash for missing/unparseable input so
  * both directory surfaces share one fallback. `numeric: "auto"` gives the
  * "yesterday"-style words where the locale has them.
+ *
+ * The ladder itself lives in the platform's ONE relative-time module
+ * (`frontend/lib/i18n/relative-time.ts`) — this wrapper delegates with an
+ * UNBOUNDED window (the `lastActiveAt` stamp renders relatively at any
+ * age, future instants included) and keeps the em-dash fallback local.
  */
 export function formatDirectoryRelativeTime(raw: string | null | undefined, locale: AppLocale): string {
   if (!raw) return "—";
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return "—";
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  let duration = (parsed.getTime() - Date.now()) / 1000;
-  for (const division of RELATIVE_TIME_DIVISIONS) {
-    if (Math.abs(duration) < division.amount) {
-      return formatter.format(Math.round(duration), division.unit);
-    }
-    duration /= division.amount;
-  }
-  return formatter.format(Math.round(duration), "year");
+  return formatUnboundedRelativeTime(raw, locale) ?? "—";
 }
 
 /**

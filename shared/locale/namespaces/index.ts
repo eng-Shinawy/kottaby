@@ -22,4 +22,5 @@ export * from "./plans";
 export * from "./recitation";
 export * from "./registry";
 export * from "./sessions";
+export * from "./subscriptionAdmin";
 export * from "./wallet";

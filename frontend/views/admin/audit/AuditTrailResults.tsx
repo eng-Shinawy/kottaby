@@ -37,6 +37,13 @@ const PAGINATION_TOUCH_TARGET_SX = {
   "& .MuiIconButton-root": { minHeight: 44, minWidth: 44 },
 } as const;
 
+/**
+ * Vertical scroll bounds for the desktop trail track — tall page sizes
+ * (25/50 rows) scroll inside the card while the header row stays pinned.
+ * The default 10-row page fits comfortably, so the bound is inert there.
+ */
+const TABLE_CONTAINER_MAX_HEIGHT_PX = 640;
+
 interface AuditTrailResultsProps {
   readonly labels: AdminUsersLabels["auditTrail"];
   readonly paginationLabels: AdminUsersLabels["pagination"];
@@ -67,15 +74,24 @@ export function AuditTrailResults(props: Readonly<AuditTrailResultsProps>): Reac
         <AuditTrailMobileCards
           entries={props.items}
           tableLabels={props.labels.table}
+          entityLabels={props.labels}
           locale={props.locale}
           actionLabels={props.actionLabels}
           expandedDetailsId={props.expandedDetailsId}
           onToggleDetails={props.onToggleDetails}
         />
       </Box>
-      <TableContainer sx={{ overflowX: "auto", display: { xs: "none", md: "block" } }}>
+      <TableContainer
+        sx={{
+          overflowX: "auto",
+          display: { xs: "none", md: "block" },
+          maxHeight: { md: TABLE_CONTAINER_MAX_HEIGHT_PX },
+        }}
+      >
         <Table sx={{ minWidth: TABLE_MIN_WIDTH_PX, tableLayout: "fixed" }} aria-label={props.labels.pageTitle}>
-          <TableHead>
+          {/* Sticky head: pinned to the container's scroll box on desktop —
+              the header row never scrolls away on tall pages. */}
+          <TableHead sx={{ position: "sticky", top: 0, zIndex: 1 }}>
             <TableRow sx={theme => ({ backgroundColor: theme.palette.surfaceContainerHigh })}>
               <AuditTrailHeaderCell width="16%">{props.labels.table.whenHeader}</AuditTrailHeaderCell>
               <AuditTrailHeaderCell width="18%">{props.labels.table.actorHeader}</AuditTrailHeaderCell>
@@ -86,14 +102,16 @@ export function AuditTrailResults(props: Readonly<AuditTrailResultsProps>): Reac
             </TableRow>
           </TableHead>
           <TableBody>
-            {props.items.map(entry => (
+            {props.items.map((entry, index) => (
               <AuditTrailRow
                 key={entry.id}
                 entry={entry}
                 tableLabels={props.labels.table}
+                entityLabels={props.labels}
                 locale={props.locale}
                 actionLabels={props.actionLabels}
                 isExpanded={props.expandedDetailsId === entry.id}
+                rowIndex={index}
                 onToggleDetails={props.onToggleDetails}
               />
             ))}

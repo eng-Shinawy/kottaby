@@ -23,7 +23,9 @@
  *    claim backfill + checkout descriptor); inactive AND missing plan →
  *    the plan-not-purchasable denial with a zero-writes proof; NULL lane →
  *    the fail-closed lane denial; missing key → the localized validation
- *    denial; same-caller replay → `DUPLICATE_REQUEST` conflict whose
+ *    denial; a reserved admin-namespace key (`subscription-admin:…`) is
+ *    rejected the same way (zero writes — the admin claim space stays
+ *    server-owned); same-caller replay → `DUPLICATE_REQUEST` conflict whose
  *    rollback leaves the first pair intact and burns no second row;
  *    renewal with a fresh key creates a second pair; the suspended-caller
  *    governance deny.
@@ -338,6 +340,33 @@ describe("SubscriptionPurchaseService — purchase (Tier 1: branches)", () => {
       );
       expectDomainDenial(err, "VALIDATION", t().subscriptionPurchase.idempotencyKeyRequired);
 
+      const counts = await countRows(tx, student.id);
+      expect(counts).toEqual({ subs: 0, payments: 0, claims: 0 });
+    });
+  });
+
+  test("a reserved admin-namespace key (`subscription-admin:…`) → localized validation denial — zero writes", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      const student = await createTestStudent(tx, user.id);
+      const plan = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Tajweed });
+
+      // The admin subscription flows mint their claim keys server-side
+      // under the reserved `subscription-admin:` prefix — a client header
+      // squatting it could pre-claim (and permanently block) the admin
+      // renew / plan-change flows for a targeted row, so the purchase
+      // boundary refuses to carry it.
+      const err = await expectRepoError(() =>
+        SubscriptionPurchaseService.purchase(student.id, { planId: plan.id }, "subscription-admin:renew:1", "en", tx)
+      );
+      expectDomainDenial(err, "VALIDATION", t().validation);
+      if (err instanceof ValidationError) {
+        const fieldError = err.fields?.find(entry => entry.field === "idempotencyKey");
+        expect(fieldError?.code).toBe("RESERVED_ADMIN_IDEMPOTENCY_KEY");
+        expect(fieldError?.message).toBe(t().validation);
+      }
+
+      // Zero writes: no pair, no claim — the squat never lands.
       const counts = await countRows(tx, student.id);
       expect(counts).toEqual({ subs: 0, payments: 0, claims: 0 });
     });

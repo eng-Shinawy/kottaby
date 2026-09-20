@@ -7,10 +7,14 @@
  * viewport shears mid-column with no visible affordance).
  *
  * Each card mirrors the desktop row's semantics one-to-one — `createdAt`
- * stamp, actor, the same action chip, entity type/id, and the per-entry
- * expandable verbatim `details` block in a `dir="auto"` pre — reusing the
- * shared `tableLabels` vocabulary so no new copy is introduced. Visible
- * only below the `md` breakpoint; the table owns `md` and up.
+ * stamp (the same two-line relative + absolute treatment as the table's
+ * When cell), actor, the same tone-mapped action chip, entity type/id, and
+ * the per-entry expandable verbatim `details` block in a `dir="auto"` pre —
+ * reusing the shared `tableLabels` vocabulary so no new copy is introduced.
+ * The account-navigation affordances mirror the row as well: the actor
+ * name and a `user`-entity row's entity id render as the shared
+ * `AuditAccountLink` (one treatment across both renderers). Visible only
+ * below the `md` breakpoint; the table owns `md` and up.
  */
 
 import { Box, Card, Stack, Typography } from "@mui/material";
@@ -19,8 +23,13 @@ import type {
   AdminAuditLogsQuery_adminAuditLogs_items,
   AuditActionType,
 } from "@/frontend/graphql/generated/gql/graphql";
-import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { AuditAccountLink } from "@/frontend/views/admin/audit/AuditAccountLink";
+import { AuditCopyEntityRefButton } from "@/frontend/views/admin/audit/AuditCopyEntityRefButton";
 import { AuditDetailsDisclosure } from "@/frontend/views/admin/audit/AuditDetailsDisclosure";
+import { AuditEntityTypeChip } from "@/frontend/views/admin/audit/AuditEntityTypeChip";
+import { CardFact, WhenFact } from "@/frontend/views/admin/audit/AuditTrailMobileFacts";
+import { auditEntityIdContentOf } from "@/frontend/views/admin/audit/audit-trail-filters";
+import { actionChipSx } from "@/frontend/views/admin/audit/audit-trail-skin";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 type AuditTableLabels = AdminUsersLabels["auditTrail"]["table"];
@@ -28,38 +37,19 @@ type AuditTableLabels = AdminUsersLabels["auditTrail"]["table"];
 interface AuditTrailMobileCardsProps {
   readonly entries: readonly AdminAuditLogsQuery_adminAuditLogs_items[];
   readonly tableLabels: AuditTableLabels;
+  /** The auditTrail label block — the entity-type chips' localized vocabulary. */
+  readonly entityLabels: AdminUsersLabels["auditTrail"];
   readonly locale: string;
   readonly actionLabels: Record<AuditActionType, string>;
   readonly expandedDetailsId: string | null;
   readonly onToggleDetails: (entryId: string) => void;
 }
 
-/** Row label + value line shared by the card's fact grid. */
-function CardFact({
-  label,
-  value,
-  muted = false,
-}: Readonly<{ label: string; value: ReactNode; muted?: boolean }>): ReactNode {
-  return (
-    <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", gap: 2 }}>
-      <Typography variant="caption" component="p" sx={theme => ({ color: theme.palette.text.secondary })}>
-        {label}
-      </Typography>
-      <Typography
-        variant="body2"
-        component="p"
-        sx={muted ? theme => ({ color: theme.palette.text.secondary }) : { fontWeight: 600 }}
-      >
-        {value}
-      </Typography>
-    </Stack>
-  );
-}
-
 /** One audit entry card — mirrors the desktop row's cell semantics. */
 function AuditTrailCard({
   entry,
   tableLabels,
+  entityLabels,
   locale,
   actionLabels,
   isExpanded,
@@ -67,11 +57,35 @@ function AuditTrailCard({
 }: Readonly<{
   entry: AdminAuditLogsQuery_adminAuditLogs_items;
   tableLabels: AuditTableLabels;
-  locale: string;
+  entityLabels: AdminUsersLabels["auditTrail"];
   actionLabels: Record<AuditActionType, string>;
+  locale: string;
   isExpanded: boolean;
   onToggleDetails: (entryId: string) => void;
 }>): ReactNode {
+  // The entity-id fact's value, resolved BEFORE the card renders (the
+  // shared discriminator — statement form, no nested conditionals): the
+  // em-dash placeholder, the user account deep link, or the bare id. Kept
+  // inline-safe (string or inline element) so CardFact never nests block
+  // elements inside its own `<p>`.
+  const entityIdContent = auditEntityIdContentOf(entry);
+  let entityIdValue: ReactNode;
+  if (entityIdContent.kind === "null") {
+    entityIdValue = tableLabels.noEntityIdValue;
+  } else if (entityIdContent.kind === "accountLink") {
+    entityIdValue = (
+      <AuditAccountLink
+        mono
+        href={`/admin/users/${entityIdContent.userId}`}
+        ariaLabel={`${tableLabels.userEntityLinkLabel} #${entityIdContent.userId}`}
+      >
+        {entityIdContent.userId}
+      </AuditAccountLink>
+    );
+  } else {
+    entityIdValue = entityIdContent.entityId;
+  }
+
   return (
     <Card
       sx={theme => ({
@@ -82,34 +96,43 @@ function AuditTrailCard({
       })}
     >
       <Stack spacing={1.25}>
-        <CardFact label={tableLabels.whenHeader} value={formatApplicantDate(entry.createdAt, locale)} muted />
-        <CardFact label={tableLabels.actorHeader} value={entry.actorName} />
+        <WhenFact label={tableLabels.whenHeader} iso={entry.createdAt} locale={locale} />
+        <CardFact
+          label={tableLabels.actorHeader}
+          value={
+            <AuditAccountLink
+              href={`/admin/users/${entry.actorId}`}
+              ariaLabel={`${tableLabels.actorLinkLabel}: ${entry.actorName}`}
+            >
+              {entry.actorName}
+            </AuditAccountLink>
+          }
+        />
         <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", gap: 2 }}>
           <Typography variant="caption" component="p" sx={theme => ({ color: theme.palette.text.secondary })}>
             {tableLabels.actionHeader}
           </Typography>
-          <Box
-            component="span"
-            sx={theme => ({
-              display: "inline-flex",
-              alignItems: "center",
-              padding: theme.spacing(0.25, 1.25),
-              borderRadius: 999,
-              backgroundColor: theme.palette.secondaryContainer,
-              color: theme.palette.onSecondaryContainer,
-              fontSize: 13,
-              fontWeight: 600,
-            })}
-          >
+          <Box component="span" sx={theme => actionChipSx(theme, entry.actionType)}>
             {actionLabels[entry.actionType]}
           </Box>
         </Stack>
-        <CardFact label={tableLabels.entityTypeHeader} value={entry.entityType} muted />
-        <CardFact
-          label={tableLabels.entityIdHeader}
-          muted={entry.entityId === null}
-          value={entry.entityId ?? tableLabels.noEntityIdValue}
-        />
+        <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+          <Typography variant="caption" component="p" sx={theme => ({ color: theme.palette.text.secondary })}>
+            {tableLabels.entityTypeHeader}
+          </Typography>
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+            <AuditEntityTypeChip entityType={entry.entityType} labels={entityLabels} />
+            {entry.entityId !== null ? (
+              <AuditCopyEntityRefButton
+                entityType={entry.entityType}
+                entityId={String(entry.entityId)}
+                copyLabel={tableLabels.entityRefCopy}
+                copiedLabel={tableLabels.entityRefCopied}
+              />
+            ) : null}
+          </Box>
+        </Stack>
+        <CardFact label={tableLabels.entityIdHeader} muted={entityIdContent.kind === "null"} value={entityIdValue} />
         {entry.details !== null ? (
           <Stack spacing={1}>
             <AuditDetailsDisclosure
@@ -139,6 +162,7 @@ export function AuditTrailMobileCards(props: Readonly<AuditTrailMobileCardsProps
           key={entry.id}
           entry={entry}
           tableLabels={props.tableLabels}
+          entityLabels={props.entityLabels}
           locale={props.locale}
           actionLabels={props.actionLabels}
           isExpanded={props.expandedDetailsId === entry.id}

@@ -90,3 +90,27 @@ export function directoryCsvFilename(prefix: string, now: Date = new Date()): st
 function pad(input: number): string {
   return String(input).padStart(2, "0");
 }
+
+/**
+ * downloadTextFile — the browser download recipe shared by every admin
+ * export flow (directory page exports, the audit trail's page + export-all
+ * flows, the teachers' server-side export): CSV string → Blob → object URL
+ * → synthetic anchor click → revoke. The anchor is appended to the
+ * document before the programmatic click — Firefox ignores clicks on
+ * detached anchors — and removed immediately after; the object URL
+ * revocation is deferred one tick so the download request has been
+ * dispatched before the blob is released.
+ */
+export function downloadTextFile(content: string, filename: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 0);
+}

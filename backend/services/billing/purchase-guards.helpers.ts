@@ -14,10 +14,17 @@
  *    reject BEFORE any database work (the claim insert would otherwise fail
  *    on a NOT NULL or an over-length value deep inside the transaction).
  *    The key is never trimmed — an opaque value is carried verbatim.
+ *  - `assertNotReservedAdminClaimKey` — a client-supplied key is NEVER
+ *    carried under the admin claim namespace's reserved prefix: the admin
+ *    subscription flows mint their claim keys server-side under
+ *    `subscription-admin:` (see `subscription-admin.helpers.ts`), and a
+ *    client header squatting that prefix could pre-claim (and permanently
+ *    block) the admin renew / plan-change flows for a targeted row.
  */
 
 import { ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { SUBSCRIPTION_ADMIN_CLAIM_KEY_PREFIX } from "@/backend/services/billing/subscription-admin.helpers";
 import type { PlanSelectType } from "@/backend/types";
 import type { getServerTranslations } from "@/shared/locale/server-graphql";
 
@@ -40,6 +47,44 @@ export function isPositiveSafeId(value: number): boolean {
  */
 export function isCarryableIdempotencyKey(key: string | null): key is string {
   return key !== null && key.length > 0 && key.length <= MAX_IDEMPOTENCY_KEY_LENGTH;
+}
+
+/**
+ * Reserves the admin claim namespace at the purchase ingestion boundary:
+ * a client-supplied key under the reserved `subscription-admin:` prefix is
+ * rejected BEFORE any database work. The shared claim store is
+ * global-unique across the purchase and admin surfaces, so an unreserved
+ * client key shaped like a predictable admin claim (`renew:<id>`,
+ * `planChange:<id>:<planId>`) could be pre-claimed by a student and
+ * permanently block the admin renew / plan-change flows for that row —
+ * the admin flows therefore mint their keys under the reserved prefix and
+ * this guard refuses to carry any client key inside it.
+ *
+ * One canonical copy shared verbatim by every purchase surface (the
+ * student subscription purchase and the teacher verification purchase):
+ * `flowLabel` names the calling surface in the correlated domain log line.
+ * The rejection follows this file's localized validation pattern (the
+ * `assertPlanUnchangedSinceCheckout` shape): the generic localized
+ * validation message plus a property-mapped `{field, code, message}`
+ * payload naming the header — ids only in the log, never the key itself.
+ */
+export function assertNotReservedAdminClaimKey(
+  flowLabel: string,
+  key: string,
+  callerUserId: number,
+  t: ErrorsTranslations
+): void {
+  if (!key.startsWith(`${SUBSCRIPTION_ADMIN_CLAIM_KEY_PREFIX}:`)) {
+    return;
+  }
+  logger.logDomainError(`${flowLabel} rejected: idempotency key uses the reserved admin claim namespace`, {
+    code: "VALIDATION",
+    entity: "users",
+    entityId: callerUserId,
+  });
+  throw new ValidationError(t.validation, [
+    { field: "idempotencyKey", code: "RESERVED_ADMIN_IDEMPOTENCY_KEY", message: t.validation },
+  ]);
 }
 
 /**

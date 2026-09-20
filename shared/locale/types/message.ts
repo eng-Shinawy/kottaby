@@ -20,6 +20,7 @@ import type { ParentMonitoringLabels } from "@/shared/locale/types/parentMonitor
 import type { PlansLabels } from "@/shared/locale/types/plans";
 import type { RecitationLabels } from "@/shared/locale/types/recitation";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
+import type { SubscriptionAdminLabels } from "@/shared/locale/types/subscriptionAdmin";
 import type { WalletLabels } from "@/shared/locale/types/wallet";
 
 export interface Translations {
@@ -46,4 +47,5 @@ export interface Translations {
   parentLinkTranslations: ParentLinkLabels;
   parentMonitoringTranslations: ParentMonitoringLabels;
   analyticsTranslations: AnalyticsLabels;
+  subscriptionAdminTranslations: SubscriptionAdminLabels;
 }

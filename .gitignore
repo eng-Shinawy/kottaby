@@ -120,3 +120,4 @@ scripts/escrow-e2e/.token-*
 scripts/escrow-e2e/.payload-*
 scripts/escrow-e2e/.session-*
 scripts/visual-loop/*.log
+vi-out/

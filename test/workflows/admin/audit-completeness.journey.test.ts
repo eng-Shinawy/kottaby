@@ -10,7 +10,9 @@
  * verbs: delete/reactivate, suspend/reactivate for users and for plans; the
  * financial-auditing trio settles BOTH withdrawal directions — approve AND
  * reject — and both adjustment verbs are exercised through the reason-bearing
- * manual adjustment); non-admin and anonymous actors are denied every action
+ * manual adjustment; the subscription-admin quartet mints its pinned
+ * Update/Suspend/Create/Override rows through extend, cancel, renew, and a
+ * prorated downgrade); non-admin and anonymous actors are denied every action
  * and mint nothing.
  *
  * Per `test/workflows/AGENTS.md`:
@@ -42,6 +44,9 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { plans } from "@/backend/db/schema/billing/plans";
+import { studentSubscriptions } from "@/backend/db/schema/billing/student-subscriptions";
+import { subscriptionPurchaseIdempotency } from "@/backend/db/schema/billing/subscription-purchase-idempotency";
+import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transaction";
 import { wallet } from "@/backend/db/schema/billing/wallet";
 import { lessons } from "@/backend/db/schema/classes/lessons";
@@ -51,8 +56,11 @@ import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
-import { createTestWallet } from "@/backend/db/test/entity-setup";
+import { createTestPlan, createTestSubscription, createTestWallet } from "@/backend/db/test/entity-setup";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import { ProrationDirection } from "@/backend/enum/billing/proration-direction.enum";
+import { SubscriptionCreditLane } from "@/backend/enum/billing/subscription-credit-lane.enum";
+import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
 import { TransactionStatus } from "@/backend/enum/billing/transaction-status.enum";
 import { TransactionType } from "@/backend/enum/billing/transaction-type.enum";
 import { WalletAdjustmentDirection } from "@/backend/enum/billing/wallet-adjustment-direction.enum";
@@ -64,6 +72,7 @@ import { ConflictError, DomainError, ForbiddenError, UnauthorizedError, Validati
 import { AdminUserManagementService, AuditTrailService, ColdStartCertificationService } from "@/backend/services/admin";
 import { AdminFinancialAuditingService } from "@/backend/services/billing/admin-financial-auditing.service";
 import { PlanCatalogService } from "@/backend/services/billing/plan-catalog.service";
+import { SubscriptionAdminService } from "@/backend/services/billing/subscription-admin.service";
 import { WalletService } from "@/backend/services/billing/wallet.service";
 import { LessonService } from "@/backend/services/classes/lesson.service";
 import { SessionAdminGovernanceService } from "@/backend/services/classes/session-admin-governance";
@@ -81,6 +90,7 @@ import type {
   BroadcastNotificationSubmitInput,
   LessonSubmitInput,
   PlanSubmitInput,
+  SubscriptionSelectType,
 } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 // Deep import (same rationale as the sibling journeys — the `test/helpers`
@@ -150,6 +160,27 @@ const FINANCE_ADJUST_CREDIT = "25.00";
 const FINANCE_REJECT_REASON = `${runPrefix} insufficient documentation`;
 const FINANCE_ADJUST_REASON = `${runPrefix} goodwill credit`;
 
+/** The subscription-admin leg's extend day count (whole days, positive). */
+const SUBSCRIPTION_EXTEND_DAYS = 7;
+/** The cancel leg's admin-supplied reason — the surface's only free text, trimmed and bounded by the service. */
+const SUBSCRIPTION_CANCEL_REASON = `${runPrefix} admin billing adjustment`;
+/** The owner's seeded hifz lane balance — makes the downgrade forfeit arithmetic exact (seed + renewal credit). */
+const SUBSCRIPTION_LANE_SEED = 3;
+/** The source plan's shape — the HIGHER per-session unit value (25.00/session) of the downgrade pair. */
+const SOURCE_PLAN_SESSION_COUNT = 8;
+const SOURCE_PLAN_PRICE = "200.00";
+const SOURCE_PLAN_INTERVAL_DAYS = 30;
+/** The downgrade target's shape — the strictly smaller unit value (12.50/session) pins the Downgrade direction. */
+const DOWNGRADE_PLAN_SESSION_COUNT = 4;
+const DOWNGRADE_PLAN_PRICE = "50.00";
+const DOWNGRADE_PLAN_INTERVAL_DAYS = 30;
+/** Milliseconds per day — the extend leg's window arithmetic unit (whole-second instants stay lossless). */
+const MS_PER_DAY = 86_400_000;
+/** The extend fixture's stored window — whole-second UTC instants the ISO audit details compare exactly. */
+const EXTEND_WINDOW_START = new Date("2030-01-01T00:00:00.000Z");
+const EXTEND_WINDOW_END = new Date("2030-01-31T00:00:00.000Z");
+const EXTEND_WINDOW_END_EXTENDED = new Date(EXTEND_WINDOW_END.getTime() + SUBSCRIPTION_EXTEND_DAYS * MS_PER_DAY);
+
 /**
  * Widened enum members — the ledger rows' `type`/`status` columns are pgEnum
  * string-literal unions, so the pending-withdrawal lookups compare
@@ -191,6 +222,13 @@ const LESSON_LEG = ["createLesson", "updateLesson", "deleteLesson"] as const;
 const DISPUTE_LEG = ["resolveSessionDispute"] as const;
 /** Financial-auditing trio — approve/reject settle BOTH withdrawal directions. */
 const FINANCE_LEG = ["adjustTeacherWallet", "approveWithdrawal", "rejectWithdrawal"] as const;
+/** Admin subscription lifecycle — extend+cancel share the active row, renew+change chain the fresh periods. */
+const SUBSCRIPTION_ADMIN_LEG = [
+  "adminExtendSubscription",
+  "adminCancelSubscription",
+  "adminRenewSubscription",
+  "adminChangeSubscriptionPlan",
+] as const;
 
 /**
  * Try/catch rejection helper (journey-layer pattern —
@@ -249,6 +287,52 @@ function parseAuditDetails(row: AdminAuditLogEntryReturnType): Record<string, un
     throw new Error(`audit row ${row.id} details payload is not a JSON object`);
   }
   return parsed;
+}
+
+/** Read-back oracle: one subscription row (the subscription leg's side-effect probes). */
+async function readSubscriptionRow(subscriptionId: number): Promise<SubscriptionSelectType> {
+  const rows = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
+  const row = rows[0];
+  if (!row) {
+    throw new Error(`subscription leg: no subscription row for id ${subscriptionId}`);
+  }
+  return row;
+}
+
+/** Read-back oracle: the subscription owner's four lane balances (the balance-preserving probe). */
+async function readOwnerLaneBalances() {
+  const rows = await db
+    .select({
+      hifz: students.balanceHifz,
+      tajweed: students.balanceTajweed,
+      reviews: students.balanceReviews,
+      trial: students.balanceTrial,
+    })
+    .from(students)
+    .where(eq(students.id, studentActor.userId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) {
+    throw new Error("subscription leg: the owner's student row vanished");
+  }
+  return row;
+}
+
+/**
+ * Registers the service-minted idempotency claim pointing at one subscription
+ * row (a side-effect row the registry must sweep; resolved by its backfilled
+ * subscription pointer — run-unique because the pointer is a fresh row id).
+ */
+async function trackClaimForSubscription(subscriptionId: number): Promise<void> {
+  const claims = await db
+    .select({ id: subscriptionPurchaseIdempotency.id })
+    .from(subscriptionPurchaseIdempotency)
+    .where(eq(subscriptionPurchaseIdempotency.subscriptionId, subscriptionId));
+  const claim = claims[0];
+  if (claims.length !== 1 || !claim) {
+    throw new Error(`subscription leg: expected exactly one claim for subscription ${subscriptionId}`);
+  }
+  tracked.register(subscriptionPurchaseIdempotency, claim.id);
 }
 
 /**
@@ -320,6 +404,13 @@ let rescheduleSessionId = 0;
 let cancelSessionId = 0;
 let reassignSessionId = 0;
 let joinSessionId = 0;
+/** Subscription-admin anchors: two same-lane plans + the subscription rows the legs act on and mint. */
+let sourcePlanId = 0;
+let downgradePlanId = 0;
+let extendSubscriptionId = 0;
+let renewSourceId = 0;
+let renewedSubscriptionId = 0;
+let planChangedSubscriptionId = 0;
 
 /** Row-count oracles — captured after the cast commit, restored by teardown. */
 let auditBaseline = 0;
@@ -746,6 +837,90 @@ const censusRunners: Record<string, CensusRunner> = {
       balanceAfter: "525.00",
     });
   },
+
+  adminExtendSubscription: async (entry, executed) => {
+    // The window bounds in the details are computed SERVER-SIDE from the
+    // row's stored end date — the leg reads that anchor first so the
+    // expected ISO pair derives from the same committed value.
+    const before = await readSubscriptionRow(extendSubscriptionId);
+    const previousEndDate = before.endDate;
+    if (!previousEndDate) {
+      throw new Error("subscription leg: extend fixture has no window end");
+    }
+    const extended = await SubscriptionAdminService.extendSubscription(
+      { subscriptionId: extendSubscriptionId, days: SUBSCRIPTION_EXTEND_DAYS },
+      adminA.userId,
+      LOCALE
+    );
+    expect(extended.status).toBe(SubscriptionStatus.Active);
+    record(executed, entry, AuditActionType.Update, extendSubscriptionId, {
+      previousEndDate: previousEndDate.toISOString(),
+      newEndDate: new Date(previousEndDate.getTime() + SUBSCRIPTION_EXTEND_DAYS * MS_PER_DAY).toISOString(),
+      addedDays: SUBSCRIPTION_EXTEND_DAYS,
+    });
+  },
+
+  adminCancelSubscription: async (entry, executed) => {
+    const lanesBefore = await readOwnerLaneBalances();
+    const cancelled = await SubscriptionAdminService.cancelSubscription(
+      { subscriptionId: extendSubscriptionId, reason: SUBSCRIPTION_CANCEL_REASON },
+      adminA.userId,
+      LOCALE
+    );
+    expect(cancelled.status).toBe(SubscriptionStatus.Cancelled);
+    // Balance-preserving: the cancel touches NO lane column (the sweep
+    // zeroes; cancel never does).
+    expect(await readOwnerLaneBalances()).toEqual(lanesBefore);
+    record(executed, entry, AuditActionType.Suspend, extendSubscriptionId, {
+      fromStatus: SubscriptionStatus.Active,
+      toStatus: SubscriptionStatus.Cancelled,
+      reason: SUBSCRIPTION_CANCEL_REASON,
+    });
+  },
+
+  adminRenewSubscription: async (entry, executed) => {
+    const renewed = await SubscriptionAdminService.renewSubscription(
+      { subscriptionId: renewSourceId },
+      adminA.userId,
+      LOCALE
+    );
+    renewedSubscriptionId = renewed.id;
+    expect(renewed.status).toBe(SubscriptionStatus.Active);
+    tracked.register(subscriptions, renewedSubscriptionId);
+    await trackClaimForSubscription(renewedSubscriptionId);
+    record(executed, entry, AuditActionType.Create, renewedSubscriptionId, {
+      renewedFromSubscriptionId: renewSourceId,
+      planId: sourcePlanId,
+      creditedSessions: SOURCE_PLAN_SESSION_COUNT,
+      intervalDays: SOURCE_PLAN_INTERVAL_DAYS,
+    });
+  },
+
+  adminChangeSubscriptionPlan: async (entry, executed) => {
+    // The source row is the renewal's fresh period; the target's strictly
+    // smaller unit value (25.00 → 12.50 per session) pins the Downgrade
+    // direction — the seeded lane remainder (seed + the renewal's credit) is
+    // forfeited, and the lane settles to the target plan's session count.
+    const changed = await SubscriptionAdminService.changeSubscriptionPlan(
+      { subscriptionId: renewedSubscriptionId, newPlanId: downgradePlanId },
+      adminA.userId,
+      LOCALE
+    );
+    planChangedSubscriptionId = changed.subscription.id;
+    expect(changed.direction).toBe(ProrationDirection.Downgrade);
+    expect(changed.carrySessions).toBe(0);
+    expect(changed.forfeitedSessions).toBe(SUBSCRIPTION_LANE_SEED + SOURCE_PLAN_SESSION_COUNT);
+    tracked.register(subscriptions, planChangedSubscriptionId);
+    await trackClaimForSubscription(planChangedSubscriptionId);
+    record(executed, entry, AuditActionType.Override, planChangedSubscriptionId, {
+      direction: ProrationDirection.Downgrade,
+      fromSubscriptionId: renewedSubscriptionId,
+      fromPlanId: sourcePlanId,
+      toPlanId: downgradePlanId,
+      carrySessions: 0,
+      forfeitedExcess: SUBSCRIPTION_LANE_SEED + SOURCE_PLAN_SESSION_COUNT,
+    });
+  },
 };
 
 /**
@@ -901,6 +1076,55 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       financeWalletId = financeWallet.id;
       financeTeacherId = teacherActor.userId;
       tracked.register(wallet, financeWalletId);
+
+      // The subscription-admin leg fixtures: two ACTIVE same-lane plans —
+      // the target's strictly smaller per-session unit value pins the
+      // downgrade direction — and the two subscription rows each mutation
+      // requires (extend/cancel act on the active row; renew recovers the
+      // expired one). The owner is the cast student; the seeded lane balance
+      // makes the forfeit arithmetic exact (the renewal credits the plan's
+      // full session count on top of the seed BEFORE the change settles the
+      // lane to the target plan's session count).
+      const sourcePlan = await createTestPlan(tx, {
+        title: `${runPrefix} admin-sub source plan`,
+        sessionCount: SOURCE_PLAN_SESSION_COUNT,
+        price: SOURCE_PLAN_PRICE,
+        intervalDays: SOURCE_PLAN_INTERVAL_DAYS,
+        balanceLane: SubscriptionCreditLane.Hifz,
+      });
+      sourcePlanId = sourcePlan.id;
+      tracked.register(plans, sourcePlanId);
+
+      const downgradePlan = await createTestPlan(tx, {
+        title: `${runPrefix} admin-sub downgrade target`,
+        sessionCount: DOWNGRADE_PLAN_SESSION_COUNT,
+        price: DOWNGRADE_PLAN_PRICE,
+        intervalDays: DOWNGRADE_PLAN_INTERVAL_DAYS,
+        balanceLane: SubscriptionCreditLane.Hifz,
+      });
+      downgradePlanId = downgradePlan.id;
+      tracked.register(plans, downgradePlanId);
+
+      await tx
+        .update(students)
+        .set({ balanceHifz: SUBSCRIPTION_LANE_SEED })
+        .where(eq(students.id, studentActor.userId));
+
+      const extendSubscription = await createTestSubscription(tx, studentActor.userId, sourcePlanId, {
+        status: SubscriptionStatus.Active,
+        startDate: EXTEND_WINDOW_START,
+        endDate: EXTEND_WINDOW_END,
+      });
+      extendSubscriptionId = extendSubscription.id;
+      tracked.register(subscriptions, extendSubscriptionId);
+
+      const renewSource = await createTestSubscription(tx, studentActor.userId, sourcePlanId, {
+        status: SubscriptionStatus.Expired,
+        startDate: new Date(EXTEND_WINDOW_START.getTime() - 90 * MS_PER_DAY),
+        endDate: new Date(EXTEND_WINDOW_END.getTime() - 90 * MS_PER_DAY),
+      });
+      renewSourceId = renewSource.id;
+      tracked.register(subscriptions, renewSourceId);
     });
 
     // Row-count oracles: whole-table baselines the legs assert deltas against.
@@ -977,13 +1201,18 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     expect(await countUsersByIds(journeyUserIds)).toBe(0);
     expect(await countAllAuditRows()).toBe(auditBaseline);
     expect(await countAllNotificationRows()).toBe(notificationBaseline);
+
+    // The junction rows the renew + change legs inserted cascaded away with
+    // their subscription/student parents (composite PK — no registry row).
+    expect(await db.$count(studentSubscriptions, eq(studentSubscriptions.studentId, studentActor.userId))).toBe(0);
   });
 
   test("system: cast and fixture sessions committed with clean audit and notification footprints", async () => {
     // 6 actors × (users row + role-child row) + the five fixture sessions
     // (dispute + reschedule + cancel + reassign + join) + the finance
-    // teacher's funded wallet fixture.
-    expect(tracked.size).toBe(18);
+    // teacher's funded wallet fixture + the subscription-admin leg's two
+    // same-lane plans and two subscription rows.
+    expect(tracked.size).toBe(22);
 
     // The dispatch map covers every wired census row — a census row without
     // a runner would silently skip execution and fake completeness.
@@ -996,6 +1225,7 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       ...DISPUTE_LEG,
       ...SESSION_GOVERNANCE_LEG,
       ...FINANCE_LEG,
+      ...SUBSCRIPTION_ADMIN_LEG,
     ];
     expect(legFields).toHaveLength(wiredFields.length);
     expect(legFields.toSorted((a, b) => a.localeCompare(b))).toEqual(
@@ -1067,6 +1297,59 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     ]);
     expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
     expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+  });
+
+  test("producer executes the subscription-admin census rows through the real service path", async () => {
+    const auditBefore = await countAllAuditRows();
+    const legActions = await executeCensusRows(SUBSCRIPTION_ADMIN_LEG);
+    executedActions.push(...legActions);
+
+    // The pinned per-mutation vocabulary — extend→Update, cancel→Suspend,
+    // renew→Create, plan-change→Override — one row per mutation on its own
+    // subscription anchor (extend and cancel share the row they act on).
+    expect(legActions).toHaveLength(4);
+    expect(legActions.map(action => action.actionType)).toEqual([
+      AuditActionType.Update,
+      AuditActionType.Suspend,
+      AuditActionType.Create,
+      AuditActionType.Override,
+    ]);
+    expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
+    expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+
+    // Each mutation committed its own side effect with the trail row: the
+    // window shifted, then the row cancelled (extend + cancel share it); the
+    // renewal opened a fresh active period on the same plan; the change moved
+    // that period onto the downgrade target while the owner's lane landed on
+    // the prepared exact total (the forfeited remainder = seed + credit).
+    const extendCancelRows = await readSubscriptionRow(extendSubscriptionId);
+    expect(extendCancelRows.status).toBe(SubscriptionStatus.Cancelled);
+    expect(extendCancelRows.endDate).toEqual(EXTEND_WINDOW_END_EXTENDED);
+
+    const renewedRows = await readSubscriptionRow(renewedSubscriptionId);
+    expect(renewedRows.status).toBe(SubscriptionStatus.Cancelled);
+    expect(renewedRows.planId).toBe(sourcePlanId);
+
+    const changedRows = await readSubscriptionRow(planChangedSubscriptionId);
+    expect(changedRows.status).toBe(SubscriptionStatus.Active);
+    expect(changedRows.planId).toBe(downgradePlanId);
+    expect(changedRows.paymentMethod).toBeNull();
+    expect(changedRows.paymentReference).toBeNull();
+
+    const junctionRows = await db
+      .select({ subscriptionId: studentSubscriptions.subscriptionId })
+      .from(studentSubscriptions)
+      .where(eq(studentSubscriptions.studentId, studentActor.userId));
+    expect(junctionRows.map(row => row.subscriptionId).toSorted((a, b) => a - b)).toEqual(
+      [renewedSubscriptionId, planChangedSubscriptionId].toSorted((a, b) => a - b)
+    );
+
+    expect(await readOwnerLaneBalances()).toEqual({
+      hifz: DOWNGRADE_PLAN_SESSION_COUNT,
+      tajweed: 0,
+      reviews: 0,
+      trial: 0,
+    });
   });
 
   test("producer executes the lesson-catalog census rows through the real service path", async () => {
@@ -1629,6 +1912,33 @@ describe("Audit-trail completeness journey — execute every admin action, prove
               direction: WalletAdjustmentDirection.Credit,
               reason: `${runPrefix} denied adjustment`,
             },
+            LOCALE
+          ),
+      },
+      {
+        field: "adminExtendSubscription",
+        call: actorId =>
+          SubscriptionAdminService.extendSubscription(
+            { subscriptionId: extendSubscriptionId, days: SUBSCRIPTION_EXTEND_DAYS },
+            actorId,
+            LOCALE
+          ),
+      },
+      {
+        field: "adminRenewSubscription",
+        call: actorId => SubscriptionAdminService.renewSubscription({ subscriptionId: renewSourceId }, actorId, LOCALE),
+      },
+      {
+        field: "adminCancelSubscription",
+        call: actorId =>
+          SubscriptionAdminService.cancelSubscription({ subscriptionId: extendSubscriptionId }, actorId, LOCALE),
+      },
+      {
+        field: "adminChangeSubscriptionPlan",
+        call: actorId =>
+          SubscriptionAdminService.changeSubscriptionPlan(
+            { subscriptionId: extendSubscriptionId, newPlanId: downgradePlanId },
+            actorId,
             LOCALE
           ),
       },

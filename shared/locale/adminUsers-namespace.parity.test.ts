@@ -48,20 +48,23 @@ import { namespaces } from "@/shared/locale/namespaces/index";
 // ─── Mandated inventory of the audit-trail read surface ──────────────────────
 
 /**
- * Every leaf key the `auditTrail` block must carry (25 slots) — dotted paths
+ * Every leaf key the `auditTrail` block must carry (47 slots) — dotted paths
  * RELATIVE to the block root, grouped by sub-block.
  */
 const AUDIT_TRAIL_LEAF_PATHS = [
   "pageTitle",
   "pageSubtitle",
+  "filteredViewLabel",
   "filters.actorIdLabel",
   "filters.entityTypeLabel",
+  "filters.entityTypeHint",
   "filters.entityIdLabel",
   "filters.actionTypeLabel",
   "filters.fromDateLabel",
   "filters.toDateLabel",
   "filters.applyAction",
   "filters.clearAction",
+  "filters.quickPickCaption",
   "table.whenHeader",
   "table.actorHeader",
   "table.actionHeader",
@@ -73,10 +76,30 @@ const AUDIT_TRAIL_LEAF_PATHS = [
   "table.noDetailsValue",
   "table.noEntityIdValue",
   "table.allActionsOption",
+  "table.entityRefCopy",
+  "table.entityRefCopied",
+  "table.actorLinkLabel",
+  "table.userEntityLinkLabel",
+  "entityTypeLabels.user",
+  "entityTypeLabels.teacher",
+  "entityTypeLabels.session",
+  "entityTypeLabels.subscription",
+  "entityTypeLabels.plan",
+  "entityTypeLabels.teacherTransaction",
+  "entityTypeLabels.parentLinkRequest",
+  "entityTypeLabels.parentLinkRequestDecision",
+  "entityTypeLabels.parentLinkRequestExpiry",
+  "entityTypeLabels.notificationBroadcast",
   "emptyState.title",
   "emptyState.message",
   "errorState.title",
   "errorState.message",
+  "export.exportPageCsv",
+  "export.exportPageCsvEmpty",
+  "export.exportedRows",
+  "export.exportFailed",
+  "export.exportAllCsv",
+  "export.exportTruncated",
 ] as const;
 
 /**
