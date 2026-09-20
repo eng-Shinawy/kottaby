@@ -523,7 +523,7 @@ Ref: student_subscriptions.subscription_id > subscriptions.id [delete: cascade]
 
 // --- Session relationships ---
 Ref: session.teacher_id > teacher.id [delete: restrict]
-Ref: session.student_id > students.id [delete: restrict]
+Ref: session.student_id > users.id [delete: restrict]
 
 // --- Reports (C.4: teacher_id removed, access via session) ---
 Ref: reports.session_id > session.id [delete: cascade]

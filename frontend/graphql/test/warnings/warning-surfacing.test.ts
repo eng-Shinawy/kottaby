@@ -336,6 +336,11 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
  * resolves to the canonical `PurchaseSubscriptionPayload` (inputless — identity
  * from the session, plan resolved server-side; every denial rides `errors[]`),
  * so it is warning-incapable like the purchase-family entries above.
+ *
+ * Refreshed for the evaluation session booking: `bookEvaluationSession`
+ * resolves to the canonical `Session` payload (identity from the session,
+ * every stored column derived server-side; every denial rides `errors[]`),
+ * so it is warning-incapable like the canonical-payload entries above.
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
   "adjustTeacherWallet",
@@ -351,6 +356,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "adminSetUserSuspended",
   "adminUpdateUser",
   "approveWithdrawal",
+  "bookEvaluationSession",
   "cancelParentLinkRequest",
   "cancelSession",
   "completeSession",

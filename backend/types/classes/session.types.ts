@@ -86,3 +86,17 @@ export type SessionRatingEligibilityProbeType = Pick<
   SessionSelectType,
   "id" | "studentId" | "teacherId" | "status" | "confirmedByTeacherAt" | "confirmedByStudentAt"
 >;
+
+/**
+ * Evaluation-booking input: the single client-controlled field (BOPLA).
+ *
+ * The evaluator choice is the ONLY thing a client may pick — the applicant
+ * identity resolves from the caller's context, and every other column
+ * (lifecycle status, session type, fee, hold marker, deadline, and
+ * timestamps) is server-assigned field-by-field by the booking service
+ * inside its creation transaction. A client payload structurally cannot
+ * carry, spoof, or influence any of them.
+ */
+export interface BookEvaluationSessionInput {
+  readonly evaluatorId: number;
+}

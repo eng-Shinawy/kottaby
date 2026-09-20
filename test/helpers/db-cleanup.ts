@@ -281,3 +281,22 @@ export async function withImmutabilityTriggersSuspended<T>(
   }
   return outcome.value;
 }
+
+/**
+ * Deletes `session` rows whose teacher OR student participant is in the id
+ * list. Both of `session`'s user-facing FKs (`teacher_id`, `student_id`)
+ * RESTRICT-delete their user, so `deleteUsersByIds` fails while any such
+ * session survives; suites that create sessions over the live wire must
+ * call this first. Every other reference to `session.id` is SET NULL or
+ * CASCADE (idempotency claims, evaluations, ledger transactions, child
+ * artifacts), so no further delete ordering is needed. Returns the number
+ * of session rows deleted.
+ */
+export async function deleteSessionsByParticipantUserIds(ids: readonly number[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const list = idList(ids);
+  const result = await db.execute<{ count: number }>(
+    sql`WITH deleted AS (DELETE FROM session WHERE teacher_id IN (${list}) OR student_id IN (${list}) RETURNING 1) SELECT count(*)::int AS count FROM deleted`
+  );
+  return result.rows[0]?.count ?? 0;
+}

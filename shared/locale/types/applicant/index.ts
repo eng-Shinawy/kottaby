@@ -76,4 +76,25 @@ export interface ApplicantLabels {
    * messages are never echoed through it.
    */
   readonly purchaseGenericError: string;
+  /**
+   * In-evaluation loop progress line rendering the CURRENT cycle counts.
+   * The four numeric values expand in the FIXED order
+   * `(booked, completed, remaining, total)`; the parity test pins the
+   * template ORDER identical across both locales.
+   */
+  readonly evaluationProgressLine: (booked: number, completed: number, remaining: number, total: number) => string;
+  /** Evaluation-zone call-to-action button label (opens the booking dialog). */
+  readonly bookEvaluationCta: string;
+  /** Booking-dialog empty state — every certified evaluator is already used in this cycle. */
+  readonly availableEvaluatorsEmpty: string;
+  /** Success notice raised after the booking mutation settles successfully. */
+  readonly evaluationBookingSuccess: string;
+  /** Booking-dialog cancel button label. */
+  readonly evaluationBookingCancelCta: string;
+  /** Booking-dialog confirm button label (fires the mutation). */
+  readonly evaluationBookingConfirmCta: string;
+  /** Booking-dialog title. */
+  readonly evaluationBookingDialogTitle: string;
+  /** Evaluation-zone heading on the teacher dashboard. */
+  readonly evaluationZoneTitle: string;
 }

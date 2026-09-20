@@ -116,4 +116,9 @@ export const errorsAr: ErrorsLabels = {
   evaluationSessionNotCompleted: "لا يمكن تقييم هذه الجلسة لأنها لم تكتمل ولم يتم تأكيدها من قبل الطرفين.",
   evaluationAlreadySubmitted: "لقد أرسلت تقييمك لهذه الجلسة بالفعل.",
   teacherRatingInvalid: "يجب أن يكون تقييم المعلم رقماً صحيحاً بين 1 و5.",
+  evaluationLoopComplete: "اكتملت حلقة التقييم. تهانينا — اكتملت الجلسات الخمس بنجاح.",
+  noEvaluationCreditsRemaining: "لا توجد جلسات تقييم متبقية.",
+  evaluatorAlreadyUsed: "تم حجز هذا المُقيِّم بالفعل في الحلقة الحالية. اختر مُقيِّماً آخر.",
+  applicantNotInEvaluation: "طلبك ليس في مرحلة التقييم.",
+  verificationSubscriptionNotActive: "خطة التوثيق الخاصة بك غير مفعّلة (أكمل عملية الشراء أولاً).",
 };

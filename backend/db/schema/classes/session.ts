@@ -1,16 +1,20 @@
 import { boolean, decimal, index, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 import { disputeResolution, sessionIntent, sessionStatus, sessionType } from "@/backend/db/schema/enums";
-import { students } from "@/backend/db/schema/students/students";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
+import { users } from "@/backend/db/schema/users/users";
 import type { HeldBalanceLane } from "@/backend/enum/scheduling/held-balance-lane.enum";
 
 /**
  * Session table (`session`).
  *
  * The central scheduling entity: a single meeting between a teacher and a
- * student. `teacher_id` → teacher.id (restrict: cannot delete a teacher who
- * still has sessions) and `student_id` → students.id (restrict: same for
- * students). Both are required (NOT NULL).
+ * participant. `teacher_id` → teacher.id (restrict: cannot delete a teacher
+ * who still has sessions) and `student_id` → users.id (restrict: cannot
+ * delete a user who still has sessions). Both are required (NOT NULL). The
+ * student leg points at the shared `users.id` PK (the same values
+ * `students.id` re-uses), so an evaluation row can be stored against a bare
+ * user id without a `students` child row while every regular student
+ * session keeps its existing read semantics.
  *
  * Lifecycle is driven by `status` (session_status enum, default "scheduled"):
  * scheduled → started → completed | cancelled, and both scheduled and
@@ -41,7 +45,7 @@ import type { HeldBalanceLane } from "@/backend/enum/scheduling/held-balance-lan
  * `confirmed_by_student_at` + `confirmed_by_teacher_at` track each side's
  * confirmation; `confirmation_deadline` is the 24h window from request.
  *
- * No circular deps: imports only teacher, students, enums. The reverse FKs
+ * No circular deps: imports only teacher, users, enums. The reverse FKs
  * (evaluations.session_id, teacher_transaction.session_id) reference this
  * table from those domains — they import `session`, session does NOT import
  * them. Authored first in the classes domain to unblock the evaluations and
@@ -56,7 +60,7 @@ export const session = pgTable(
       .references(() => teacher.id, { onDelete: "restrict" }),
     studentId: integer("student_id")
       .notNull()
-      .references(() => students.id, { onDelete: "restrict" }),
+      .references(() => users.id, { onDelete: "restrict" }),
     status: sessionStatus("status").notNull().default("scheduled"),
     sessionType: sessionType("session_type").notNull().default("student_session"),
     intent: sessionIntent("intent"),

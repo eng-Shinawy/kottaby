@@ -247,6 +247,16 @@ export interface ErrorsLabels {
   readonly evaluationAlreadySubmitted: string;
   /** Validation reject — the submitted teacher rating is not an integer within 1..5. */
   readonly teacherRatingInvalid: string;
+  /** Loop-complete reject — every evaluation credit of the current cycle is already consumed by completed bookings → ConflictError. */
+  readonly evaluationLoopComplete: string;
+  /** Capacity reject — the current cycle has no remaining evaluation credits (the five-credit ceiling is reached) → ConflictError. */
+  readonly noEvaluationCreditsRemaining: string;
+  /** Distinctness reject — the chosen evaluator is already booked (non-cancelled) in the current cycle → ConflictError. */
+  readonly evaluatorAlreadyUsed: string;
+  /** Governance reject — the caller's application is not in the in_evaluation lifecycle stage → ConflictError. */
+  readonly applicantNotInEvaluation: string;
+  /** Cycle reject — no ACTIVE verification subscription opens an evaluation cycle (the purchase is not completed) → ConflictError. */
+  readonly verificationSubscriptionNotActive: string;
 }
 
 export type ErrorMessageKey = {

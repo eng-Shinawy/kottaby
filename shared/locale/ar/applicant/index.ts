@@ -23,4 +23,13 @@ export const applicantAr: ApplicantLabels = {
   purchaseCancelCta: "إلغاء",
   purchaseSuccess: "تم إرسال طلب الشراء بنجاح.",
   purchaseGenericError: "تعذّر إتمام عملية الشراء. يرجى المحاولة مرة أخرى.",
+  evaluationProgressLine: (booked: number, completed: number, remaining: number, total: number) =>
+    `حجزت ${booked} من ${total} · أكملت ${completed} · متبقي ${remaining}`,
+  bookEvaluationCta: "احجز جلسة تقييم",
+  availableEvaluatorsEmpty: "لا يوجد مُقيِّمون متاحون — تم استخدام جميع المُقيِّمين المعتمدين في هذه الحلقة.",
+  evaluationBookingSuccess: "تم حجز جلسة التقييم بنجاح.",
+  evaluationBookingCancelCta: "إلغاء",
+  evaluationBookingConfirmCta: "تأكيد الحجز",
+  evaluationBookingDialogTitle: "اختر مُقيِّماً",
+  evaluationZoneTitle: "حلقة التقييم الخاصة بك",
 };

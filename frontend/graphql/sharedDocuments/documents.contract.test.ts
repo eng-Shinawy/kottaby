@@ -44,6 +44,10 @@ import type {
   AdminSessionRescheduleMutationVariables,
   AdminSessionsQuery,
   AdminSessionsQueryVariables,
+  AvailableEvaluatorsQuery,
+  AvailableEvaluatorsQueryVariables,
+  BookEvaluationSessionMutation,
+  BookEvaluationSessionMutationVariables,
   CancelSessionMutation,
   CancelSessionMutationVariables,
   CompleteSessionMutation,
@@ -54,6 +58,9 @@ import type {
   LoginMutationVariables,
   LogoutMutation,
   MeQuery,
+  MyEvaluationLoopStatusQuery,
+  MyEvaluationSessionsQuery,
+  MyEvaluationSessionsQueryVariables,
   MyStudentSessionsQuery,
   MyStudentSessionsQueryVariables,
   MyTeacherEvaluationsQuery,
@@ -75,6 +82,7 @@ import type {
 } from "@/frontend/graphql/generated/gql/graphql";
 import {
   adminSessionsQueryDocument as adminSessionsViaBarrel,
+  bookEvaluationSessionMutationDocument as bookEvaluationSessionViaBarrel,
   registerUserMutationDocument as registerUserViaBarrel,
   sessionByIdQueryDocument as sessionByIdViaBarrel,
 } from "@/frontend/graphql/sharedDocuments";
@@ -104,6 +112,12 @@ import {
   sessionByIdQueryDocument,
   startSessionMutationDocument,
 } from "@/frontend/graphql/sharedDocuments/scheduling/session.documents";
+import {
+  availableEvaluatorsQueryDocument,
+  bookEvaluationSessionMutationDocument,
+  myEvaluationLoopStatusQueryDocument,
+  myEvaluationSessionsQueryDocument,
+} from "@/frontend/graphql/sharedDocuments/teachers/evaluation-booking.documents";
 import {
   myTeacherEvaluationsQueryDocument,
   submitTeacherEvaluationMutationDocument,
@@ -318,6 +332,37 @@ const DOCUMENT_CONTRACT_TABLE: readonly DocumentContractRow[] = [
     variables: ["input", "sessionId"],
     objectSelections: ["submitTeacherEvaluation"],
   },
+  // --- applicant evaluation-booking (teachers/evaluation-booking.documents.ts) ---
+  {
+    document: bookEvaluationSessionMutationDocument,
+    operationName: "BookEvaluationSession",
+    channel: "mutation",
+    variables: ["input"],
+    objectSelections: ["bookEvaluationSession"],
+  },
+  {
+    document: myEvaluationLoopStatusQueryDocument,
+    operationName: "MyEvaluationLoopStatus",
+    channel: "query",
+    variables: [],
+    // EvaluationLoopStatus is a non-normalized scalar-blob read (no `id`
+    // on the type) — the whole object is consumed per fetch.
+    objectSelections: [],
+  },
+  {
+    document: availableEvaluatorsQueryDocument,
+    operationName: "AvailableEvaluators",
+    channel: "query",
+    variables: ["page", "pageSize"],
+    objectSelections: ["availableEvaluators.items"],
+  },
+  {
+    document: myEvaluationSessionsQueryDocument,
+    operationName: "MyEvaluationSessions",
+    channel: "query",
+    variables: ["filter", "page", "pageSize"],
+    objectSelections: ["myEvaluationSessions.items"],
+  },
 ];
 
 describe("shared-document contract — named operations + channel + variables", () => {
@@ -414,6 +459,7 @@ describe("shared-document contract — id field requirement", () => {
 describe("consumer import conventions — barrel ≡ deep import identity", () => {
   test("top-level barrel re-exports the SAME document instance (cache-key safety)", () => {
     expect(adminSessionsViaBarrel).toBe(adminSessionsQueryDocument);
+    expect(bookEvaluationSessionViaBarrel).toBe(bookEvaluationSessionMutationDocument);
     expect(registerUserViaBarrel).toBe(registerUserMutationDocument);
     expect(sessionByIdViaBarrel).toBe(sessionByIdQueryDocument);
   });
@@ -475,6 +521,20 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
       SubmitTeacherEvaluationMutationVariables
     > = submitTeacherEvaluationMutationDocument;
 
+    // The applicant evaluation-booking documents (compile-time proof that the
+    // canonical `Session` selections and the evaluator-picker page conform to
+    // the generated operation types).
+    const typedBookEvaluationSession: TypedDocumentNode<
+      BookEvaluationSessionMutation,
+      BookEvaluationSessionMutationVariables
+    > = bookEvaluationSessionMutationDocument;
+    const typedMyEvaluationLoopStatus: TypedDocumentNode<MyEvaluationLoopStatusQuery> =
+      myEvaluationLoopStatusQueryDocument;
+    const typedAvailableEvaluators: TypedDocumentNode<AvailableEvaluatorsQuery, AvailableEvaluatorsQueryVariables> =
+      availableEvaluatorsQueryDocument;
+    const typedMyEvaluationSessions: TypedDocumentNode<MyEvaluationSessionsQuery, MyEvaluationSessionsQueryVariables> =
+      myEvaluationSessionsQueryDocument;
+
     // Runtime uses keep the bindings from being flagged as unused.
     expect(typedRegister.loc).toBeDefined();
     expect(typedLogin.loc).toBeDefined();
@@ -498,5 +558,9 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     expect(typedUpdateMyLocale.loc).toBeDefined();
     expect(typedMyTeacherEvaluations.loc).toBeDefined();
     expect(typedSubmitTeacherEvaluation.loc).toBeDefined();
+    expect(typedBookEvaluationSession.loc).toBeDefined();
+    expect(typedMyEvaluationLoopStatus.loc).toBeDefined();
+    expect(typedAvailableEvaluators.loc).toBeDefined();
+    expect(typedMyEvaluationSessions.loc).toBeDefined();
   });
 });

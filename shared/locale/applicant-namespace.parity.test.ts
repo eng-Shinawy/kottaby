@@ -23,6 +23,12 @@
  *   4. REGISTRY WIRING — the `Applicant` handle is registered in
  *      `shared/locale/namespaces/index.ts` with the conventional
  *      `<ns>.<ns>` id and its getter resolves to the composed bundle slice.
+ *   5. EVALUATION-ZONE PINS — the seven placeholder-free evaluation-zone
+ *      string keys (zone title, booking dialog chrome + notices) resolve in
+ *      BOTH locales, and `evaluationProgressLine` is a count interpolator
+ *      expanding its four numeric values in the pinned
+ *      (booked, total, completed, remaining) first-occurrence order in
+ *      BOTH locales (the zone renders the counts positionally).
  *
  * Mirrors the structure of `shared/locale/errors-namespace.parity.test.ts`
  * (the sibling dynamic errors gate, which independently covers the three new
@@ -108,14 +114,23 @@ describe("compile-time parity mirror — ar/en applicant key sets agree", () => 
     expect(enKeys).toEqual(arKeys);
   });
 
-  test("every value on BOTH maps is a non-empty localized string (zero dead keys)", () => {
+  test("every value on BOTH maps is a non-empty localized string or interpolator (zero dead keys)", () => {
     for (const key of Object.keys(applicantAr)) {
-      expect(nonEmptyLabelOf(applicantAr, key, "ar").length).toBeGreaterThan(0);
-      expect(nonEmptyLabelOf(applicantEn, key, "en").length).toBeGreaterThan(0);
+      const arValue: unknown = Reflect.get(applicantAr, key);
+      const enValue: unknown = Reflect.get(applicantEn, key);
+      expect(typeof arValue === "string" || typeof arValue === "function").toBe(true);
+      expect(typeof enValue === "string" || typeof enValue === "function").toBe(true);
+      if (typeof arValue === "string") {
+        expect(arValue.length).toBeGreaterThan(0);
+        expect(nonEmptyLabelOf(applicantEn, key, "en").length).toBeGreaterThan(0);
+      }
     }
     // Symmetric sweep — guards an en-only key that ar lost via future drift.
     for (const key of Object.keys(applicantEn)) {
-      expect(nonEmptyLabelOf(applicantAr, key, "ar").length).toBeGreaterThan(0);
+      const enValue: unknown = Reflect.get(applicantEn, key);
+      if (typeof enValue === "string") {
+        expect(nonEmptyLabelOf(applicantAr, key, "ar").length).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -213,5 +228,44 @@ describe("registry + bundle wiring", () => {
   test("`applicantTranslations` exists on BOTH message bundles", () => {
     expect(Object.hasOwn(enMessages, "applicantTranslations")).toBe(true);
     expect(Object.hasOwn(arMessages, "applicantTranslations")).toBe(true);
+  });
+});
+
+// ===========================================================================
+describe("evaluation-zone pins — booking-zone keys + progress-line order", () => {
+  /** The seven placeholder-free evaluation-zone string keys (zone chrome, dialog chrome, notices). */
+  const EVALUATION_ZONE_STRING_KEYS = [
+    "bookEvaluationCta",
+    "availableEvaluatorsEmpty",
+    "evaluationBookingSuccess",
+    "evaluationBookingCancelCta",
+    "evaluationBookingConfirmCta",
+    "evaluationBookingDialogTitle",
+    "evaluationZoneTitle",
+  ] as const;
+
+  test.each([...EVALUATION_ZONE_STRING_KEYS])(
+    "evaluation-zone key `%s` resolves as a non-empty string in BOTH locales",
+    key => {
+      expect(nonEmptyLabelOf(applicantAr, key, "ar").length).toBeGreaterThan(0);
+      expect(nonEmptyLabelOf(applicantEn, key, "en").length).toBeGreaterThan(0);
+    }
+  );
+
+  test("evaluationProgressLine expands the four counts in the pinned (booked, total, completed, remaining) order in BOTH locales", () => {
+    // Sentinel counts make the first-occurrence order observable:
+    // booked=11, completed=22, remaining=33, total=44 — both locale
+    // templates must place the four numbers in the same order
+    // (booked … total … completed … remaining).
+    const lines = [
+      applicantAr.evaluationProgressLine(11, 22, 33, 44),
+      applicantEn.evaluationProgressLine(11, 22, 33, 44),
+    ];
+    for (const line of lines) {
+      const positions = [11, 44, 22, 33].map(token => line.indexOf(String(token)));
+      expect(positions.every(position => position >= 0)).toBe(true);
+      // Strictly increasing positions = the pinned first-occurrence order.
+      expect(positions.toSorted((a, b) => a - b)).toEqual(positions);
+    }
   });
 });

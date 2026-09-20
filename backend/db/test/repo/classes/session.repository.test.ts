@@ -2542,21 +2542,28 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
 
   test("source: executor discipline — reads fall back to queryDb, writes to the pool, tx last on every signature", () => {
     expect(repoSource.includes("const executor = tx ?? db;")).toBe(true);
-    expect(repoSource.match(/const executor = tx \?\? db;/g) ?? []).toHaveLength(17);
+    expect(repoSource.match(/const executor = tx \?\? db;/g) ?? []).toHaveLength(16);
     expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(13);
-    // Thirty-five exported methods across the namespace + its five one-to-one
-    // sibling implementation modules (the report-gate lock, the report
-    // wave-context read, the rating-eligibility probe, the post-confirmation
-    // dispute trio, and the merged escrow lane), every one ending in tx
-    // (LAST param).
-    // Exactly TWO take it REQUIRED — the report-gate lock (a FOR UPDATE
+    // Thirty-four exported methods across the namespace + its one-to-one
+    // sibling implementation modules (the read machinery, the joined
+    // wave-context read, the post-confirmation dispute primitives, the
+    // lifecycle completion lane, the report-gate lock, the
+    // rating-eligibility probe, and the evaluation-loop wrappers delegating
+    // to the evaluation helpers module, whose own discipline suite lives in
+    // session.repository.evaluation.test.ts); the admin directory reads
+    // (listAdminDisputed, countAdminDisputed, listForAdmin) and the
+    // teacher↔student tenancy probe ride type-exact const re-exports of
+    // their impl functions instead of wrappers. Every signature ends in tx (LAST
+    // param).
+    // Exactly FOUR take it REQUIRED — the report-gate lock (a FOR UPDATE
     // read taken outside a transaction releases when the statement ends
-    // and protects nothing) and the rating-eligibility probe (the gate
-    // decision must observe the caller's transaction's own writes); the
-    // other thirty-three keep the optional tx.
-    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(35);
+    // and protects nothing), the rating-eligibility probe, and the
+    // evaluation-cycle resolver + booking counter (both cycle-gate reads
+    // must observe the caller's transaction's own writes under the
+    // applicant's FOR UPDATE lock); every other signature keeps the optional tx.
+    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(34);
     expect((repoSource.match(/tx\?: DBTransaction/g) ?? []).length).toBeGreaterThanOrEqual(20);
-    expect(repoSource.match(/tx: DBTransaction/g) ?? []).toHaveLength(2);
+    expect(repoSource.match(/tx: DBTransaction/g) ?? []).toHaveLength(4);
   });
 
   test("source: no i18n, no logger, no console, one namespace", () => {

@@ -101,6 +101,25 @@ stateDiagram-v2
     disputed --> completed: arbitration Refund / PartialRefund / Uphold (consumed escrow)
 ```
 
+### 2.5 Evaluation rows (DEV2-006 — applicant-as-student participation note)
+
+The teacher-applicant evaluation loop books through this SAME state machine: each
+booking inserts a `session` row with `session_type='teacher_evaluation'`,
+`intent='evaluation'`, and the applicant's `users.id` in `student_id` (the FK now
+references `users.id` — see the schema note in
+`docs/teachers/evaluation-loop-booking.md`). Evaluation rows are money-free by
+construction: `fee=null`, `fee_held=false` from insert onward, `held_balance_lane=null`
+— so the four-phase creation's debit-ladder phase never runs, and there is NO escrow
+handoff anywhere in the lifecycle (nothing was ever held; completion consumes nothing;
+cancel and the sweeps refund nothing). Everything else participates unchanged:
+`cancelSessionOnce` frees the evaluator slot, the evaluator's start/complete run the
+same guarded transitions and `is_online` lock, the confirmation-deadline and
+completed-leg sweeps auto-cancel lapsed rows exactly like student sessions, and
+`confirmStudentCompletionOnce` never matches (its `fee_held=true` predicate) — zero
+wallet writes. The loop's own gates (5-credit ceiling, distinct evaluators, cycle
+scoping, idempotency) live in the booking transaction, not here; the canonical
+contract is `docs/teachers/evaluation-loop-booking.md`.
+
 ## 3. Four-Phase Creation Invariant (REQ-040)
 
 `createSession` composes everything inside **one** `withTransaction(outerTx)` (outerTx → SAVEPOINT; undefined → new top-level transaction). The phase order is FIXED and never reordered:

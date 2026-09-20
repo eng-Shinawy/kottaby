@@ -22,12 +22,17 @@
  * profile mutations (`updateMyLocale`);
  * `verification-plan-purchase.mutation.ts` wires the teacher-applicant
  * verification purchase mutation (`purchaseVerificationPlan` — inputless;
- * identity from the session, plan resolved server-side).
+ * identity from the session, plan resolved server-side);
+ * `evaluation-booking.mutation.ts` wires the teacher-applicant evaluation
+ * booking mutation (`bookEvaluationSession` — one sealed input field, the
+ * evaluator id; identity from the session, every stored column derived
+ * server-side).
  */
 import "./auth.mutation";
 import "./admin";
 import "./billing";
 import "./classes";
+import "./evaluation-booking.mutation";
 import "./notifications";
 import "./parents";
 import "./plan-catalog.mutation";

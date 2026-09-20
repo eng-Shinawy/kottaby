@@ -64,6 +64,9 @@ stateDiagram-v2
 | Cooldown_Hifz | Failed (Hifz weakness) | `students.suspended = true`, `suspended_period_days = 90` |
 
 ### 2.2 Allowed Transitions
+
+> **Implementation reference (evaluation-loop booking — the `In_Evaluation` leg's producer):** the booking surface that materializes the evaluation sessions of §2.1 is implemented and documented in [`docs/teachers/evaluation-loop-booking.md`](../teachers/evaluation-loop-booking.md). Its booking state machine invariants as shipped: (a) the `in_evaluation` read gate — a booking requires an `applicants` row in `in_evaluation` and an ACTIVE verification subscription, both probed in one transaction under the applicant's `FOR UPDATE` lock (`APPLICANT_NOT_IN_EVALUATION` / `VERIFICATION_NOT_ACTIVE` otherwise); (b) the 5-credit ceiling is DERIVED, not stored — `booked` = non-cancelled evaluation rows in the current cycle, ceiling = `VERIFICATION_PLAN_SESSION_COUNT` (5), so a cancel restores the credit and a fresh activation resets counts; (c) distinct-evaluator memory (INV-TV2 enforcement point) is the non-cancelled current-cycle `teacher_id` set — cancel frees the slot, and per-cycle scoping means a new activation re-admits previously used evaluators; (d) evaluator certification + governance (INV-S5 analog) is locked `FOR UPDATE` at booking time — unknown, uncertified, and governed evaluators all deny before any write; (e) claim idempotency — a same-key replay is `DUPLICATE_REQUEST` (never returns the row), a foreign key is the oracle-safe `SESSION_NOT_FOUND`, and a failed booking rolls its claim back (the key is reusable); (f) evaluation rows ride the session state machine of §1 money-free (`fee=null`, `fee_held=false`, `held_balance_lane=null`).
+
 ```mermaid
 stateDiagram-v2
     [*] --> Registered: User registers (role=teacher)

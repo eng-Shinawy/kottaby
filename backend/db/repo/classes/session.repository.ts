@@ -21,11 +21,13 @@
  *    caller's transaction when supplied and fall back to raw
  *    parameterized SQL via `queryDb` (the Neon-HTTP-eligible pattern, as in
  *    `UserRepository.findById`) otherwise; writes execute on `tx ?? db`
- *    (the same fallback the student lane debit/refund methods use). The
- *    ONE exception is `lockForReportGate`, whose `tx` is REQUIRED: a
- *    `FOR UPDATE` lock taken outside a transaction releases when the
- *    statement ends and protects nothing (the
- *    `lockForCertificationCheck` shape).
+ *    (the same fallback the student lane debit/refund methods use).
+ *    Locking reads and the evaluation-cycle probes take a REQUIRED `tx`
+ *    (`lockForReportGate`, `resolveCurrentEvaluationCycle`,
+ *    `countEvaluationBookingsInCycle`): a `FOR UPDATE` lock taken outside
+ *    a transaction releases when the statement ends and protects nothing
+ *    (the `lockForCertificationCheck` shape), and a cycle/capacity
+ *    decision must observe the caller transaction's own writes.
  *  - NO prepared statements — the list predicates are dynamically composed
  *    and every write is transactional (`docs/drizzle/prepared-statements.md`
  *    excludes both from preparation). NO array-membership operators — the
@@ -62,16 +64,25 @@
  * `session.repository.gate.helpers.ts` module (extracted verbatim); the
  * post-confirmation dispute primitives live in the sibling
  * `session.repository.arbitration.helpers.ts` module (same extraction
- * pattern). The guarded write transitions stay in this file, their shared
+ * pattern); the evaluation-booking cycle reads (the active-cycle probe,
+ * the per-cycle aggregate, and the applicant evaluation-session list) live
+ * in the sibling `session.repository.evaluation.helpers.ts` module. The
+ * guarded write transitions stay in this file, their shared
  * participant live-state predicate factored into the module-level
  * `buildLiveParticipantTransitionPredicate` builder. Every read
- * method is a one-to-one delegation wrapper, so the public API (names,
- * signatures, behavior) is unchanged.
+ * method is a one-to-one delegation (signature wrappers or type-exact
+ * const re-exports), so the public API (names, signatures, behavior) is
+ * unchanged.
  */
 
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import * as arbitrationImpl from "@/backend/db/repo/classes/session.repository.arbitration.helpers";
+import type {
+  EvaluationCycleWindow,
+  EvaluationSessionListFilter,
+} from "@/backend/db/repo/classes/session.repository.evaluation.helpers";
+import * as sessionRepositoryEvaluationImpl from "@/backend/db/repo/classes/session.repository.evaluation.helpers";
 import * as sessionRepositoryGateImpl from "@/backend/db/repo/classes/session.repository.gate.helpers";
 import * as sessionRepositoryImpl from "@/backend/db/repo/classes/session.repository.helpers";
 import * as sessionRepositoryLifecycleImpl from "@/backend/db/repo/classes/session.repository.lifecycle.helpers";
@@ -81,8 +92,7 @@ import type { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolu
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import type {
   AdminSessionDetail,
-  AdminSessionListFilterInput,
-  AdminSessionRowReturnType,
+  DBQueryExecutor,
   DBTransaction,
   SessionInsertType,
   SessionListFilterInput,
@@ -667,22 +677,14 @@ export namespace SessionRepository {
    * @returns The page rows (an empty array when the window falls past the
    *          end — the count companion still reports the true total).
    */
-  export async function listAdminDisputed(
-    limit: number,
-    offset: number,
-    tx?: DBTransaction
-  ): Promise<SessionSelectType[]> {
-    return sessionRepositoryImpl.listAdminDisputed(limit, offset, tx);
-  }
+  export const listAdminDisputed = sessionRepositoryImpl.listAdminDisputed;
 
   /**
    * Counts the disputed sessions under the SAME status-first predicate as
    * `listAdminDisputed` — the honest total for the paginated arbitration
    * read.
    */
-  export async function countAdminDisputed(tx?: DBTransaction): Promise<number> {
-    return sessionRepositoryImpl.countAdminDisputed(tx);
-  }
+  export const countAdminDisputed = sessionRepositoryImpl.countAdminDisputed;
 
   /**
    * Lists sessions for the admin governance directory: EVERY row regardless
@@ -706,14 +708,7 @@ export namespace SessionRepository {
    *          (list and count share one predicate builder — the total can
    *          never diverge from the items).
    */
-  export async function listForAdmin(
-    filter: AdminSessionListFilterInput,
-    page: number,
-    pageSize: number,
-    tx?: DBTransaction
-  ): Promise<{ rows: AdminSessionRowReturnType[]; total: number }> {
-    return sessionRepositoryImpl.listAdminDirectoryPage(filter, page, pageSize, tx);
-  }
+  export const listForAdmin = sessionRepositoryImpl.listAdminDirectoryPage;
 
   /**
    * Admin browse read of ANY session row by primary key — no participant
@@ -789,6 +784,68 @@ export namespace SessionRepository {
   }
 
   /**
+   * Active-verification-cycle probe: resolves the applicant's CURRENT
+   * evaluation cycle window — the newest ACTIVE subscription whose plan is
+   * the verification plan, read as `{ cycleStart, activeSubscriptionId }`.
+   * A `null` cycleStart means no active cycle (the loop is closed).
+   * `tx` is REQUIRED: the cycle decision must observe the caller
+   * transaction's own writes under the applicant row lock.
+   *
+   * @returns The cycle window (`cycleStart` null when no active
+   *          verification subscription exists).
+   */
+  export async function resolveCurrentEvaluationCycle(
+    applicantUserId: number,
+    tx: DBTransaction
+  ): Promise<EvaluationCycleWindow> {
+    return sessionRepositoryEvaluationImpl.resolveCurrentEvaluationCycle(applicantUserId, tx);
+  }
+
+  /**
+   * Per-cycle aggregate: counts the applicant's evaluation bookings inside
+   * one purchased cycle in ONE table pass — the non-cancelled count, the
+   * completed count, and the DISTINCT evaluator ids of the non-cancelled
+   * rows (the distinctness memory), scoped to the half-open cycle window
+   * (`created_at >= cycleStart`). `tx` is REQUIRED: the aggregate runs
+   * under the caller's applicant row lock.
+   *
+   * @returns `{ booked, completed, evaluators }` — zero counts and an
+   *          empty evaluator list when the cycle holds no non-cancelled
+   *          rows.
+   */
+  export async function countEvaluationBookingsInCycle(
+    applicantUserId: number,
+    cycleStart: Date,
+    tx: DBTransaction
+  ): Promise<{ booked: number; completed: number; evaluators: number[] }> {
+    return sessionRepositoryEvaluationImpl.countEvaluationBookingsInCycle(applicantUserId, cycleStart, tx);
+  }
+
+  /**
+   * Lists the applicant's own evaluation sessions, newest first, paged:
+   * the owner equality on the session's student leg plus the session type
+   * pinned to the teacher-evaluation member, an optional lifecycle-state
+   * filter, and a normalized page window (sane-fallback, never thrown) —
+   * the page query and the same-predicate count describe one filtered
+   * set, so the total is always honest.
+   *
+   * Read-only and standalone-capable: a Drizzle executor runs the typed
+   * page + count reads on the supplied transaction; a checked-out
+   * PoolClient runs the same parameterized SQL on the SUPPLIED client;
+   * standalone callers fall back to the queryDb pool path.
+   *
+   * @returns The page rows plus the honest total (an out-of-range page
+   *          yields an empty `items` array with the unchanged total).
+   */
+  export async function listEvaluationSessionsForApplicant(
+    applicantUserId: number,
+    filter: EvaluationSessionListFilter,
+    tx?: DBQueryExecutor
+  ): Promise<{ items: SessionSelectType[]; total: number }> {
+    return sessionRepositoryEvaluationImpl.listEvaluationSessionsForApplicant(applicantUserId, filter, tx);
+  }
+
+  /**
    * Teacher↔student relationship probe: does ANY session row (any status)
    * link this teacher (shared PK with `users.id`, stored verbatim on
    * `session.teacher_id`) to this student? EXISTS-select only — no row
@@ -807,17 +864,5 @@ export namespace SessionRepository {
    *          to the student; `false` for an unknown caller, an unknown
    *          student, or a pair with zero shared sessions.
    */
-  export async function existsSessionForTeacherStudent(
-    teacherUserId: number,
-    studentId: number,
-    tx?: DBTransaction
-  ): Promise<boolean> {
-    const executor = tx ?? db;
-    const rows = await executor
-      .select({ exists: sql`1`.as("exists") })
-      .from(session)
-      .where(and(eq(session.teacherId, teacherUserId), eq(session.studentId, studentId)))
-      .limit(1);
-    return rows.length > 0;
-  }
+  export const existsSessionForTeacherStudent = sessionRepositoryGateImpl.existsSessionForTeacherStudent;
 }

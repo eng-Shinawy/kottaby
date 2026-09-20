@@ -205,8 +205,11 @@ const TEACHER_EVALUATION_KEYS = [
 describe("teacher-evaluation service keys — pinned in BOTH locales", () => {
   test("the domain inventory is exhaustive (no silent drift on the pinned evaluation keys)", () => {
     const pinned = new Set<string>(TEACHER_EVALUATION_KEYS);
+    const bookingPinned = new Set<string>(EVALUATION_BOOKING_KEYS);
     for (const key of Object.keys(errorsAr)) {
-      if (key.startsWith("evaluation") || key.startsWith("teacherRating")) {
+      // The evaluation-BOOKING denials live in their own pinned inventory
+      // below — the rating-surface pin stays exclusive to its own keys.
+      if ((key.startsWith("evaluation") && !bookingPinned.has(key)) || key.startsWith("teacherRating")) {
         expect(pinned.has(key)).toBe(true);
       }
     }
@@ -242,8 +245,11 @@ const APPLICANT_LIFECYCLE_KEYS = [
 describe("applicant-lifecycle service keys — pinned in BOTH locales", () => {
   test("the domain inventory is exhaustive (no silent drift on the pinned applicant keys)", () => {
     const pinned = new Set<string>(APPLICANT_LIFECYCLE_KEYS);
+    const bookingPinned = new Set<string>(EVALUATION_BOOKING_KEYS);
     for (const key of Object.keys(errorsAr)) {
-      if (key.startsWith("applicant")) {
+      // The evaluation-booking governance denial lives in its own pinned
+      // inventory below — the lifecycle pin stays exclusive to its own keys.
+      if (key.startsWith("applicant") && !bookingPinned.has(key)) {
         expect(pinned.has(key)).toBe(true);
       }
     }
@@ -262,6 +268,44 @@ describe("applicant-lifecycle service keys — pinned in BOTH locales", () => {
     // caller — no interpolation slot may ever slip into either locale.
     expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, "applicantAlreadyCertified", "ar"))).toEqual([]);
     expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, "applicantAlreadyCertified", "en"))).toEqual([]);
+  });
+});
+
+// ─── Evaluation-booking domain-service key pins ──────────────────────────────
+
+/**
+ * The `errors` keys minted for the evaluation-booking service surface (the
+ * five-session loop's loop-complete, capacity, distinctness, governance,
+ * and cycle denials). Like the pins above, these are consumed by the domain
+ * service through `getServerTranslations(locale).errorsTranslations`, so
+ * the route-source discovery cannot see them — they are pinned here in
+ * BOTH locales (removing a key from both maps simultaneously still fails).
+ */
+const EVALUATION_BOOKING_KEYS = [
+  "evaluationLoopComplete",
+  "noEvaluationCreditsRemaining",
+  "evaluatorAlreadyUsed",
+  "applicantNotInEvaluation",
+  "verificationSubscriptionNotActive",
+] as const;
+
+// ===========================================================================
+describe("evaluation-booking service keys — pinned in BOTH locales", () => {
+  test.each([...EVALUATION_BOOKING_KEYS])("domain key `%s` resolves non-empty in BOTH ar and en maps", key => {
+    expect(nonEmptyLabelOf(errorsAr, key, "ar").length).toBeGreaterThan(0);
+    expect(nonEmptyLabelOf(errorsEn, key, "en").length).toBeGreaterThan(0);
+    // Key must be part of the COMPILE-TIME schema too — Reflect-only
+    // additions (untyped holes) are prohibited by the ErrorsLabels contract.
+    expect(Object.hasOwn(errorsEn, key)).toBe(true);
+  });
+
+  test("the five booking denials carry ZERO ICU placeholders in BOTH locales", () => {
+    // Each denial is flat copy consumed verbatim by the booking dialog's
+    // error mapping — no interpolated value may ever slip into either locale.
+    for (const key of EVALUATION_BOOKING_KEYS) {
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, key, "ar"))).toEqual([]);
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, key, "en"))).toEqual([]);
+    }
   });
 });
 

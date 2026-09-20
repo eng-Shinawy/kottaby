@@ -101,6 +101,22 @@ export interface AdminTeacherDirectoryRow {
 }
 
 /**
+ * `EvaluationGateRow` — the projection `findForEvaluationGateById` locks
+ * and returns: the `teacher` row's certification flags plus the owning
+ * `users` account's governance flags. Nullable-with-default schema columns
+ * preserve their `| null` select types; the service layer owns the
+ * null-semantics (null ≡ not certified / not governed).
+ */
+interface EvaluationGateRow {
+  readonly id: number;
+  readonly isApproved: boolean | null;
+  readonly isEvaluator: boolean | null;
+  readonly isDeleted: boolean | null;
+  readonly isBlocked: boolean | null;
+  readonly suspended: boolean | null;
+}
+
+/**
  * Builds the ANDed WHERE chain from the normalized teacher-directory
  * filters. Absent or null members are skipped (the directory falls back to
  * the unfiltered listing rather than erroring). The `searchPattern` is
@@ -196,6 +212,51 @@ export namespace TeacherRepository {
     const rows = await tx
       .select({ id: teacher.id, isApproved: teacher.isApproved })
       .from(teacher)
+      .where(eq(teacher.id, teacherId))
+      .for("update");
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Evaluation-gate row lock: takes the `FOR UPDATE` lock on the `teacher`
+   * row and reads the certification AND evaluator flags plus the owning
+   * `users` account's governance flags inside the SAME statement (the
+   * `lockForCertificationCheck` shape extended by the evaluator flag and
+   * the governance projection), so an evaluation booking serializes
+   * against every other gate-locked writer of that row and a concurrent
+   * decertification or governance flip cannot slip between the read and
+   * the booking's write — the decision commits against the LOCKED value.
+   * The lock covers the joined `users` row too (the shared PK makes the
+   * join a 1:1 — every `teacher` row has exactly one owning account).
+   *
+   * `tx` is REQUIRED (not optional): a locking read without a transaction
+   * releases its lock as soon as the statement finishes, which would make
+   * the gate meaningless.
+   *
+   * @returns The minimal `{ id, isApproved, isEvaluator, isDeleted,
+   *          isBlocked, suspended }` projection (the certification flags
+   *          from the `teacher` row, the governance flags from the joined
+   *          `users` row), or `null` when no `teacher` row exists for the
+   *          id (e.g. an applicant's `users.id` — holding an applicant row
+   *          never mints certification). All flags mirror the columns'
+   *          DB-level nullability (`boolean | null`); treating `null` as
+   *          "not certified"/"not governed" is the caller's decision.
+   */
+  export async function findForEvaluationGateById(
+    teacherId: number,
+    tx: DBTransaction
+  ): Promise<EvaluationGateRow | null> {
+    const rows = await tx
+      .select({
+        id: teacher.id,
+        isApproved: teacher.isApproved,
+        isEvaluator: teacher.isEvaluator,
+        isDeleted: users.isDeleted,
+        isBlocked: users.isBlocked,
+        suspended: users.suspended,
+      })
+      .from(teacher)
+      .innerJoin(users, eq(users.id, teacher.id))
       .where(eq(teacher.id, teacherId))
       .for("update");
     return rows[0] ?? null;

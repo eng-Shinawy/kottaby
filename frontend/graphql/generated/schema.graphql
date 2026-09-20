@@ -444,6 +444,11 @@ enum AuditActionType {
   Update
 }
 
+input BookEvaluationSessionInput {
+  """The bookable evaluator's users.id — the ONLY client-owned field."""
+  evaluatorId: ID!
+}
+
 input BroadcastAudienceInput {
   country: String
   planId: Int
@@ -506,6 +511,38 @@ type Evaluation {
   id: ID!
   score: Int
   sessionId: Int
+}
+
+type EvaluationEvaluatorOption {
+  """Decimal-as-string per the teacher table."""
+  averageRating: String
+  fullName: String!
+  id: ID!
+  isOnline: Boolean!
+  subjects: String
+}
+
+type EvaluationEvaluatorOptionPage {
+  items: [EvaluationEvaluatorOption!]!
+  page: Int!
+  pageSize: Int!
+  totalCount: Int!
+}
+
+type EvaluationLoopStatus {
+  """Sessions booked in the current cycle (non-cancelled)."""
+  bookedCount: Int!
+
+  """Sessions completed in the current cycle."""
+  completedCount: Int!
+
+  """
+  Start date of the active verification subscription; null when no active cycle.
+  """
+  cycleStartDate: DateTime
+
+  """Remaining evaluation credits (0..5)."""
+  remainingCredits: Int!
 }
 
 enum Gender {
@@ -616,6 +653,11 @@ type Mutation {
   adminSetUserSuspended(id: Int!, periodDays: Int, suspended: Boolean!): AdminUserDetail!
   adminUpdateUser(id: Int!, input: AdminUpdateUserInput!): AdminUserDetail!
   approveWithdrawal(transactionId: ID!): TeacherTransaction!
+
+  """
+  Book one evaluation session as an applicant. BOLA-proof: identity from session.
+  """
+  bookEvaluationSession(input: BookEvaluationSessionInput!): Session!
 
   """
   Withdraws exactly one of the caller's own pending link requests (silent fold — zero notifications). A foreign or nonexistent id is indistinguishable — PARENT_LINK_REQUEST_NOT_FOUND with no existence oracle.
@@ -1109,6 +1151,9 @@ type Query {
   adminUserDetail(id: Int!): AdminUserDetail!
   adminUserStats: AdminUserStats!
   adminUsers(filters: AdminUserFiltersInput, page: Int, pageSize: Int): AdminUserPage!
+
+  """Unused certified evaluators (not yet used in the current cycle)."""
+  availableEvaluators(page: Int, pageSize: Int): EvaluationEvaluatorOptionPage!
   findStudentByHandshakeCode(code: String!): HandshakeCodeLookup
 
   """
@@ -1116,6 +1161,14 @@ type Query {
   """
   me: User
   myApplicantProfile: ApplicantProfile
+
+  """
+  Applicant's current evaluation loop status; zero-shape when no active cycle.
+  """
+  myEvaluationLoopStatus: EvaluationLoopStatus
+
+  """Current applicant's evaluation session list (paged)."""
+  myEvaluationSessions(filter: SessionListFilterInput, page: Int, pageSize: Int): SessionPage!
   myHandshakeCode: String!
 
   """

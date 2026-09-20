@@ -23,6 +23,7 @@ import {
   EligibleZone,
   PendingZone,
 } from "@/frontend/views/teachers/dashboard/ApplicantStatusZones";
+import { EvaluationLoopZone } from "@/frontend/views/teachers/dashboard/EvaluationLoopZone";
 import type { ApplicantLabels } from "@/shared/locale/types/applicant";
 import type { ErrorsLabels } from "@/shared/locale/types/errors";
 
@@ -90,6 +91,7 @@ export function resolveStatusBody(
         content: (
           <Stack spacing={2}>
             <AttemptsRow attemptCountLabel={t.attemptCountLabel} attempts={profile.verificationAttempts} />
+            <EvaluationLoopZone />
             <PromptPanel>{t.inEvaluationHint}</PromptPanel>
           </Stack>
         ),

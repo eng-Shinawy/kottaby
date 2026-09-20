@@ -25,4 +25,13 @@ export const applicantEn: ApplicantLabels = {
   purchaseCancelCta: "Cancel",
   purchaseSuccess: "Your purchase request was sent successfully.",
   purchaseGenericError: "We could not complete your purchase. Please try again.",
+  evaluationProgressLine: (booked: number, completed: number, remaining: number, total: number) =>
+    `${booked} of ${total} booked · ${completed} completed · ${remaining} left`,
+  bookEvaluationCta: "Book an evaluation session",
+  availableEvaluatorsEmpty: "No eligible evaluators — all certified evaluators are already used in this cycle.",
+  evaluationBookingSuccess: "Evaluation session booked.",
+  evaluationBookingCancelCta: "Cancel",
+  evaluationBookingConfirmCta: "Confirm booking",
+  evaluationBookingDialogTitle: "Choose an evaluator",
+  evaluationZoneTitle: "Your evaluation loop",
 };

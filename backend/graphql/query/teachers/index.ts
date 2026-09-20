@@ -10,6 +10,9 @@
  *    `gqlSchema.ts` imports that top-level barrel exactly once.
  *  - `applicant.query.ts` registers `myApplicantProfile`.
  *  - `student-evaluation.query.ts` registers `myTeacherEvaluations`.
+ *  - `evaluation-booking.query.ts` registers `myEvaluationLoopStatus`,
+ *    `availableEvaluators`, and `myEvaluationSessions`.
  */
 import "./applicant.query";
+import "./evaluation-booking.query";
 import "./student-evaluation.query";

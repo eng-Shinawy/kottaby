@@ -1,6 +1,6 @@
 /**
- * ApplicantRepository.transitionToInEvaluation tests — the guarded
- * `pending|failed → in_evaluation` lifecycle write against the live
+ * ApplicantRepository tests — the guarded `pending|failed → in_evaluation`
+ * lifecycle write and the `findForBookingGate` lock read against the live
  * PostgreSQL test instance.
  *
  * Per `backend/db/test/AGENTS.md`:
@@ -30,6 +30,13 @@
  *    folded into WHERE, no SELECT-then-UPDATE), enum members only (no
  *    hardcoded status literals), no prepared statements, no i18n/logger
  *    surface, and no plan-artifact references in comments.
+ *  - findForBookingGate: the lock-acquiring read returns the FULL row inside
+ *    the same statement and a missing id resolves null; the read observes
+ *    the caller transaction's own uncommitted writes; re-locking inside one
+ *    transaction is idempotent. The cross-transaction lock serialization is
+ *    the identical `.for("update")` primitive proven by the teacher suites'
+ *    lock tests, and the booking-level race matrix belongs to the service
+ *    suite.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -310,5 +317,97 @@ describe("ApplicantRepository.transitionToInEvaluation", () => {
 
   test("source: comments describe domain behavior only (no plan-artifact references)", () => {
     expect(/REQ-\d|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(repoSource)).toBe(false);
+  });
+});
+
+describe("ApplicantRepository.findForBookingGate", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("returns the FULL locked applicant row for an existing applicant", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      const seeded = await createTestApplicant(tx, user.id, { status: ApplicantStatus.InEvaluation });
+
+      const locked = await ApplicantRepository.findForBookingGate(user.id, tx);
+
+      expect(locked).not.toBeNull();
+      if (!locked) throw new Error("expected the locked applicant row");
+      // Full-row read — exactly the canonical seven select columns.
+      expect(Object.keys(locked).toSorted((a, b) => a.localeCompare(b))).toEqual([
+        "cooldownUntil",
+        "createdAt",
+        "id",
+        "lastAttemptAt",
+        "status",
+        "updatedAt",
+        "verificationAttempts",
+      ]);
+      expect(locked.id).toBe(user.id);
+      expect(locked.status).toBe(ApplicantStatus.InEvaluation);
+      expect(seeded.status).toBe(ApplicantStatus.InEvaluation);
+    });
+  });
+
+  test("returns null for a nonexistent applicant id", async () => {
+    await runInRollback(async tx => {
+      const missingId = await absentApplicantId(tx);
+
+      const locked = await ApplicantRepository.findForBookingGate(missingId, tx);
+
+      expect(locked).toBeNull();
+    });
+  });
+
+  // ─── Tier 2: read-your-writes under the caller transaction ──────────
+
+  test("observes the caller transaction's own uncommitted writes (the gate decides on locked values)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.Pending });
+
+      // The gate-locked read must see same-tx writes: flip the lifecycle
+      // status first, then take the lock — the locked row carries the flipped
+      // status, which is what the caller's subsequent booking writes commit
+      // their gates against.
+      await ApplicantRepository.transitionToInEvaluation(user.id, tx);
+      const locked = await ApplicantRepository.findForBookingGate(user.id, tx);
+
+      expect(locked?.status).toBe(ApplicantStatus.InEvaluation);
+    });
+  });
+
+  test("re-taking the lock inside ONE transaction is idempotent (tx-scoped lock)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.InEvaluation });
+
+      const first = await ApplicantRepository.findForBookingGate(user.id, tx);
+      const second = await ApplicantRepository.findForBookingGate(user.id, tx);
+
+      expect(first).toEqual(second);
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  const BOOKING_GATE_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/applicant.repository.ts");
+  const bookingGateRepoSource = readFileSync(BOOKING_GATE_REPO_FILE, "utf8");
+
+  /** The findForBookingGate slice of the repository source (the static pin target). */
+  function bookingGateSlice(): string {
+    const start = bookingGateRepoSource.indexOf("export async function findForBookingGate(");
+    return bookingGateRepoSource.slice(start, bookingGateRepoSource.indexOf("\n  }\n", start));
+  }
+
+  test("source: REQUIRED-tx lock read with a full-row select under .for('update')", () => {
+    expect(bookingGateSlice()).toContain("userId: number");
+    expect(bookingGateSlice()).toContain("tx: DBTransaction");
+    expect(bookingGateSlice()).toContain(".select()");
+    expect(bookingGateSlice()).toContain('.for("update")');
+  });
+
+  test("source: no template interpolation, no prepared statements in the lock read", () => {
+    expect(bookingGateSlice().includes("${")).toBe(false);
+    expect(bookingGateSlice().includes(".prepare(")).toBe(false);
   });
 });

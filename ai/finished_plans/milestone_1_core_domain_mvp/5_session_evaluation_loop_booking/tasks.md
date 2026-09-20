@@ -38,7 +38,7 @@
 
 ## Task 0 — Pre-Implementation Baseline
 
-- [ ] 0. Record error baselines WITHOUT touching code
+- [x] 0. Record error baselines WITHOUT touching code
   - `bun tsgo 2>&1 | grep "error TS" | wc -l > /tmp/DEV2-006-baseline-tsgo.txt`
   - `bun biome:check 2>&1 | grep -c "warn" > /tmp/DEV2-006-baseline-biome.txt`
   - `bun run scripts/lint-service.ts --json --id baseline > /tmp/DEV2-006-baseline-lint.json`
@@ -48,7 +48,7 @@
 
 ## Phase 1.5 — Plan Review Gate (MANDATORY — this generation pass)
 
-- [ ] 1.5 Review the complete plan (specs/plan/tasks) with the `@plan-review` checklist; fix all violations; record verdict + findings in `outcome/plan-review-R1.md`
+- [x] 1.5 Review the complete plan (specs/plan/tasks) with the `@plan-review` checklist; fix all violations; record verdict + findings in `outcome/plan-review-R1.md`
   - Dimensions: paths-exist, i18n key-sets (ar/en parity on new keys), GraphQL veneer conventions, Pothos field names, permission matrix, journey mapping, references to real symbols/line numbers.
 - _Requirements: REQ-0_
 
@@ -56,7 +56,7 @@
 
 ## Phase 2 — Backend Foundation
 
-- [ ] 2. **Schema + repo extensions (FK retarget + lock reads + cycle aggregates)**
+- [x] 2. **Schema + repo extensions (FK retarget + lock reads + cycle aggregates)**
   - `backend/db/schema/classes/session.ts`: FK target change ONLY (see plan §3.1). `bun run db push`; inspect the DDL diff before applying.
   - `backend/db/repo/teachers/applicant.repository.ts`: add `findForBookingGate(userId, tx)`.
   - `backend/db/repo/teachers/teacher.repository.ts`: add `findForEvaluationGateById(teacherId, tx)` returning `{id, isApproved, isEvaluator}` under `FOR UPDATE`.
@@ -74,7 +74,7 @@
   - Write `outcome/2-schema-repo-outcome.md` (includes DDL diff block).
   - _Requirements: REQ-2, REQ-3, REQ-4, REQ-5, REQ-6.1-6.3, REQ-7.1-7.4, REQ-8.1_
 
-- [ ] 3. **Backend types & i18n keys**
+- [x] 3. **Backend types & i18n keys**
   - `backend/types/classes/session.types.ts`: add `BookEvaluationSessionInput { readonly evaluatorId: number }`.
   - CREATE `backend/types/teachers/evaluation-booking.types.ts` — `EvaluationLoopStatusReturnType`, `EvaluationEvaluatorOptionType`, `EvaluationEvaluatorOptionPageReturnType` per `plan.md` §4.1 (verbatim shape).
   - UPDATE `backend/types/teachers/index.ts` to re-export the new module (one-line barrel addition).
@@ -90,7 +90,7 @@
 
 ## Phase 2.5 — Mid-Point Backend Review Gate (MANDATORY for >10 tasks; this plan has >10)
 
-- [ ] 4. **Mid-point review wave + fixes** (backend scope only)
+- [x] 4. **Mid-point review wave + fixes** (backend scope only)
   - Review subagents over Tasks 2-3's files: signature parity to `plan.md` §4.2, i18n keys en/ar completeness, Drizzle conventions, fk retarget correctness.
   - Fix anything found; rerun review wave until clean.
   - Write `outcome/midpoint-review-R1.md`.
@@ -100,7 +100,7 @@
 
 ## Phase 3 — Service & GraphQL
 
-- [ ] 5. **Service: `EvaluationBookingService` (write path + reads)**
+- [x] 5. **Service: `EvaluationBookingService` (write path + reads)**
   - CREATE `backend/services/teachers/evaluation-booking.service.ts` implementing `plan.md` §4.3 EXACTLY (boundary → governance → tx: applicant lock → status/sub/credits/distinctness/evaluator gates → claim → insert → backfill; notification post-commit).
   - Export via `backend/services/teachers/index.ts` (match sibling namespace patterns).
   - QL sub-loop per edited file.
@@ -111,7 +111,7 @@
   - Write `outcome/5-service-outcome.md`.
   - _Requirements: REQ-1, REQ-2, REQ-3, REQ-4, REQ-5, REQ-6, REQ-10, REQ-11_
 
-- [ ] 6. **GraphQL surfaces (Pothos + mutation + queries)**
+- [x] 6. **GraphQL surfaces (Pothos + mutation + queries)**
   - CREATE `backend/graphql/pothos/teachers/evaluation-booking.pothos.ts` — `BookEvaluationSessionInput`, `EvaluationLoopStatus`, `EvaluationEvaluatorOption`, `EvaluationEvaluatorOptionPage`.
   - CREATE `backend/graphql/mutation/evaluation-booking.mutation.ts` — registration-by-import `bookEvaluationSession`, `authenticated: true` scope ONLY (service gates), resolver delegates and maps `args.input.evaluatorId` (shape-only `Number(...)` parse; service re-validates). Flat root sibling of `verification-plan-purchase.mutation.ts` (no `mutation/teachers/` subdir exists — this matches the shipped pattern).
   - CREATE `backend/graphql/query/teachers/evaluation-booking.query.ts` — registers `myEvaluationLoopStatus`, `availableEvaluators`, `myEvaluationSessions` with `authenticated: true` scope, args normalized at service.
@@ -129,7 +129,7 @@
 
 ## Phase 4 — Journey (test-first discipline for the shared-state loop)
 
-- [ ] 7. **Journey test FIRST** (RED: expected failing write-up at commit time)
+- [x] 7. **Journey test FIRST** (RED: expected failing write-up at commit time)
   - CREATE `test/workflows/teachers/evaluation-loop-booking.journey.test.ts` implementing specs §6 steps end-to-end (purchase via DEV2-005 service + webhook emit via `SubscriptionActivationService.processWebhookEvent` → booking with 5 evaluators → ticket denials → cancel/rebook → 6th-booking codes → replay probes → notification receipt assertions via `spyOn(NotificationEngine, "publishReceipts")`).
   - Use `createJourneyFixtures(prefix)` and extendable raw tx inserts for any extra evaluators; per-run prefix `jrn_evalloop_${randomUUID().slice(0, 8)}`; full cleanup coverage of generated user ids.
   - QL sub-loop on the new test file (green compile, allow red runtime).
@@ -137,7 +137,7 @@
   - Write `outcome/7-journey-first-outcome.md`.
   - _Requirements: REQ-12_
 
-- [ ] 8. **Drive journey green + cross-suite sweeps**
+- [x] 8. **Drive journey green + cross-suite sweeps**
   - Rerun the journey after Tasks 5-6 land (expect full green).
   - Full sweeps: `bun run test/scripts/run-test.ts backend/services/teachers/` + `bun run test/scripts/run-test.ts backend/db/test/repo/classes/` + targeted teacher/parent replays; `bun run test:graphql` on the new test.
   - Write `outcome/8-journey-green-outcome.md`.
@@ -147,7 +147,7 @@
 
 ## Phase 5 — Frontend
 
-- [ ] 9. **Frontend GraphQL documents + barrel**
+- [x] 9. **Frontend GraphQL documents + barrel**
   - CREATE `frontend/graphql/sharedDocuments/teachers/evaluation-booking.documents.ts` (sibling of `applicant.documents.ts` / `student-evaluation.documents.ts`): `bookEvaluationSessionMutationDocument`, `myEvaluationLoopStatusQueryDocument`, `availableEvaluatorsQueryDocument`, `myEvaluationSessionsQueryDocument` — EVERY object selection includes `id` (Apollo cache normalization).
   - Update the teachers barrel's `index.ts` (pure re-export, side-effect imports elsewhere not needed).
   - QL sub-loop per edited file.
@@ -157,7 +157,7 @@
   - Write `outcome/9-frontend-docs-outcome.md`.
   - _Requirements: REQ-8, REQ-0.5_
 
-- [ ] 10. **Dashboard evaluation zone + booking dialog**
+- [x] 10. **Dashboard evaluation zone + booking dialog**
   - UPDATE `frontend/views/teachers/dashboard/ApplicantStatusResolution.tsx`: in the `InEvaluation` branch, render the new `EvaluationLoopZone` (new sibling file) between the attempts row and the reminder prompt.
   - CREATE `frontend/views/teachers/dashboard/EvaluationLoopZone.tsx`: progress line (interpolation of translation function with `{booked,completed,remaining,total}`), one CTA opening the dialog.
   - CREATE `frontend/views/teachers/dashboard/EvaluationBookingDialog.tsx`: list from `availableEvaluators` query; confirm fires the mutation with a fresh UUID key per open; typed error mapping exactly per `plan.md` §6.
@@ -173,13 +173,13 @@
 
 ## Phase 6 — Final Gate & Knowledge Propagation
 
-- [ ] 11. **Post-implementation review wave (MANDATORY)**
+- [x] 11. **Post-implementation review wave (MANDATORY)**
   - Scope: diff of this plan only (`git diff --name-only origin/main…HEAD` scoped to the plan's files).
   - Run twin reviewers: `review-backend` + `review-frontend` (+ `security-probing` reading list only) — aggregate CRITICAL/HIGH/MEDIUM/LOW; fix per-file; re-review until zero feature findings.
   - Write `outcome/post-implementation-review.md`.
   - _Requirements: REQ-0, REQ-10_
 
-- [ ] 12. **Global quality plus deferred-items enforcement**
+- [x] 12. **Global quality plus deferred-items enforcement**
   - `grep -c "❌\|⚠️" deferred-items.md` → 0 (or converted into known cross-ticket coordination items with the receiving ticket referenced).
   - Baseline-vs-current comparison in the outcome file (`bun tsgo`, `bun biome:check`, lint) — deltas must be ≤ baseline + 0.
   - `bun quality-gate` green.
@@ -187,7 +187,7 @@
   - Write `outcome/12-final-gate-outcome.md`.
   - _Requirements: REQ-0, REQ-13_
 
-- [ ] 13. **Knowledge propagation & documentation**
+- [x] 13. **Knowledge propagation & documentation**
   - CREATE `docs/teachers/evaluation-loop-booking.md` (canonical doc; journey flow, credit derivation, distinctness, idempotency, FK retarget rationale, links to applicant-lifecycle.md, session-lifecycle.md, verification-plan-purchase.md).
   - UPDATE `docs/teachers/applicant-lifecycle.md` §6 consumer table: this flow reads `in_evaluation`, own gates, writes nothing to the lifecycle table.
   - UPDATE `docs/sessions/session-lifecycle.md`: one subsection noting the evaluation rows' participation (`fee=null`, `fee_held=false`, no escrow handoff, same sweeps).

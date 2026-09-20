@@ -33,8 +33,15 @@
  *  - Tier 4 (security/static): the id reaches the query only as a bound
  *    parameter — the repository source has no raw-SQL string building, no
  *    `--` sequences, no prepared statements, a REQUIRED (non-optional) tx
- *    parameter, no non-tx executor branch, no i18n/logger imports, exactly
- *    one exported method, and a two-column projection.
+ *    parameter, no non-tx executor branch, no i18n/logger imports, and a
+ *    two-column projection.
+ *  - findForEvaluationGateById: the certification AND evaluator flags plus
+ *    the owning account's governance flags ride the same FOR UPDATE lock
+ *    (the teacher row INNER JOINed to its users row) — the six-column
+ *    projection under lock, DB-level NULL flags surfaced verbatim, an
+ *    applicant's users.id resolving to null (an applicants row never
+ *    mints certification), a governed account's flags surfaced verbatim,
+ *    and idempotent re-locking inside one transaction.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -478,5 +485,154 @@ describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
     expect(repoSetOnlineSource()).toContain("online: boolean");
     expect(repoSetOnlineSource()).toContain("tx: DBTransaction");
     expect(repoSetOnlineSource()).toContain(".returning()");
+  });
+});
+
+describe("TeacherRepository.findForEvaluationGateById", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("returns {id, isApproved, isEvaluator} under lock for an existing evaluator row", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isEvaluator: true }).where(eq(teacher.id, user.id));
+
+      const locked = await TeacherRepository.findForEvaluationGateById(user.id, tx);
+
+      expect(locked).not.toBeNull();
+      if (!locked) throw new Error("expected locked teacher row");
+      expect(locked.id).toBe(user.id);
+      expect(locked.isApproved).toBe(true);
+      expect(locked.isEvaluator).toBe(true);
+      // The governance-clean account defaults surface verbatim (false).
+      expect(locked.isDeleted).toBe(false);
+      expect(locked.isBlocked).toBe(false);
+      expect(locked.suspended).toBe(false);
+      // Minimal projection — exactly the six mandated columns.
+      expect(Object.keys(locked).toSorted((a, b) => a.localeCompare(b))).toEqual([
+        "id",
+        "isApproved",
+        "isBlocked",
+        "isDeleted",
+        "isEvaluator",
+        "suspended",
+      ]);
+    });
+  });
+
+  test("returns isEvaluator:false for a certified teacher who is not an evaluator", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+
+      const locked = await TeacherRepository.findForEvaluationGateById(user.id, tx);
+
+      expect(locked?.id).toBe(user.id);
+      expect(locked?.isApproved).toBe(true);
+      // The fixture default rides through: a certified non-evaluator is a
+      // real row the booking gate must reject on the evaluator leg.
+      expect(locked?.isEvaluator).toBe(false);
+    });
+  });
+
+  test("returns null for a nonexistent teacher id", async () => {
+    await runInRollback(async tx => {
+      const missingId = await absentTeacherId(tx);
+
+      const locked = await TeacherRepository.findForEvaluationGateById(missingId, tx);
+
+      expect(locked).toBeNull();
+    });
+  });
+
+  // ─── Tier 2: boundary / honest failure ──────────────────────────────
+
+  test("resolves to null for a teacher-applicant user (applicants row, NO teacher row)", async () => {
+    await runInRollback(async tx => {
+      const applicantUser = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, applicantUser.id);
+
+      const locked = await TeacherRepository.findForEvaluationGateById(applicantUser.id, tx);
+
+      // Honest failure: holding an applicants row never mints certification —
+      // an applicant's users.id is not an evaluator id either.
+      expect(locked).toBeNull();
+    });
+  });
+
+  test("surfaces DB-level NULL flags verbatim as null (never coerced)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await tx.insert(teacher).values({ id: user.id, isApproved: null, isEvaluator: null });
+
+      const locked = await TeacherRepository.findForEvaluationGateById(user.id, tx);
+
+      expect(locked?.id).toBe(user.id);
+      expect(locked?.isApproved).toBeNull();
+      expect(locked?.isEvaluator).toBeNull();
+    });
+  });
+
+  test("surfaces a governed account's flags verbatim (deleted, blocked, suspended — still one row)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isEvaluator: true }).where(eq(teacher.id, user.id));
+      await tx.update(users).set({ isDeleted: true, isBlocked: true, suspended: true }).where(eq(users.id, user.id));
+
+      const locked = await TeacherRepository.findForEvaluationGateById(user.id, tx);
+
+      // The governance projection is honest: a certified evaluator whose
+      // account is governed still resolves as a row — the caller owns the
+      // denial decision.
+      expect(locked?.id).toBe(user.id);
+      expect(locked?.isApproved).toBe(true);
+      expect(locked?.isEvaluator).toBe(true);
+      expect(locked?.isDeleted).toBe(true);
+      expect(locked?.isBlocked).toBe(true);
+      expect(locked?.suspended).toBe(true);
+    });
+  });
+
+  test("re-locking the same row inside ONE transaction is idempotent (tx-scoped lock)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isEvaluator: true }).where(eq(teacher.id, user.id));
+
+      const first = await TeacherRepository.findForEvaluationGateById(user.id, tx);
+      const second = await TeacherRepository.findForEvaluationGateById(user.id, tx);
+
+      expect(first).toEqual(second);
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  const EVALUATION_GATE_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
+  const evaluationGateRepoSource = readFileSync(EVALUATION_GATE_REPO_FILE, "utf8");
+
+  /** The findForEvaluationGateById slice of the repository source (the static pin target). */
+  function repoFindForEvaluationGateSource(): string {
+    const start = evaluationGateRepoSource.indexOf("export async function findForEvaluationGateById(");
+    return evaluationGateRepoSource.slice(start, evaluationGateRepoSource.indexOf("\n  }\n", start));
+  }
+
+  test("source: REQUIRED-tx lock read with a six-column projection under .for('update')", () => {
+    expect(repoFindForEvaluationGateSource()).toContain("teacherId: number");
+    expect(repoFindForEvaluationGateSource()).toContain("tx: DBTransaction");
+    expect(repoFindForEvaluationGateSource()).toContain('.for("update")');
+    expect(repoFindForEvaluationGateSource()).toContain("id: teacher.id");
+    expect(repoFindForEvaluationGateSource()).toContain("isApproved: teacher.isApproved");
+    expect(repoFindForEvaluationGateSource()).toContain("isEvaluator: teacher.isEvaluator");
+    expect(repoFindForEvaluationGateSource()).toContain("isDeleted: users.isDeleted");
+    expect(repoFindForEvaluationGateSource()).toContain("isBlocked: users.isBlocked");
+    expect(repoFindForEvaluationGateSource()).toContain("suspended: users.suspended");
+    expect(repoFindForEvaluationGateSource()).toContain("innerJoin(users, eq(users.id, teacher.id))");
+  });
+
+  test("source: no template interpolation, no prepared statements in the evaluation lock read", () => {
+    expect(repoFindForEvaluationGateSource().includes("${")).toBe(false);
+    expect(repoFindForEvaluationGateSource().includes(".prepare(")).toBe(false);
   });
 });

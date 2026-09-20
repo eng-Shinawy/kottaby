@@ -119,4 +119,9 @@ export const errorsEn: ErrorsLabels = {
     "This session cannot be rated because it has not been completed and confirmed by both participants.",
   evaluationAlreadySubmitted: "You have already submitted a rating for this session.",
   teacherRatingInvalid: "The teacher rating must be a whole number between 1 and 5.",
+  evaluationLoopComplete: "Evaluation loop complete. Congratulations — all 5 sessions are complete.",
+  noEvaluationCreditsRemaining: "No evaluation sessions remaining.",
+  evaluatorAlreadyUsed: "This evaluator was already booked for the current loop. Choose another evaluator.",
+  applicantNotInEvaluation: "Your application is not in the evaluation stage.",
+  verificationSubscriptionNotActive: "Your verification plan is not active (complete the purchase first).",
 };

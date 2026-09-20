@@ -197,6 +197,28 @@ export namespace ApplicantRepository {
   }
 
   /**
+   * Booking-gate row lock: takes the `FOR UPDATE` lock on the `applicants`
+   * row and reads the FULL row inside the SAME statement, so an evaluation
+   * booking serializes against every other gate-locked writer of that row
+   * (a concurrent purchase flip, a rival booking racing for the same
+   * credit) and the returned lifecycle fields are the values the caller's
+   * subsequent writes commit against — no window for the status to change
+   * between the read and the caller's writes.
+   *
+   * `tx` is REQUIRED (not optional): a locking read without a transaction
+   * releases its lock as soon as the statement finishes, which would make
+   * the gate meaningless (the `TeacherRepository.lockForCertificationCheck`
+   * shape).
+   *
+   * @returns The locked applicant row, or `null` when no applicant has that
+   *          id (the caller owns the not-found semantics).
+   */
+  export async function findForBookingGate(userId: number, tx: DBTransaction): Promise<ApplicantSelectType | null> {
+    const rows = await tx.select().from(applicants).where(eq(applicants.id, userId)).for("update");
+    return rows[0] ?? null;
+  }
+
+  /**
    * Records one verification attempt by atomically incrementing
    * `verification_attempts` IN PLACE (`col = col + 1` at the database — never
    * a read-then-write) and stamping `last_attempt_at` / `updated_at` to
