@@ -9,8 +9,8 @@
 
 "use client";
 
-import { Alert, Button, CircularProgress, DialogActions, DialogContent, DialogTitle, Stack } from "@mui/material";
 import type { AdminPlansQuery, CreatePlanInput } from "@/frontend/graphql/generated/gql/graphql";
+import { FormDialogShell } from "@/frontend/views/admin/forms/FormDialogShell";
 import { PlanFormFields } from "@/frontend/views/admin/plans/forms/PlanFormFields";
 import { usePlanForm } from "@/frontend/views/admin/plans/hooks/usePlanForm";
 import { useAppTranslation } from "@/shared/locale/client";
@@ -43,41 +43,16 @@ export function PlanFormContent({
   });
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
-      <DialogTitle id="plan-form-dialog-title" sx={{ fontWeight: 600 }}>
-        {dialogTitle}
-      </DialogTitle>
-      <DialogContent
-        sx={theme => ({
-          // Symmetric inline gutter pinned to the theme spacing scale (logical
-          // property — identical inset on both edges in LTR and RTL).
-          paddingInline: theme.spacing(3),
-        })}
-      >
-        <Stack sx={{ gap: 2.5, mt: 1 }}>
-          {globalError && (
-            <Alert severity="error" sx={{ width: "100%" }}>
-              {globalError}
-            </Alert>
-          )}
-
-          <PlanFormFields form={form} loading={loading} onFieldChange={handleChange} fieldError={fieldError} />
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5 }}>
-        <Button onClick={onClose} disabled={loading} variant="outlined" color="inherit">
-          {t.cancelButton}
-        </Button>
-        <Button
-          type="submit"
-          disabled={loading}
-          variant="contained"
-          color="primary"
-          startIcon={loading ? <CircularProgress size={16} color="inherit" /> : null}
-        >
-          {loading ? t.savingButton : t.saveButton}
-        </Button>
-      </DialogActions>
-    </form>
+    <FormDialogShell
+      titleId="plan-form-dialog-title"
+      dialogTitle={dialogTitle}
+      labels={{ cancel: t.cancelButton, save: t.saveButton, saving: t.savingButton }}
+      loading={loading}
+      globalError={globalError}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+    >
+      <PlanFormFields form={form} loading={loading} onFieldChange={handleChange} fieldError={fieldError} />
+    </FormDialogShell>
   );
 }

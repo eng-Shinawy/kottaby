@@ -7,7 +7,8 @@
 
 "use client";
 
-import { Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
+import { TableBody } from "@mui/material";
+import { AdminDesktopTable } from "@/frontend/components/ui/AdminDesktopTable";
 import type { AdminPlansQuery } from "@/frontend/graphql/generated/gql/graphql";
 import { PlanDesktopRow } from "@/frontend/views/admin/plans/ui/PlanDesktopRow";
 import { useAppTranslation } from "@/shared/locale/client";
@@ -31,46 +32,30 @@ export function PlanDesktopTable({
   const t = useAppTranslation(Plans);
 
   return (
-    <TableContainer
-      component={Paper}
-      elevation={0}
-      sx={theme => ({
-        display: { xs: "none", md: "block" },
-        border: 1,
-        borderColor: theme.palette.divider,
-        borderRadius: 2,
-      })}
+    <AdminDesktopTable
+      ariaLabel={t.pageTitle}
+      headers={[
+        { label: t.titleColumn },
+        { label: t.sessionCountColumn },
+        { label: t.priceColumn },
+        { label: t.intervalDaysColumn },
+        { label: t.statusColumn },
+        { label: t.createdAtColumn },
+        { label: t.deactivatedAtColumn },
+        { label: t.actionsColumn, align: "right" },
+      ]}
     >
-      <Table aria-label={t.pageTitle}>
-        <TableHead>
-          <TableRow sx={theme => ({ backgroundColor: theme.palette.action.hover })}>
-            {/* `whiteSpace: nowrap` — narrow lanes were wrapping Arabic headers
-                mid-word ("الحال ة"); headers are single short words, they keep
-                one line and the table scrolls instead. */}
-            <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t.titleColumn}</TableCell>
-            <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t.sessionCountColumn}</TableCell>
-            <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t.priceColumn}</TableCell>
-            <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t.intervalDaysColumn}</TableCell>
-            <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t.statusColumn}</TableCell>
-            <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t.createdAtColumn}</TableCell>
-            <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{t.deactivatedAtColumn}</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-              {t.actionsColumn}
-            </TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {plans.map(plan => (
-            <PlanDesktopRow
-              key={plan.id}
-              plan={plan}
-              actionLoadingId={actionLoadingId}
-              onEdit={onEdit}
-              onToggleStatus={onToggleStatus}
-            />
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+      <TableBody>
+        {plans.map(plan => (
+          <PlanDesktopRow
+            key={plan.id}
+            plan={plan}
+            actionLoadingId={actionLoadingId}
+            onEdit={onEdit}
+            onToggleStatus={onToggleStatus}
+          />
+        ))}
+      </TableBody>
+    </AdminDesktopTable>
   );
 }

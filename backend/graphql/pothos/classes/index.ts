@@ -1,5 +1,5 @@
 /**
- * Classes-domain Pothos barrel — re-exports the session-report/homework
+ * Classes-domain Pothos barrel — re-exports the lesson, session-report/homework
  * object definitions and the report-submission input types.
  *
  * The top-level `backend/graphql/pothos/index.ts` re-exports this module, and
@@ -15,5 +15,6 @@
  * registration rides their own query/mutation modules.
  */
 export * from "./home-work.pothos";
+export * from "./lesson.pothos";
 export * from "./report.pothos";
 export * from "./session-report-input.pothos";

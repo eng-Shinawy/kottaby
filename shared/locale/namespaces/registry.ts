@@ -19,6 +19,7 @@ import { Dashboard } from "@/shared/locale/namespaces/dashboard";
 import { Errors } from "@/shared/locale/namespaces/errors";
 import { HandshakeCode } from "@/shared/locale/namespaces/handshakeCode";
 import { Landing } from "@/shared/locale/namespaces/landing";
+import { Lessons } from "@/shared/locale/namespaces/lessons";
 import { Notifications } from "@/shared/locale/namespaces/notifications";
 import { ParentLink } from "@/shared/locale/namespaces/parentLink";
 import { ParentMonitoring } from "@/shared/locale/namespaces/parentMonitoring";
@@ -43,6 +44,7 @@ export const namespaces = {
   Errors,
   HandshakeCode,
   Landing,
+  Lessons,
   Notifications,
   ParentLink,
   ParentMonitoring,

@@ -13,6 +13,7 @@ import {
   HistoryEduOutlined as HomeworkIcon,
   InsightsOutlined,
   LinkOutlined as LinkChildIcon,
+  MenuBookOutlined,
   NotificationsOutlined as NotificationsIcon,
   VerifiedOutlined as PlansIcon,
   AccountCircleOutlined as ProfileIcon,
@@ -159,6 +160,10 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     { route: "/teachers", labelKey: "teachers", Icon: TeachersIcon },
     { route: "/students", labelKey: "students", Icon: StudentsIcon },
     { route: "/admin/plans", labelKey: "plans", Icon: PlansIcon },
+    // Targets the admin-guarded curriculum-lessons catalog at
+    // `app/(dashboard)/admin/lessons/page.tsx` — the per-plan lesson CRUD
+    // (create / edit / delete) over the subscription-plan curriculum.
+    { route: "/admin/lessons", labelKey: "lessons", Icon: MenuBookOutlined },
     { route: "/audit", labelKey: "audit", Icon: AuditIcon },
     // Targets the admin-guarded finances console at
     // `app/(dashboard)/admin/finances/page.tsx` — the payments audit, the

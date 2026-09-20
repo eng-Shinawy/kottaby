@@ -13,6 +13,7 @@ import type { DashboardLabels } from "@/shared/locale/types/dashboard";
 import type { ErrorsLabels } from "@/shared/locale/types/errors";
 import type { HandshakeCodeLabels } from "@/shared/locale/types/handshakeCode";
 import type { LandingLabels } from "@/shared/locale/types/landing";
+import type { LessonsLabels } from "@/shared/locale/types/lessons";
 import type { NotificationsLabels } from "@/shared/locale/types/notifications";
 import type { ParentLinkLabels } from "@/shared/locale/types/parentLink";
 import type { ParentMonitoringLabels } from "@/shared/locale/types/parentMonitoring";
@@ -28,6 +29,7 @@ export interface Translations {
   recitationTranslations: RecitationLabels;
   dashboardTranslations: DashboardLabels;
   landingTranslations: LandingLabels;
+  lessonsTranslations: LessonsLabels;
   plansTranslations: PlansLabels;
   applicantTranslations: ApplicantLabels;
   sessionsTranslations: SessionsLabels;

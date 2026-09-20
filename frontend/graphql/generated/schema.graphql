@@ -463,6 +463,15 @@ enum BroadcastAudienceType {
   Role
 }
 
+"""Input fields required to create a new lesson."""
+input CreateLessonInput {
+  """Identifier of the subscription plan this lesson belongs to."""
+  planId: Int!
+
+  """Short human-readable label of the lesson."""
+  title: String!
+}
+
 """Input fields required to create a new subscription plan."""
 input CreatePlanInput {
   """
@@ -588,6 +597,28 @@ type IncomingParentLinkRequest {
   status: LinkStatus!
 }
 
+"""
+A lesson: a discrete teaching unit optionally tied to a subscription plan.
+"""
+type Lesson {
+  """Timestamp when the lesson record was created."""
+  createdAt: String!
+
+  """Unique lesson identifier (Apollo cache normalization key)."""
+  id: ID!
+
+  """
+  Identifier of the subscription plan this lesson belongs to, or null while standalone.
+  """
+  planId: Int
+
+  """Short human-readable label of the lesson, or null when untitled."""
+  title: String
+
+  """Timestamp when the lesson record was last modified."""
+  updatedAt: String!
+}
+
 enum LinkStatus {
   Confirmed
   Expired
@@ -679,6 +710,14 @@ type Mutation {
   """
   confirmSessionCompletion(id: ID!): Session!
 
+  """
+  Creates a new lesson, optionally tied to a subscription plan (Admin only).
+  """
+  createLesson(
+    """Input fields for the new lesson."""
+    input: CreateLessonInput!
+  ): Lesson!
+
   """Creates a new subscription plan in the catalog (Admin only)."""
   createPlan(
     """Input fields for the new subscription plan."""
@@ -689,6 +728,14 @@ type Mutation {
   Book one session against a certified teacher. Student-only; the booking is idempotent per the X-Idempotency-Key request header (a replayed key surfaces DUPLICATE_REQUEST).
   """
   createSession(input: CreateSessionInput!): Session!
+
+  """
+  Deletes an existing lesson and returns the removed row for cache eviction (Admin only).
+  """
+  deleteLesson(
+    """ID of the lesson to delete."""
+    id: ID!
+  ): Lesson!
 
   """
   Authenticate with email + password. Returns the authenticated user + access + refresh tokens. The access_token + refresh_token + session_id are also set as httpOnly cookies.
@@ -781,6 +828,15 @@ type Mutation {
   Submit the calling student's rating of one session's teacher: a whole-star 1..5 rating stored on the 0-100 score scale, exactly once per session. An unfinished handshake surfaces EVALUATION_SESSION_NOT_COMPLETED, a re-submission EVALUATION_ALREADY_SUBMITTED, and an unknown or foreign session is indistinguishable from SESSION_NOT_FOUND. Student-only.
   """
   submitTeacherEvaluation(input: SubmitTeacherEvaluationInput!, sessionId: ID!): Evaluation!
+
+  """Updates mutable fields on an existing lesson (Admin only)."""
+  updateLesson(
+    """ID of the lesson to update."""
+    id: ID!
+
+    """Updated fields for the lesson."""
+    input: UpdateLessonInput!
+  ): Lesson!
 
   """
   Persists the caller's app locale preference (UI + notification-copy language) and returns the updated user. Idempotent. Self-scoped — identity is derived from the verified context, never from arguments.
@@ -1232,6 +1288,12 @@ type Query {
   """Returns the active subscription plans catalog for authenticated users."""
   planCatalog: [Plan!]!
 
+  """Returns the curriculum lessons of a plan for authenticated users."""
+  planLessons(
+    """The id of the plan whose lessons are listed."""
+    planId: ID!
+  ): [Lesson!]!
+
   """
   Returns the canonical list of recitation readings (Qira'at) for the registration form selector. Public — no authentication required. The values are stable API identifiers; display labels are resolved client-side via the i18n recitation namespace.
   """
@@ -1574,6 +1636,15 @@ enum TransactionType {
   Bonus
   Earning
   Withdrawal
+}
+
+"""Input fields accepted when updating an existing lesson."""
+input UpdateLessonInput {
+  """New identifier of the subscription plan this lesson belongs to."""
+  planId: Int
+
+  """New short human-readable label of the lesson."""
+  title: String
 }
 
 """Mutable fields for updating an existing subscription plan."""

@@ -5,6 +5,22 @@
  *
  * Keys are lowercase camelCase of the SCREAMING_SNAKE_CASE codes.
  */
+/**
+ * Lesson-catalog domain failures surfaced to admins through the `errors`
+ * namespace. Each leaf is a self-contained sentence (no key echo) consumed by
+ * lesson services via property access on the localized bundle:
+ * `errorsTranslations.lessonCatalog.<key>`. Admin-authored identifiers (lesson
+ * id, plan id) MUST NOT appear in these strings — only generic, user-facing
+ * copy.
+ */
+interface LessonCatalogErrorsLabels {
+  readonly lessonNotFound: string;
+  readonly lessonTitleRequired: string;
+  readonly lessonTitleTooLong: string;
+  readonly lessonPlanNotFound: string;
+  readonly lessonPatchEmpty: string;
+}
+
 interface PlanCatalogErrorsLabels {
   readonly planNotFound: string;
   readonly planAlreadyInactive: string;
@@ -69,6 +85,8 @@ export interface ErrorsLabels {
   /** "You do not have permission to access this page." — role-mismatch deny. */
   readonly forbiddenRole: string;
   readonly planCatalog: PlanCatalogErrorsLabels;
+  /** Lesson-catalog domain failures (lookup miss, title validation, plan gating, empty patch). */
+  readonly lessonCatalog: LessonCatalogErrorsLabels;
   /** Subscription-purchase domain failures (plan gating, lane gating, idempotency, reference conflicts, settlement mismatch). */
   readonly subscriptionPurchase: SubscriptionPurchaseErrorsLabels;
   /** "Teacher application not found." — self-applicants lookup miss → NotFoundError("APPLICANT"). */

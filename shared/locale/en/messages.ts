@@ -13,6 +13,7 @@ import { dashboardEn } from "@/shared/locale/en/dashboard";
 import { errorsEn } from "@/shared/locale/en/errors";
 import { handshakeCodeEn } from "@/shared/locale/en/handshakeCode";
 import { landingEn } from "@/shared/locale/en/landing";
+import { lessonsEn } from "@/shared/locale/en/lessons";
 import { notificationsEn } from "@/shared/locale/en/notifications";
 import { parentLinkEn } from "@/shared/locale/en/parentLink";
 import { parentMonitoringEn } from "@/shared/locale/en/parentMonitoring";
@@ -29,6 +30,7 @@ export const enMessages: Translations = {
   recitationTranslations: recitationEn,
   dashboardTranslations: dashboardEn,
   landingTranslations: landingEn,
+  lessonsTranslations: lessonsEn,
   plansTranslations: plansEn,
   applicantTranslations: applicantEn,
   sessionsTranslations: sessionsEn,

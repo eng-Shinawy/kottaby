@@ -13,6 +13,7 @@ import { dashboardAr } from "@/shared/locale/ar/dashboard";
 import { errorsAr } from "@/shared/locale/ar/errors";
 import { handshakeCodeAr } from "@/shared/locale/ar/handshakeCode";
 import { landingAr } from "@/shared/locale/ar/landing";
+import { lessonsAr } from "@/shared/locale/ar/lessons";
 import { notificationsAr } from "@/shared/locale/ar/notifications";
 import { parentLinkAr } from "@/shared/locale/ar/parentLink";
 import { parentMonitoringAr } from "@/shared/locale/ar/parentMonitoring";
@@ -29,6 +30,7 @@ export const arMessages: Translations = {
   recitationTranslations: recitationAr,
   dashboardTranslations: dashboardAr,
   landingTranslations: landingAr,
+  lessonsTranslations: lessonsAr,
   plansTranslations: plansAr,
   applicantTranslations: applicantAr,
   sessionsTranslations: sessionsAr,

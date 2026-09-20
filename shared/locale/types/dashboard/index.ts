@@ -37,6 +37,8 @@ export interface DashboardLabels {
   readonly students: string;
   /** Sidebar nav: Plans link (admin) */
   readonly plans: string;
+  /** Sidebar nav: Lessons link (admin — curriculum management under a plan) */
+  readonly lessons: string;
   /** Sidebar nav: Audit link (admin) */
   readonly audit: string;
   /** Sidebar nav: Finances link (admin — the financial auditing console) */

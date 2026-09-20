@@ -12,7 +12,7 @@ frontend/graphql/sharedDocuments/
 │
 ├── auth/                 auth
 ├── billing/              billing-alerts, billing-management, user-billing-profile, fx-ingestion
-├── classes/              group-class, class-category, class-subject
+├── classes/              lesson (curriculum lessons CRUD), group-class, class-category, class-subject
 ├── complaints/           complaint
 ├── meeting/              meeting
 ├── notifications/        notification-alerts, notification-preferences

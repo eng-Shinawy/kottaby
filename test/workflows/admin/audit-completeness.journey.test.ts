@@ -44,6 +44,7 @@ import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transaction";
 import { wallet } from "@/backend/db/schema/billing/wallet";
+import { lessons } from "@/backend/db/schema/classes/lessons";
 import { session } from "@/backend/db/schema/classes/session";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
 import { students } from "@/backend/db/schema/students/students";
@@ -64,6 +65,7 @@ import { AdminUserManagementService, AuditTrailService, ColdStartCertificationSe
 import { AdminFinancialAuditingService } from "@/backend/services/billing/admin-financial-auditing.service";
 import { PlanCatalogService } from "@/backend/services/billing/plan-catalog.service";
 import { WalletService } from "@/backend/services/billing/wallet.service";
+import { LessonService } from "@/backend/services/classes/lesson.service";
 import { SessionAdminGovernanceService } from "@/backend/services/classes/session-admin-governance";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
 import { AdminBroadcastService } from "@/backend/services/notifications/admin-broadcast.service";
@@ -77,6 +79,7 @@ import type {
   AdminSessionRescheduleInput,
   AdminUpdateUserPatchInput,
   BroadcastNotificationSubmitInput,
+  LessonSubmitInput,
   PlanSubmitInput,
 } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
@@ -184,6 +187,7 @@ const USER_LIFECYCLE_LEG = [
 ] as const;
 const CERTIFICATION_BROADCAST_LEG = ["adminCertifyTeacherColdStart", "adminBroadcastNotification"] as const;
 const PLAN_CATALOG_LEG = ["createPlan", "updatePlan", "setPlanActiveStatus"] as const;
+const LESSON_LEG = ["createLesson", "updateLesson", "deleteLesson"] as const;
 const DISPUTE_LEG = ["resolveSessionDispute"] as const;
 /** Financial-auditing trio — approve/reject settle BOTH withdrawal directions. */
 const FINANCE_LEG = ["adjustTeacherWallet", "approveWithdrawal", "rejectWithdrawal"] as const;
@@ -310,6 +314,7 @@ let secondTeacherActor: JourneyActor; // certified reassignment candidate
 let targetStudentId = 0;
 let teacherTargetId = 0;
 let planId = 0;
+let lessonId = 0;
 let disputeSessionId = 0;
 let rescheduleSessionId = 0;
 let cancelSessionId = 0;
@@ -544,6 +549,38 @@ const censusRunners: Record<string, CensusRunner> = {
     const reactivated = await PlanCatalogService.setPlanActiveStatus(planId, true, adminA.userId, LOCALE);
     expect(reactivated.isActive).toBe(true);
     record(executed, entry, AuditActionType.Reactivate, planId, { isActive: true });
+  },
+
+  createLesson: async (entry, executed) => {
+    const input: LessonSubmitInput = {
+      planId,
+      title: `${runPrefix} opening lesson`,
+    };
+    const created = await LessonService.createLesson(input, adminA.userId, LOCALE);
+    lessonId = created.id;
+    expect(created.planId).toBe(planId);
+    expect(created.title).toBe(input.title);
+    tracked.register(lessons, lessonId);
+    record(executed, entry, AuditActionType.Create, lessonId, {
+      planId: created.planId,
+      title: created.title,
+    });
+  },
+
+  updateLesson: async (entry, executed) => {
+    const renamedTitle = `${runPrefix} opening lesson retitled`;
+    const updated = await LessonService.updateLesson(lessonId, { title: renamedTitle }, adminA.userId, LOCALE);
+    expect(updated.title).toBe(renamedTitle);
+    record(executed, entry, AuditActionType.Update, lessonId, { changedFields: ["title"] });
+  },
+
+  deleteLesson: async (entry, executed) => {
+    const deleted = await LessonService.deleteLesson(lessonId, adminA.userId, LOCALE);
+    expect(deleted.id).toBe(lessonId);
+    record(executed, entry, AuditActionType.Delete, lessonId, {
+      planId: deleted.planId,
+      title: deleted.title,
+    });
   },
 
   resolveSessionDispute: async (entry, executed) => {
@@ -955,6 +992,7 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       ...USER_LIFECYCLE_LEG,
       ...CERTIFICATION_BROADCAST_LEG,
       ...PLAN_CATALOG_LEG,
+      ...LESSON_LEG,
       ...DISPUTE_LEG,
       ...SESSION_GOVERNANCE_LEG,
       ...FINANCE_LEG,
@@ -1026,6 +1064,23 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       AuditActionType.Update,
       AuditActionType.Suspend,
       AuditActionType.Reactivate,
+    ]);
+    expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
+    expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+  });
+
+  test("producer executes the lesson-catalog census rows through the real service path", async () => {
+    const auditBefore = await countAllAuditRows();
+    const legActions = await executeCensusRows(LESSON_LEG);
+    executedActions.push(...legActions);
+
+    // One verb per mutation: the curriculum trio mints Create, Update, and
+    // Delete rows on the same lesson anchor, in leg order.
+    expect(legActions).toHaveLength(3);
+    expect(legActions.map(action => action.actionType)).toEqual([
+      AuditActionType.Create,
+      AuditActionType.Update,
+      AuditActionType.Delete,
     ]);
     expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
     expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
@@ -1500,6 +1555,18 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       {
         field: "setPlanActiveStatus",
         call: actorId => PlanCatalogService.setPlanActiveStatus(planId, false, actorId, LOCALE),
+      },
+      {
+        field: "createLesson",
+        call: actorId => LessonService.createLesson({ planId, title: `${runPrefix} denied lesson` }, actorId, LOCALE),
+      },
+      {
+        field: "updateLesson",
+        call: actorId => LessonService.updateLesson(lessonId, { title: `${runPrefix} denied lesson` }, actorId, LOCALE),
+      },
+      {
+        field: "deleteLesson",
+        call: actorId => LessonService.deleteLesson(lessonId, actorId, LOCALE),
       },
       {
         field: "resolveSessionDispute",

@@ -140,6 +140,29 @@ export const ADMIN_ACTION_CENSUS: readonly AdminActionCensusEntry[] = [
     kind: "wired",
   },
 
+  // ── Curriculum lessons (LessonService) ─────────────────────────────────────
+  {
+    mutationField: "createLesson",
+    serviceEntry: "LessonService.createLesson",
+    expectedActionTypes: [AuditActionType.Create],
+    expectedEntityType: "lesson",
+    kind: "wired",
+  },
+  {
+    mutationField: "updateLesson",
+    serviceEntry: "LessonService.updateLesson",
+    expectedActionTypes: [AuditActionType.Update],
+    expectedEntityType: "lesson",
+    kind: "wired",
+  },
+  {
+    mutationField: "deleteLesson",
+    serviceEntry: "LessonService.deleteLesson",
+    expectedActionTypes: [AuditActionType.Delete],
+    expectedEntityType: "lesson",
+    kind: "wired",
+  },
+
   // ── Session dispute arbitration ────────────────────────────────────────────
   {
     mutationField: "resolveSessionDispute",

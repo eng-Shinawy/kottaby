@@ -20,8 +20,11 @@
  *    `adminRescheduleSession`, `adminCancelSession`,
  *    `adminReassignTeacher`, and `adminJoinSession`.
  *  - `recitation.mutation.ts` registers `setSessionRecitation`.
+ *  - `lesson.mutation.ts` registers `createLesson`, `updateLesson`, and
+ *    `deleteLesson` (Admin-only, delegating to `LessonService`).
  */
 import "./admin-session-governance.mutation";
+import "./lesson.mutation";
 import "./recitation.mutation";
 import "./session-arbitration.mutation";
 import "./session-lifecycle.mutation";

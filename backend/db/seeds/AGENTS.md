@@ -23,7 +23,7 @@ backend/db/seeds/
 │                        seed-leave-requests, seed-leave-quota-usage
 ├── parents/             seed-parents, seed-suggestions
 ├── students/            seed-students, seed-student-progress, seed-student-status-history
-├── classes/             seed-classes, seed-class-instances, seed-class-performance, seed-class-status-events,
+├── classes/             seed-lessons, seed-classes, seed-class-instances, seed-class-performance, seed-class-status-events,
 │                        seed-group-classes, seed-group-class-enrollments, seed-class-communications,
 │                        seed-dst-migration-runs, seed-dst-migration-entries, seed-recurring-schedule-days
 ├── billing/             seed-currency-exchange-rates, seed-currency-exchange-audit-logs, seed-currency-hedges,

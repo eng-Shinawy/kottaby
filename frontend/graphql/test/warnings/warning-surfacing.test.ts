@@ -341,6 +341,12 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
  * resolves to the canonical `Session` payload (identity from the session,
  * every stored column derived server-side; every denial rides `errors[]`),
  * so it is warning-incapable like the canonical-payload entries above.
+ *
+ * Refreshed for the Tajweed curriculum lessons CRUD: `createLesson`,
+ * `updateLesson` and `deleteLesson` each resolve to the canonical `Lesson`
+ * payload (denials ride `errors[]` — localized field codes on
+ * `extensions.fields[]`, never a partial-success wrapper), so they are
+ * warning-incapable like the plan-catalog entries enumerated above.
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
   "adjustTeacherWallet",
@@ -361,8 +367,10 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "cancelSession",
   "completeSession",
   "confirmSessionCompletion",
+  "createLesson",
   "createPlan",
   "createSession",
+  "deleteLesson",
   "login",
   "logout",
   "markAllNotificationsRead",
@@ -383,6 +391,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "startSession",
   "submitSessionReport",
   "submitTeacherEvaluation",
+  "updateLesson",
   "updateMyLocale",
   "updatePlan",
 ];

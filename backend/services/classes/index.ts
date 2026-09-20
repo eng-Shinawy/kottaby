@@ -1,3 +1,4 @@
+export * from "./lesson.service";
 export * from "./recitation.service";
 export * from "./session-admin-governance";
 export * from "./session-arbitration.service";

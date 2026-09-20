@@ -31,6 +31,13 @@ export const errorsEn: ErrorsLabels = {
     planIntervalDaysInvalid: "Validity interval must be a positive integer representing days.",
     planPatchEmpty: "At least one field must be provided to update the plan.",
   },
+  lessonCatalog: {
+    lessonNotFound: "Lesson not found.",
+    lessonTitleRequired: "Lesson title is required.",
+    lessonTitleTooLong: "Lesson title cannot exceed 255 characters.",
+    lessonPlanNotFound: "The selected plan was not found.",
+    lessonPatchEmpty: "At least one field must be provided to update the lesson.",
+  },
   subscriptionPurchase: {
     planNotPurchasable: "This subscription plan is not available for purchase.",
     planLaneUnconfigured: "This plan cannot be purchased yet because its credit lane is not configured.",

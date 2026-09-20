@@ -14,8 +14,10 @@
  *  - `session-arbitration.query.ts` registers `adminDisputeCase`.
  *  - `admin-session-governance.query.ts` registers `adminSessions` and
  *    `adminSession`.
+ *  - `lesson.query.ts` registers `planLessons`.
  */
 import "./admin-session-governance.query";
+import "./lesson.query";
 import "./recitation.query";
 import "./session-arbitration.query";
 import "./session-lifecycle.query";

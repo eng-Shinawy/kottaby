@@ -31,6 +31,13 @@ export const errorsAr: ErrorsLabels = {
     planIntervalDaysInvalid: "يجب أن تكون مدة الصلاحية رقماً صحيحاً موجباً بالأيام.",
     planPatchEmpty: "يجب تقديم حقل واحد على الأقل لتحديث الخطة.",
   },
+  lessonCatalog: {
+    lessonNotFound: "الدرس غير موجود.",
+    lessonTitleRequired: "عنوان الدرس مطلوب.",
+    lessonTitleTooLong: "يجب ألا يتجاوز عنوان الدرس 255 حرفاً.",
+    lessonPlanNotFound: "لم يتم العثور على الخطة المحددة.",
+    lessonPatchEmpty: "يجب تقديم حقل واحد على الأقل لتحديث الدرس.",
+  },
   subscriptionPurchase: {
     planNotPurchasable: "خطة الاشتراك هذه غير متاحة للشراء.",
     planLaneUnconfigured: "لا يمكن شراء هذه الخطة بعد لأن مسار الرصيد المخصص لها غير مهيأة.",

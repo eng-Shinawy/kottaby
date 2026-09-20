@@ -22,6 +22,7 @@ import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transaction";
 import { wallet } from "@/backend/db/schema/billing/wallet";
 import { homeWork } from "@/backend/db/schema/classes/home-work";
+import { lessons } from "@/backend/db/schema/classes/lessons";
 import { reports } from "@/backend/db/schema/classes/reports";
 import { session } from "@/backend/db/schema/classes/session";
 import { parents } from "@/backend/db/schema/parents/parents";
@@ -44,6 +45,7 @@ import type {
   DBTransaction,
   EvaluationSelectType,
   HomeWorkSelectType,
+  LessonSelectType,
   ParentSelectType,
   PlanSelectType,
   ReportSelectType,
@@ -394,6 +396,32 @@ export async function createTestHomeWork(
     .returning();
   if (!row) {
     throw new Error("createTestHomeWork: insert returned no rows");
+  }
+  return row;
+}
+
+/**
+ * Creates a unique test lesson row on a given plan. `planId` is positional
+ * and REQUIRED — a lesson fixture always names its plan explicitly (the
+ * service tier routes plan-not-found rejections through validation, not
+ * through a null-plan write). Generates a randomized unique title; override
+ * any field via `overrides`.
+ */
+export async function createTestLesson(
+  tx: DBTransaction,
+  planId: number,
+  overrides: Partial<LessonSelectType> = {}
+): Promise<LessonSelectType> {
+  const [row] = await tx
+    .insert(lessons)
+    .values({
+      planId,
+      title: `Test Lesson ${randomUUID().slice(0, 8)}`,
+      ...overrides,
+    })
+    .returning();
+  if (!row) {
+    throw new Error("createTestLesson: insert returned no rows");
   }
   return row;
 }

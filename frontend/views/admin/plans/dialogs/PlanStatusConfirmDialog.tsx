@@ -10,18 +10,9 @@
 
 "use client";
 
-import {
-  Alert,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  Stack,
-} from "@mui/material";
+import { Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import type { AdminPlansQuery } from "@/frontend/graphql/generated/gql/graphql";
+import { ConfirmDialogBody } from "@/frontend/views/admin/shared/ConfirmDialogBody";
 import { useAppTranslation } from "@/shared/locale/client";
 import { Plans } from "@/shared/locale/namespaces/plans";
 
@@ -71,15 +62,7 @@ export function PlanStatusConfirmDialog({
         {title}
       </DialogTitle>
       <DialogContent>
-        <Stack sx={{ gap: 2, mt: 1 }}>
-          {error && (
-            <Alert severity="error" sx={{ width: "100%" }}>
-              {error}
-            </Alert>
-          )}
-          <DialogContentText sx={theme => ({ color: theme.palette.text.secondary })}>{message}</DialogContentText>
-          <DialogContentText sx={{ fontWeight: 600 }}>{plan.title}</DialogContentText>
-        </Stack>
+        <ConfirmDialogBody error={error} message={message} entityLabel={plan.title} />
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={loading} color="inherit">

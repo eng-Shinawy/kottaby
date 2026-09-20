@@ -14,6 +14,7 @@ export * from "./define-namespace";
 export * from "./errors";
 export * from "./handshakeCode";
 export * from "./landing";
+export * from "./lessons";
 export * from "./notifications";
 export * from "./parentLink";
 export * from "./parentMonitoring";
