@@ -29,6 +29,7 @@ export function renderEvaluationsBody(
   commonT: { readonly retry: string },
   t: ParentMonitoringLabels,
   locale: string,
+  session: number | null,
   searchState: SearchFilterState,
   onSearchChange: (next: SearchFilterState) => void,
   refetch: () => Promise<unknown>
@@ -98,7 +99,9 @@ export function renderEvaluationsBody(
         sx={{ display: "grid", gap: 2 }}
       >
         {filteredRows !== undefined
-          ? filteredRows.map(row => <EvaluationRow key={row.id} row={row} labels={t} locale={locale} />)
+          ? filteredRows.map(row => (
+              <EvaluationRow key={row.id} row={row} labels={t} locale={locale} deepLinkSessionId={session} />
+            ))
           : null}
       </Box>
     </>

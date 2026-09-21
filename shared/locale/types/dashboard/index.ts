@@ -69,6 +69,24 @@ export interface DashboardLabels {
   readonly upcoming: string;
   /** Stat card: Notifications label */
   readonly notifications: string;
+  /** Stat card (student): Active Subscriptions label */
+  readonly activeSubscriptions: string;
+  /** Stat card (parent): Linked Children label */
+  readonly linkedChildren: string;
+  /** Stat card (parent): Total Sessions label (summed across linked children) */
+  readonly totalSessions: string;
+  /** Stat card (parent): Reports Received label (summed across linked children) */
+  readonly reportsReceived: string;
+  /** Stat card (admin): Total Users label */
+  readonly totalUsers: string;
+  /** Stat card (admin): Teachers label (teacher accounts count) */
+  readonly totalTeachers: string;
+  /** Stat card (admin): Students label (student accounts count) */
+  readonly totalStudents: string;
+  /** Stat value placeholder rendered while a stat is unavailable (error-degraded). */
+  readonly statUnavailable: string;
+  /** Accessible status text announced while stat values are loading. */
+  readonly statLoading: string;
   /** Sign-out button label (app-bar) */
   readonly signOut: string;
   /** Profile page: Account Information card title */

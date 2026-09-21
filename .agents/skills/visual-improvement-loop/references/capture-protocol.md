@@ -109,6 +109,17 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
   fail lines, lock released normally) — run the affected component files targeted (same preloads)
   and free dev-server memory first.
 
+## DB-provider gotcha (added 2026-09-19)
+
+- When the app runs `DB_PROVIDER=pglite`, the dev server holds the default `./db/pglite` data dir
+  exclusively (single-process by design). Per-file quality loops (sub-loop.ts) eagerly open a
+  SECOND PGlite on the same dir → concurrent loops corrupt it (WAL panic `incorrect prev-link`).
+  Run every quality loop with `PGLITE_DATA_DIR=/tmp/<unique-dir>`, serialize multi-agent fix-wave
+  gates, and never let two processes initialize the same data dir. A corrupt dir is rebuilt:
+  stop server → fresh dir → `bunx drizzle-kit push --force` with a pglite-driver config → re-seed.
+- Locale pinning must be re-applied after EVERY re-login/cookie re-injection: fresh sessions drop
+  NEXT_LOCALE and the stored user locale (fresh DBs default to the app locale), silently turning
+  EN capture batches into AR.
 ## Provider-error arbitration (added 2026-09-19)
 
 - When the objective pre-check's console gate surfaces provider-specific GraphQL

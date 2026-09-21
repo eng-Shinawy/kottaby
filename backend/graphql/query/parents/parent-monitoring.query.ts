@@ -1,5 +1,5 @@
 /**
- * Parent-monitoring portal queries — the five parent-only read surfaces.
+ * Parent-monitoring portal queries — the seven parent-only read surfaces.
  *
  * Per `backend/graphql/query/AGENTS.md`:
  *  - NO named exports — the root fields register at import time via
@@ -9,7 +9,7 @@
  *  - Resolver delegates to the services layer with locale propagation
  *    (`backend/graphql/AGENTS.md`); no business logic inline.
  *
- * The five fields back the parent dashboard's monitoring surfaces:
+ * The seven fields back the parent dashboard's monitoring surfaces:
  *  - `myLinkedChildren` — the caller's confirmed-linked children, oldest
  *    first, soft-deleted children excluded. Zero-argument: identity is
  *    derived EXCLUSIVELY from the verified context (`ctx.user.id`). The
@@ -30,6 +30,16 @@
  *  - `parentChildHomework(studentId: Int!, page: Int, pageSize: Int)` —
  *    homework rows with the two parallel Jadid/Madi track blocks, paged
  *    newest-session-first.
+ *  - `parentSessionTarget(sessionId: Int!)` — the closed `{ sessionId,
+ *    studentId }` pair resolving one completion-notification session
+ *    pointer onto the LINKED child who owns it (the deep-link landing
+ *    read). The only caller-supplied identity on the field is the
+ *    session id from the notification row's pointer; a missing or
+ *    foreign session collapses to the same constant denial — existence
+ *    non-disclosure for session-id probing.
+ *  - `myChildrenUpcomingSessions` — one glance block per linked child
+ *    (child echo + scheduled-session glance window + honest scheduled
+ *    total), the parent dashboard's "What's next" card read.
  *
  * authScopes 401/403 split (verified against @pothos/plugin-scope-auth):
  *  - Every field carries the EXPLICIT `$all` conjunction (the proven
@@ -81,9 +91,11 @@ import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import {
   ParentAttendancePagePothosObject,
   ParentChildProgressPothosObject,
+  ParentChildUpcomingBlockPothosObject,
   ParentHomeworkPagePothosObject,
   ParentLinkedChildPothosObject,
   ParentReportPagePothosObject,
+  ParentSessionTargetPothosObject,
 } from "@/backend/graphql/pothos/parents/parent-monitoring.pothos";
 import { UnauthorizedError } from "@/backend/lib/errors";
 import { ParentMonitoringService } from "@/backend/services";
@@ -235,6 +247,45 @@ gqlSchemaBuilder.queryField("parentChildHomework", t =>
         { page: args.page ?? undefined, pageSize: args.pageSize ?? undefined },
         ctx.locale
       );
+    },
+  })
+);
+
+// Side-effect: register the `myChildrenUpcomingSessions` query field.
+gqlSchemaBuilder.queryField("myChildrenUpcomingSessions", t =>
+  t.field({
+    type: [ParentChildUpcomingBlockPothosObject],
+    description:
+      "One upcoming-sessions glance block per confirmed-linked child: the child echo plus that child's capped scheduled-session window (newest-booked first) plus the honest scheduled total under the same filter. Resolved in one transaction snapshot; a parent with no linked children yields an empty list.",
+    authScopes: parentOnlyAuthScopes,
+    resolve: async (_root, _args, ctx) => {
+      // TypeScript narrowing only — see the `myLinkedChildren` note.
+      if (!ctx.user) {
+        const tErrors = await ctx.t("errorsTranslations");
+        throw new UnauthorizedError(tErrors.unauthorized);
+      }
+      return ParentMonitoringService.listChildrenUpcomingSessions(ctx.user.id, ctx.locale);
+    },
+  })
+);
+
+// Side-effect: register the `parentSessionTarget` query field.
+gqlSchemaBuilder.queryField("parentSessionTarget", t =>
+  t.field({
+    type: ParentSessionTargetPothosObject,
+    args: {
+      sessionId: t.arg.int({ required: true }),
+    },
+    description:
+      "The closed id pair resolving one completion-notification session pointer: the session id plus the linked child who owns it. A missing or foreign session is indistinguishable on the wire — both collapse to the same constant denial (existence non-disclosure); a non-positive session id is rejected as a validation failure before any gate or read. The deep-link landing route is constructed from the pair alone.",
+    authScopes: parentOnlyAuthScopes,
+    resolve: async (_root, args, ctx) => {
+      // TypeScript narrowing only — see the `myLinkedChildren` note.
+      if (!ctx.user) {
+        const tErrors = await ctx.t("errorsTranslations");
+        throw new UnauthorizedError(tErrors.unauthorized);
+      }
+      return ParentMonitoringService.getSessionTarget(ctx.user.id, args.sessionId, ctx.locale);
     },
   })
 );

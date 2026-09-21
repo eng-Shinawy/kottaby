@@ -8,13 +8,13 @@ import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
 import { mapGraphQLErrorByCode } from "@/frontend/providers/apollo/error-link.map";
 import { renderHomeworkBody } from "@/frontend/views/parent/monitoring/HomeworkTab.body";
-import { PrintExportDialog } from "@/frontend/views/parent/monitoring/PrintExportDialog";
 import {
   DEFAULT_SORT,
   filterHomeworkRows,
   type SearchFilterState,
 } from "@/frontend/views/parent/monitoring/SearchFilterBar.helpers";
 import { useAllHomeworkPages } from "@/frontend/views/parent/monitoring/useAllPortalPages";
+import { PrintExportDialog } from "@/frontend/views/shared/print-export/PrintExportDialog";
 import { Common, Errors, ParentMonitoring, useAppLocale, useAppTranslation } from "@/shared/locale";
 
 export function HomeworkTab(props: Readonly<HomeworkTabProps>): ReactNode {
@@ -57,6 +57,7 @@ export function HomeworkTab(props: Readonly<HomeworkTabProps>): ReactNode {
     commonT,
     t,
     locale,
+    props.session,
     searchState,
     setSearchState,
     refetch
@@ -75,7 +76,7 @@ export function HomeworkTab(props: Readonly<HomeworkTabProps>): ReactNode {
         }))
       : [];
   return (
-    <Stack spacing={2} sx={{ width: "100%" }}>
+    <Stack spacing={2.5} sx={{ width: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1 }}>
         <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
           {rows === undefined ? t.homeworkSectionTitle : t.homeworkCount(rows.length)}
@@ -102,11 +103,12 @@ export function HomeworkTab(props: Readonly<HomeworkTabProps>): ReactNode {
             setPrintOpen(false);
           }}
           rows={printableRows}
-          childName={String(props.studentId)}
+          metaSubject={String(props.studentId)}
           title={t.homeworkPrintDialogTitle}
           colHeaders={[t.attendanceColumnDate, t.csvJadidColumn, t.csvMadiColumn, t.csvGradeColumn]}
           countLabel={t.homeworkCount}
           filePrefix="parent-portal-homework"
+          labels={{ printOption: t.printOption, exportCsvOption: t.exportCsvOption }}
         />
       ) : null}
     </Stack>
@@ -115,6 +117,8 @@ export function HomeworkTab(props: Readonly<HomeworkTabProps>): ReactNode {
 
 export interface HomeworkTabProps {
   readonly studentId: number;
+  /** The `?session=` deep-link pointer — the homework row of this session highlights. */
+  readonly session: number | null;
   /** Page-level recovery affordance rendered inside the tab's FORBIDDEN fallback. */
   readonly deniedAction?: Readonly<{ readonly label: string; readonly onAction: () => void }>;
 }

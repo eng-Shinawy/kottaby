@@ -28,8 +28,28 @@ const ADMIN_DISPUTES_ROUTE = "/disputes";
  */
 export const STUDENT_SESSIONS_ROUTE = "/student/sessions";
 
-/** The teacher's session list — the landing surface for teacher session rows. */
-const TEACHER_SESSIONS_ROUTE = "/teacher/sessions";
+/**
+ * The teacher sessions route — ONE definition site for every teacher
+ * sessions-page navigation consumer (the teacher nav entry, the
+ * session-completion notification deep link, and the dashboard's
+ * up-next glance rows) so they never drift.
+ *
+ * Same leaf-module discipline as `STUDENT_SESSIONS_ROUTE` above:
+ * directive-free and framework-free, safe for nav/card/test consumers.
+ */
+export const TEACHER_SESSIONS_ROUTE = "/teacher/sessions";
+
+/**
+ * The parent portal's linked-children root — the entry surface of the parent
+ * session deep link. ONE definition site for the route root the
+ * SessionCompletion builder composes (the portal root's own session
+ * resolution flow consumes the `session` parameter this route carries) so
+ * the entry URL and the portal shell never drift.
+ *
+ * Same leaf-module discipline as the sibling route constants above:
+ * directive-free and framework-free, safe for nav/card/test consumers.
+ */
+export const PARENT_PORTAL_ROOT_ROUTE = "/parent/children";
 
 /** Fallback row target — the notifications feed page (the unchanged default). */
 const NOTIFICATIONS_FEED_ROUTE = "/notifications";
@@ -90,6 +110,28 @@ function isWireRole(value: string | null | undefined): value is WireRole {
 }
 
 /**
+ * The Parent audience's SessionCompletion cell — a BUILDER (not a static
+ * string) composing the pure, synchronous ENTRY URL of the parent session
+ * deep link: the portal root's linked-children route carrying the row's
+ * session id as the `session` query parameter, which the portal root
+ * resolves into the linked child's session view. This module stays a leaf
+ * — no query, no side effect — and the resolver applies this builder ONLY
+ * when the row carries a non-empty id, falling through to the feed page
+ * otherwise: the matrix NEVER fabricates a route.
+ */
+function parentSessionCompletionEntry(relatedEntityId: string): string {
+  return `${PARENT_PORTAL_ROOT_ROUTE}?session=${relatedEntityId}`;
+}
+
+/**
+ * A session-matrix cell — either a static route string (the audience lands
+ * on a fixed list surface) or a builder composing the route from the row's
+ * `relatedEntityId` (the deep link needs the id). Builders receive a
+ * non-empty string id; the resolver never invokes them without one.
+ */
+type SessionRouteCell = string | ((relatedEntityId: string) => string);
+
+/**
  * The session-family deep-link matrix: `notificationType` → `role` → route.
  * A missing outer key (a session row whose type carries no routing contract)
  * or a missing inner cell (an audience the wave never reaches) resolves to
@@ -103,10 +145,12 @@ function isWireRole(value: string | null | undefined): value is WireRole {
  *    admin cell routes to the console too (admins reviewing history land
  *    where the queue lives), while parents get none.
  *  - `SessionCompletion` / `SessionCancellation` / `SessionRequest` reach
- *    the participants → each role's own session list.
+ *    the participants → each role's own session list, except the parent
+ *    audience of `SessionCompletion`: its cell is the builder composing
+ *    the portal-root entry URL from the row's session id.
  */
 const SESSION_ROUTES_BY_TYPE_AND_ROLE: Readonly<
-  Partial<Record<WireNotificationType, Readonly<Partial<Record<WireRole, string>>>>>
+  Partial<Record<WireNotificationType, Readonly<Partial<Record<WireRole, SessionRouteCell>>>>>
 > = {
   SessionDisputeOpened: { Admin: ADMIN_DISPUTES_ROUTE },
   SessionDisputeResolved: {
@@ -114,7 +158,11 @@ const SESSION_ROUTES_BY_TYPE_AND_ROLE: Readonly<
     Student: STUDENT_SESSIONS_ROUTE,
     Teacher: TEACHER_SESSIONS_ROUTE,
   },
-  SessionCompletion: { Student: STUDENT_SESSIONS_ROUTE, Teacher: TEACHER_SESSIONS_ROUTE },
+  SessionCompletion: {
+    Student: STUDENT_SESSIONS_ROUTE,
+    Teacher: TEACHER_SESSIONS_ROUTE,
+    Parent: parentSessionCompletionEntry,
+  },
   SessionCancellation: { Student: STUDENT_SESSIONS_ROUTE, Teacher: TEACHER_SESSIONS_ROUTE },
   SessionRequest: { Student: STUDENT_SESSIONS_ROUTE, Teacher: TEACHER_SESSIONS_ROUTE },
 };
@@ -163,14 +211,32 @@ const NOTIFICATION_ROUTE_BY_ENTITY_TYPE: Readonly<Record<string, string | undefi
 };
 
 /**
+ * The row id's string form. Wire rows carry the numeric id; the drawer/item
+ * typing may deliver it stringified. `null` (the wire's null id) and
+ * `undefined` (the parameter omitted) have NO string form, and an empty
+ * string is no usable id — all three yield `null` so the caller's builder
+ * application can never fabricate a route.
+ */
+function relatedEntityIdStringOf(relatedEntityId: string | number | null | undefined): string | null {
+  if (typeof relatedEntityId === "number") {
+    return String(relatedEntityId);
+  }
+  return typeof relatedEntityId === "string" && relatedEntityId.length > 0 ? relatedEntityId : null;
+}
+
+/**
  * Resolve a drawer/feed row's navigation target from its related-entity
- * pointer, its notification type, and the viewer's role.
+ * pointer, its notification type, the viewer's role, and the row's
+ * related-entity id.
  *
  * Resolution order (first hit wins):
  *  1. the parent-link entity map (`parent_link_request` → the student
  *     decision route — role-independent, only students receive those rows);
  *  2. the session matrix (session entity + known type + known role → the
- *     role's route);
+ *     role's route; a builder cell composes the route from the row's
+ *     related-entity id and is applied ONLY for a non-empty string id —
+ *     absent/empty ids fall through to the feed page, the matrix NEVER
+ *     fabricates a route);
  *  3. the role-less type stage (`NOTIFICATION_ROUTE_BY_TYPE` — the
  *     session-completion row deep-links to the student sessions list even
  *     when no wire role resolves; a bare `"session"` table pointer with a
@@ -180,15 +246,16 @@ const NOTIFICATION_ROUTE_BY_ENTITY_TYPE: Readonly<Record<string, string | undefi
  *     types, unknown roles, and matrix misses ALL land here. Never throws,
  *     never mis-routes.
  *
- * The optional `notificationType` / `role` keep the original single-argument
- * call sites compiling: without them only rule 1 and the role-less
- * session-completion rule can ever hit, which covers the pre-deep-link
- * behavior.
+ * The optional `notificationType` / `role` / `relatedEntityId` keep the
+ * original single-argument call sites compiling: without them only rule 1
+ * and the role-less session-completion rule can ever hit, which covers the
+ * pre-deep-link behavior.
  */
 export function resolveNotificationRoute(
   relatedEntityType: string | null,
   notificationType?: string | null,
-  role?: string | null
+  role?: string | null,
+  relatedEntityId?: string | number | null
 ): string {
   if (relatedEntityType === null) {
     return NOTIFICATIONS_FEED_ROUTE;
@@ -203,7 +270,15 @@ export function resolveNotificationRoute(
     isWireNotificationType(notificationType) &&
     isWireRole(role)
   ) {
-    return SESSION_ROUTES_BY_TYPE_AND_ROLE[notificationType]?.[role] ?? NOTIFICATIONS_FEED_ROUTE;
+    const sessionRouteCell = SESSION_ROUTES_BY_TYPE_AND_ROLE[notificationType]?.[role];
+    if (sessionRouteCell === undefined) {
+      return NOTIFICATIONS_FEED_ROUTE;
+    }
+    if (typeof sessionRouteCell === "function") {
+      const relatedEntityIdString = relatedEntityIdStringOf(relatedEntityId);
+      return relatedEntityIdString === null ? NOTIFICATIONS_FEED_ROUTE : sessionRouteCell(relatedEntityIdString);
+    }
+    return sessionRouteCell;
   }
   if (!isWireRole(role) && notificationType != null && isWireNotificationType(notificationType)) {
     return NOTIFICATION_ROUTE_BY_TYPE[notificationType] ?? NOTIFICATIONS_FEED_ROUTE;

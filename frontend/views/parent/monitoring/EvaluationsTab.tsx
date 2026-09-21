@@ -67,12 +67,13 @@ export function EvaluationsTab(props: Readonly<EvaluationsTabProps>): ReactNode 
     commonT,
     t,
     locale,
+    props.session,
     searchState,
     setSearchState,
     refetch
   );
   return (
-    <Stack spacing={2} sx={{ width: "100%" }}>
+    <Stack spacing={2.5} sx={{ width: "100%" }}>
       <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
         {rows === undefined ? t.evaluationsSectionTitle : t.evaluationsCount(rows.length)}
       </Typography>
@@ -83,6 +84,8 @@ export function EvaluationsTab(props: Readonly<EvaluationsTabProps>): ReactNode 
 
 export interface EvaluationsTabProps {
   readonly studentId: number;
+  /** The `?session=` deep-link pointer — the evaluation row of this session highlights. */
+  readonly session: number | null;
   /** Page-level recovery affordance rendered inside the tab's FORBIDDEN fallback. */
   readonly deniedAction?: Readonly<{ readonly label: string; readonly onAction: () => void }>;
 }

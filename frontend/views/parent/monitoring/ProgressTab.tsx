@@ -81,7 +81,10 @@ export function ProgressTab(props: Readonly<ProgressTabProps>): ReactNode {
           retryLabel={commonT.retry}
           retryPending={loading}
           onRetry={() => {
-            void refetch();
+            // A rejected retry keeps the query error set (the alert stays
+            // up for another attempt); swallow the rejection so the
+            // ignored promise cannot escalate to an unhandled rejection.
+            void refetch().catch(() => undefined);
           }}
         >
           <Typography variant="body2">{t.loadErrorBody}</Typography>

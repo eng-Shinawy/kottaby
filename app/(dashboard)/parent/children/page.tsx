@@ -23,6 +23,14 @@ import { getLocaleFromCookie } from "@/shared/locale/server-cookies";
  *     `useQuery(myLinkedChildrenQueryDocument)` resolves (auto-selects
  *     the first linked child via `router.replace`, or renders the
  *     localized empty state when zero children are linked).
+ *  3. The raw `?session=` value (the completion-notification deep-link
+ *     pointer) is extracted with the same first-value pattern and
+ *     forwarded as a plain prop. The server does NOT resolve it and does
+ *     NOT redirect: the client container resolves the pointer through the
+ *     `parentSessionTarget` read and replaces the URL with the session's
+ *     report landing once the linked child is known — a malformed or
+ *     denied pointer degrades to the localized notice + auto-select
+ *     fallback entirely client-side.
  *
  * Metadata rides the active locale cookie through the synchronous
  * single-argument `getTranslations(locale)` property chain (the
@@ -35,6 +43,13 @@ export async function generateMetadata(): Promise<Metadata> {
     title: t.portalPageTitle,
     description: t.portalPageSubtitle,
   };
+}
+
+/** First value of a possibly repeated search param, or `null` when absent. */
+function firstValueOf(params: Record<string, string | string[] | undefined>, key: string): string | null {
+  const value = params[key];
+  if (value === undefined) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 interface ParentChildrenPageProps {
@@ -52,6 +67,7 @@ export default async function ParentChildrenPage({
   // contract is single-valued) — the array form is dropped to `null`,
   // which the client container treats as "no selection".
   const student = typeof rawStudent === "string" ? rawStudent : null;
+  const session = firstValueOf(sp, "session");
 
-  return <ParentChildrenRootContainer student={student} />;
+  return <ParentChildrenRootContainer student={student} session={session} />;
 }

@@ -1,5 +1,5 @@
 /**
- * ParentMonitoringService tests — the five service operations over MOCKED
+ * ParentMonitoringService tests — the six service operations over MOCKED
  * repository + actor seams.
  *
  * Per `backend/services/AGENTS.md` service-test rules: mock the persistence
@@ -13,19 +13,23 @@
  * test cleanly without aborting the outer tx).
  *
  * Coverage map:
- *  - Tier 1 (branch/stmt): each of the five methods on the happy path
+ *  - Tier 1 (branch/stmt): each of the six methods on the happy path
  *    (linked parent → data); the list-empty case (`listLinkedChildren` with
  *    zero linked children); the four per-student methods with empty
  *    sessions/reports/homework sets (honest empty payloads, never
- *    fabricated).
+ *    fabricated); `getSessionTarget` resolving the closed id pair for the
+ *    linked parent's session.
  *  - Tier 2 (boundary): pagination clamp echo (page 0 → 1, pageSize 100 →
  *    25, pageSize exactly 50, out-of-range page → empty items next to true
  *    totalCount); null rating/notes/track blocks/missing latest position
- *    (mapper boundary arms); session with `startedAt: null`.
+ *    (mapper boundary arms); session with `startedAt: null`;
+ *    `getSessionTarget` sessionId boundaries (0 / -1 / fractional / NaN →
+ *    ValidationError; the 2^31 safe integer collapsing to the constant
+ *    nonexistent-session denial).
  *  - Tier 3 (chaos): concurrent mixed reads on one parent via
- *    `Promise.allSettled` (five methods issued concurrently against the
- *    SAME parentActorId — each call resolves independently against the
- *    shared mocked repos).
+ *    `Promise.allSettled` (five of the six namespace methods issued
+ *    concurrently against the SAME parentActorId — each call resolves
+ *    independently against the shared mocked repos).
  *  - Tier 4 (security): the denial oracle — every per-student method
  *    denies with the SAME constant ForbiddenError + localized message +
  *    ONE bounded logDomainError whose context bag is exactly
@@ -34,7 +38,13 @@
  *    never-linked id, severed child). The BOLA arm: a non-parent actor
  *    (admin/teacher/student) is rejected by `requireActor(...,
  *    UserRole.Parent, ...)` with `ForbiddenError` BEFORE any data read
- *    (gate-before-read proven by call ordering spies).
+ *    (gate-before-read proven by call ordering spies). The
+ *    `getSessionTarget` oracle arm: missing ≡ foreign session denial
+ *    byte-identical per locale (en AND ar), exactly one bounded denial
+ *    log with `{ entity: "sessions", entityId }` and no row fields, the
+ *    session read resolved before the link gate, and the portal rate
+ *    limit passed through as `RateLimitExceededError` before the
+ *    transaction opens.
  *
  * All translated-message assertions compute the expected copy through
  * `getServerTranslations(locale).errorsTranslations.forbidden` — never raw
@@ -55,8 +65,9 @@ import { runInRollback } from "@/backend/db/test/test-utils";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
-import { ForbiddenError } from "@/backend/lib/errors";
+import { ForbiddenError, RateLimitExceededError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { portalReadLimiter } from "@/backend/lib/ratelimit";
 import { requireActor } from "@/backend/services/parents/parent-link-request.helpers";
 import { ParentMonitoringService } from "@/backend/services/parents/parent-monitoring.service";
 import type {
@@ -98,6 +109,11 @@ function silenceDomainLog() {
 /** Locale-stable comparator for sorted key-set assertions. */
 function compareStrings(a: string, b: string): number {
   return a.localeCompare(b);
+}
+
+/** Serially awaits thunk cells without an await inside a loop statement. */
+async function runSequentially(cells: ReadonlyArray<() => Promise<void>>): Promise<void> {
+  await cells.reduce<Promise<void>>((chain, cell) => chain.then(cell), Promise.resolve());
 }
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -633,7 +649,7 @@ describe("ParentMonitoringService — Tier 2 (boundary arms)", () => {
 // ─── Tier 3 — concurrent mixed calls on one parent ─────────────────────────
 
 describe("ParentMonitoringService — Tier 3 (concurrent mixed calls on one parent)", () => {
-  test("Promise.allSettled over all five methods resolves independently against shared mocked repos", async () => {
+  test("Promise.allSettled over five of the six namespace methods resolves independently against shared mocked repos", async () => {
     await runInRollback(async tx => {
       mockActorAndGateSuccess();
       trackSpy(
@@ -1136,6 +1152,302 @@ describe("ParentMonitoringService — requireActor token-role denial (BFLA defen
 
       const actor = await requireActor(PARENT_ACTOR_ID, UserRole.Parent, LOCALE_EN, tx, false);
       expect(actor.id).toBe(PARENT_ACTOR_ID);
+    });
+  });
+});
+
+// ─── getSessionTarget — the session→linked-child deep-link resolution ──────
+
+describe("ParentMonitoringService — getSessionTarget", () => {
+  const TARGET_SESSION_ID = 100;
+
+  /** Mocks the session lookup the resolution opens with. */
+  function mockSessionRow(row: SessionSelectType | null) {
+    return trackSpy(spyOn(SessionRepository, "findById").mockResolvedValue(row));
+  }
+
+  // ── Tier 1 — happy path ─────────────────────────────────────────────────
+
+  describe("Tier 1 (happy path)", () => {
+    test("resolves the closed id pair naming the LINKED child for the linked parent's session", async () => {
+      await runInRollback(async tx => {
+        mockActorAndGateSuccess();
+        const sessionFindSpy = mockSessionRow(childSession);
+
+        const result = await ParentMonitoringService.getSessionTarget(
+          PARENT_ACTOR_ID,
+          TARGET_SESSION_ID,
+          LOCALE_EN,
+          tx
+        );
+
+        const expectedKeys = ["sessionId", "studentId"];
+        expect(Object.keys(result).toSorted(compareStrings)).toEqual(expectedKeys);
+        expect(result.sessionId).toBe(childSession.id);
+        expect(result.studentId).toBe(childStudent.id);
+
+        // The session read runs inside the transaction unit with the probed
+        // id as its first argument (the executor the savepoint resolves is
+        // the unit's own transaction handle — identity differs from the
+        // outer rollback wrapper, propagation itself is what's pinned).
+        expect(sessionFindSpy).toHaveBeenCalledTimes(1);
+        expect(sessionFindSpy.mock.calls[0]?.[0]).toBe(TARGET_SESSION_ID);
+        expect(sessionFindSpy.mock.calls[0]?.[1]).toBeDefined();
+      });
+    });
+  });
+
+  // ── Tier 2 — boundary sessionId arms ────────────────────────────────────
+
+  describe("Tier 2 (boundary sessionId arms)", () => {
+    test.each([0, -1, 1.5, Number.NaN])(
+      "rejects the non-positive or non-integer sessionId %p with ValidationError before any gate or read",
+      async badId => {
+        await runInRollback(async tx => {
+          silenceDomainLog();
+          const sessionFindSpy = mockSessionRow(childSession);
+
+          let caught: unknown = null;
+          try {
+            await ParentMonitoringService.getSessionTarget(PARENT_ACTOR_ID, badId, LOCALE_EN, tx);
+          } catch (err) {
+            caught = err;
+          }
+          expect(caught).toBeInstanceOf(ValidationError);
+          if (caught instanceof ValidationError) {
+            expect(caught.code).toBe("VALIDATION");
+            expect(caught.message).toBe(enErrors.validation);
+          }
+          // Fail-closed ordering: the session read (and everything behind
+          // it) never fires for a malformed pointer.
+          expect(sessionFindSpy).not.toHaveBeenCalled();
+        });
+      }
+    );
+
+    test("collapses an Int32-overflow sessionId (2^31) to the constant nonexistent-session denial", async () => {
+      await runInRollback(async tx => {
+        silenceDomainLog();
+        mockActorAndGateSuccess();
+        mockSessionRow(null);
+
+        let caught: unknown = null;
+        try {
+          await ParentMonitoringService.getSessionTarget(PARENT_ACTOR_ID, 2 ** 31, LOCALE_EN, tx);
+        } catch (err) {
+          caught = err;
+        }
+        // A 2^31 id passes the safe-integer guard (the Int32 bound is the
+        // wire layer's concern) and lands on the SAME constant denial a
+        // normal missing id produces.
+        expect(caught).toBeInstanceOf(ForbiddenError);
+        if (caught instanceof ForbiddenError) {
+          expect(caught.code).toBe("FORBIDDEN");
+          expect(caught.message).toBe(enErrors.forbidden);
+        }
+      });
+    });
+  });
+
+  // ── Tier 4 — denial oracle + gate ordering + rate-limit passthrough ────
+
+  describe("Tier 4 (denial oracle, gate ordering, rate-limit passthrough)", () => {
+    test("denies a missing session with the constant ForbiddenError + en copy and exactly ONE bounded log", async () => {
+      await runInRollback(async tx => {
+        const logSpy = silenceDomainLog();
+        mockActorAndGateSuccess();
+        mockSessionRow(null);
+
+        let caught: unknown = null;
+        try {
+          await ParentMonitoringService.getSessionTarget(PARENT_ACTOR_ID, TARGET_SESSION_ID, LOCALE_EN, tx);
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(ForbiddenError);
+        if (caught instanceof ForbiddenError) {
+          expect(caught.code).toBe("FORBIDDEN");
+          expect(caught.message).toBe(enErrors.forbidden);
+        }
+
+        // ONE bounded log per denial — the context bag carries the probed
+        // id and NOTHING else (never a session row field).
+        expect(logSpy).toHaveBeenCalledTimes(1);
+        const context = logSpy.mock.calls[0]?.[1];
+        expect(context).toBeDefined();
+        if (context !== undefined) {
+          const contextKeys = Object.keys(context).toSorted(compareStrings);
+          expect(contextKeys).toEqual(["code", "entity", "entityId", "locale"]);
+          expect(context.code).toBe("FORBIDDEN");
+          expect(context.entity).toBe("sessions");
+          expect(context.entityId).toBe(TARGET_SESSION_ID);
+          expect(context.locale).toBe(LOCALE_EN);
+        }
+      });
+    });
+
+    test("denies a missing session with the ar copy under ar locale", async () => {
+      await runInRollback(async tx => {
+        silenceDomainLog();
+        mockActorAndGateSuccess();
+        mockSessionRow(null);
+
+        let caught: unknown = null;
+        try {
+          await ParentMonitoringService.getSessionTarget(PARENT_ACTOR_ID, TARGET_SESSION_ID, LOCALE_AR, tx);
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(ForbiddenError);
+        if (caught instanceof ForbiddenError) {
+          expect(caught.message).toBe(arErrors.forbidden);
+        }
+      });
+    });
+
+    test("denies a foreign session (unlinked child) with the constant ForbiddenError + en copy", async () => {
+      await runInRollback(async tx => {
+        silenceDomainLog();
+        mockActorAndGateSuccess();
+        mockSessionRow(childSession);
+        trackSpy(spyOn(StudentRepository, "findById").mockResolvedValue({ ...childStudent, parentId: 99 }));
+
+        let caught: unknown = null;
+        try {
+          await ParentMonitoringService.getSessionTarget(PARENT_ACTOR_ID, TARGET_SESSION_ID, LOCALE_EN, tx);
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(ForbiddenError);
+        if (caught instanceof ForbiddenError) {
+          expect(caught.code).toBe("FORBIDDEN");
+          expect(caught.message).toBe(enErrors.forbidden);
+        }
+      });
+    });
+
+    test("oracle uniformity: nonexistent ≡ foreign denial copy byte-identical per locale (en AND ar)", async () => {
+      const fingerprints: string[] = [];
+      const cells: ReadonlyArray<{ locale: string; cause: "nonexistent" | "foreign" }> = [
+        { locale: LOCALE_EN, cause: "nonexistent" },
+        { locale: LOCALE_EN, cause: "foreign" },
+        { locale: LOCALE_AR, cause: "nonexistent" },
+        { locale: LOCALE_AR, cause: "foreign" },
+      ];
+      await runSequentially(
+        cells.map(cell => async () => {
+          await runInRollback(async tx => {
+            silenceDomainLog();
+            mockActorAndGateSuccess();
+            if (cell.cause === "nonexistent") {
+              mockSessionRow(null);
+            } else {
+              mockSessionRow(childSession);
+              trackSpy(spyOn(StudentRepository, "findById").mockResolvedValue({ ...childStudent, parentId: 99 }));
+            }
+            try {
+              await ParentMonitoringService.getSessionTarget(PARENT_ACTOR_ID, TARGET_SESSION_ID, cell.locale, tx);
+              throw new Error(
+                `oracle breach: ${cell.cause} session did NOT deny — expected the constant ForbiddenError`
+              );
+            } catch (err) {
+              if (!(err instanceof ForbiddenError)) {
+                throw err;
+              }
+              fingerprints.push(JSON.stringify({ locale: cell.locale, code: err.code, message: err.message }));
+            }
+          });
+        })
+      );
+      expect(fingerprints).toHaveLength(4);
+      // Per-locale byte-identity: within a locale the two causes are
+      // indistinguishable; the two locales differ only by the localized
+      // copy itself.
+      expect(new Set(fingerprints)).toEqual(
+        new Set([
+          JSON.stringify({ locale: LOCALE_EN, code: "FORBIDDEN", message: enErrors.forbidden }),
+          JSON.stringify({ locale: LOCALE_AR, code: "FORBIDDEN", message: arErrors.forbidden }),
+        ])
+      );
+    });
+
+    test("resolves the session read BEFORE the linked-child gate fires", async () => {
+      await runInRollback(async tx => {
+        mockActorAndGateSuccess();
+        const sessionFindSpy = mockSessionRow(childSession);
+        const studentFindSpy = trackSpy(spyOn(StudentRepository, "findById").mockResolvedValue(childStudent));
+
+        await ParentMonitoringService.getSessionTarget(PARENT_ACTOR_ID, TARGET_SESSION_ID, LOCALE_EN, tx);
+
+        // The gate verifies the child the SESSION names — the row read
+        // must come first.
+        expect(sessionFindSpy.mock.invocationCallOrder[0]).toBeLessThan(studentFindSpy.mock.invocationCallOrder[0]);
+      });
+    });
+
+    test("passes the portal rate limit through: the limiter trips as RateLimitExceededError before the transaction opens", async () => {
+      await runInRollback(async tx => {
+        const logSpy = silenceDomainLog();
+        const limiterParentId = PARENT_ACTOR_ID + 777;
+        trackSpy(
+          spyOn(UserRepository, "findById").mockImplementation(async id =>
+            id === limiterParentId ? { ...parentUser, id: limiterParentId } : null
+          )
+        );
+        // The pass-through denials (calls 1..30) deny at the session read,
+        // so the lookup is mocked at the persistence seam — the constant
+        // missing-session oracle keeps the limiter arm deterministic
+        // without a live row read.
+        mockSessionRow(null);
+
+        // The test-env bypass keeps the limiter inert everywhere else in
+        // this suite; this test alone disables it so the REAL limiter arm
+        // (portalReadLimiter, limit 30) is exercised through the service.
+        const prevTestServer = process.env.TEST_SERVER;
+        const prevTestCi = process.env.TEST_CI;
+        delete process.env.TEST_SERVER;
+        delete process.env.TEST_CI;
+
+        const caught: unknown[] = [];
+        const probes = 31;
+        try {
+          await runSequentially(
+            Array.from({ length: probes }, () => async () => {
+              try {
+                await ParentMonitoringService.getSessionTarget(limiterParentId, TARGET_SESSION_ID, LOCALE_EN, tx);
+                caught.push(null);
+              } catch (err) {
+                caught.push(err);
+              }
+            })
+          );
+        } finally {
+          if (prevTestServer === undefined) {
+            delete process.env.TEST_SERVER;
+          } else {
+            process.env.TEST_SERVER = prevTestServer;
+          }
+          if (prevTestCi === undefined) {
+            delete process.env.TEST_CI;
+          } else {
+            process.env.TEST_CI = prevTestCi;
+          }
+        }
+
+        // Calls 1..30 pass the limiter and deny at the (empty) session
+        // read; call 31 trips the limiter BEFORE the session read opens.
+        expect(caught).toHaveLength(probes);
+        const forbiddenCount = caught.filter(err => err instanceof ForbiddenError).length;
+        expect(forbiddenCount).toBe(portalReadLimiter.limit);
+        const last = caught.at(-1);
+        expect(last).toBeInstanceOf(RateLimitExceededError);
+        if (last instanceof RateLimitExceededError) {
+          expect(last.message).toBe(enErrors.rateLimitExceeded);
+        }
+        // The denial logs above are the 30 ForbiddenError denials only —
+        // the limiter trip logs nothing domain-bounded here.
+        expect(logSpy).toHaveBeenCalledTimes(portalReadLimiter.limit);
+      });
     });
   });
 });

@@ -3,8 +3,13 @@ import type { Metadata } from "next";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { withPageAuth } from "@/frontend/lib/auth/withPageAuth";
 import { DashboardView } from "@/frontend/views/dashboard";
-import { HandshakeCodeCard, PendingParentLinkRequestsCard } from "@/frontend/views/students/dashboard";
-import { ApplicantStatusCard } from "@/frontend/views/teachers/dashboard";
+import { ParentUpNextCard } from "@/frontend/views/parent/dashboard";
+import {
+  HandshakeCodeCard,
+  PendingParentLinkRequestsCard,
+  StudentUpNextCard,
+} from "@/frontend/views/students/dashboard";
+import { ApplicantStatusCard, TeacherUpNextCard } from "@/frontend/views/teachers/dashboard";
 import { getTranslations } from "@/shared/locale/server";
 import { getLocaleFromCookie } from "@/shared/locale/server-cookies";
 
@@ -18,22 +23,35 @@ import { getLocaleFromCookie } from "@/shared/locale/server-cookies";
  *  2. Renders the `DashboardView` client component, composing a
  *     role-specific content slot ABOVE the stat grid:
  *
- *     - Teacher → `<ApplicantStatusCard />`. The card is
+ *     - Teacher → `<ApplicantStatusCard />` + `<TeacherUpNextCard />`
+ *       composed as siblings. The applicant card is
  *       a pure UI affordance: the page guard above stays the only server-side
  *       boundary, the zero-argument `myApplicantProfile` query answers
  *       identity server-side, and applicant vs certified presentation comes
- *       entirely from the query payload. No new routes, no
+ *       entirely from the query payload. The up-next card follows the same
+ *       additive pattern (zero-prop client component, the identity-scoped
+ *       `myTeacherSessions` read) — no new routes, no
  *       extra guard logic.
  *     - Student → `<HandshakeCodeCard />` + `<PendingParentLinkRequestsCard />`
+ *       + `<StudentUpNextCard />`
  *       composed as siblings inside a Stack. Same additive
- *       pattern: both cards are zero-prop client components whose zero-argument
- *       queries (`myHandshakeCode`, `myIncomingParentLinkRequests`) answer
- *       identity server-side (no student-id props), and they mount inside the
+ *       pattern: all three cards are zero-prop client components whose
+ *       identity-scoped queries (`myHandshakeCode`,
+ *       `myIncomingParentLinkRequests`, `myStudentSessions`, `myHomework`)
+ *       answer identity server-side, and they mount inside the
  *       EXISTING student dashboard surface (no new student route, no
  *       `DashboardView` contract change). The pending-requests card renders
- *       `null` when the actionable queue is empty, so the slot degrades to the
- *       handshake card alone. The hook lives INSIDE each card component —
- *       composition here is plain JSX, so no conditional-hook surface exists.
+ *       `null` when the actionable queue is empty, and the up-next card
+ *       degrades per-block on its own query failures. The hooks live
+ *       INSIDE each card component — composition here is plain JSX, so no
+ *       conditional-hook surface exists.
+ *     - Parent → `<ParentUpNextCard />` — the same additive pattern, the
+ *       third role card on the shared Up Next primitives: a zero-prop
+ *       client component whose identity-scoped `myChildrenUpcomingSessions`
+ *       read answers one glance block per confirmed-linked child
+ *       server-side (no new parent route, no `DashboardView` contract
+ *       change, and the page guard above stays the only authorization
+ *       boundary).
  *     - Other roles → nothing (slot empty; their dashboards unchanged).
  *
  * Extracted to eliminate jscpd duplicates across the 4 role dashboard pages
@@ -52,14 +70,22 @@ export async function createRoleDashboardPage(role: UserRole, path: string): Pro
 function resolveStatusSlot(role: UserRole): React.ReactNode {
   switch (role) {
     case UserRole.Teacher:
-      return <ApplicantStatusCard />;
+      return (
+        <Stack sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <ApplicantStatusCard />
+          <TeacherUpNextCard />
+        </Stack>
+      );
     case UserRole.Student:
       return (
         <Stack sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <HandshakeCodeCard />
           <PendingParentLinkRequestsCard />
+          <StudentUpNextCard />
         </Stack>
       );
+    case UserRole.Parent:
+      return <ParentUpNextCard />;
     default:
       return undefined;
   }

@@ -11,7 +11,8 @@
  *    move): the route becomes reachable purely when its page ships.
  *  - Admin broadcasts: the broadcasts entry — exactly ONE
  *    `/admin/broadcasts` item with `labelKey: "broadcasts"`, positioned
- *    directly after the audit entry, dashboard-bundle owned, admin-only.
+ *    directly after the finances entry (audit → finances → broadcasts),
+ *    dashboard-bundle owned, admin-only.
  *  - Admin session governance: the admin session-governance entry — exactly ONE
  *    `/admin/session-governance` item with `labelKey: "sessionGovernance"`
  *    and the `EventNoteOutlined` icon, inside the audit→disputes envelope of
@@ -235,14 +236,16 @@ describe("Admin session-governance navigation", () => {
 });
 
 describe("Admin broadcasts navigation", () => {
-  test("Admin navigation carries exactly one /admin/broadcasts entry with the broadcasts label key, directly after the audit entry", () => {
+  test("Admin navigation carries exactly one /admin/broadcasts entry with the broadcasts label key, directly after the finances entry (audit → finances → broadcasts)", () => {
     const adminNav = getNavItemsForRole(UserRole.Admin);
     const broadcastItems = adminNav.filter(item => item.route === "/admin/broadcasts");
     expect(broadcastItems).toHaveLength(1);
     expect(broadcastItems[0]?.labelKey).toBe("broadcasts");
     const broadcastIndex = adminNav.findIndex(item => item.route === "/admin/broadcasts");
+    const financesIndex = adminNav.findIndex(item => item.route === "/admin/finances");
     const auditIndex = adminNav.findIndex(item => item.route === "/audit");
-    expect(broadcastIndex).toBe(auditIndex + 1);
+    expect(financesIndex).toBe(auditIndex + 1);
+    expect(broadcastIndex).toBe(financesIndex + 1);
   });
 
   test("the broadcasts label key stays owned by the dashboard bundle", () => {

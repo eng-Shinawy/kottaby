@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { AuthContext, type AuthContextType, type AuthUser } from "@/frontend/context/AuthContext";
 import { UserRole } from "@/frontend/graphql/generated/gql/graphql";
 import { myHandshakeCodeQueryDocument } from "@/frontend/graphql/sharedDocuments";
+import { studentStatsMocks } from "@/frontend/stories/lib/dashboardStatMocks";
 import { DashboardStoryFrame, StoryApolloProvider } from "@/frontend/stories/lib/storyHarness";
 // Direct file import — the `@/frontend/views/dashboard` barrel drags
 // `withPageAuth` (server-only, `pg`-backed) into the Storybook bundle.
@@ -19,9 +20,12 @@ import { HandshakeCodeCard } from "@/frontend/views/students/dashboard/Handshake
  * route are out of scope for a story; this harness reproduces the client
  * composition exactly: a stubbed `AuthContext` (authenticated student) around
  * the same `DashboardView` + `HandshakeCodeCard` tree, on a mocked Apollo
- * client (`MockLink` + production cache). The only GraphQL operation the page
- * fires is the zero-argument `myHandshakeCode` query from the handshake card;
- * every mock is `maxUsageCount: Infinity` so re-mounts stay green.
+ * client (`MockLink` + production cache). The GraphQL operations the page
+ * fires are the zero-argument `myHandshakeCode` query from the handshake
+ * card plus the stat-strip queries (`useDashboardStats`: two
+ * status-filtered session counts, the subscription list, the unread
+ * notification count); every mock is `maxUsageCount: Infinity` so
+ * re-mounts stay green.
  */
 
 /** Authenticated student identity for the welcome header — mirrors `MeQuery`. */
@@ -95,12 +99,22 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Populated — welcome header, handshake-code card resolved, stat grid, getting-started. */
+/** Populated — welcome header, handshake-code card resolved, live stat grid, getting-started. */
 export const Default: Story = {
-  args: { mocks: [handshakeCodeResolvedMock()] },
+  args: {
+    mocks: [
+      handshakeCodeResolvedMock(),
+      ...studentStatsMocks({ completed: 12, upcoming: 2, activeSubscriptions: 1, unread: 3 }),
+    ],
+  },
 };
 
 /** Loading — the handshake-code card renders its `aria-busy` skeleton indefinitely. */
 export const Loading: Story = {
-  args: { mocks: [handshakeCodeLoadingMock()] },
+  args: {
+    mocks: [
+      handshakeCodeLoadingMock(),
+      ...studentStatsMocks({ completed: 12, upcoming: 2, activeSubscriptions: 1, unread: 3 }),
+    ],
+  },
 };

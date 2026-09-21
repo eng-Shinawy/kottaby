@@ -2,7 +2,7 @@
 
 import { useQuery } from "@apollo/client/react";
 import { GroupOutlined, RefreshOutlined } from "@mui/icons-material";
-import { Avatar, Box, IconButton, Stack, Typography } from "@mui/material";
+import { Alert, Avatar, Box, IconButton, Stack, Typography } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect } from "react";
 import { PermissionDeniedFallback } from "@/frontend/components/ui/PermissionDeniedFallback";
@@ -10,6 +10,8 @@ import { myLinkedChildrenQueryDocument } from "@/frontend/graphql/sharedDocument
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { mapGraphQLErrorByCode } from "@/frontend/providers/apollo/error-link.map";
 import { renderChildrenBody } from "@/frontend/views/parent/monitoring/ParentChildrenRootContainer.body";
+import { autoSelectPermitted } from "@/frontend/views/parent/monitoring/ParentChildrenRootContainer.helpers";
+import { useSessionResolution } from "@/frontend/views/parent/monitoring/useSessionResolution";
 import { Common, Errors, ParentMonitoring, useAppLocale, useAppTranslation } from "@/shared/locale";
 
 export function ParentChildrenRootContainer(props: Readonly<ParentChildrenRootContainerProps>): ReactNode {
@@ -21,6 +23,7 @@ export function ParentChildrenRootContainer(props: Readonly<ParentChildrenRootCo
   const { data, loading, error, refetch } = useQuery(myLinkedChildrenQueryDocument);
   const children = data?.myLinkedChildren;
   const hasStudentParam = props.student !== null && props.student !== "";
+  const flow = useSessionResolution(props.session);
 
   useEffect(() => {
     // Cold-entry ONLY: with no `?student=` param the root redirects to the
@@ -28,10 +31,11 @@ export function ParentChildrenRootContainer(props: Readonly<ParentChildrenRootCo
     // browsing (or the detail page owns a stale-id denial) — the root must
     // never yank the URL (pinned by the container suite; auto-redirecting
     // on a foreign/stale id also re-opens the child-id enumeration oracle).
-    if (!hasStudentParam && children !== undefined && children.length > 0) {
-      router.replace(`/parent/children/${children[0].id}`);
-    }
-  }, [hasStudentParam, children, router]);
+    // A live `?session=` pointer owns navigation until it resolves — the
+    // gate stays false while it is pending or landed, releasing on failure.
+    if (children === undefined || !autoSelectPermitted(flow.phase, hasStudentParam, children.length > 0)) return;
+    router.replace(`/parent/children/${children[0].id}`);
+  }, [flow.phase, hasStudentParam, children, router]);
 
   const errorCode = error ? extractErrorCode(error) : null;
   const denied =
@@ -50,12 +54,8 @@ export function ParentChildrenRootContainer(props: Readonly<ParentChildrenRootCo
     commonT,
     t,
     locale,
-    childId => {
-      router.push(`/parent/children/${childId}`);
-    },
-    () => {
-      router.push("/parent/handshake");
-    },
+    childId => router.push(`/parent/children/${childId}`),
+    () => router.push("/parent/handshake"),
     refetch
   );
 
@@ -108,6 +108,16 @@ export function ParentChildrenRootContainer(props: Readonly<ParentChildrenRootCo
           </Typography>
         </Box>
       ) : null}
+      {flow.showUnavailableNotice ? (
+        <Alert
+          severity="info"
+          variant="outlined"
+          data-testid="parent-session-target-unavailable"
+          sx={{ borderRadius: 2 }}
+        >
+          {t.sessionTargetUnavailableNotice}
+        </Alert>
+      ) : null}
       {body}
     </Stack>
   );
@@ -115,4 +125,5 @@ export function ParentChildrenRootContainer(props: Readonly<ParentChildrenRootCo
 
 export interface ParentChildrenRootContainerProps {
   readonly student: string | null;
+  readonly session: string | null;
 }

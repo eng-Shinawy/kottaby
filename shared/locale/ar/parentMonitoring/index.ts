@@ -16,10 +16,14 @@ export const parentMonitoringAr: ParentMonitoringLabels = {
   childrenEmptyTitle: "لا يوجد أبناء مرتبطون بعد",
   childrenEmptyBody: "بمجرد أن يؤكد طفلك طلب الربط، سيظهر هنا.",
   childrenEmptyCta: "إرسال طلب ربط",
+  sessionTargetUnavailableNotice: "تفاصيل هذه الجلسة لم تعد متاحة.",
 
   // ─── Detail page header ─────────────────────────────────────────────────
   detailPageTitle: (childName: string) => `تقدّم ${childName}`,
   detailPageSubtitle: "مراقبة للحضور والتقارير والواجبات والتقييمات والتقدّم — للقراءة فقط.",
+
+  // ─── Session deep-link row chip ────────────────────────────────────────
+  deepLinkChip: "من إشعار الجلسة",
 
   // ─── Tab labels ─────────────────────────────────────────────────────────
   tabAttendance: "الحضور",

@@ -21,6 +21,7 @@ export function renderHomeworkBody(
   commonT: { readonly retry: string },
   t: ParentMonitoringLabels,
   locale: string,
+  session: number | null,
   searchState: SearchFilterState,
   onSearchChange: (next: SearchFilterState) => void,
   refetch: () => Promise<unknown>
@@ -92,7 +93,9 @@ export function renderHomeworkBody(
         sx={{ display: "grid", gap: 2 }}
       >
         {filteredRows !== undefined
-          ? filteredRows.map(row => <HomeworkRow key={row.id} row={row} labels={t} locale={locale} />)
+          ? filteredRows.map(row => (
+              <HomeworkRow key={row.id} row={row} labels={t} locale={locale} deepLinkSessionId={session} />
+            ))
           : null}
       </Box>
     </>

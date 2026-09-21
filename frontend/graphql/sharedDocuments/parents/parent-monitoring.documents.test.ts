@@ -13,7 +13,7 @@
  *      `query` operation whose GraphQL operation name matches its
  *      `{entityName}…Document` export convention, on the right channel
  *      (query — read-only portal, zero mutations), with the exact
- *      sanctioned variable set (the five pinned operations, EXACT
+ *      sanctioned variable set (the six pinned operations, EXACT
  *      names).
  *   2. Argument wiring — each declared variable is actually threaded
  *      into its root-field argument (no dead variables, no literal
@@ -23,11 +23,12 @@
  *      `ParentHomeworkEntry`) carries `id` FIRST so Apollo normalizes
  *      the cache entries (those are the row types carrying real `id`s —
  *      the frozen `apolloCache.ts` policy inventory registers the
- *      six no-`id` types with `keyFields: false`, never an `id`-bearing
- *      row type).
+ *      seven no-`id` types with `keyFields: false`, never an
+ *      `id`-bearing row type).
  *   4. Self-scoped surface — the pinned variable sets (`studentId` +
- *      optional `page`/`pageSize` for the four per-student reads, none
- *      for the list) are the WHOLE variable surface: no identity
+ *      optional `page`/`pageSize` for the four per-student reads,
+ *      `sessionId` for the deep-link resolution read, none for the
+ *      list) are the WHOLE variable surface: no identity
  *      argument (parent/user/actor) or role/auth hint exists anywhere
  *      in the documents; parent identity is always derived server-side
  *      from the authenticated caller.
@@ -37,8 +38,10 @@
  *      carry the honest envelope (`items` + `totalCount` + `page` +
  *      `pageSize`), the progress composite collapses the detail header
  *      + progress count + latest Jadid/Madi positions into one payload,
- *      and the top-level barrel re-exports the SAME document instances
- *      as the deep imports (consumer import conventions table).
+ *      the session-target read projects the closed two-field deep-link
+ *      pair, and the top-level barrel re-exports the SAME document
+ *      instances as the deep imports (consumer import conventions
+ *      table).
  *
  * Zero server boot, zero DB, zero network: inspects only already-compiled
  * ASTs through graphql kind-guard narrowing — no unsafe assertions anywhere
@@ -59,6 +62,8 @@ import type {
   ParentChildReportsQueryVariables,
   ParentChildSessionsQuery,
   ParentChildSessionsQueryVariables,
+  ParentSessionTargetQuery,
+  ParentSessionTargetQueryVariables,
 } from "@/frontend/graphql/generated/gql/graphql";
 import {
   myLinkedChildrenQueryDocument as myLinkedChildrenViaBarrel,
@@ -66,6 +71,7 @@ import {
   parentChildProgressQueryDocument as parentChildProgressViaBarrel,
   parentChildReportsQueryDocument as parentChildReportsViaBarrel,
   parentChildSessionsQueryDocument as parentChildSessionsViaBarrel,
+  parentSessionTargetQueryDocument as parentSessionTargetViaBarrel,
 } from "@/frontend/graphql/sharedDocuments";
 import {
   myLinkedChildrenQueryDocument,
@@ -73,6 +79,7 @@ import {
   parentChildProgressQueryDocument,
   parentChildReportsQueryDocument,
   parentChildSessionsQueryDocument,
+  parentSessionTargetQueryDocument,
 } from "@/frontend/graphql/sharedDocuments/parents/parent-monitoring.documents";
 
 // ---------------------------------------------------------------------------
@@ -142,8 +149,9 @@ function argumentVariableNames(field: FieldNode): string[] {
 /**
  * The exact canonical rows, `id` FIRST on every entity-shaped selection.
  * The page wrappers, the homework track / position embedded value
- * objects, and the progress composite carry no `id` (they are registered
- * with `keyFields: false` in `apolloCache.ts`).
+ * objects, the progress composite, and the session-target resolution
+ * pair carry no `id` (they are registered with `keyFields: false` in
+ * `apolloCache.ts`).
  */
 const LINKED_CHILD_ROW = ["id", "fullName", "createdAt"];
 const ATTENDANCE_ENTRY_ROW = ["id", "status", "startedAt", "endedAt", "createdAt"];
@@ -161,6 +169,7 @@ const HOMEWORK_TRACK_ROW = ["surahJuz", "fromAyah", "toAyah", "grade"];
 const HOMEWORK_POSITION_ROW = ["surahJuz", "fromAyah", "toAyah"];
 const PAGE_WRAPPER_ROW = ["items", "totalCount", "page", "pageSize"];
 const PROGRESS_ROW = ["child", "progressRowCount", "latestJadidPosition", "latestMadiPosition"];
+const SESSION_TARGET_ROW = ["sessionId", "studentId"];
 
 interface ParentMonitoringDocumentRow {
   readonly document: DocumentNode;
@@ -203,6 +212,12 @@ const PARENT_MONITORING_DOCUMENT_TABLE: readonly ParentMonitoringDocumentRow[] =
     variables: ["studentId", "page", "pageSize"],
     rootField: "parentChildHomework",
   },
+  {
+    document: parentSessionTargetQueryDocument,
+    operationName: "ParentSessionTarget",
+    variables: ["sessionId"],
+    rootField: "parentSessionTarget",
+  },
 ];
 
 describe("parent-monitoring documents — named operations + channel + variables", () => {
@@ -224,7 +239,7 @@ describe("parent-monitoring documents — named operations + channel + variables
     }
   });
 
-  test("variable surface is exactly the sanctioned studentId + pagination set — zero parent/role/auth hints", () => {
+  test("variable surface is exactly the sanctioned studentId/sessionId + pagination set — zero parent/role/auth hints", () => {
     const declared = PARENT_MONITORING_DOCUMENT_TABLE.flatMap(row =>
       variableNames(operationOrThrow(row.document))
     ).toSorted((a, b) => a.localeCompare(b));
@@ -235,6 +250,7 @@ describe("parent-monitoring documents — named operations + channel + variables
       "pageSize",
       "pageSize",
       "pageSize",
+      "sessionId",
       "studentId",
       "studentId",
       "studentId",
@@ -244,7 +260,9 @@ describe("parent-monitoring documents — named operations + channel + variables
     // (parent/actor/user) or a role/auth hint. `studentId` IS sanctioned —
     // it is the per-child targeting capability gated inside
     // `requireLinkedChild` (TOCTOU seal); parent identity is always derived
-    // server-side from the authenticated caller.
+    // server-side from the authenticated caller. `sessionId` is the
+    // deep-link pointer the notification row carries — its ownership is
+    // re-verified server-side on every resolution.
     for (const name of declared) {
       expect(name.toLowerCase()).not.toContain("parent");
       expect(name.toLowerCase()).not.toContain("actor");
@@ -329,6 +347,20 @@ describe("parent-monitoring documents — id-first + canonical row shapes", () =
     expect(fieldNames(jadid)).not.toContain("id");
     expect(fieldNames(madi)).not.toContain("id");
   });
+
+  test("the session-target projection is the closed two-field deep-link pair (no id — normalized-exempt value)", () => {
+    const operation = operationOrThrow(parentSessionTargetQueryDocument);
+    const targetSelection = selectionPath(operation, "parentSessionTarget");
+    // Closed projection: the pair is EXACTLY sessionId + studentId — no
+    // over-fetch, no id-first pin (the wire type carries no `id`).
+    expect(fieldNames(targetSelection)).toEqual(SESSION_TARGET_ROW);
+    // Cache policy holds: with no `id` in the selection, Apollo
+    // cannot even attempt to normalize the value, which matches the
+    // `ParentSessionTarget: { keyFields: false }` registration in
+    // apolloCache.ts (a value object read through the root query field,
+    // replaced wholesale on every resolution — never cache-keyed).
+    expect(fieldNames(targetSelection)).not.toContain("id");
+  });
 });
 
 describe("parent-monitoring documents — codegen binding + barrel parity", () => {
@@ -338,6 +370,7 @@ describe("parent-monitoring documents — codegen binding + barrel parity", () =
     expect(parentChildSessionsViaBarrel).toBe(parentChildSessionsQueryDocument);
     expect(parentChildReportsViaBarrel).toBe(parentChildReportsQueryDocument);
     expect(parentChildHomeworkViaBarrel).toBe(parentChildHomeworkQueryDocument);
+    expect(parentSessionTargetViaBarrel).toBe(parentSessionTargetQueryDocument);
   });
 
   test("documents remain TypedDocumentNode-typed against generated operation types", () => {
@@ -352,6 +385,8 @@ describe("parent-monitoring documents — codegen binding + barrel parity", () =
       parentChildReportsQueryDocument;
     const typedHomework: TypedDocumentNode<ParentChildHomeworkQuery, ParentChildHomeworkQueryVariables> =
       parentChildHomeworkQueryDocument;
+    const typedSessionTarget: TypedDocumentNode<ParentSessionTargetQuery, ParentSessionTargetQueryVariables> =
+      parentSessionTargetQueryDocument;
 
     // Runtime uses keep the bindings from being flagged as unused.
     expect(typedList.loc).toBeDefined();
@@ -359,5 +394,6 @@ describe("parent-monitoring documents — codegen binding + barrel parity", () =
     expect(typedSessions.loc).toBeDefined();
     expect(typedReports.loc).toBeDefined();
     expect(typedHomework.loc).toBeDefined();
+    expect(typedSessionTarget.loc).toBeDefined();
   });
 });

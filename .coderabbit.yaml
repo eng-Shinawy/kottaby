@@ -37,6 +37,9 @@ reviews:
     - "!Kottaby/**"
     - "!frontend/graphql/generated/**"
     - "!**/unRefactored_tests/**"
+    # --- mechanical / generated artifact dirs (kept under the 100-file review limit) ---
+    - "!**/shared/locale/**"
+    - "!**/frontend/stories/**"
     # --- .gitignore ignores ---
     - "!**/.pnp.*"
     - "!**/.yarn/**"

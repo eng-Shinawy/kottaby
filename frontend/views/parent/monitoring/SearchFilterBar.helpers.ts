@@ -54,23 +54,41 @@ interface FilterableHomeworkRow {
   } | null;
 }
 
+export type { FilterableHomeworkRow };
+
+/**
+ * Does ONE homework row match the free-text query? A blank query matches
+ * everything (pure passthrough); otherwise the Jadid/Madi passage refs and
+ * the caller-owned date rendering are probed case-insensitively. Extracted
+ * so consumers that keep a fixed list order (the student homework history)
+ * can reuse the EXACT matching vocabulary without inheriting this module's
+ * sort modes.
+ */
+export function homeworkRowMatchesQuery<T extends FilterableHomeworkRow>(
+  row: T,
+  query: string,
+  dateMatcher: (row: T, query: string) => boolean
+): boolean {
+  const q = query.toLowerCase().trim();
+  if (q === "") {
+    return true;
+  }
+  const jadiz = row.jadid?.surahJuz?.toLowerCase() ?? "";
+  const madiz = row.madi?.surahJuz?.toLowerCase() ?? "";
+  const dateMatch = dateMatcher(row, q);
+  return jadiz.includes(q) || madiz.includes(q) || dateMatch;
+}
+
 export function filterHomeworkRows<T extends FilterableHomeworkRow>(
   rows: readonly T[],
   state: SearchFilterState,
   dateMatcher: (row: T, query: string) => boolean
 ): readonly T[] {
-  const q = state.query.toLowerCase().trim();
   const filtered: T[] = [];
   for (const row of rows) {
-    if (q !== "") {
-      const jadiz = row.jadid?.surahJuz?.toLowerCase() ?? "";
-      const madiz = row.madi?.surahJuz?.toLowerCase() ?? "";
-      const dateMatch = dateMatcher(row, q);
-      if (!jadiz.includes(q) && !madiz.includes(q) && !dateMatch) {
-        continue;
-      }
+    if (homeworkRowMatchesQuery(row, state.query, dateMatcher)) {
+      filtered.push(row);
     }
-    filtered.push(row);
   }
   return sortRows(filtered, state.sort);
 }

@@ -209,6 +209,30 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   copy lives in the zone body; the chip stays in the failed (warning) family. → promoted:
   `references/fix-patterns.md` (new row, updated in this change).
 
+## 2026-09-19 — parent-session-completion-notification-display run (dev-server rig, pglite sandbox)
+
+- Per-file quality loops (sub-loop.ts) run CONCURRENTLY while a dev server holds the default PGlite
+  data dir corrupt the shared `./db/pglite` (WAL panic: `record with incorrect prev-link`); the
+  eager `@/backend/db` import in the lint-service opens a second PGlite on the same dir. → landed:
+  `references/capture-protocol.md` (new env gotcha: when DB_PROVIDER=pglite, run quality loops with
+  `PGLITE_DATA_DIR=/tmp/<unique>` pointed away from the dev server's dir, and serialize multi-agent
+  fix waves' gates; a corrupt dir is rebuilt via drizzle-kit push with a pglite-driver config +
+  re-seed).
+- The skill's bundled `scripts/visual-precheck.sh` may be absent in consumer repos; the manual eval
+  fallback in `references/objective-prechecks.md` is sufficient and keeps the gate mandatory. →
+  landed: `references/objective-prechecks.md` (note strengthened: gate = rule, script = convenience;
+  copy the eval snippets when the script is missing).
+- VLM inspectors contradict each other across passes on the same pixels (dir=ltr vs dir=rtl on the
+  same element; +4px vs −4px rhythm) and hallucinate copy ("rating trena", "English placeholder in
+  AR UI" that DOM shows as Arabic). The DOM-arbitration rule is load-bearing: arbitrate EVERY
+  disputed finding and dismiss disproven ones rather than looping. → landed: `references/rubric.md`
+  (arbitration section note: run arbitration before ANY second fix wave; one fix wave + arbitration
+  closed this run at the documented plateau).
+- Stored notification copy renders in the EMIT-time locale while drawer chrome follows the live UI
+  locale (users.locale=null → app default ar rows under EN chrome); inspectors flag the mismatch as
+  an i18n defect. It is per-locale-at-emission contract behavior. → landed:
+  `references/capture-protocol.md` (state-verification note: verify stored-copy locale semantics
+  before accepting inspector i18n findings on notification surfaces).
 - 2026-09-19 (teacher-withdrawal-plan visual run): Three reusable lessons landed in this change.
   (1) A nested second top-level `db.transaction(..., {isolationLevel})` opened inside a
   `withTransaction` block hard-fails on single-connection providers (PGlite: "Failed query: begin

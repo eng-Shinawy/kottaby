@@ -10,5 +10,8 @@
  *    `gqlSchema.ts` imports that top-level barrel exactly once.
  *  - `handshake-code.query.ts` registers `myHandshakeCode` and
  *    `findStudentByHandshakeCode`.
+ *  - `homework.query.ts` registers `myHomework` (the student's own paged
+ *    homework history).
  */
 import "./handshake-code.query";
+import "./homework.query";

@@ -1062,6 +1062,18 @@ type ParentChildProgress {
   progressRowCount: Int!
 }
 
+type ParentChildUpcomingBlock {
+  child: ParentLinkedChild!
+  scheduledTotalCount: Int!
+  upcomingSessions: [ParentChildUpcomingSession!]!
+}
+
+type ParentChildUpcomingSession {
+  createdAt: DateTime!
+  fee: String
+  sessionId: Int!
+}
+
 type ParentHomeworkEntry {
   createdAt: DateTime!
   id: ID!
@@ -1111,6 +1123,11 @@ type ParentReportPage {
   page: Int!
   pageSize: Int!
   totalCount: Int!
+}
+
+type ParentSessionTarget {
+  sessionId: Int!
+  studentId: Int!
 }
 
 """Gateway checkout descriptor for a purchase in flight."""
@@ -1384,6 +1401,11 @@ type Query {
   myApplicantProfile: ApplicantProfile
 
   """
+  One upcoming-sessions glance block per confirmed-linked child: the child echo plus that child's capped scheduled-session window (newest-booked first) plus the honest scheduled total under the same filter. Resolved in one transaction snapshot; a parent with no linked children yields an empty list.
+  """
+  myChildrenUpcomingSessions: [ParentChildUpcomingBlock!]!
+
+  """
   Applicant's current evaluation loop status; zero-shape when no active cycle.
   """
   myEvaluationLoopStatus: EvaluationLoopStatus
@@ -1391,6 +1413,11 @@ type Query {
   """Current applicant's evaluation session list (paged)."""
   myEvaluationSessions(filter: SessionListFilterInput, page: Int, pageSize: Int): SessionPage!
   myHandshakeCode: String!
+
+  """
+  The caller's own homework rows (each carrying the two parallel Jadid/Madi track blocks), newest-session-first, paged. Track block composition preserves per-field nullability — a null grade stays null, a fully-null track block collapses to null, never fabricated zeros.
+  """
+  myHomework(page: Int = 1, pageSize: Int = 25): ParentHomeworkPage!
 
   """
   Lists the link requests addressed to the caller (newest first, capped). Rows keep their post-resolution status; expired rows are rendered without any write.
@@ -1454,6 +1481,11 @@ type Query {
   The gated child's derived attendance entries (session rows), newest first, paged. Pagination is normalized before the database read and the effective values are echoed in the page payload; an out-of-range page yields empty items next to the true total count.
   """
   parentChildSessions(page: Int, pageSize: Int, studentId: Int!): ParentAttendancePage!
+
+  """
+  The closed id pair resolving one completion-notification session pointer: the session id plus the linked child who owns it. A missing or foreign session is indistinguishable on the wire — both collapse to the same constant denial (existence non-disclosure); a non-positive session id is rejected as a validation failure before any gate or read. The deep-link landing route is constructed from the pair alone.
+  """
+  parentSessionTarget(sessionId: Int!): ParentSessionTarget!
 
   """Returns the active subscription plans catalog for authenticated users."""
   planCatalog: [Plan!]!

@@ -238,4 +238,18 @@ export namespace ColdStartCertificationService {
 
     return detail;
   }
+
+  /**
+   * Read-only certification probe: whether the user already owns an
+   * approved `teacher` row. Bootstrap surfaces (e.g. the demo-linkage
+   * seeder's idempotency arm) use this instead of reading the repository
+   * directly — seeders never import from `@/backend/db/**` (seeds/AGENTS.md
+   * Service-Only Data Access rule). A missing row answers `false`, never
+   * throws: the caller's follow-up certification attempt is the authoritative
+   * error surface.
+   */
+  export async function isTeacherCertified(userId: number): Promise<boolean> {
+    const existing = await TeacherRepository.findById(userId);
+    return existing?.isApproved === true;
+  }
 }

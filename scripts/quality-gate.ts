@@ -44,6 +44,26 @@ const DUPLICATES_INSTRUCTIONS = `
  */
 `;
 
+/**
+ * Opt-in inter-stage settle delay (ms) for memory-constrained sandboxes.
+ *
+ * BASIC_CHECKS runs the heavy native checkers back-to-back (tsgo, then
+ * oxlint's tsgolint, each multi-GB). Inside a small cgroup the previous
+ * checker's reclaimed page cache is still charged to the cgroup when the
+ * next one starts allocating, which can OOM-kill tsgolint even though both
+ * checkers pass standalone. Setting e.g. QUALITY_GATE_SETTLE_MS=45000 adds
+ * a short pause between the heavy commands so the kernel can reclaim;
+ * the default of 0 keeps CI behavior identical (CI runners have ample RAM
+ * and never need the pause).
+ */
+const INTER_STAGE_SETTLE_MS = Number(process.env.QUALITY_GATE_SETTLE_MS ?? "0");
+
+function settle(): Promise<void> {
+  return INTER_STAGE_SETTLE_MS > 0
+    ? new Promise(resolve => setTimeout(resolve, INTER_STAGE_SETTLE_MS))
+    : Promise.resolve();
+}
+
 async function runCommand(command: string, args: string[]): Promise<{ success: boolean; output: string }> {
   console.log(`\n> Running: ${command} ${args.join(" ")}`);
 
@@ -106,6 +126,7 @@ async function performStage(stage: QualityStage): Promise<boolean> {
     case "BASIC_CHECKS": {
       const tsgo = await runCommand("bun", ["tsgo"]);
       if (!tsgo.success) return false;
+      await settle();
       const oxlint = await runCommand("bun", ["oxlint"]);
       if (!oxlint.success) return false;
       const biome = await runCommand("bun", ["biome:check"]);

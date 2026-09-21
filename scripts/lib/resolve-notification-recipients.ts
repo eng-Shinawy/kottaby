@@ -1,5 +1,4 @@
 import { eq, inArray } from "drizzle-orm";
-import { db } from "@/backend/db";
 import { students, users } from "@/backend/db/schema";
 import type { DBTransaction } from "@/backend/types";
 
@@ -28,7 +27,10 @@ export async function resolveStudentNotificationRecipients(
   const result = new Map<number, ResolvedRecipient>();
   if (studentIds.length === 0) return result;
 
-  const client = tx ?? db;
+  // The db client binds LAZILY so importing this module (via `@/scripts/lib`,
+  // which every locked runner loads) never opens a pool/PGlite instance —
+  // only an actual recipient resolution pays for the connection.
+  const client = tx ?? (await import("@/backend/db")).db;
 
   const studentRows = await client
     .select({

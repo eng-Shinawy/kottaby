@@ -8,6 +8,7 @@ import {
   UserRole,
 } from "@/frontend/graphql/generated/gql/graphql";
 import { myApplicantProfileQueryDocument } from "@/frontend/graphql/sharedDocuments";
+import { teacherStatsMocks } from "@/frontend/stories/lib/dashboardStatMocks";
 import { DashboardStoryFrame, StoryApolloProvider } from "@/frontend/stories/lib/storyHarness";
 // Direct file import — the `@/frontend/views/dashboard` barrel drags
 // `withPageAuth` (server-only, `pg`-backed) into the Storybook bundle.
@@ -23,9 +24,12 @@ import { ApplicantStatusCard } from "@/frontend/views/teachers/dashboard/Applica
  * route are out of scope for a story; this harness reproduces the client
  * composition exactly: a stubbed `AuthContext` (authenticated teacher) around
  * the same `DashboardView` + `ApplicantStatusCard` tree, on a mocked Apollo
- * client (`MockLink` + production cache). The only GraphQL operation the page
- * fires is the zero-argument `myApplicantProfile` query from the status card;
- * every mock is `maxUsageCount: Infinity` so re-mounts stay green.
+ * client (`MockLink` + production cache). The GraphQL operations the page
+ * fires are the zero-argument `myApplicantProfile` query from the status
+ * card plus the stat-strip queries (`useDashboardStats`: two
+ * status-filtered session counts, the teacher wallet, the unread
+ * notification count); every mock is `maxUsageCount: Infinity` so
+ * re-mounts stay green.
  */
 
 /** Authenticated teacher identity for the welcome header — mirrors `MeQuery`. */
@@ -123,15 +127,27 @@ type Story = StoryObj<typeof meta>;
  * verified end-to-end): passed chip + certified narrative above the stat grid.
  */
 export const CertifiedDefault: Story = {
-  args: { mocks: [profileMock(profileFixture({ status: ApplicantStatus.Passed }))] },
+  args: {
+    mocks: [
+      profileMock(profileFixture({ status: ApplicantStatus.Passed })),
+      ...teacherStatsMocks({ completed: 34, upcoming: 3, balance: "1250.50", unread: 2 }),
+    ],
+  },
 };
 
 /** Applicant under review — the `Pending` chip + awaiting-purchase prompt panel. */
 export const ApplicantPending: Story = {
-  args: { mocks: [profileMock(profileFixture())] },
+  args: {
+    mocks: [
+      profileMock(profileFixture()),
+      ...teacherStatsMocks({ completed: 0, upcoming: 0, balance: "0.00", unread: 0 }),
+    ],
+  },
 };
 
 /** Loading — the applicant status card renders its `aria-busy` skeleton indefinitely. */
 export const Loading: Story = {
-  args: { mocks: [profileLoadingMock()] },
+  args: {
+    mocks: [profileLoadingMock(), ...teacherStatsMocks({ completed: 34, upcoming: 3, balance: "1250.50", unread: 2 })],
+  },
 };

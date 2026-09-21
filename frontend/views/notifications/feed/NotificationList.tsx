@@ -75,7 +75,12 @@ export const NotificationList = memo(function NotificationList({
           notification={notification}
           labels={labels}
           locale={locale}
-          deepLinkHref={resolveNotificationRoute(notification.relatedEntityType, notification.type, userRole)}
+          deepLinkHref={resolveNotificationRoute(
+            notification.relatedEntityType,
+            notification.type,
+            userRole,
+            notification.relatedEntityId
+          )}
           onMarkRead={onMarkRead}
           markReadPending={markReadPendingIds.includes(notification.id)}
         />

@@ -133,3 +133,25 @@ export async function getDemoAdminActorId(): Promise<number> {
   }
   return admin.id;
 }
+
+/**
+ * Resolves a demo user's id by role through the registration service's
+ * read-only lookup (Service-Only Data Access rule — same shape as
+ * `getDemoAdminActorId`). A pure lookup against the demo specs above: no
+ * authentication, no provisioning. Demo seeders that need the trio's ids
+ * call this instead of reaching into a sibling seeder's internals.
+ *
+ * Throws when the users step has not produced the requested demo user yet,
+ * so a missing prerequisite fails fast with a named message.
+ */
+export async function resolveDemoUserId(role: "teacher" | "parent" | "student"): Promise<number> {
+  const spec = INITIAL_DEMO_USERS.find(candidate => candidate.role === role);
+  if (!spec) {
+    throw new Error(`seed-users: INITIAL_DEMO_USERS carries no ${role} spec`);
+  }
+  const user = await RegistrationService.findRegisteredUserByEmail(spec.email);
+  if (!user) {
+    throw new Error(`seed-users: demo ${role} user not found (${spec.email}) — run the users seed step first`);
+  }
+  return user.id;
+}

@@ -4,6 +4,11 @@ import { Card, Skeleton, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import type { ParentChildReportsQuery_parentChildReports_items } from "@/frontend/graphql/generated/gql/graphql";
 import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { DeepLinkTargetChip } from "@/frontend/views/parent/monitoring/DeepLinkTargetChip";
+import {
+  deepLinkRowSx,
+  useDeepLinkRowHighlight,
+} from "@/frontend/views/parent/monitoring/ParentChildDetailContainer.helpers";
 import type { ParentMonitoringLabels } from "@/shared/locale/types/parentMonitoring";
 
 /**
@@ -51,11 +56,14 @@ export function EvaluationRow({
   row,
   labels,
   locale,
+  deepLinkSessionId,
 }: Readonly<{
   row: ParentChildReportsQuery_parentChildReports_items;
   labels: ParentMonitoringLabels;
   locale: string;
+  deepLinkSessionId: number | null;
 }>): ReactNode {
+  const { rowRef, isDeepLinkTarget } = useDeepLinkRowHighlight(deepLinkSessionId, row.sessionId);
   const dateIso = row.sessionStartedAt ?? row.createdAt;
   const score = row.studentRatingByTeacher;
   const scoreLabel = score === null ? labels.ratingNotRated : `${score}`;
@@ -63,17 +71,13 @@ export function EvaluationRow({
 
   return (
     <Card
+      ref={rowRef}
       variant="outlined"
       data-testid="parent-evaluations-row"
-      sx={theme => ({
-        display: "flex",
-        flexDirection: "column",
-        gap: 1,
-        padding: { xs: 2, sm: 2.5 },
-        borderRadius: 2,
-        borderColor: theme.palette.border.main,
-      })}
+      aria-current={isDeepLinkTarget ? "true" : undefined}
+      sx={deepLinkRowSx(isDeepLinkTarget)}
     >
+      {isDeepLinkTarget ? <DeepLinkTargetChip labels={labels} /> : null}
       <Typography variant="body2" dir="auto" sx={theme => ({ color: theme.palette.text.secondary })}>
         {formatApplicantDate(dateIso, locale)}
       </Typography>

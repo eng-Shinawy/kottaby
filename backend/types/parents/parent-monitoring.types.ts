@@ -177,3 +177,50 @@ export interface ParentChildProgressReturnType {
   readonly latestJadidPosition: ParentHomeworkPositionReturnType | null;
   readonly latestMadiPosition: ParentHomeworkPositionReturnType | null;
 }
+
+/**
+ * The closed two-field resolution of a completion notification's session
+ * pointer: the session id the row carried plus the linked child who owns
+ * it. A value object with no row id — the portal builds the deep-link
+ * landing URL from the pair alone, and nothing else about the session is
+ * disclosed through it.
+ */
+export interface ParentSessionTargetReturnType {
+  readonly sessionId: number;
+  readonly studentId: number;
+}
+
+/**
+ * One upcoming-session glance row for a linked child — the slim
+ * projection the parent dashboard's "What's next" card renders per row.
+ *
+ * A value object keyed by the owning session id (no row id of its own):
+ * `fee` passes through verbatim (the platform-set decimal rendered as the
+ * wire string — the money discipline: no arithmetic, no re-formatting at
+ * any layer) and `createdAt` is the booking stamp the row renders. The
+ * lifecycle state is fixed by the read itself (only `scheduled` rows are
+ * projected), so no status column crosses this boundary.
+ */
+export interface ParentChildUpcomingSessionReturnType {
+  readonly sessionId: number;
+  readonly fee: string | null;
+  readonly createdAt: Date;
+}
+
+/**
+ * One per-child block of the parent dashboard's upcoming-sessions glance
+ * read: the confirmed-linked child echo plus that child's glance window
+ * of scheduled sessions and the HONEST total of their scheduled set.
+ *
+ * `upcomingSessions` is capped to the service's glance window (the first
+ * rows of the child's scheduled set, newest-booked first) while
+ * `scheduledTotalCount` is the true count over the same filter — the
+ * card derives its "N more" tail from the difference, never from a
+ * fabricated estimate. A child with zero scheduled sessions yields an
+ * empty window next to the honest `0` total (never a dropped block).
+ */
+export interface ParentChildUpcomingBlockReturnType {
+  readonly child: ParentLinkedChildReturnType;
+  readonly upcomingSessions: readonly ParentChildUpcomingSessionReturnType[];
+  readonly scheduledTotalCount: number;
+}

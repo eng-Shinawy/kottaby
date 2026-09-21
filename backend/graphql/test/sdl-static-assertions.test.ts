@@ -116,9 +116,10 @@ import {
  * session quartet + dispute pair + post-confirmation dispute entry + confirm
  * + payout, the sanctioned admin-governance pair + the
  * session-governance quartet + the subscription purchase write + the
+ * verification-plan purchase write + the session-report write + the
+ * financial-auditing trio + the student-evaluation rating write + the
  * admin subscription-management quartet (extend / renew / cancel /
- * change plan) + the session-report write + the financial-auditing trio
- * + the student-evaluation rating write + the curriculum lesson CRUD trio
+ * change plan — merged from main) + the curriculum lesson CRUD trio
  * (create / update / delete — merged from main) + the evaluation-booking
  * write (`bookEvaluationSession` — merged from main) + the admin broadcast
  * stop write.
@@ -126,7 +127,9 @@ import {
  * live `printSchema(lexicographicSortSchema(graphQLSchema))` Mutation root
  * inventory verbatim). Re-anchored to the live schema as a documented
  * one-time reconciliation (NOT a silent baseline flip) ahead of pinning
- * the admin-governance pair.
+ * the admin-governance pair; the verification-plan purchase write was
+ * re-anchored post-plan (shipped by the verification-plan-purchase round
+ * but never enumerated here).
  */
 const FROZEN_MUTATION_FIELDS = [
   "adjustTeacherWallet",
@@ -182,7 +185,7 @@ const FROZEN_MUTATION_FIELDS = [
 ] as const;
 
 /**
- * Root query fields — the refreshed 57-op baseline + the whole-platform
+ * Root query fields — the refreshed 59-op baseline + the whole-platform
  * analytics snapshot: the prior frozen baseline + the `_health` probe +
  * the session-report read pair (`sessionHomework` / `sessionReport`) +
  * the reconciled admin-user query quartet + the
@@ -204,7 +207,12 @@ const FROZEN_MUTATION_FIELDS = [
  * (`availableEvaluators` / `myEvaluationLoopStatus` / `myEvaluationSessions`)
  * + the per-plan curriculum read (`planLessons`) + the admin
  * subscription-management read (`adminStudentSubscriptions`) + the
- * wallet ledger read (`myWalletLedger`). Sorted alphabetically (mirrors the live
+ * wallet ledger read (`myWalletLedger`) + the student homework history
+ * read (`studentHomeworkHistory`) + the parent-portal homework read
+ * (`myHomework` — re-anchored post-plan; reuses the parent portal's
+ * canonical homework page projection) + the parent portal deep-link
+ * target read (`parentSessionTarget` — shipped by the notification-plan
+ * round but never enumerated here; re-anchored post-plan). Sorted alphabetically (mirrors the live
  * `printSchema(lexicographicSortSchema(graphQLSchema))` Query root
  * inventory verbatim, with locale-aware case handling:
  * `adminUsers` precedes `adminUserStats` because the locale comparator
@@ -244,6 +252,7 @@ const FROZEN_QUERY_FIELDS = [
   "myEvaluationLoopStatus",
   "myEvaluationSessions",
   "myHandshakeCode",
+  "myHomework",
   "myIncomingParentLinkRequests",
   "myLinkedChildren",
   "myNotifications",
@@ -259,6 +268,7 @@ const FROZEN_QUERY_FIELDS = [
   "parentChildProgress",
   "parentChildReports",
   "parentChildSessions",
+  "parentSessionTarget",
   "planCatalog",
   "planLessons",
   "recitationReadings",
@@ -409,7 +419,7 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 57-op baseline (the sanctioned dispute-resolution reads — the admin dispute analytics/case pair + the student/teacher dispute-case pair + the financial-auditing trio + the parent-portal read quintet + the student-evaluation caller-scoped read + the admin broadcast history read pair + the evaluation-loop reads (status/list/evaluators) + the curriculum-lessons read + the student homework history read + the admin subscription-management read + the wallet ledger read; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 59-op baseline (the sanctioned dispute-resolution reads — the admin dispute analytics/case pair + the student/teacher dispute-case pair + the financial-auditing trio + the parent-portal read quintet + the deep-link target read (`parentSessionTarget`) + the parent-portal homework read (`myHomework`) + the student homework history read (`studentHomeworkHistory`) + the student-evaluation caller-scoped read + the admin broadcast history read pair + the evaluation-loop reads (status/list/evaluators) + the curriculum-lessons read + the admin subscription-management read + the wallet ledger read; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });

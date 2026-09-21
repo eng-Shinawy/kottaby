@@ -14,7 +14,34 @@ import {
 } from "@mui/material";
 import type { ReactNode } from "react";
 import { DEFAULT_SORT, type SearchFilterState } from "@/frontend/views/parent/monitoring/SearchFilterBar.helpers";
-import type { ParentMonitoringLabels } from "@/shared/locale/types/parentMonitoring";
+import { RatingFilterSelect } from "@/frontend/views/parent/monitoring/SearchFilterBar.parts";
+
+/**
+ * The NARROW label contract the bar actually renders. The three search
+ * keys are always required; the select labels are optional because a
+ * consumer may hide those controls entirely (the student homework page
+ * renders search-only) — a select renders ONLY when its copy exists, so
+ * a shown control can never render an empty label. The parent-monitoring
+ * namespace (this bar's origin) declares all of them required on its own
+ * interface and satisfies this contract structurally; the student
+ * homework namespace satisfies it with the search trio alone. Property
+ * ownership stays with the caller's namespace — no cross-namespace
+ * coupling.
+ */
+export interface SearchFilterBarLabels {
+  readonly searchPlaceholder: string;
+  readonly searchClearLabel: string;
+  readonly searchNoResults: string;
+  /** Rating-select copy — present on every namespace that shows the select. */
+  readonly filterByRatingLabel?: string;
+  readonly filterAllRatings?: string;
+  /** Sort-select copy — present on every namespace that shows the select. */
+  readonly sortByLabel?: string;
+  readonly sortDateDesc?: string;
+  readonly sortDateAsc?: string;
+  readonly sortRatingDesc?: string;
+  readonly sortRatingAsc?: string;
+}
 
 export function SearchFilterBar({
   state,
@@ -23,13 +50,16 @@ export function SearchFilterBar({
   resultCount,
   totalCount,
   showRatingFilter = true,
+  showSortFilter = true,
 }: Readonly<{
   state: SearchFilterState;
-  labels: ParentMonitoringLabels;
+  labels: SearchFilterBarLabels;
   onChange: (next: SearchFilterState) => void;
   resultCount: number;
   totalCount: number;
   showRatingFilter?: boolean;
+  /** Hide the sort select — for consumers whose list owns a fixed order. */
+  showSortFilter?: boolean;
 }>): ReactNode {
   const hasFilter = state.query !== "" || state.ratingFilter !== null || state.sort !== DEFAULT_SORT;
   return (
@@ -64,46 +94,28 @@ export function SearchFilterBar({
             },
           }}
         />
-        {showRatingFilter ? (
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel id="rating-filter-label">{labels.filterByRatingLabel}</InputLabel>
+        {showRatingFilter ? <RatingFilterSelect state={state} labels={labels} onChange={onChange} /> : null}
+        {showSortFilter && labels.sortByLabel !== undefined ? (
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel id="sort-label">{labels.sortByLabel}</InputLabel>
             <Select
-              labelId="rating-filter-label"
-              label={labels.filterByRatingLabel}
-              value={state.ratingFilter === null ? "all" : String(state.ratingFilter)}
-              onChange={e => {
-                const v = e.target.value;
-                onChange({ ...state, ratingFilter: v === "all" ? null : Number(v) });
-              }}
+              labelId="sort-label"
+              label={labels.sortByLabel}
+              value={state.sort}
+              onChange={e => onChange({ ...state, sort: e.target.value })}
+              startAdornment={
+                <InputAdornment position="start">
+                  <SortOutlined fontSize="small" />
+                </InputAdornment>
+              }
             >
-              <MenuItem value="all">{labels.filterAllRatings}</MenuItem>
-              <MenuItem value="5">5 / 5</MenuItem>
-              <MenuItem value="4">4 / 5</MenuItem>
-              <MenuItem value="3">3 / 5</MenuItem>
-              <MenuItem value="2">2 / 5</MenuItem>
-              <MenuItem value="1">1 / 5</MenuItem>
+              <MenuItem value="dateDesc">{labels.sortDateDesc}</MenuItem>
+              <MenuItem value="dateAsc">{labels.sortDateAsc}</MenuItem>
+              <MenuItem value="ratingDesc">{labels.sortRatingDesc}</MenuItem>
+              <MenuItem value="ratingAsc">{labels.sortRatingAsc}</MenuItem>
             </Select>
           </FormControl>
         ) : null}
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel id="sort-label">{labels.sortByLabel}</InputLabel>
-          <Select
-            labelId="sort-label"
-            label={labels.sortByLabel}
-            value={state.sort}
-            onChange={e => onChange({ ...state, sort: e.target.value })}
-            startAdornment={
-              <InputAdornment position="start">
-                <SortOutlined fontSize="small" />
-              </InputAdornment>
-            }
-          >
-            <MenuItem value="dateDesc">{labels.sortDateDesc}</MenuItem>
-            <MenuItem value="dateAsc">{labels.sortDateAsc}</MenuItem>
-            <MenuItem value="ratingDesc">{labels.sortRatingDesc}</MenuItem>
-            <MenuItem value="ratingAsc">{labels.sortRatingAsc}</MenuItem>
-          </Select>
-        </FormControl>
       </Stack>
       {hasFilter ? (
         <Typography variant="caption" sx={theme => ({ color: theme.palette.text.secondary })}>

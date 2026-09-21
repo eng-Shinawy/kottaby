@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
 import { AuthContext, type AuthContextType, type AuthUser } from "@/frontend/context/AuthContext";
 import { UserRole } from "@/frontend/graphql/generated/gql/graphql";
-import { DashboardStoryFrame } from "@/frontend/stories/lib/storyHarness";
+import { adminStatsMocks } from "@/frontend/stories/lib/dashboardStatMocks";
+import { DashboardStoryFrame, StoryApolloProvider } from "@/frontend/stories/lib/storyHarness";
 import { DashboardView } from "@/frontend/views/dashboard/home/DashboardView";
 
 /**
@@ -10,16 +11,18 @@ import { DashboardView } from "@/frontend/views/dashboard/home/DashboardView";
  * which renders the shared `DashboardView` via `createRoleDashboardPage(UserRole.Admin, ...)`.
  *
  * Unlike the teacher/student variants, the ADMIN role has no `statusSlot`
- * content, so the surface is: welcome header, the 2x2 placeholder stat grid
- * (Sessions Completed / Balance / Upcoming / Notifications — hardcoded "0"
- * until the Sessions/Wallet/Notifications subsystems land), and the
+ * content, so the surface is: welcome header, the 1x4 live stat grid (total
+ * users / teachers / students / unread notifications from `adminUserStats`
+ * + the shared unread count via `useDashboardStats`), and the
  * getting-started card.
  *
- * There are NO GraphQL queries on this page to mock — the only dynamic input
- * is `useAuth()` (welcome header), so the harness provides `AuthContext`
- * directly instead of an Apollo MockLink. The "Loading" variant models the
- * auth-bootstrapping window (user not yet resolved → falls back to the
- * generic dashboard title).
+ * The only dynamic inputs are `useAuth()` (welcome header) and the stat
+ * strip's two queries (`adminUserStats`, `myUnreadNotificationCount`) —
+ * both mocked on the shared `MockLink` + production-cache harness
+ * (`maxUsageCount: Infinity` so re-mounts stay green). The "Loading"
+ * variant models the auth-bootstrapping window (user not yet resolved →
+ * falls back to the generic dashboard title; the stat queries stay
+ * mounted, so their mocks are provided too).
  *
  * NOTE: `DashboardView` is imported from its file rather than the
  * `@/frontend/views/dashboard` barrel — the barrel also re-exports
@@ -55,14 +58,17 @@ function authValue(overrides: Partial<AuthContextType>): AuthContextType {
   };
 }
 
-/** Provides the auth context the view consumes; no Apollo needed (no queries). */
+/** Provides the auth context + mocked stat queries the view consumes. */
 function AdminDashboardHarness({ auth }: Readonly<{ auth: AuthContextType }>): ReactNode {
+  const statMocks = adminStatsMocks({ totalUsers: 128, teachers: 14, students: 97, unread: 5 });
   return (
-    <AuthContext.Provider value={auth}>
-      <DashboardStoryFrame>
-        <DashboardView />
-      </DashboardStoryFrame>
-    </AuthContext.Provider>
+    <StoryApolloProvider mocks={statMocks}>
+      <AuthContext.Provider value={auth}>
+        <DashboardStoryFrame>
+          <DashboardView />
+        </DashboardStoryFrame>
+      </AuthContext.Provider>
+    </StoryApolloProvider>
   );
 }
 
@@ -79,7 +85,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Signed-in admin — personalized welcome header above the placeholder stats. */
+/** Signed-in admin — personalized welcome header above the live platform stats. */
 export const Default: Story = {
   args: { auth: authValue({}) },
 };

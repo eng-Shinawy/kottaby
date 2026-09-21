@@ -12,7 +12,8 @@
  *      typing later).
  *   2. MANDATED CONTENT — every key required by the parent-monitoring
  *      portal surfaces (portal root + child switcher + zero-children
- *      empty state, detail page header, the five tab labels, Jadid/Madi
+ *      empty state + session deep-link fallback notice, detail page
+ *      header, the five tab labels, Jadid/Madi
  *      track vocabulary, "not rated yet" / "none assigned" / "no
  *      recorded progress yet" fallbacks, per-tab section headings /
  *      counts / empty states / column headers, loading and error copy)
@@ -36,6 +37,13 @@
  *   7. REGISTRY WIRING — the `ParentMonitoring` handle is registered in
  *      `shared/locale/namespaces/index.ts` with the conventional
  *      `<ns>.<ns>` id and its getter resolves the composed bundle slice.
+ *   8. SESSION-TARGET FALLBACK — the deep-link resolution fallback
+ *      notice `sessionTargetUnavailableNotice` exists on BOTH maps,
+ *      pinned to its exact en/ar copy; the ar value is pure Arabic
+ *      script (RTL-correct — no Latin letters, no embedded bidi control
+ *      characters), and BOTH locales stay free of digits and of any
+ *      grade/score/notes/rating surface (the notice states
+ *      unavailability only — no session or child data may surface).
  *
  * Mirrors the structure of `shared/locale/parentLink-namespace.parity.test.ts`
  * (the sibling namespace gate), scaled to this namespace's eight
@@ -56,7 +64,7 @@ import { ParentMonitoring } from "@/shared/locale/namespaces/parentMonitoring";
 
 // ─── Mandated key inventory (the parent-monitoring surface ground truth) ───
 
-/** Every key the parentMonitoring UI namespace must carry (74 slots). */
+/** Every key the parentMonitoring UI namespace must carry (118 slots). */
 const MANDATED_KEYS = [
   // Portal root / linked-children list
   "portalPageTitle",
@@ -66,9 +74,12 @@ const MANDATED_KEYS = [
   "childrenEmptyTitle",
   "childrenEmptyBody",
   "childrenEmptyCta",
+  "sessionTargetUnavailableNotice",
   // Detail page header
   "detailPageTitle",
   "detailPageSubtitle",
+  // Session deep-link row chip
+  "deepLinkChip",
   // Tab labels
   "tabAttendance",
   "tabReports",
@@ -284,7 +295,7 @@ describe("compile-time parity mirror — ar/en key sets agree", () => {
     expect(Object.hasOwn(parentMonitoringEn, key)).toBe(true);
   });
 
-  test("the mandated inventory is exhaustive (no silent key minting beyond the 76 slots)", () => {
+  test("the mandated inventory is exhaustive (no silent key minting beyond the 118 slots)", () => {
     const mandated = new Set<string>(MANDATED_KEYS);
     for (const key of Object.keys(parentMonitoringAr)) {
       expect(mandated.has(key)).toBe(true);
@@ -453,6 +464,30 @@ describe("function-slot inventory — exactly the ten locale functions, on BOTH 
   test("the ar children count renders Arabic-Indic digits (page-date parity)", () => {
     expect(parentMonitoringAr.childrenCount(5)).toContain("٥");
     expect(parentMonitoringEn.childrenCount(5)).toContain("5");
+  });
+});
+
+// ===========================================================================
+describe("session-target deep-link fallback — sessionTargetUnavailableNotice", () => {
+  const EN_NOTICE = "This session's details are no longer available.";
+  const AR_NOTICE = "تفاصيل هذه الجلسة لم تعد متاحة.";
+
+  test("the notice is a non-empty string slot on BOTH maps", () => {
+    expect(stringSlotOf(parentMonitoringEn, "sessionTargetUnavailableNotice", "en")).toBe(EN_NOTICE);
+    expect(stringSlotOf(parentMonitoringAr, "sessionTargetUnavailableNotice", "ar")).toBe(AR_NOTICE);
+  });
+
+  test("the Arabic notice is RTL-correct — pure Arabic script, no Latin letters, no bidi controls", () => {
+    expect(ARABIC_SCRIPT.test(AR_NOTICE)).toBe(true);
+    expect(/[A-Za-z]/.test(AR_NOTICE)).toBe(false);
+    expect(/[\u202A-\u202E\u2066-\u2069\u200E\u200F]/.test(AR_NOTICE)).toBe(false);
+  });
+
+  test("the notice states unavailability only — no digits or grade/score/notes/rating surface in EITHER locale", () => {
+    for (const notice of [EN_NOTICE, AR_NOTICE]) {
+      expect(/\b(grade|graded|score|notes?|rating)\b/i.test(notice)).toBe(false);
+      expect(/\d/.test(notice)).toBe(false);
+    }
   });
 });
 

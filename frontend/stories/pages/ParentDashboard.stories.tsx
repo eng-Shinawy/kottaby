@@ -1,8 +1,10 @@
+import type { MockLink } from "@apollo/client/testing";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { type ReactNode, useMemo } from "react";
 import { AuthContext, type AuthContextType, type AuthUser } from "@/frontend/context/AuthContext";
 import { UserRole } from "@/frontend/graphql/generated/gql/graphql";
-import { DashboardStoryFrame } from "@/frontend/stories/lib/storyHarness";
+import { parentStatsMocks } from "@/frontend/stories/lib/dashboardStatMocks";
+import { DashboardStoryFrame, StoryApolloProvider } from "@/frontend/stories/lib/storyHarness";
 // Direct file import — the `@/frontend/views/dashboard` barrel drags
 // `withPageAuth` (server-only, `pg`-backed) into the Storybook bundle.
 import { DashboardView } from "@/frontend/views/dashboard/home/DashboardView";
@@ -14,15 +16,18 @@ import { DashboardView } from "@/frontend/views/dashboard/home/DashboardView";
  * The page renders `DashboardView` through
  * `createRoleDashboardPage(UserRole.Parent, "/parent/dashboard")` — parents
  * get no status slot (`resolveStatusSlot` returns `undefined` for Parent), so
- * the surface is the shared welcome header + 1x4 stat grid + getting-started
- * card. Everything the view reads is already context-driven: the welcome line
- * comes from `useAuth()` (`user.fullName`) and all copy from the `Dashboard`
- * locale bundle (provided by the global Storybook decorator), so the harness
- * only fixes the auth session state — no Apollo mocks are needed.
+ * the surface is the shared welcome header + 1x4 live stat grid
+ * (linked children / reports received / total sessions / unread) +
+ * getting-started card. The stat strip (`useDashboardStats`) fires
+ * `myLinkedChildren`, the per-child `parentChildReports` /
+ * `parentChildSessions` count envelopes, and the unread-notification
+ * count — all mocked here (`MockLink` + production cache,
+ * `maxUsageCount: Infinity` so re-mounts stay green); the welcome line
+ * comes from `useAuth()` (`user.fullName`) and all copy from the
+ * `Dashboard` locale bundle (provided by the global Storybook decorator).
  *
- * Note: the current parent surface renders no linked-children widget; the
- * fixture models a linked parent of two children (Yusuf and Aisha) since the
- * view only consumes the parent's identity.
+ * Note: the fixture models a linked parent of two children (Yusuf and
+ * Aisha) — the same family shape the stat mocks aggregate.
  */
 
 /** Parent session fixture — a linked parent with two children (Yusuf & Aisha). */
@@ -44,10 +49,11 @@ const PARENT_USER: AuthUser = {
 interface ParentDashboardHarnessProps {
   readonly user: AuthUser | null;
   readonly isLoading: boolean;
+  readonly mocks: readonly MockLink.MockedResponse[];
 }
 
 /** Publishes a fixed auth session to `DashboardView` — mirrors `AuthProvider` shape. */
-function ParentDashboardHarness({ user, isLoading }: Readonly<ParentDashboardHarnessProps>): ReactNode {
+function ParentDashboardHarness({ user, isLoading, mocks }: Readonly<ParentDashboardHarnessProps>): ReactNode {
   const authValue = useMemo<AuthContextType>(
     () => ({
       user,
@@ -60,12 +66,14 @@ function ParentDashboardHarness({ user, isLoading }: Readonly<ParentDashboardHar
     [user, isLoading]
   );
   return (
-    <AuthContext.Provider value={authValue}>
-      {/* Mirrors the dashboard layout's content frame (Container gutters + py). */}
-      <DashboardStoryFrame>
-        <DashboardView />
-      </DashboardStoryFrame>
-    </AuthContext.Provider>
+    <StoryApolloProvider mocks={mocks}>
+      <AuthContext.Provider value={authValue}>
+        {/* Mirrors the dashboard layout's content frame (Container gutters + py). */}
+        <DashboardStoryFrame>
+          <DashboardView />
+        </DashboardStoryFrame>
+      </AuthContext.Provider>
+    </StoryApolloProvider>
   );
 }
 
@@ -74,7 +82,7 @@ const meta = {
   component: ParentDashboardHarness,
   parameters: {
     layout: "fullscreen",
-    controls: { exclude: ["user", "isLoading"] },
+    controls: { exclude: ["user", "isLoading", "mocks"] },
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof ParentDashboardHarness>;
@@ -82,12 +90,32 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Signed-in parent — welcome header uses the parent's name, stat grid placeholders. */
+/** Signed-in parent — welcome header uses the parent's name, live family stat grid. */
 export const Default: Story = {
-  args: { user: PARENT_USER, isLoading: false },
+  args: {
+    user: PARENT_USER,
+    isLoading: false,
+    mocks: parentStatsMocks({
+      children: [
+        { id: 901, fullName: "Yusuf", reportsTotal: 3, sessionsTotal: 6 },
+        { id: 902, fullName: "Aisha", reportsTotal: 2, sessionsTotal: 4 },
+      ],
+      unread: 1,
+    }),
+  },
 };
 
 /** Session still resolving (`AuthContext.isLoading`) — falls back to the generic title. */
 export const Loading: Story = {
-  args: { user: null, isLoading: true },
+  args: {
+    user: null,
+    isLoading: true,
+    mocks: parentStatsMocks({
+      children: [
+        { id: 901, fullName: "Yusuf", reportsTotal: 3, sessionsTotal: 6 },
+        { id: 902, fullName: "Aisha", reportsTotal: 2, sessionsTotal: 4 },
+      ],
+      unread: 1,
+    }),
+  },
 };

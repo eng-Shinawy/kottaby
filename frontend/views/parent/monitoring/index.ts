@@ -19,7 +19,6 @@ export * from "./HomeworkSummary";
 export * from "./HomeworkTab";
 export * from "./ParentChildDetailContainer";
 export * from "./ParentChildrenRootContainer";
-export * from "./PrintExportDialog";
 export * from "./ProgressSummary";
 export * from "./ProgressTab";
 export * from "./RatingTrendChart";

@@ -18,6 +18,7 @@ import { Common } from "@/shared/locale/namespaces/common";
 import { Dashboard } from "@/shared/locale/namespaces/dashboard";
 import { Errors } from "@/shared/locale/namespaces/errors";
 import { HandshakeCode } from "@/shared/locale/namespaces/handshakeCode";
+import { Homework } from "@/shared/locale/namespaces/homework";
 import { Landing } from "@/shared/locale/namespaces/landing";
 import { Lessons } from "@/shared/locale/namespaces/lessons";
 import { Notifications } from "@/shared/locale/namespaces/notifications";
@@ -25,8 +26,10 @@ import { ParentLink } from "@/shared/locale/namespaces/parentLink";
 import { ParentMonitoring } from "@/shared/locale/namespaces/parentMonitoring";
 import { Plans } from "@/shared/locale/namespaces/plans";
 import { Recitation } from "@/shared/locale/namespaces/recitation";
+import { Schedule } from "@/shared/locale/namespaces/schedule";
 import { Sessions } from "@/shared/locale/namespaces/sessions";
 import { SubscriptionAdmin } from "@/shared/locale/namespaces/subscriptionAdmin";
+import { UpNext } from "@/shared/locale/namespaces/upNext";
 import { Wallet } from "@/shared/locale/namespaces/wallet";
 
 export const namespaces = {
@@ -44,6 +47,7 @@ export const namespaces = {
   Dashboard,
   Errors,
   HandshakeCode,
+  Homework,
   Landing,
   Lessons,
   Notifications,
@@ -52,6 +56,8 @@ export const namespaces = {
   Plans,
   Recitation,
   Sessions,
+  Schedule,
+  UpNext,
   SubscriptionAdmin,
   Wallet,
 } as const;

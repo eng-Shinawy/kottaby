@@ -41,6 +41,7 @@ import type {
   HomeWorkSelectType,
   ParentAttendanceEntryReturnType,
   ParentChildProgressReturnType,
+  ParentChildUpcomingSessionReturnType,
   ParentHomeworkEntryReturnType,
   ParentHomeworkPositionReturnType,
   ParentHomeworkTrackReturnType,
@@ -225,6 +226,26 @@ export function mapSessionToAttendanceEntry(row: SessionSelectType): ParentAtten
     status: toSessionStatus(row.status),
     startedAt: row.startedAt,
     endedAt: row.endedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * Maps a raw `session` row onto the parent-facing upcoming-session glance
+ * projection (the parent dashboard's "What's next" card row shape).
+ *
+ * The projection is only ever fed rows the repository already narrowed to
+ * the `scheduled` lifecycle state, so no status column crosses the
+ * boundary (the glance card never invents lifecycle semantics — it
+ * renders what the read guarantees). `fee` passes through VERBATIM (a
+ * nullable decimal rendered on the wire as its string form — the money
+ * discipline: no arithmetic, no re-formatting, a null fee stays null)
+ * and `createdAt` is the booking stamp the row renders.
+ */
+export function mapSessionToUpcomingEntry(row: SessionSelectType): ParentChildUpcomingSessionReturnType {
+  return {
+    sessionId: row.id,
+    fee: row.fee,
     createdAt: row.createdAt,
   };
 }

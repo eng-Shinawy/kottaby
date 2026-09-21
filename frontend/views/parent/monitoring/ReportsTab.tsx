@@ -7,7 +7,6 @@ import { PermissionDeniedFallback } from "@/frontend/components/ui/PermissionDen
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
 import { mapGraphQLErrorByCode } from "@/frontend/providers/apollo/error-link.map";
-import { type PrintableRow, PrintExportDialog } from "@/frontend/views/parent/monitoring/PrintExportDialog";
 import { renderReportsBody } from "@/frontend/views/parent/monitoring/ReportsTab.body";
 import {
   DEFAULT_SORT,
@@ -15,6 +14,7 @@ import {
   type SearchFilterState,
 } from "@/frontend/views/parent/monitoring/SearchFilterBar.helpers";
 import { useAllReportPages } from "@/frontend/views/parent/monitoring/useAllPortalPages";
+import { type PrintableRow, PrintExportDialog } from "@/frontend/views/shared/print-export/PrintExportDialog";
 import { Common, Errors, ParentMonitoring, useAppLocale, useAppTranslation } from "@/shared/locale";
 
 export function ReportsTab(props: Readonly<ReportsTabProps>): ReactNode {
@@ -73,7 +73,7 @@ export function ReportsTab(props: Readonly<ReportsTabProps>): ReactNode {
       col4: row.teacherNotes ?? "",
     })) ?? [];
   return (
-    <Stack spacing={2} sx={{ width: "100%" }}>
+    <Stack spacing={2.5} sx={{ width: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1 }}>
         <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
           {rows === undefined ? t.reportsSectionTitle : t.reportsCount(rows.length)}
@@ -100,11 +100,12 @@ export function ReportsTab(props: Readonly<ReportsTabProps>): ReactNode {
             setPrintOpen(false);
           }}
           rows={printableRows}
-          childName={props.childName}
+          metaSubject={props.childName}
           title={t.printDialogTitle}
           colHeaders={[t.attendanceColumnDate, t.csvStatusColumn, t.reportsColumnRating, t.reportsColumnNotes]}
           countLabel={t.reportsCount}
           filePrefix="parent-portal-reports"
+          labels={{ printOption: t.printOption, exportCsvOption: t.exportCsvOption }}
         />
       ) : null}
     </Stack>

@@ -7,6 +7,7 @@ import {
   type SeedConfig,
   type SeedStepResult,
 } from "@/backend/db/seeds/lib";
+import { seedOrGetDemoPaidFlow, seedOrGetDemoSessionFlow, seedOrGetParentLinkage } from "@/backend/db/seeds/parents";
 import { seedOrGetStudents } from "@/backend/db/seeds/students";
 import { getDemoAdminActorId, seedOrGetUsers } from "@/backend/db/seeds/users";
 import { SubscriptionCreditLane } from "@/backend/enum/billing/subscription-credit-lane.enum";
@@ -55,6 +56,46 @@ export async function runAllSeeds(config?: SeedConfig): Promise<void> {
   // production grant entry point only to rows whose trial marker is still null.
   const studentsStep = await runSeedStep("students", () => seedOrGetStudents(usersStep.value ?? []));
   stepResults.push(studentsStep);
+
+  // Steps 4–6 (demo-linkage, demo-session-flow, demo-paid-flow) are the
+  // DEMO STORY steps: they certify the demo teacher, book/start/complete
+  // sessions, purchase + settle a subscription, and submit reports. They
+  // run ONLY on the standard profile — the minimal profile exists for
+  // lightweight test/visual sandboxes where no demo booking state should
+  // exist (and where a failed booking arm mid-run could otherwise strand
+  // partial subscription/link state behind a thrown seed).
+  if (seedConfig.profile === "standard") {
+    // Step 4: Demo linkage (teacher cold-start certification + parent↔student
+    // handshake link). Runs the production admin-certification and parent-link
+    // entry points so the seeded trio can exercise teacher booking and the
+    // linked-child parent portal out of the box. Idempotent — both arms skip
+    // when their target state already holds.
+    const linkageStep = await runSeedStep("demo-linkage", () => seedOrGetParentLinkage(adminActorId));
+    stepResults.push(linkageStep);
+
+    // Step 5: Demo session flow (book → start → complete → report with the
+    // demo homework assignment). Depends on Step 4: the booking path denies
+    // an uncertified demo teacher. Reconciles partial runs (drains in-flight
+    // sessions, reports stranded completed ones) and soft-skips the booking
+    // arm when the demo student's balance lanes are exhausted.
+    const sessionFlowStep = await runSeedStep("demo-session-flow", () => seedOrGetDemoSessionFlow());
+    stepResults.push(sessionFlowStep);
+
+    // Step 6: Demo paid flow (student confirmations → active subscription →
+    // subscription-funded paid session). Depends on Step 5: the confirm arm
+    // reconciles that step's completed trial session (its student stamp is
+    // what credits the teacher's wallet), and the booking path denies an
+    // uncertified demo teacher. Purchases through the production purchase
+    // flow and settles through the production activation entry — the built-in
+    // mock gateway settles in development runtimes only. Idempotent — each
+    // arm skips when its target state already holds; a stranded pending
+    // purchase from a partial earlier run is settled (recovered) instead of
+    // re-purchased.
+    const paidFlowStep = await runSeedStep("demo-paid-flow", () => seedOrGetDemoPaidFlow());
+    stepResults.push(paidFlowStep);
+  } else {
+    logger.info("Demo linkage/session/paid-flow steps skipped (minimal profile: no demo booking state)");
+  }
 
   logFailedSeedSteps(stepResults);
 

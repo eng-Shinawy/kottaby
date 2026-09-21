@@ -27,8 +27,10 @@ export const TAB_ICONS: Readonly<Record<TabKey, ReactElement>> = {
 };
 
 /**
- * renderTabContent — mounts the active tab with its data props and the
- * page-level recovery affordance every tab hands to its FORBIDDEN fallback.
+ * renderTabContent — mounts the active tab with its data props, the
+ * page-level recovery affordance every tab hands to its FORBIDDEN fallback,
+ * and the `?session=` deep-link highlight pointer the three content tabs
+ * (reports, homework, evaluations) share for the same session's row.
  * Extracted from the container to keep both files under the line-count
  * lint budget.
  */
@@ -43,9 +45,9 @@ export function renderTabContent(
     case "reports":
       return <ReportsTab studentId={studentId} session={session} childName={childName} deniedAction={deniedAction} />;
     case "homework":
-      return <HomeworkTab studentId={studentId} deniedAction={deniedAction} />;
+      return <HomeworkTab studentId={studentId} session={session} deniedAction={deniedAction} />;
     case "evaluations":
-      return <EvaluationsTab studentId={studentId} deniedAction={deniedAction} />;
+      return <EvaluationsTab studentId={studentId} session={session} deniedAction={deniedAction} />;
     case "progress":
       return <ProgressTab studentId={studentId} deniedAction={deniedAction} />;
     default:

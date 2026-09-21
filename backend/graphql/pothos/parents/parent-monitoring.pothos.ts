@@ -1,6 +1,6 @@
 /**
- * ParentMonitoringPothosObjects — the ten GraphQL presentations backing the
- * parent portal read surfaces.
+ * ParentMonitoringPothosObjects — the eleven GraphQL presentations backing
+ * the parent portal read surfaces.
  *
  * Single Canonical Object Type Pattern (`backend/graphql/AGENTS.md`):
  *  - Backed EXCLUSIVELY by the canonical parent-monitoring return types from
@@ -14,9 +14,9 @@
  *    participant surface).
  *  - `id` is the FIRST exposed field on every entity-shaped object and
  *    non-nullable (`t.exposeID` → `ID!`) — Apollo normalization requires a
- *    stable entity key at the first field. The four page wrapper objects
- *    and the two composite value objects (`ParentHomeworkTrack`,
- *    `ParentHomeworkPosition`, `ParentChildProgress`) carry no row id and
+ *    stable entity key at the first field. The three page wrapper objects
+ *    and the value objects (`ParentHomeworkTrack`, `ParentHomeworkPosition`,
+ *    `ParentChildProgress`, `ParentSessionTarget`) carry no row id and
  *    expose their structural fields directly.
  *  - Enum fields reference the ONCE-registered `SessionStatusPothosEnum`
  *    and `SurahJuzRefPothosEnum` from `shared/enum.pothos.ts`. Domain
@@ -52,6 +52,8 @@ import type {
   ParentAttendanceEntryReturnType,
   ParentAttendancePageReturnType,
   ParentChildProgressReturnType,
+  ParentChildUpcomingBlockReturnType,
+  ParentChildUpcomingSessionReturnType,
   ParentHomeworkEntryReturnType,
   ParentHomeworkPageReturnType,
   ParentHomeworkPositionReturnType,
@@ -59,6 +61,7 @@ import type {
   ParentLinkedChildReturnType,
   ParentReportEntryReturnType,
   ParentReportPageReturnType,
+  ParentSessionTargetReturnType,
 } from "@/backend/types/parents";
 
 /**
@@ -337,5 +340,85 @@ export const ParentChildProgressPothosObject = gqlSchemaBuilder
         nullable: true,
         resolve: parent => parent.latestMadiPosition,
       }),
+    }),
+  });
+
+/**
+ * The canonical `ParentSessionTarget` GraphQL object — the closed
+ * two-field resolution of a completion notification's session pointer:
+ * the session id plus the linked child who owns it. A value object with
+ * no row id — the portal root builds the deep-link landing URL from the
+ * pair alone, and nothing else about the session crosses the boundary.
+ */
+export const ParentSessionTargetPothosObject = gqlSchemaBuilder
+  .objectRef<ParentSessionTargetReturnType>("ParentSessionTarget")
+  .implement({
+    fields: t => ({
+      // The resolved session id — `Int!` (the pointer value the parent
+      // followed from the completion notification row).
+      sessionId: t.exposeInt("sessionId"),
+      // The linked child who owns the session — `Int!` (the landing
+      // route's student segment).
+      studentId: t.exposeInt("studentId"),
+    }),
+  });
+
+/**
+ * The canonical `ParentChildUpcomingSession` GraphQL object — one
+ * upcoming-session glance row for a linked child (the parent dashboard's
+ * "What's next" card row). A value object keyed by the owning session id
+ * with no `id` field of its own (the `ParentSessionTarget` precedent) —
+ * registered with `keyFields: false` in `apolloCache.ts` and read back
+ * embedded under its block. `fee` passes through verbatim (nullable —
+ * the money discipline: no arithmetic, no re-formatting); `createdAt`
+ * is the booking stamp the row renders. Only `scheduled` rows are ever
+ * projected, so no status column crosses this boundary.
+ */
+export const ParentChildUpcomingSessionPothosObject = gqlSchemaBuilder
+  .objectRef<ParentChildUpcomingSessionReturnType>("ParentChildUpcomingSession")
+  .implement({
+    fields: t => ({
+      // The owning session's id — `Int!` (the glance row's stable key
+      // for the list rendering).
+      sessionId: t.exposeInt("sessionId"),
+      // The platform-set session fee — nullable `String` (the decimal's
+      // wire string form). NEVER coerced: a session booked without a fee
+      // stays null (the UI renders the honest dash).
+      fee: t.exposeString("fee", { nullable: true }),
+      // Row creation (booking) timestamp — NOT NULL column, non-nullable
+      // `DateTime!`.
+      createdAt: t.expose("createdAt", { type: "DateTime" }),
+    }),
+  });
+
+/**
+ * The canonical `ParentChildUpcomingBlock` GraphQL object — one per-child
+ * block of the parent dashboard's upcoming-sessions glance read: the
+ * confirmed-linked child echo plus that child's glance window of
+ * scheduled sessions and the honest scheduled total. A composite value
+ * object with no row id (`keyFields: false` — the normalizable entity is
+ * the embedded `ParentLinkedChild`), replaced wholesale on refetch.
+ */
+export const ParentChildUpcomingBlockPothosObject = gqlSchemaBuilder
+  .objectRef<ParentChildUpcomingBlockReturnType>("ParentChildUpcomingBlock")
+  .implement({
+    fields: t => ({
+      // The confirmed-linked child echo — non-null `ParentLinkedChild!`
+      // (id first on the embedded entity, so the block group's hop target
+      // and the children surface share one normalized cache entry).
+      child: t.field({
+        type: ParentLinkedChildPothosObject,
+        resolve: parent => parent.child,
+      }),
+      // The child's glance window of scheduled sessions — the service
+      // caps it; the card derives its tail from the count difference.
+      upcomingSessions: t.field({
+        type: [ParentChildUpcomingSessionPothosObject],
+        resolve: parent => parent.upcomingSessions,
+      }),
+      // The child's TRUE scheduled-session count under the same filter
+      // the window was read with — non-null `Int!` (the honest tail's
+      // source; never a fabricated estimate).
+      scheduledTotalCount: t.exposeInt("scheduledTotalCount"),
     }),
   });

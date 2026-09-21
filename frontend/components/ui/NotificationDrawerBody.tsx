@@ -96,14 +96,15 @@ interface NotificationDrawerListProps {
  * The settled rows list. Row anatomy follows the prototype: unread dot +
  * bold title + end-aligned locale-formatted timestamp + 2-line-clamped body.
  * Each row IS a real anchor whose href resolves through
- * `resolveNotificationRoute(relatedEntityType, type, userRole)` —
+ * `resolveNotificationRoute(relatedEntityType, type, userRole, relatedEntityId)` —
  * entity-type-keyed deep links (parent-link rows land on the student
  * decision route; session rows land per the type+role matrix — the admin
- * console for disputes, each participant's own session list; and when no
- * role resolves, session-completion rows still land on the student
- * sessions route via the role-less type stage), while unknown or absent
- * pointers fall through to the notifications feed page. Either way
- * navigation is native — no router call.
+ * console for disputes, each participant's own session list, and the parent
+ * session-completion row on the portal-root entry URL carrying the row's
+ * session id; and when no role resolves, session-completion rows still land
+ * on the student sessions route via the role-less type stage), while
+ * unknown or absent pointers fall through to the notifications feed page.
+ * Either way navigation is native — no router call.
  */
 function NotificationDrawerList({
   items,
@@ -118,7 +119,7 @@ function NotificationDrawerList({
         <ListItemButton
           key={item.id}
           component={Link}
-          href={resolveNotificationRoute(item.relatedEntityType, item.type, userRole)}
+          href={resolveNotificationRoute(item.relatedEntityType, item.type, userRole, item.relatedEntityId)}
           divider={index < items.length - 1}
           onClick={() => onOpenNotification(item)}
           sx={{ ...focusVisibleRingSx, alignItems: "flex-start", gap: 1.5, px: 2, py: 1.5 }}
