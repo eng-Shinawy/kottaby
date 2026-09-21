@@ -12,7 +12,7 @@ import {
   InfoOutlined as InfoIcon,
   VisibilityOutlined as ShowPasswordIcon,
 } from "@mui/icons-material";
-import { IconButton, InputAdornment, Stack, TextField, Typography } from "@mui/material";
+import { IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import { type ReactNode, useState } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { AdminDialogFieldLabel } from "@/frontend/views/admin/users/dialogs";
@@ -55,29 +55,31 @@ export function CreateUserCredentialField({
           input: {
             endAdornment: (
               <InputAdornment position="end">
-                <IconButton
-                  aria-label={showPassword ? authLabels.hidePassword : authLabels.showPassword}
-                  onClick={() => setShowPassword(prev => !prev)}
-                  size="small"
-                  // Borderless icon-only affordance — the hover wash plus the
-                  // shared copper focus-visible ring (focusVisibleRingSx,
-                  // audit-R4 pattern from focusRing.ts) are the state changes.
-                  sx={theme => ({
-                    ...focusVisibleRingSx,
-                    border: "none",
-                    boxShadow: "none",
-                    backgroundColor: "transparent",
-                    // 44px touch target via transparent padding pulled back
-                    // with matching negative margins (same trick as the
-                    // auth/profile eye toggles) — the input row keeps
-                    // its natural height.
-                    p: 1.5,
-                    m: -1.5,
-                    "&:hover": { backgroundColor: theme.palette.action.hover },
-                  })}
-                >
-                  {showPassword ? <HidePasswordIcon fontSize="small" /> : <ShowPasswordIcon fontSize="small" />}
-                </IconButton>
+                <Tooltip title={showPassword ? authLabels.hidePassword : authLabels.showPassword}>
+                  <IconButton
+                    aria-label={showPassword ? authLabels.hidePassword : authLabels.showPassword}
+                    onClick={() => setShowPassword(prev => !prev)}
+                    size="small"
+                    // Borderless icon-only affordance — the hover wash plus the
+                    // shared copper focus-visible ring (focusVisibleRingSx,
+                    // audit-R4 pattern from focusRing.ts) are the state changes.
+                    sx={theme => ({
+                      ...focusVisibleRingSx,
+                      border: "none",
+                      boxShadow: "none",
+                      backgroundColor: "transparent",
+                      // 44px touch target via transparent padding pulled back
+                      // with matching negative margins (same trick as the
+                      // auth/profile eye toggles) — the input row keeps
+                      // its natural height.
+                      p: 1.5,
+                      m: -1.5,
+                      "&:hover": { backgroundColor: theme.palette.action.hover },
+                    })}
+                  >
+                    {showPassword ? <HidePasswordIcon fontSize="small" /> : <ShowPasswordIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
               </InputAdornment>
             ),
           },

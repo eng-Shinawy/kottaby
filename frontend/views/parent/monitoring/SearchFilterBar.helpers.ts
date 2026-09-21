@@ -27,9 +27,9 @@ export function filterReportRows<T extends FilterableReportRow>(
       continue;
     }
     if (q !== "") {
-      const notesMatch = row.teacherNotes?.toLowerCase().includes(q);
-      const dateMatch = dateMatcher(row, q);
-      if (!notesMatch && !dateMatch) {
+      const notesMatch = row.teacherNotes?.toLowerCase().includes(q) ?? false;
+      const dateMatch = notesMatch || dateMatcher(row, q);
+      if (!dateMatch) {
         continue;
       }
     }
@@ -75,8 +75,8 @@ export function homeworkRowMatchesQuery<T extends FilterableHomeworkRow>(
   }
   const jadiz = row.jadid?.surahJuz?.toLowerCase() ?? "";
   const madiz = row.madi?.surahJuz?.toLowerCase() ?? "";
-  const dateMatch = dateMatcher(row, q);
-  return jadiz.includes(q) || madiz.includes(q) || dateMatch;
+  const textMatch = jadiz.includes(q) || madiz.includes(q);
+  return textMatch || dateMatcher(row, q);
 }
 
 export function filterHomeworkRows<T extends FilterableHomeworkRow>(

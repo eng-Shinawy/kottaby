@@ -1,17 +1,15 @@
 "use client";
 
-import { NavigateBeforeOutlined, NavigateNextOutlined } from "@mui/icons-material";
-import { IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
-import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
+import { DirectoryPagerRow } from "@/frontend/views/admin/directory-shared/DirectoryPagerRow";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
 
 /**
  * AdminDisputesPager — the admin arbitration queue's prev/next pager. It
  * renders ONLY when the honest total spans more than one page (the caller
  * guards that); the page label reads `page / totalPages` and both buttons
- * clamp at the edges (`disabled` at page 1 and the last page). Extracted
- * verbatim from `AdminDisputesContainer`'s body; behavior is unchanged.
+ * clamp at the edges (`disabled` at page 1 and the last page). Delegates
+ * to `DirectoryPagerRow`.
  */
 
 interface AdminDisputesPagerProps {
@@ -33,48 +31,14 @@ export function AdminDisputesPager({
   t,
 }: Readonly<AdminDisputesPagerProps>): ReactNode {
   return (
-    <Stack
-      data-testid="admin-disputes-pager"
-      sx={{
-        gap: 1,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        py: 1,
-      }}
-    >
-      <Tooltip title={t.pagerPreviousLabel}>
-        <span>
-          <IconButton
-            aria-label={t.pagerPreviousLabel}
-            data-testid="admin-disputes-pager-prev"
-            disabled={page <= 1}
-            onClick={() => onPageChange(page - 1)}
-            sx={focusVisibleRingSx}
-          >
-            <NavigateBeforeOutlined />
-          </IconButton>
-        </span>
-      </Tooltip>
-      <Typography
-        variant="body2"
-        sx={theme => ({ color: theme.palette.text.secondary, minWidth: 64, textAlign: "center" })}
-      >
-        {page} / {totalPages}
-      </Typography>
-      <Tooltip title={t.pagerNextLabel}>
-        <span>
-          <IconButton
-            aria-label={t.pagerNextLabel}
-            data-testid="admin-disputes-pager-next"
-            disabled={page >= totalPages}
-            onClick={() => onPageChange(page + 1)}
-            sx={focusVisibleRingSx}
-          >
-            <NavigateNextOutlined />
-          </IconButton>
-        </span>
-      </Tooltip>
-    </Stack>
+    <DirectoryPagerRow
+      testId="admin-disputes-pager"
+      page={page}
+      totalPages={totalPages}
+      busy={false}
+      prevLabel={t.pagerPreviousLabel}
+      nextLabel={t.pagerNextLabel}
+      onPageChange={onPageChange}
+    />
   );
 }

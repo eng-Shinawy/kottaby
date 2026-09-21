@@ -19,6 +19,9 @@ export enum BroadcastAudienceType {
   Plan = "plan",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const BROADCAST_AUDIENCE_TYPE_MEMBERS: ReadonlySet<string> = new Set(Object.values(BroadcastAudienceType));
+
 /**
  * Type guard for a runtime audience-kind value (from a compose input or a
  * transport payload). Returns `true` only for exact member strings — the
@@ -26,5 +29,5 @@ export enum BroadcastAudienceType {
  * whitespace, foreign values) rather than throwing.
  */
 export function isBroadcastAudienceType(value: unknown): value is BroadcastAudienceType {
-  return typeof value === "string" && (Object.values(BroadcastAudienceType) as string[]).includes(value);
+  return typeof value === "string" && BROADCAST_AUDIENCE_TYPE_MEMBERS.has(value);
 }

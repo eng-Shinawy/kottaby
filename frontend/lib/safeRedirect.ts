@@ -22,15 +22,27 @@
  * Implemented as a type guard (`url is string`) so callers can use the
  * narrowed type after the check without an unsafe `as` assertion.
  */
+function hasControlOrBackslashChar(raw: string): boolean {
+  for (let i = 0; i < raw.length; i++) {
+    const code = raw.charCodeAt(i);
+    // 92 is '\\', <= 31 includes ASCII control chars (tab, newline, CR, null, etc.)
+    // 127-159 is C1 control codes.
+    if (code === 92 || code <= 31 || (code >= 127 && code <= 159)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function isSafeRedirect(url: string | null | undefined): url is string {
   if (!url) return false;
   // Must start with a single slash — protocol-relative `//host` is blocked.
   if (!url.startsWith("/")) return false;
   if (url.startsWith("//")) return false;
-  // A raw backslash folds into "/" under WHATWG URL parsing ("/\\host" ≡
-  // "//host" after normalization) — fail closed. Legitimate same-origin paths
-  // never contain a backslash.
-  if (url.includes("\\")) return false;
+  // Backslash or ASCII/C1 control characters anywhere → fail closed.
+  // WHATWG URL parsing strips control characters (e.g., "/\tevil.com" ≡ "//evil.com"
+  // or "http://evil.com/") and folds backslashes into slashes ("/\\evil.com" ≡ "//evil.com").
+  if (hasControlOrBackslashChar(url)) return false;
   // Block scheme-prefixed values (`javascript:`, `data:`, etc.) even if
   // leading whitespace was used to smuggle them past the first check.
   const trimmed = url.trimStart().toLowerCase();

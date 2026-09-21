@@ -31,6 +31,10 @@ describe("isSafeRedirect — same-origin type guard", () => {
       "/\\evil.example/x",
       "/\\/evil.example/x",
       "\\evil.example",
+      "/\tevil.example",
+      "/\nevil.example",
+      "/\revil.example",
+      "/\0evil.example",
     ]) {
       expect(isSafeRedirect(hostile)).toBe(false);
     }

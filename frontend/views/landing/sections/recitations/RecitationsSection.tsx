@@ -7,33 +7,29 @@ import { SectionWrapper } from "@/frontend/views/landing/layout";
 import { RecitationGrid } from "@/frontend/views/landing/sections/recitations/RecitationGrid";
 import { Landing, useAppTranslation } from "@/shared/locale";
 
+const RECITATIONS = [
+  { name: "Hafs ʿan ʿĀṣim", lowerName: "hafs ʿan ʿāṣim", arabic: "حفص عن عاصم", popular: true },
+  { name: "Shuʿba ʿan ʿĀṣim", lowerName: "shuʿba ʿan ʿāṣim", arabic: "شعبة عن عاصم" },
+  { name: "Qālūn ʿan Nāfiʿ", lowerName: "qālūn ʿan nāfiʿ", arabic: "قالون عن نافع" },
+  { name: "Warsh ʿan Nāfiʿ", lowerName: "warsh ʿan nāfiʿ", arabic: "ورش عن نافع" },
+  { name: "al-Dūrī ʿan Abī ʿAmr", lowerName: "al-dūrī ʿan abī ʿamr", arabic: "الدوري عن أبي عمرو" },
+  { name: "al-Sūsī ʿan Abī ʿAmr", lowerName: "al-sūsī ʿan abī ʿamr", arabic: "السوسي عن أبي عمرو" },
+  { name: "Hishām ʿan Ibn ʿĀmir", lowerName: "hishām ʿan ibn ʿāmir", arabic: "هشام عن ابن عامر" },
+  { name: "Ibn Dhakwān ʿan Ibn ʿĀmir", lowerName: "ibn dhakwān ʿan ibn ʿāmir", arabic: "ابن ذكوان عن ابن عامر" },
+  { name: "Khalaf ʿan Ḥamzah", lowerName: "khalaf ʿan ḥamzah", arabic: "خلف عن حمزة" },
+  { name: "al-Dūrī ʿan al-Kisāʾī", lowerName: "al-dūrī ʿan al-kisāʾī", arabic: "الدوري عن الكسائي" },
+] as const;
+
 // ─── Recitations showcase ────────────────────────────────────────────
 
 export function RecitationsSection(): ReactNode {
   const t = useAppTranslation(Landing);
   const [search, setSearch] = useState("");
 
-  const recitations = useMemo(
-    () => [
-      { name: "Hafs ʿan ʿĀṣim", arabic: "حفص عن عاصم", popular: true },
-      { name: "Shuʿba ʿan ʿĀṣim", arabic: "شعبة عن عاصم" },
-      { name: "Qālūn ʿan Nāfiʿ", arabic: "قالون عن نافع" },
-      { name: "Warsh ʿan Nāfiʿ", arabic: "ورش عن نافع" },
-      { name: "al-Dūrī ʿan Abī ʿAmr", arabic: "الدوري عن أبي عمرو" },
-      { name: "al-Sūsī ʿan Abī ʿAmr", arabic: "السوسي عن أبي عمرو" },
-      { name: "Hishām ʿan Ibn ʿĀmir", arabic: "هشام عن ابن عامر" },
-      { name: "Ibn Dhakwān ʿan Ibn ʿĀmir", arabic: "ابن ذكوان عن ابن عامر" },
-      { name: "Khalaf ʿan Ḥamzah", arabic: "خلف عن حمزة" },
-      { name: "al-Dūrī ʿan al-Kisāʾī", arabic: "الدوري عن الكسائي" },
-    ],
-    []
-  );
-
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    if (!q) return recitations;
-    return recitations.filter(r => r.name.toLowerCase().includes(q) || r.arabic.includes(q));
-  }, [search, recitations]);
+    const q = search.toLowerCase().trim();
+    return RECITATIONS.filter(r => r.lowerName.includes(q) || r.arabic.includes(q));
+  }, [search]);
 
   return (
     <SectionWrapper badge={t.recitationsBadge} title={t.recitationsTitle} subtitle={t.recitationsSubtitle} bg="paper">

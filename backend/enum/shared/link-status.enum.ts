@@ -11,6 +11,9 @@ export enum LinkStatus {
   Expired = "expired",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const LINK_STATUS_MEMBERS: ReadonlySet<string> = new Set(Object.values(LinkStatus));
+
 /**
  * Type guard for a runtime link-status value (from a pgEnum row or a
  * transport payload). Returns `true` only for exact member strings — the
@@ -18,5 +21,5 @@ export enum LinkStatus {
  * whitespace, foreign values) rather than throwing.
  */
 export function isLinkStatus(value: unknown): value is LinkStatus {
-  return typeof value === "string" && (Object.values(LinkStatus) as string[]).includes(value);
+  return typeof value === "string" && LINK_STATUS_MEMBERS.has(value);
 }

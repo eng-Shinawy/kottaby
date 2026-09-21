@@ -18,6 +18,9 @@ export enum NotificationType {
   SessionDisputeResolved = "session_dispute_resolved",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const NOTIFICATION_TYPE_MEMBERS: ReadonlySet<string> = new Set(Object.values(NotificationType));
+
 /**
  * Type guard for a runtime notification-type value (from a `notification_type`
  * row column or a transport payload). Returns `true` only for exact member
@@ -25,5 +28,5 @@ export enum NotificationType {
  * mismatch, whitespace, foreign values) rather than throwing.
  */
 export function isNotificationType(value: unknown): value is NotificationType {
-  return typeof value === "string" && (Object.values(NotificationType) as string[]).includes(value);
+  return typeof value === "string" && NOTIFICATION_TYPE_MEMBERS.has(value);
 }

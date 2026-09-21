@@ -93,6 +93,9 @@ export function clampPageInput(input: ParentPageInput | undefined): {
   return { page, pageSize, offset: (page - 1) * pageSize };
 }
 
+/** Pre-allocated lookup set for O(1) session status membership check. */
+const SESSION_STATUS_MEMBERS: ReadonlySet<string> = new Set(Object.values(SessionStatus));
+
 /**
  * Fail-closed runtime type-guard for a raw `session_status` pgEnum value
  * (a string union on the wire). Returns `true` only for an exact
@@ -100,7 +103,7 @@ export function clampPageInput(input: ParentPageInput | undefined): {
  * (wrong type, case mismatch, foreign value).
  */
 function isSessionStatus(value: unknown): value is SessionStatus {
-  return typeof value === "string" && (Object.values(SessionStatus) as string[]).includes(value);
+  return typeof value === "string" && SESSION_STATUS_MEMBERS.has(value);
 }
 
 /**

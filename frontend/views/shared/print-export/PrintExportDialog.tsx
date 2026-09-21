@@ -1,10 +1,11 @@
 "use client";
 
 import { CloseOutlined, DownloadOutlined, PrintOutlined } from "@mui/icons-material";
-import { Box, Button, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
+import { Box, Button, Dialog, DialogContent, DialogTitle, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
-import { useAppLocale } from "@/shared/locale";
+import { Common, useAppLocale, useAppTranslation } from "@/shared/locale";
 
 export interface PrintableRow {
   readonly date: string;
@@ -67,6 +68,7 @@ export function PrintExportDialog({
   filePrefix: string;
   labels: PrintExportLabels;
 }>): ReactNode {
+  const commonT = useAppTranslation(Common);
   const locale = useAppLocale();
   const handlePrint = () => {
     onClose();
@@ -95,9 +97,11 @@ export function PrintExportDialog({
         <Typography variant="h6" component="span" sx={{ fontWeight: 700 }}>
           {title}
         </Typography>
-        <IconButton aria-label="close" onClick={onClose} size="small">
-          <CloseOutlined />
-        </IconButton>
+        <Tooltip title={commonT.close}>
+          <IconButton aria-label={commonT.close} onClick={onClose} size="small" sx={focusVisibleRingSx}>
+            <CloseOutlined />
+          </IconButton>
+        </Tooltip>
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ py: 1 }}>

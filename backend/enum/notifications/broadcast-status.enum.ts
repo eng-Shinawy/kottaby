@@ -15,6 +15,9 @@ export enum BroadcastStatus {
   Stopped = "stopped",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const BROADCAST_STATUS_MEMBERS: ReadonlySet<string> = new Set(Object.values(BroadcastStatus));
+
 /**
  * Type guard for a runtime broadcast-status value (from a transport payload
  * or a persisted row read-back). Returns `true` only for exact member
@@ -22,5 +25,5 @@ export enum BroadcastStatus {
  * mismatch, whitespace, foreign values) rather than throwing.
  */
 export function isBroadcastStatus(value: unknown): value is BroadcastStatus {
-  return typeof value === "string" && (Object.values(BroadcastStatus) as string[]).includes(value);
+  return typeof value === "string" && BROADCAST_STATUS_MEMBERS.has(value);
 }

@@ -16,6 +16,9 @@ export enum ApplicantStatus {
   Passed = "passed",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const APPLICANT_STATUS_MEMBERS: ReadonlySet<string> = new Set(Object.values(ApplicantStatus));
+
 /**
  * Type guard for a runtime applicant-status value (from a varchar row or a
  * transport payload). Returns `true` only for exact member strings — the
@@ -23,5 +26,5 @@ export enum ApplicantStatus {
  * whitespace, foreign values) rather than throwing.
  */
 export function isApplicantStatus(value: unknown): value is ApplicantStatus {
-  return typeof value === "string" && (Object.values(ApplicantStatus) as string[]).includes(value);
+  return typeof value === "string" && APPLICANT_STATUS_MEMBERS.has(value);
 }

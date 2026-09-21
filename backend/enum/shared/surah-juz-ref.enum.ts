@@ -43,6 +43,9 @@ export enum SurahJuzRef {
   Juz30 = "juz_30",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const SURAH_JUZ_REF_MEMBERS: ReadonlySet<string> = new Set(Object.values(SurahJuzRef));
+
 /**
  * Type guard for a runtime surah/juz reference value (from a pgEnum row or a
  * transport payload). Returns `true` only for exact member strings — the
@@ -50,5 +53,5 @@ export enum SurahJuzRef {
  * whitespace, foreign values) rather than throwing.
  */
 export function isSurahJuzRef(value: unknown): value is SurahJuzRef {
-  return typeof value === "string" && (Object.values(SurahJuzRef) as string[]).includes(value);
+  return typeof value === "string" && SURAH_JUZ_REF_MEMBERS.has(value);
 }

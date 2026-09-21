@@ -1,7 +1,16 @@
 "use client";
 
 import { LockOutlined, VisibilityOffOutlined, VisibilityOutlined } from "@mui/icons-material";
-import { Box, CircularProgress, IconButton, InputAdornment, Stack, TextField, Typography } from "@mui/material";
+import {
+  Box,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import type { ReactNode } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { Auth, useAppTranslation } from "@/shared/locale";
@@ -118,21 +127,23 @@ export function PasswordField({
           startAdornment: <LockOutlined fontSize="small" sx={{ mr: 1, color: "var(--mui-palette-action-active)" }} />,
           endAdornment: (
             <InputAdornment position="end">
-              <IconButton
-                aria-label={showPassword ? t.hidePassword : t.showPassword}
-                onClick={onToggleShow}
-                size="small"
-                sx={{
-                  ...focusVisibleRingSx,
-                  // 44px touch target: 12px padding around the 20px glyph,
-                  // pulled back with matching negative margins so the input
-                  // row keeps its natural height (invisible-padding trick).
-                  p: 1.5,
-                  m: -1.5,
-                }}
-              >
-                {showPassword ? <VisibilityOffOutlined fontSize="small" /> : <VisibilityOutlined fontSize="small" />}
-              </IconButton>
+              <Tooltip title={showPassword ? t.hidePassword : t.showPassword}>
+                <IconButton
+                  aria-label={showPassword ? t.hidePassword : t.showPassword}
+                  onClick={onToggleShow}
+                  size="small"
+                  sx={{
+                    ...focusVisibleRingSx,
+                    // 44px touch target: 12px padding around the 20px glyph,
+                    // pulled back with matching negative margins so the input
+                    // row keeps its natural height (invisible-padding trick).
+                    p: 1.5,
+                    m: -1.5,
+                  }}
+                >
+                  {showPassword ? <VisibilityOffOutlined fontSize="small" /> : <VisibilityOutlined fontSize="small" />}
+                </IconButton>
+              </Tooltip>
             </InputAdornment>
           ),
         },

@@ -15,7 +15,7 @@ Draft Academy is delivered across **5 milestones** (M0–M4) spanning **5 two-we
 | **M1 — Core Domain MVP** | Milestone 1 | Weeks 3–4 | Student quotas, teacher verification loop, basic session engine |
 | **M2 — Matching & Escrow** | Milestone 2 | Weeks 5–6 | Smart matching, real-time notifications, dual-confirmation financial escrow |
 | **M3 — Parent & Admin Governance** | Milestone 3 | Weeks 7–8 | Parent handshake portal, super admin control room, advanced governance |
-| **M4 — Integration & Launch** | Milestone 4 | Weeks 9–10 | End-to-end integration, security & audit hardening, load testing, production launch |
+| **M4 — Integration & Launch** | Milestone 4 | Weeks 9–10 | Journey workflow tests, security & audit hardening, load testing, production launch |
 
 ---
 
@@ -110,10 +110,10 @@ Delivered checks (CI/CD Pipeline with Mermaid Validation): the CI/CD-green crite
 
 ### M4 — Integration, Security & Launch (Milestone 4, Weeks 9–10)
 
-**Goal:** Harden the platform for production: end-to-end integration, security audit, financial safety verification, load testing, and launch.
+**Goal:** Harden the platform for production: journey workflow tests, security audit, financial safety verification, load testing, and launch.
 
 **Scope:**
-- End-to-end integration testing across all 3 streams
+- Journey workflow tests (test/workflows/) across all 3 streams
 - Security hardening (authentication, authorization, input validation, SQL injection prevention)
 - Financial safety verification (double-spend prevention, escrow integrity, immutability checks)
 - Audit trail completeness verification

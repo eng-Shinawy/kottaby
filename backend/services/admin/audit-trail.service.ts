@@ -115,6 +115,9 @@ function normalizeEntityTypeFilter(value: string | null | undefined, locale: str
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** Pre-allocated lookup set for O(1) audit action type filter normalization check. */
+const AUDIT_ACTION_TYPE_MEMBERS: ReadonlySet<string> = new Set(Object.values(AuditActionType));
+
 /**
  * Validates + normalizes the `actionType` filter member. Fail-closed
  * membership re-assertion: transport-typed enum values are re-checked
@@ -128,7 +131,7 @@ function normalizeActionTypeFilter(
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (!Object.values(AuditActionType).includes(value)) {
+  if (!AUDIT_ACTION_TYPE_MEMBERS.has(value)) {
     throw validationFailure(locale);
   }
   return value;

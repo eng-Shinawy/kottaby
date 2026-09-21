@@ -202,6 +202,9 @@ export function normalizeAdminListBounds(
   return { safeLimit, safeOffset, page: Math.floor(safeOffset / safeLimit) + 1 };
 }
 
+/** Pre-allocated lookup set for O(1) status filter guard check. */
+const SESSION_STATUS_MEMBERS: ReadonlySet<string> = new Set(Object.values(SessionStatus));
+
 /**
  * Guards the lifecycle filter against the closed status vocabulary before
  * any database work: absent/null members drop out, a lifecycle member
@@ -213,7 +216,7 @@ export function guardStatusFilter(filter: SessionListFilterInput): SessionListFi
   if (status === undefined || status === null) {
     return { status: null };
   }
-  if (!Object.values(SessionStatus).includes(status)) {
+  if (!SESSION_STATUS_MEMBERS.has(status)) {
     return { status: null };
   }
   return { status };

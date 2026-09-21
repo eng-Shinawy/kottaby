@@ -47,6 +47,9 @@ export enum DisputeResolution {
   Uphold = "Uphold",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const DISPUTE_RESOLUTION_MEMBERS: ReadonlySet<string> = new Set(Object.values(DisputeResolution));
+
 /**
  * Type guard for a runtime dispute-resolution value (from a transport
  * payload that may have skipped the GraphQL enum boundary). Returns `true`
@@ -55,5 +58,5 @@ export enum DisputeResolution {
  * than throwing.
  */
 export function isDisputeResolution(value: unknown): value is DisputeResolution {
-  return typeof value === "string" && (Object.values(DisputeResolution) as string[]).includes(value);
+  return typeof value === "string" && DISPUTE_RESOLUTION_MEMBERS.has(value);
 }

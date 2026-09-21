@@ -41,7 +41,7 @@ Draft Academy is built by a **3-developer team** organized into **vertical trace
 | Milestone 1 | Plan catalog, subscription purchase, session balance crediting, free trial | Plan Catalog CRUD (Admin Only) through Admin Subscription Management (Extend/Renew/Cancel/Upgrade/Downgrade) |
 | Milestone 2 | Tajweed curriculum lessons, progress tracking | Tajweed Curriculum Lessons CRUD through Teacher Preparation View (Student Progress Before Session) |
 | Milestone 3 | Parent handshake portal, parent monitoring portal | Student Handshake Code Generation through Parent Session Completion Notification Display |
-| Milestone 4 | E2E integration tests, parent portal polish | End-to-End Integration Tests: Student Journey through End-to-End Integration Tests: Subscription Lifecycle |
+| Milestone 4 | Journey workflow tests, parent portal polish | Workflow Tests: Student Journey through Workflow Tests: Subscription Lifecycle |
 
 ---
 

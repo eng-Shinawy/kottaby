@@ -349,15 +349,15 @@ graph LR
 ## Milestone 4 — Integration, Security & Launch (Weeks 9–10)
 
 **Milestone:** M4 — Integration, Security & Launch
-**Goal:** Harden the platform for production: end-to-end integration, security audit, financial safety verification, load testing, and launch.
+**Goal:** Harden the platform for production: journey workflow tests, security audit, financial safety verification, load testing, and launch.
 
 ### Milestone Backlog
 
 | Title | Owner | SP | Blocked By |
 |---|---|---|---|
-| End-to-end integration tests: student journey | Dev 1 | 5 | All Milestone 1–3 tickets |
-| End-to-end integration tests: parent journey | Dev 1 | 5 | Parent Read-Only Monitoring Portal, Parent Session Completion Notification Display |
-| End-to-end integration tests: subscription lifecycle | Dev 1 | 3 | Admin Subscription Management (Extend/Renew/Cancel/Upgrade/Downgrade) |
+| Workflow tests: student journey | Dev 1 | 5 | All Milestone 1–3 tickets |
+| Workflow tests: parent journey | Dev 1 | 5 | Parent Read-Only Monitoring Portal, Parent Session Completion Notification Display |
+| Workflow tests: subscription lifecycle | Dev 1 | 3 | Admin Subscription Management (Extend/Renew/Cancel/Upgrade/Downgrade) |
 | Security hardening: input validation & SQL injection prevention | Dev 2 | 5 | All Milestone 1–3 tickets |
 | Audit trail completeness verification | Dev 2 | 3 | Immutable Audit Logging for All Admin Actions |
 | State machine invariant verification tests | Dev 2 | 5 | All Milestone 1–3 tickets |
@@ -370,9 +370,9 @@ graph LR
 
 ### Definition of Done (Milestone 4)
 
-- [ ] End-to-end integration tests cover: student registration → subscription → session → completion → parent notification
-- [ ] End-to-end integration tests cover: teacher applicant → verification → certification → teaching → wallet credit
-- [ ] End-to-end integration tests cover: admin → cold-start → direct onboarding → audit log verification
+- [ ] Journey workflow tests (test/workflows/) cover: student registration → subscription → session → completion → parent notification
+- [ ] Journey workflow tests (test/workflows/) cover: teacher applicant → verification → certification → teaching → wallet credit
+- [ ] Journey workflow tests (test/workflows/) cover: admin → cold-start → direct onboarding → audit log verification
 - [ ] All input validation and SQL injection prevention in place
 - [ ] All state machine invariants verified by automated tests
 - [ ] Audit trail is complete for all admin actions
@@ -390,9 +390,9 @@ graph LR
 
 ```mermaid
 graph LR
-    T1_018[E2E Student Journey] --> T3_026[Launch Checklist]
-    T1_019[E2E Parent Journey] --> T3_026
-    T1_020[E2E Subscription] --> T3_026
+    T1_018[Workflow: Student Journey] --> T3_026[Launch Checklist]
+    T1_019[Workflow: Parent Journey] --> T3_026
+    T1_020[Workflow: Subscription Lifecycle] --> T3_026
     T2_020[Security Hardening] --> T3_026
     T2_021[Audit Verification] --> T3_026
     T2_022[Invariant Tests] --> T3_026

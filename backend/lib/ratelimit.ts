@@ -95,10 +95,11 @@ export function getClientIdentifier(request: NextRequest | Request): string {
 export async function checkRateLimit(identifier: string, limiter: RateLimiterConfig): Promise<RateLimitResult> {
   const now = Date.now();
   try {
-    const entry = windows.get(identifier);
+    const key = `${limiter.name}:${identifier}`;
+    const entry = windows.get(key);
     if (entry === undefined) {
       const timestamps = [now];
-      windows.set(identifier, { timestamps, lastAccessed: now });
+      windows.set(key, { timestamps, lastAccessed: now });
       evictStaleEntries();
       return { success: true, limit: limiter.limit, remaining: limiter.limit - 1, reset: now + limiter.windowMs };
     }
@@ -114,7 +115,7 @@ export async function checkRateLimit(identifier: string, limiter: RateLimiterCon
     }
     pruned.push(now);
     entry.lastAccessed = now;
-    windows.set(identifier, { timestamps: pruned, lastAccessed: now });
+    windows.set(key, { timestamps: pruned, lastAccessed: now });
     return {
       success: true,
       limit: limiter.limit,
@@ -127,3 +128,6 @@ export async function checkRateLimit(identifier: string, limiter: RateLimiterCon
 }
 
 /** Test helper — clears the in-memory windows (for isolated test runs). */
+export function clearRateLimitStore(): void {
+  windows.clear();
+}

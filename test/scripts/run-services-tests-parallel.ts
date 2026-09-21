@@ -35,9 +35,19 @@ await runParallelTests({
   // audit_logs concurrently with other test workers creates table-level lock
   // and trigger state races against the immutable audit table. Serializing it
   // to the tail lane runs it alone after the worker pool drains.
+  // The dispute suites (arbitration + dispute-notification) fan the
+  // `session_dispute_opened` wave out to EVERY committed admin user while
+  // their own fixtures stay uncommitted. Any parallel own-commit file whose
+  // afterAll hard-deletes its committed users can land that delete between
+  // the admin-cohort read and the batch insert — the FK key-share check
+  // reads live data, not the snapshot, so it fails with 23503 (observed:
+  // `notifications_user_id_users_id_fkey`, user created/deleted by a peer
+  // file). Serializing both fanout victims to the tail lane closes the race.
   sequentialTailPatterns: [
     "notifications/admin-broadcast.service.test.ts",
     "classes/session-admin-governance.service.test.ts",
     "admin/cold-start-certification.chaos.test.ts",
+    "classes/session-arbitration.service.test.ts",
+    "classes/session-dispute-notification.service.test.ts",
   ],
 });

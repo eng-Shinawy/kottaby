@@ -2701,7 +2701,7 @@ Then only users with active subscriptions to that plan receive the notification
 
 ---
 
-### End-to-End Integration Tests: Student Journey
+### Workflow Tests: Student Journey
 
 | Field | Value |
 |---|---|
@@ -2711,12 +2711,12 @@ Then only users with active subscriptions to that plan receive the notification
 | **Blocked By** | All Milestone 1–3 tickets |
 
 **Description & Scope:**
-End-to-end integration tests covering the complete student journey: registration → plan subscription → session booking → session completion → dual confirmation → parent notification.
+Chained workflow tests under `test/workflows/` (journey-test harness driving real backend services end-to-end in code) covering the complete student journey: registration → plan subscription → session booking → session completion → dual confirmation → parent notification.
 
 **Acceptance Criteria:**
 ```gherkin
-Given a new student
-When they complete the full journey:
+Given a new student created via entity-setup helpers within runInRollback
+When the full journey is driven through services and the GraphQL API:
   | Register → Select recitation → Browse plans → Purchase plan → Balance credited
   | Browse teachers → Request session → Attend session → Teacher marks complete
   | Student confirms → Balance decremented → Teacher wallet credited
@@ -2725,14 +2725,14 @@ Then all steps succeed and data is consistent across all tables
 ```
 
 **Test Scenarios:**
-- Full student journey — all steps pass
+- Full student journey workflow — all steps pass at service/repository/GraphQL level
 - Data consistency — balances, sessions, reports, wallets all correct
-- Parent notification — received and displayed
+- Parent notification — emitted and persisted for retrieval
 - Edge cases: insufficient balance, session cancellation, dispute
 
 ---
 
-### End-to-End Integration Tests: Parent Journey
+### Workflow Tests: Parent Journey
 
 | Field | Value |
 |---|---|
@@ -2742,12 +2742,12 @@ Then all steps succeed and data is consistent across all tables
 | **Blocked By** | Parent Read-Only Monitoring Portal, Parent Session Completion Notification Display |
 
 **Description & Scope:**
-End-to-end integration tests covering the complete parent journey: registration → search child by code → send link request → student confirms → monitor child → receive notifications.
+Chained workflow tests under `test/workflows/` (journey-test harness driving real backend services end-to-end in code) covering the complete parent journey: registration → search child by code → send link request → student confirms → monitor child → receive notifications.
 
 **Acceptance Criteria:**
 ```gherkin
-Given a new parent
-When they complete the full journey:
+Given a new parent created via entity-setup helpers within runInRollback
+When the full journey is driven through services and the GraphQL API:
   | Register → Get child's handshake code → Search child → Send link request
   | Student confirms → Parent views child's sessions, reports, homework, progress
   | Child's session completes → Parent receives notification → Parent views report
@@ -2755,15 +2755,15 @@ Then all steps succeed and parent sees correct read-only data
 ```
 
 **Test Scenarios:**
-- Full parent journey — all steps pass
+- Full parent journey workflow — all steps pass at service/repository/GraphQL level
 - Parent can only see linked children
-- Parent cannot modify data (read-only)
+- Parent cannot modify data (read-only enforced at service/GraphQL layer)
 - Link request expiry — 7 days
 - One parent per student enforced
 
 ---
 
-### End-to-End Integration Tests: Subscription Lifecycle
+### Workflow Tests: Subscription Lifecycle
 
 | Field | Value |
 |---|---|
@@ -2773,12 +2773,12 @@ Then all steps succeed and parent sees correct read-only data
 | **Blocked By** | Admin Subscription Management (Extend/Renew/Cancel/Upgrade/Downgrade) |
 
 **Description & Scope:**
-End-to-end integration tests covering the complete subscription lifecycle: purchase → activation → balance crediting → validity window → expiry → renewal → upgrade/downgrade with proration.
+Chained workflow tests under `test/workflows/` (journey-test harness driving real backend services end-to-end in code, e.g. `test/workflows/billing/subscription-purchase.journey.test.ts`) covering the complete subscription lifecycle: purchase → activation → balance crediting → validity window → expiry → renewal → upgrade/downgrade with proration.
 
 **Acceptance Criteria:**
 ```gherkin
-Given a student
-When they complete the subscription lifecycle:
+Given a student created via entity-setup helpers within runInRollback
+When the subscription lifecycle is driven through services and the GraphQL API:
   | Purchase plan → Balance credited → Use sessions → Subscription expires
   | Admin renews → New balance credited → Admin upgrades → Prorated balance
   | Admin downgrades → Prorated balance → Admin cancels → Balance preserved
@@ -2786,7 +2786,7 @@ Then all steps succeed and balances are correct at each stage
 ```
 
 **Test Scenarios:**
-- Purchase → activation → balance credited
+- Purchase → activation → balance credited (service-level assertions)
 - Expiry → balance zeroed
 - Renewal → new balance
 - Upgrade → prorated balance

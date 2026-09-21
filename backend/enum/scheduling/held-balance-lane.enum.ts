@@ -20,6 +20,9 @@ export enum HeldBalanceLane {
   Tajweed = "tajweed",
 }
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const HELD_BALANCE_LANE_MEMBERS: ReadonlySet<string> = new Set(Object.values(HeldBalanceLane));
+
 /**
  * Type guard for a runtime held-balance-lane value (from a varchar row or a
  * transport payload). Returns `true` only for exact member strings — the
@@ -27,5 +30,5 @@ export enum HeldBalanceLane {
  * whitespace, foreign values) rather than throwing.
  */
 export function isHeldBalanceLane(value: unknown): value is HeldBalanceLane {
-  return typeof value === "string" && (Object.values(HeldBalanceLane) as string[]).includes(value);
+  return typeof value === "string" && HELD_BALANCE_LANE_MEMBERS.has(value);
 }
