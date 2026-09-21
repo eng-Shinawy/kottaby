@@ -39,7 +39,7 @@
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { count, eq, or } from "drizzle-orm";
+import { and, count, eq, or } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { notifications } from "@/backend/db/schema/notifications";
 import { users } from "@/backend/db/schema/users/users";
@@ -1372,5 +1372,262 @@ describe("ID-channel guard + hostile key fuzz", () => {
         expect(key).toMatch(/^notif:emit:[a-f0-9]{64}$/);
       }
     });
+  });
+});
+
+// ─── Retraction surface: retractByRelatedEntity (engine-mediated delete) ─────
+
+describe("NotificationEngine.retractByRelatedEntity — caller-transaction path", () => {
+  test("deletes exactly the linked row set through the caller's tx and returns the count", async () => {
+    await runInRollback(async tx => {
+      const recipientA = await createTestUser(tx);
+      const recipientB = await createTestUser(tx);
+      const transportSpy = new SpiedFanoutTransport();
+      const pairType = "broadcast";
+
+      const receipt = await NotificationEngine.emitForUsers(
+        batchInput([recipientA.id, recipientB.id], { relatedEntityType: pairType, relatedEntityId: 4242 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+      expect(receipt.notifications).toHaveLength(2);
+
+      // A sibling pair (same type, other id) must survive the retraction.
+      const sibling = await NotificationEngine.emitForUsers(
+        batchInput([recipientA.id], { relatedEntityType: pairType, relatedEntityId: 9999 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+      expect(sibling.notifications).toHaveLength(1);
+
+      const retracted = await NotificationEngine.retractByRelatedEntity(pairType, 4242, tx);
+      expect(retracted).toBe(2);
+
+      // Exactly the linked set is gone: recipient B's inbox is empty, and
+      // recipient A holds only the sibling-pair row.
+      expect(await countNotificationsFor(tx, recipientA.id)).toBe(1);
+      expect(await countNotificationsFor(tx, recipientB.id)).toBe(0);
+      // NOTHING was published for caller-tx work (the invariant holds).
+      expect(transportSpy.publishCount).toBe(0);
+    });
+  });
+
+  test("retracting an unknown pair reports 0 and touches nothing (idempotent)", async () => {
+    await runInRollback(async tx => {
+      const recipient = await createTestUser(tx);
+      const transportSpy = new SpiedFanoutTransport();
+      await NotificationEngine.emitForUsers(
+        batchInput([recipient.id], { relatedEntityType: "broadcast", relatedEntityId: 4242 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+
+      expect(await NotificationEngine.retractByRelatedEntity("broadcast", 1_000_000, tx)).toBe(0);
+      expect(await NotificationEngine.retractByRelatedEntity("broadcast", 1_000_000, tx)).toBe(0);
+      // The linked row is untouched.
+      expect(await countNotificationsFor(tx, recipient.id)).toBe(1);
+    });
+  });
+
+  test("unrelated-entity rows are untouched by a retraction (isolation probe)", async () => {
+    await runInRollback(async tx => {
+      const recipient = await createTestUser(tx);
+      const transportSpy = new SpiedFanoutTransport();
+
+      // Three distinct linkages on one recipient: the target pair, a sibling
+      // id under the same type, and a different type under the same id.
+      await NotificationEngine.emitForUsers(
+        batchInput([recipient.id], { relatedEntityType: "broadcast", relatedEntityId: 4242 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+      await NotificationEngine.emitForUsers(
+        batchInput([recipient.id], { relatedEntityType: "broadcast", relatedEntityId: 5555 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+      await NotificationEngine.emitForUsers(
+        batchInput([recipient.id], { relatedEntityType: "session", relatedEntityId: 4242 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+
+      const retracted = await NotificationEngine.retractByRelatedEntity("broadcast", 4242, tx);
+      expect(retracted).toBe(1);
+
+      // Only the target pair was deleted — the sibling id and the other
+      // type's row survive.
+      const survivors = await tx.select().from(notifications).where(eq(notifications.userId, recipient.id));
+      expect(survivors).toHaveLength(2);
+      const survivingPairs = survivors
+        .map(row => `${row.relatedEntityType}:${row.relatedEntityId}`)
+        .toSorted((a, b) => a.localeCompare(b));
+      expect(survivingPairs).toEqual(["broadcast:5555", "session:4242"]);
+    });
+  });
+
+  test("unicode/RTL payloads are inert: emit then retract by the pair removes them", async () => {
+    await runInRollback(async tx => {
+      const recipient = await createTestUser(tx);
+      const transportSpy = new SpiedFanoutTransport();
+      const hostileTitle = "\u202E%s_' OR 1=1; -- DROP TABLE notifications;--\u202C";
+
+      const receipt = await NotificationEngine.emitForUsers(
+        batchInput([recipient.id], { title: hostileTitle, relatedEntityType: "broadcast", relatedEntityId: 4242 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+      expect(firstRow(receipt).title).toBe(hostileTitle);
+
+      expect(await NotificationEngine.retractByRelatedEntity("broadcast", 4242, tx)).toBe(1);
+      expect(await countNotificationsFor(tx, recipient.id)).toBe(0);
+    });
+  });
+
+  test("concurrent double retract settles: one reports the rows, the other 0", async () => {
+    await runInRollback(async tx => {
+      const recipientA = await createTestUser(tx);
+      const recipientB = await createTestUser(tx);
+      const transportSpy = new SpiedFanoutTransport();
+      await NotificationEngine.emitForUsers(
+        batchInput([recipientA.id, recipientB.id], { relatedEntityType: "broadcast", relatedEntityId: 4242 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+
+      const settled = await Promise.allSettled([
+        NotificationEngine.retractByRelatedEntity("broadcast", 4242, tx),
+        NotificationEngine.retractByRelatedEntity("broadcast", 4242, tx),
+      ]);
+
+      expect(settled).toHaveLength(2);
+      const counts = settled
+        .map(outcome => (outcome.status === "fulfilled" ? outcome.value : -1))
+        .toSorted((a, b) => a - b);
+      // The set-based delete is race-free: whichever call runs first removes
+      // both rows, the second matches nothing.
+      expect(counts).toEqual([0, 2]);
+      expect(await countNotificationsFor(tx, recipientA.id)).toBe(0);
+      expect(await countNotificationsFor(tx, recipientB.id)).toBe(0);
+    });
+  });
+
+  test("concurrent retract-vs-emit race settles without error; the linked set ends consistent", async () => {
+    await runInRollback(async tx => {
+      const recipient = await createTestUser(tx);
+      const transportSpy = new SpiedFanoutTransport();
+      await NotificationEngine.emitForUsers(
+        batchInput([recipient.id], { relatedEntityType: "broadcast", relatedEntityId: 4242 }),
+        "en",
+        tx,
+        { transport: transportSpy }
+      );
+
+      const settled = await Promise.allSettled([
+        NotificationEngine.retractByRelatedEntity("broadcast", 4242, tx),
+        NotificationEngine.emitForUsers(
+          batchInput([recipient.id], { relatedEntityType: "broadcast", relatedEntityId: 4242 }),
+          "en",
+          tx,
+          { transport: transportSpy }
+        ),
+      ]);
+
+      for (const outcome of settled) {
+        expect(outcome.status).toBe("fulfilled");
+      }
+      // Whatever the interleaving (queries serialize on the shared tx): the
+      // linked set ends either fully retracted or holding the late emit's row.
+      const remaining = await countNotificationsFor(tx, recipient.id);
+      expect(remaining === 0 || remaining === 1).toBe(true);
+    });
+  });
+});
+
+describe("NotificationEngine.retractByRelatedEntity — non-tx path (committed fixtures)", () => {
+  const committedUsers: UserSelectType[] = [];
+  const PAIR_TYPE = `retract-${randomUUID()}`;
+  const PAIR_ID = 4242;
+  const SIBLING_PAIR_ID = 9999;
+
+  beforeAll(async () => {
+    // Committed-or-nothing fixture provisioning: the linked emits ride ONE
+    // committed caller transaction (no publish for caller-tx work).
+    await db.transaction(async tx => {
+      const first = await createTestUser(tx);
+      const second = await createTestUser(tx);
+      committedUsers.push(first, second);
+      await NotificationEngine.emitForUsers(
+        batchInput([first.id], { relatedEntityType: PAIR_TYPE, relatedEntityId: PAIR_ID }),
+        "en",
+        tx,
+        {}
+      );
+      await NotificationEngine.emitForUsers(
+        batchInput([first.id, second.id], { relatedEntityType: PAIR_TYPE, relatedEntityId: SIBLING_PAIR_ID }),
+        "en",
+        tx,
+        {}
+      );
+    });
+  });
+
+  afterAll(async () => {
+    // Reverse-FK-order tracked teardown with zero-residue assertions.
+    const userIds = committedUsers.map(user => user.id);
+    if (userIds.length === 0) {
+      return;
+    }
+    const notificationResidueFilter = or(...userIds.map(id => eq(notifications.userId, id)));
+    const userResidueFilter = or(...userIds.map(id => eq(users.id, id)));
+    await db.delete(notifications).where(notificationResidueFilter);
+    await db.delete(users).where(userResidueFilter);
+    const notificationResidue = (
+      await db.select({ value: count() }).from(notifications).where(notificationResidueFilter)
+    ).at(0);
+    const userResidue = (await db.select({ value: count() }).from(users).where(userResidueFilter)).at(0);
+    expect(notificationResidue?.value ?? 0).toBe(0);
+    expect(userResidue?.value ?? 0).toBe(0);
+  });
+
+  test("retract without tx deletes the linked committed rows durably and returns the count", async () => {
+    const first = committedUsers.at(0);
+    const second = committedUsers.at(1);
+    if (!first || !second) {
+      throw new Error("expected both committed fixture recipients to exist");
+    }
+
+    const retracted = await NotificationEngine.retractByRelatedEntity(PAIR_TYPE, PAIR_ID);
+    expect(retracted).toBe(1);
+
+    // Durable: the row is gone outside any transaction; only the
+    // sibling-pair rows remain.
+    expect(await countNotificationsFor(db, first.id)).toBe(1);
+    expect(await countNotificationsFor(db, second.id)).toBe(1);
+
+    // The sibling pair was untouched by the retraction.
+    const siblings = await db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.relatedEntityType, PAIR_TYPE), eq(notifications.relatedEntityId, SIBLING_PAIR_ID)));
+    expect(siblings).toHaveLength(2);
+  });
+
+  test("non-tx retract on an unknown pair reports 0 and touches nothing", async () => {
+    const first = committedUsers.at(0);
+    if (!first) {
+      throw new Error("expected the committed fixture recipient to exist");
+    }
+
+    expect(await NotificationEngine.retractByRelatedEntity(PAIR_TYPE, 123_456)).toBe(0);
+    expect(await countNotificationsFor(db, first.id)).toBe(1);
   });
 });

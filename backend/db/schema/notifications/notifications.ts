@@ -23,6 +23,9 @@ import { users } from "@/backend/db/schema/users/users";
  *  - `notifications_user_id_idx` on `user_id` (lookup a user's feed)
  *  - `notifications_user_id_is_read_idx` composite on
  *    `(user_id, is_read)` (unread-count queries per user)
+ *  - `notifications_related_entity_type_entity_id_idx` composite on
+ *    `(related_entity_type, related_entity_id)` (linkage lookups and
+ *    retraction deletes by related entity)
  */
 export const notifications = pgTable(
   "notifications",
@@ -42,5 +45,6 @@ export const notifications = pgTable(
   t => [
     index("notifications_user_id_idx").on(t.userId),
     index("notifications_user_id_is_read_idx").on(t.userId, t.isRead),
+    index("notifications_related_entity_type_entity_id_idx").on(t.relatedEntityType, t.relatedEntityId),
   ]
 );

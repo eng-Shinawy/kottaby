@@ -10,5 +10,8 @@
  *    `gqlSchema.ts` imports that top-level barrel exactly once.
  *  - `notification.query.ts` registers `myNotifications` +
  *    `myUnreadNotificationCount`.
+ *  - `admin-broadcasts.query.ts` registers `adminBroadcasts` +
+ *    `adminBroadcastDetail`.
  */
+import "./admin-broadcasts.query";
 import "./notification.query";

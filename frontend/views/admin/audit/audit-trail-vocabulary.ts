@@ -46,7 +46,7 @@ export function actionLabelsOf(activity: AdminUsersLabels["activity"]): Record<A
 }
 
 /** Entity-type wire values the backend mints → their `entityTypeLabels` key. */
-const ENTITY_TYPE_KEY_BY_WIRE: Record<string, keyof AdminUsersLabels["auditTrail"]["entityTypeLabels"]> = {
+const ENTITY_TYPE_KEY_BY_WIRE: Record<string, keyof AdminUsersLabels["auditTrail"]["entityTypeLabels"] | undefined> = {
   user: "user",
   teacher: "teacher",
   session: "session",

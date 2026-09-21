@@ -215,6 +215,12 @@ export interface ErrorsLabels {
   readonly broadcastAudienceEmpty: string;
   /** Oversized-cohort reject → ValidationError("BROADCAST_AUDIENCE_TOO_LARGE"): resolved cohort exceeds the fail-closed recipient cap. */
   readonly broadcastAudienceTooLarge: string;
+  /** "The requested broadcast was not found." — admin history/detail/stop lookup miss → NotFoundError("BROADCAST"). */
+  readonly broadcastNotFound: string;
+  /** "This broadcast has already been stopped." — stop attempt on an already-stopped broadcast → ConflictError("BROADCAST_ALREADY_STOPPED"). */
+  readonly broadcastAlreadyStopped: string;
+  /** "The broadcast could not be recorded atomically. Start a fresh compose session and try again." — engine replay reported after the header insert (ghost-claim residual) → ConflictError("BROADCAST_GHOST_CLAIM"). */
+  readonly broadcastGhostClaim: string;
   /** "The requested session was not found." — session lookup or ownership miss on any session surface. */
   readonly sessionNotFound: string;
   /** Lifecycle-transition reject — the requested action does not apply to the session's current status. */

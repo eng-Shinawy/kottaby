@@ -47,6 +47,7 @@ export function useBroadcastComposeSend(draft: BroadcastComposeDraft, errorTitle
           },
         },
         context: { headers: { "x-idempotency-key": composeKeyRef.current } },
+        refetchQueries: ["AdminBroadcasts"],
       });
       const deliveredCount = result.data?.adminBroadcastNotification;
       if (typeof deliveredCount !== "number") {

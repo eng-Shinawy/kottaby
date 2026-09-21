@@ -11,6 +11,8 @@
  *  - `admin-broadcast.mutation.ts` registers `adminBroadcastNotification`.
  *  - `notification.mutation.ts` registers `markNotificationRead` +
  *    `markAllNotificationsRead`.
+ *  - `admin-stop-broadcast.mutation.ts` registers `adminStopBroadcast`.
  */
 import "./admin-broadcast.mutation";
+import "./admin-stop-broadcast.mutation";
 import "./notification.mutation";

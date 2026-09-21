@@ -56,7 +56,7 @@ export function buildAuditTrailCsv(items: readonly AuditTrailRow[], labels: Admi
       entry.actionType,
       entry.entityType,
       entry.entityId === null ? "" : String(entry.entityId),
-      entry.details === null ? "" : entry.details,
+      entry.details ?? "",
     ]),
   });
 }

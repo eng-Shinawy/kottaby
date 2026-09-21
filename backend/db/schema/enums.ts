@@ -1,7 +1,7 @@
 import { pgEnum } from "drizzle-orm/pg-core";
 
 /**
- * pgEnum registry — single source of truth for all 17 PostgreSQL enums.
+ * pgEnum registry — single source of truth for all 20 PostgreSQL enums.
  * Values + order are canonical and mirrored in the matching
  * TypeScript enums under `backend/enum/`.
  */
@@ -148,3 +148,27 @@ export const surahJuzRef = pgEnum("surah_juz_ref", [
 ]);
 
 export const teacherRequestPreference = pgEnum("teacher_request_preference", ["queue", "reject", "offer_alternatives"]);
+
+/**
+ * One-way lifecycle state of a first-class broadcast header
+ * (`broadcasts.status`). A broadcast is born `active` when its send
+ * transaction commits and may transition exactly once to `stopped` (the stop
+ * retracts the broadcast's notification rows); `stopped` is terminal — no
+ * reactivate path exists. Mirrors the canonical TS enum
+ * (`backend/enum/notifications/broadcast-status.enum.ts`) byte-for-byte.
+ */
+export const broadcastStatus = pgEnum("broadcast_status", ["active", "stopped"]);
+
+/**
+ * Persisted cohort snapshot of a first-class broadcast header
+ * (`broadcasts.audience_type`) — one row per send records the cohort the
+ * broadcast targeted. The runtime audience selector stays TS-only
+ * (individual notification rows record the resolved recipient, not the
+ * cohort); this pgEnum merely persists what happened on the header. Values
+ * mirror the canonical TS enum
+ * (`backend/enum/notifications/broadcast-audience-type.enum.ts`)
+ * byte-for-byte. Nullable at the column level: historical rows whose audit
+ * snapshot is missing or unrecognized stay valid instead of blocking a
+ * backfill.
+ */
+export const broadcastAudienceType = pgEnum("broadcast_audience_type", ["all", "role", "country", "plan"]);

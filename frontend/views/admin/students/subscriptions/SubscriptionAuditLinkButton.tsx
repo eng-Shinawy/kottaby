@@ -89,7 +89,7 @@ export function SubscriptionAuditLinkButton({
  * the link's accessible name reads the full "… 1 entry" context instead of
  * a bare digit (the NotificationRowContent visually-hidden precedent).
  */
-function TrailDepthBadge({ count, countLabel }: { count: number; countLabel: string }): ReactNode {
+function TrailDepthBadge({ count, countLabel }: { readonly count: number; readonly countLabel: string }): ReactNode {
   return (
     <Box
       component="span"

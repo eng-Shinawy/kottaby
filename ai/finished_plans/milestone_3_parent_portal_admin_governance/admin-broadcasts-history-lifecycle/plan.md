@@ -69,9 +69,10 @@ export const broadcasts = pgTable(
 
 - `audiencePlanId` deliberately has **no FK**: it is an *audience snapshot* — the plan may be deleted later without invalidating history (the same reason `notifications.relatedEntityId` is a bare int).
 - `idempotencyKey` is nullable **UNIQUE**; the unique-violation (PG 23505) mapped through `translateDbError` (`backend/lib/errors.ts:201` — traverses Drizzle `DrizzleQueryError` cause chains) to `ConflictError` IS the replay arbiter. **NEVER a pre-check SELECT** — a pre-check reintroduces a TOCTOU window the unique index exists to close (§8).
+- `audienceType` is nullable **for backfill tolerance**: an ambiguous audit snapshot (missing or unrecognized `scope` value) inserts with NULL instead of blocking the backfill; groups with NO matching audit row at all are skipped by the backfill join (D5/REQ-6.2), not headered with a NULL actor.
 - Schema is applied via `bun run db push` (schema objects only — no data); the historical backfill is a separate custom-SQL migration (D5).
 
-**Rationale:** One row per send is the minimal entity that makes history, detail, stats, and a lifecycle handle first-class; storing copy in the header keeps the audit-details metadata-only rule intact; nullable `audienceType` tolerates historical sends whose audit trail is missing or ambiguous instead of blocking the backfill.
+**Rationale:** One row per send is the minimal entity that makes history, detail, stats, and a lifecycle handle first-class; storing copy in the header keeps the audit-details metadata-only rule intact; nullable `audienceType` tolerates an ambiguous audit snapshot (missing or unrecognized `scope` — CASE-guarded to NULL by the backfill, D5) instead of blocking it, while groups with no matching audit row at all are skipped (REQ-6.2), never headered with a NULL actor.
 
 ### D2 — Linkage via the existing polymorphic pair (no junction table)
 
@@ -140,13 +141,18 @@ INSERT INTO broadcasts (title, body, audience_type, audience_role,
                         audience_country, audience_plan_id, status,
                         recipient_count, sent_by_id, sent_at, idempotency_key)
 SELECT g.title, g.body,
-       audit.d->>'scope', audit.d->>'role', audit.d->>'country',
+       CASE WHEN audit.d->>'scope' IN ('all','role','country','plan')
+            THEN audit.d->>'scope' END,  -- unrecognized/missing scope → NULL (pgEnum-cast safe)
+       audit.d->>'role', audit.d->>'country',
        (audit.d->>'planId')::int,
        'active', g.recipients, audit.actor_id, g.created_at, NULL
 FROM groups g
-LEFT JOIN LATERAL (
+INNER JOIN LATERAL (
   -- DISTINCT ON lowest audit id: pick THE audit row of the same send
-  -- (same created_at, matching recipientCount) — never a later re-read
+  -- (same created_at, matching recipientCount) — never a later re-read.
+  -- INNER JOIN (not LEFT): a group with NO matching audit row is SKIPPED
+  -- (REQ-6.2) — a LEFT join would insert sent_by_id = NULL and violate the
+  -- broadcasts.sent_by_id NOT NULL constraint, aborting the whole migration.
   SELECT actor_id, details::jsonb AS d
   FROM audit_logs
   WHERE entity_type = 'notification_broadcast'
@@ -167,7 +173,7 @@ WHERE n.type = 'system_broadcast'
   AND n.created_at = b.sent_at;
 ```
 
-Notes: `details` is a varchar(2000) storing JSON (`backend/db/schema/audit/audit-logs.ts`), hence the cast; `audience_type` is nullable so a group whose audit row is missing (or whose `scope` value fails the pgEnum) inserts with NULL — tolerance, not failure. The backfill does **NOT** touch `audit_logs` (historical send rows keep `entityId` null forever — D4's documented mixed state).
+Notes: `details` is a varchar(2000) storing JSON (`backend/db/schema/audit/audit-logs.ts`), hence the cast; the INNER JOIN skips audit-less groups entirely (REQ-6.2 — no invented header, and no `sent_by_id` NOT NULL violation aborting the migration); within a matched audit row, missing JSON keys (`role`/`country`/`planId`, or a missing `scope`) insert with NULL, and the CASE guard maps any non-NULL `scope` string outside the `broadcast_audience_type` members to NULL so it can never fail the pgEnum cast — tolerance, not failure. The backfill does **NOT** touch `audit_logs` (historical send rows keep `entityId` null forever — D4's documented mixed state).
 
 **Accepted risk:** two *identical* sends (same title+body) committed in the same microsecond merge into ONE header — possible only for a true double-commit racing the transaction clock, documented here and in the migration header. Out-of-range `planId` values in historical audit JSON land as-is (no FK — D1). Re-runs are a no-op (the `IS NULL` guard); the migration is a guarded one-shot (deferred-items D8 — re-entry is a non-goal).
 
@@ -203,7 +209,7 @@ New keys in the `AdminBroadcastsLabels` type (`shared/locale/types/adminBroadcas
 
 - **Journey (TEST-FIRST, red until the service task lands):** `test/workflows/notifications/broadcast-retraction.journey.test.ts` — committed fixtures + `TrackedFixtures` teardown, `SpiedFanoutTransport` injection, NEVER `runInRollback` (precedent `admin-broadcast.journey.test.ts`). Its assertion set is §7's state machine + side-effect matrix + visibility table.
 - **Repository tests** at `backend/db/test/logic/notifications/` (`runInRollback` + `expectRepoError`): list/filters/pagination/clamps, CAS stop winners and losers, `deleteByRelatedEntity`, `findByIdempotencyKey`.
-- **Engine + service tests** colocated (`notification-engine.service.test.ts` extension; `admin-broadcast.service.test.ts` extension): header-first order, 23505 replay branch, ghost-claim rollback, stop atomicity, gate ordering.
+- **Engine + service tests** colocated (`notification-engine.emit.test.ts` + `emit-idempotency.test.ts` extensions — the engine's tests are split per concern: retraction extends the emit test, the 23505-replay/ghost-claim facets extend `emit-idempotency.test.ts`; `admin-broadcast.service.test.ts` extension): header-first order, 23505 replay branch, ghost-claim rollback, stop atomicity, gate ordering.
 - **GraphQL integration** (`backend/graphql/test/`, dev server, `testClient`): UNAUTHORIZED/FORBIDDEN wall, list/detail/stop over the real HTTP stack.
 - **SDL pin updates:** `sdl-static-assertions.test.ts` — `FROZEN_MUTATION_FIELDS` (:124, asserted sorted at :378) gains `adminStopBroadcast`; `FROZEN_QUERY_FIELDS` (:192, asserted :383) gains `adminBroadcasts` + `adminBroadcastDetail`. `schema-surface.test.ts` — `RECONCILED_ADMIN_BROADCAST_CERTIFY_MUTATION_FIELDS` (:598), `RECONCILED_ENUMS` (:609) gains `BroadcastStatus`, `RECONCILED_ADMIN_BROADCAST_TYPE_NAMES` (:623), admin-block sorted-contiguity (~:858-880), whole-schema named-type delta (:992), `NotificationType` 9-value pin untouched (:1265), codegen-sync byte-identical `schema.graphql` (:2161-2162).
 - **Audit-completeness catalog:** a "wired" row for `adminStopBroadcast` → `AdminBroadcastService.stop`, `expectedActionTypes: [AuditActionType.Suspend]`, `expectedEntityType: "notification_broadcast"` (precedent row at `test/workflows/admin/audit-completeness.catalog.ts:110-118`).
@@ -546,7 +552,7 @@ Domain rejections (NotFound/Conflict/validation) are logged via `logger.logDomai
 |---|---|---|
 | Journey (TEST-FIRST) | `test/workflows/notifications/broadcast-retraction.journey.test.ts` (NEW) | §7's full assertion set: send linkage (header + linked rows + audit entityId), replay absorption via 23505, stop retraction + unread self-correction + Suspend audit append, second-stop conflict, BFLA wall for every non-admin role, anonymous wall. Committed fixtures + `TrackedFixtures` teardown + `SpiedFanoutTransport`; NEVER `runInRollback` |
 | Repository | `backend/db/test/logic/notifications/broadcast.repository.test.ts` (NEW) | `runInRollback` + `expectRepoError`: list ordering/filters (titleSearch escaping included), pagination clamps + out-of-range page, CAS stop single-winner, `deleteByRelatedEntity` scope isolation (only the broadcast's rows), `findByIdempotencyKey` |
-| Engine | `backend/services/notifications/notification-engine.service.test.ts` (EXTEND) | `retractByRelatedEntity` deletes exactly the linked set and nothing else; single-writer surface (no bypass) |
+| Engine | `backend/services/notifications/notification-engine.emit.test.ts` (EXTEND; the engine's tests are split — idempotency facets extend `emit-idempotency.test.ts`) | `retractByRelatedEntity` deletes exactly the linked set and nothing else; single-writer surface (no bypass) |
 | Service | `backend/services/notifications/admin-broadcast.service.test.ts` (EXTEND) | header-first tx order; 23505 replay branch (zero audit/emit/publish); ghost-claim ConflictError rollback; stop: gate ordering, NotFound vs AlreadyStopped disambiguation, atomicity (forced rollback), metadata-only stop audit |
 | GraphQL integration | `backend/graphql/test/admin-broadcasts-history.integration.test.ts` (NEW) + `admin-stop-broadcast.integration.test.ts` (NEW) | UNAUTHORIZED/FORBIDDEN over the real HTTP stack (`testClient`, dev server); list/detail/stop happy paths; BOPLA smuggled-field probes; `$all` snapshot |
 | SDL pins | `sdl-static-assertions.test.ts`, `schema-surface.test.ts` (EXTEND, per D11's exact pins) | frozen lists gain exactly the new names; sorted contiguity; named-type delta; codegen-sync byte-identical |

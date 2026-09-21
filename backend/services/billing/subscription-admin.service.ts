@@ -601,10 +601,13 @@ export namespace SubscriptionAdminService {
     // certified member resolves by MAP LOOKUP — no enum-to-string
     // comparison, no type assertion, and an unverified literal stays the
     // honest `undefined`.
-    const memberByRaw = Object.values(AuditActionType).reduce<Record<string, AuditActionType>>((map, member) => {
-      map[member] = member;
-      return map;
-    }, {});
+    const memberByRaw = Object.values(AuditActionType).reduce<Record<string, AuditActionType | undefined>>(
+      (map, member) => {
+        map[member] = member;
+        return map;
+      },
+      {}
+    );
     const certified = memberByRaw[newest.actionType];
     if (certified === undefined) {
       logger.logDomainError("Subscription audit peek withheld: uncertifiable action type in the trail", {

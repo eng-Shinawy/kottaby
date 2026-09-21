@@ -25,6 +25,7 @@
  *  - `AdminUserGovernanceFilter` (active|suspended|blocked|deleted — admin directory filter)
  *  - `NotificationType` (the nine notification kinds)
  *  - `BroadcastAudienceType` (all|role|country|plan — admin broadcast cohort kinds)
+ *  - `BroadcastStatus` (active|stopped — one-way broadcast lifecycle state)
  *  - `AppLocale` (the per-user UI/copy preference — "ar" | "en")
  *  - `LinkStatus` (pending|confirmed|rejected|expired — parent-child link request lifecycle)
  *  - `SurahJuzRef` (5 surahs + 30 juz — home_work assignment/ref vocabulary)
@@ -43,6 +44,7 @@ import { TransactionStatus } from "@/backend/enum/billing/transaction-status.enu
 import { TransactionType } from "@/backend/enum/billing/transaction-type.enum";
 import { WalletAdjustmentDirection } from "@/backend/enum/billing/wallet-adjustment-direction.enum";
 import { BroadcastAudienceType } from "@/backend/enum/notifications/broadcast-audience-type.enum";
+import { BroadcastStatus } from "@/backend/enum/notifications/broadcast-status.enum";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolution.enum";
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
@@ -328,14 +330,33 @@ export const LinkStatusPothosEnum = gqlSchemaBuilder.enumType(LinkStatus, {
  *
  * Registered ONCE from the canonical TS enum
  * (`backend/enum/notifications/broadcast-audience-type.enum.ts`). This is the
- * request-scoped cohort vocabulary an admin broadcast targets — it is never
- * persisted as a column type (resolved notification rows record the
- * recipient, not the cohort), so it has no pgEnum counterpart. Unknown
+ * request-scoped cohort vocabulary an admin broadcast targets — the runtime
+ * selector is never persisted as a column type (resolved notification rows
+ * record the recipient, not the cohort); the matching `broadcast_audience_type`
+ * pgEnum persists the header table's audience snapshot instead. Unknown
  * transport values die at the GraphQL input-validation layer before any
  * resolver runs.
  */
 export const BroadcastAudienceTypePothosEnum = gqlSchemaBuilder.enumType(BroadcastAudienceType, {
   name: "BroadcastAudienceType",
+});
+
+/**
+ * GraphQL `BroadcastStatus` enum (wire names `Active`/`Stopped` over the
+ * runtime strings "active"/"stopped") — the one-way lifecycle state of a
+ * first-class broadcast header row: born `active` on commit, transitioning
+ * exactly once to `stopped` (the stop retracts the broadcast's notification
+ * rows); `stopped` is terminal — no reactivate path exists.
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/notifications/broadcast-status.enum.ts`), which mirrors the
+ * `broadcast_status` pgEnum byte-for-byte. Per the Pothos enum-object
+ * convention (identical to `UserRole`/`NotificationType`), the enum KEYS are
+ * the GraphQL value names on the wire while the lowercase string values
+ * remain the runtime and database representation.
+ */
+export const BroadcastStatusPothosEnum = gqlSchemaBuilder.enumType(BroadcastStatus, {
+  name: "BroadcastStatus",
 });
 
 /**

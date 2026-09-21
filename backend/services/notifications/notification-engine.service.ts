@@ -178,4 +178,26 @@ export namespace NotificationEngine {
     validateOptionalNotificationType(type, t.validation);
     return NotificationRepository.markAllReadForUser(callerUserId, type, tx);
   }
+
+  /**
+   * Retracts every notification row linked to one related entity — the
+   * engine-mediated delete that keeps the single-writer invariant: no other
+   * file ever deletes `notifications` rows; callers (sibling services,
+   * lifecycle surfaces) compose through this method on their own
+   * transaction, and the delete joins it.
+   *
+   * The scope is exactly the (`relatedEntityType`, `relatedEntityId`) pair —
+   * the repository's two-equality predicate. Rows without a matching
+   * pointer never match, so an unknown or already-retracted linkage reports
+   * `0` and touches nothing.
+   *
+   * @returns The number of rows removed; `0` when the pair matches nothing.
+   */
+  export async function retractByRelatedEntity(
+    relatedEntityType: string,
+    relatedEntityId: number,
+    tx?: DBTransaction
+  ): Promise<number> {
+    return NotificationRepository.deleteByRelatedEntity(relatedEntityType, relatedEntityId, tx);
+  }
 }

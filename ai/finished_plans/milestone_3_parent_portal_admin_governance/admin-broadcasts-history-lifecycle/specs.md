@@ -95,7 +95,7 @@
 
 **User story:** As an admin, I want pre-feature sends visible in history, so that the list is complete from day one.
 
-1. WHEN the one-time backfill migration runs THEN it SHALL create header records for ALL pre-existing `system_broadcast` send groups — grouped by (title, body, exact shared transaction `createdAt`, since Postgres `now()` is transaction-start time) — with status active and TRUE recipient counts, and SHALL link those notification rows to their header via the related-entity pair.
+1. WHEN the one-time backfill migration runs THEN it SHALL create header records for ALL pre-existing `system_broadcast` send groups that have a matching `notification_broadcast` audit row (groups without one are SKIPPED, not headered — REQ-6.2) — grouped by (title, body, exact shared transaction `createdAt`, since Postgres `now()` is transaction-start time) — with status active and TRUE recipient counts, and SHALL link those notification rows to their header via the related-entity pair.
 2. WHEN a historical send has no matching audit row or no notification rows THEN the migration SHALL skip that group safely rather than invent a header.
 3. WHEN audience scope and actor are recovered THEN the backfill SHALL derive them from the matching `notification_broadcast` audit row (scope/companion from `details`, actor from `actorId`, joined via the shared transaction timestamp).
 4. The backfill SHALL be idempotent and guarded as a one-shot (re-entry rejected; ledger D8) — no normal runtime code path re-runs it.

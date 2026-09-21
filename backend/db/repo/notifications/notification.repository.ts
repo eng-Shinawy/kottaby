@@ -5,7 +5,13 @@
  * write to a single inbox (recipient rows are private by construction),
  * `type` discriminates the notification kind, and `related_entity_type` +
  * `related_entity_id` form an optional polymorphic pointer to the row the
- * notification is about. Rows are write-once apart from the `is_read` flip.
+ * notification is about. Rows are write-once apart from the `is_read` flip;
+ * retraction removes a whole linked row set by the related-entity pair.
+ *
+ * A retraction removes the rows linked to one related entity as a set-based
+ * delete scoped ONLY by the (`related_entity_type`, `related_entity_id`)
+ * pair — rows carrying a null pointer (plain emits without linkage) are
+ * structurally immune because `NULL = $1` never matches.
  *
  * Conventions per `backend/db/repo/AGENTS.md`:
  *  - Reads use `queryDb` (raw parameterized SQL) on the non-transactional
@@ -20,7 +26,7 @@
  *    mean. Raw Drizzle errors propagate for the caller to translate.
  */
 
-import { and, count, desc, eq, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, type SQL, sql } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
 // NOTE: `NotificationType` is referenced only at type positions in this file
@@ -49,6 +55,13 @@ type NotificationFilterSubset = Pick<NotificationListFilterInput, "type" | "isRe
  * branches normalize through `Number(...)`.
  */
 type CountRow = { count: number | string };
+
+/**
+ * Row shape of the raw-SQL stats projection — both aggregates (the row
+ * count and the read count) normalize through `Number(...)` since
+ * PostgreSQL delivers `count`/`sum` results as strings.
+ */
+type RelatedEntityStatsRow = { total: number | string; read: number | string };
 
 /** Bound parameter value types accepted by the raw-SQL predicate fragments. */
 type PredicateParam = number | string | boolean;
@@ -307,5 +320,75 @@ export namespace NotificationRepository {
       .set({ isRead: true })
       .where(and(...conditions));
     return result.rowCount ?? 0;
+  }
+
+  /**
+   * Deletes every notification row linked to one related entity — a single
+   * set-based `DELETE … WHERE related_entity_type = ? AND related_entity_id = ?`,
+   * backed by the `(related_entity_type, related_entity_id)` composite
+   * index. No row loops: either every linked row lands in the statement or
+   * none does.
+   *
+   * The two-equality predicate is the ONLY scope: rows whose pointer is
+   * null (plain emits without linkage) never match, and no broader
+   * predicate exists to sweep beyond the pair.
+   *
+   * @returns The number of rows the DELETE removed; `0` when the pair
+   *          matches nothing (unknown or already-retracted linkage).
+   */
+  export async function deleteByRelatedEntity(
+    relatedEntityType: string,
+    relatedEntityId: number,
+    tx?: DBTransaction
+  ): Promise<number> {
+    // No `.returning()` — the awaited delete result is the affected-row count.
+    const result = await (tx ?? db)
+      .delete(notifications)
+      .where(
+        and(eq(notifications.relatedEntityType, relatedEntityType), eq(notifications.relatedEntityId, relatedEntityId))
+      );
+    return result.rowCount ?? 0;
+  }
+
+  /**
+   * Aggregates the live state of one related entity's linked row set in ONE
+   * grouped statement — the total row count plus the read count
+   * (`sum(isRead)`), the pair a detail view shows without leaking recipient
+   * identity (counts only, never the rows themselves).
+   *
+   * The read count rides the same predicate as `deleteByRelatedEntity`, so
+   * the stats always describe the exact row set a retraction would remove.
+   *
+   * @returns `{ total, read }` — counts normalized to JS numbers; `{0, 0}`
+   *          when the pair matches nothing.
+   */
+  export async function readStatsByRelatedEntity(
+    relatedEntityType: string,
+    relatedEntityId: number,
+    tx?: DBTransaction
+  ): Promise<{ total: number; read: number }> {
+    const readAggregate = sql<number>`coalesce(sum(case when ${notifications.isRead} then 1 else 0 end), 0)`.mapWith(
+      Number
+    );
+    if (tx) {
+      const [row] = await tx
+        .select({ total: count(), read: readAggregate })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.relatedEntityType, relatedEntityType),
+            eq(notifications.relatedEntityId, relatedEntityId)
+          )
+        );
+      return { total: row?.total ?? 0, read: row?.read ?? 0 };
+    }
+    const result = await queryDb<RelatedEntityStatsRow>(
+      `SELECT count(*) AS total,
+              coalesce(sum(case when is_read then 1 else 0 end), 0) AS "read"
+         FROM notifications
+        WHERE related_entity_type = $1 AND related_entity_id = $2`,
+      [relatedEntityType, relatedEntityId]
+    );
+    return { total: Number(result.rows[0]?.total ?? 0), read: Number(result.rows[0]?.read ?? 0) };
   }
 }

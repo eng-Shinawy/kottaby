@@ -40,7 +40,7 @@ export function StatusChip({ status, labels }: StatusChipProps): ReactNode {
  * table speaks for action chips (the secondary-container pill), so the
  * drawer's teaser and the trail's full listing read as one surface.
  */
-export function LastActionChip({ actionLabel }: { actionLabel: string }): ReactNode {
+export function LastActionChip({ actionLabel }: { readonly actionLabel: string }): ReactNode {
   return (
     <Box
       component="span"

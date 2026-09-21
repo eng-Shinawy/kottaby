@@ -20,29 +20,37 @@
  *  - Tier 1 (branch/stmt): every method happy path; filter branch ×
  *    combination (none / type / isRead / both / explicit nulls); empty-batch
  *    guard; countUnread mixed read states; markReadOnce flip + idempotent
- *    re-mark; markAllReadForUser type-null sweep / type-scoped sweep.
+ *    re-mark; markAllReadForUser type-null sweep / type-scoped sweep;
+ *    deleteByRelatedEntity + readStatsByRelatedEntity on the tx branch AND
+ *    the non-tx branch (committed fixtures, tracked teardown).
  *  - Tier 2 (boundary): limit 1 and 50 (the page-size bounds), offset 0 /
  *    offset advance / offset beyond the end, filter matching zero rows
- *    (list + count agree).
+ *    (list + count agree); zero-linked-rows stats (0/0), mixed-isRead
+ *    aggregates, unicode/RTL payloads (inert to pair matching).
  *  - Tier 3 (chaos/concurrency): concurrent markReadOnce storms on the SAME
  *    row and on distinct rows via `Promise.allSettled`; paired
  *    markAllReadForUser sweeps; a mixed mark storm racing the set-based
- *    sweep; FK-integrity rejection of a ghost-recipient insert.
+ *    sweep; concurrent retraction storms + stats-vs-retract races;
+ *    FK-integrity rejection of a ghost-recipient insert.
  *  - Tier 4 (security/tenancy): foreign-recipient markReadOnce → null with
  *    the owner's row byte-identical; every read/write scoped by the
  *    explicit userId parameter (another user's inbox stays invisible and
- *    untouched).
+ *    untouched); retraction isolation — same id under a different type and
+ *    same type under a different id are untouched.
  */
 
-import { describe, expect, test } from "bun:test";
-import { desc, eq, sql } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { and, count, desc, eq, or, sql } from "drizzle-orm";
+import { db } from "@/backend/db";
 import { NotificationRepository } from "@/backend/db/repo";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
+import { users } from "@/backend/db/schema/users/users";
 import { createTestUser } from "@/backend/db/test/entity-setup";
 import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
-import type { DBTransaction, NotificationInsertType, NotificationSelectType } from "@/backend/types";
+import type { DBTransaction, NotificationInsertType, NotificationSelectType, UserSelectType } from "@/backend/types";
 
 /** PostgreSQL error code for `foreign_key_violation`. */
 const PG_FOREIGN_KEY_VIOLATION = "23503";
@@ -79,6 +87,8 @@ const FILTER_FIXTURE: readonly RowSpec[] = [
 interface RowSpec {
   readonly type: NotificationType;
   readonly isRead?: boolean;
+  /** Row title — defaults to the positional "Notice N" fixture shape. */
+  readonly title?: string;
   /**
    * Minutes subtracted from "now". Defaults to descending-from-now by spec
    * index so specs read oldest-first — the LAST spec is the newest row;
@@ -86,6 +96,13 @@ interface RowSpec {
    * tiebreaker).
    */
   readonly minutesAgo?: number;
+  /**
+   * Related-entity pointer of the row — defaults to the unlinked session
+   * shape; an explicit `null` pair seeds a pointer-less row (the plain-emit
+   * shape) for the retraction-immunity probe.
+   */
+  readonly relatedEntityType?: string | null;
+  readonly relatedEntityId?: number | null;
 }
 
 /**
@@ -115,11 +132,11 @@ function buildInserts(userId: number, specs: readonly RowSpec[]): NotificationIn
   return specs.map((spec, i) => ({
     userId,
     type: spec.type,
-    title: `Notice ${i + 1}`,
+    title: spec.title ?? `Notice ${i + 1}`,
     body: `Body ${i + 1}`,
     isRead: spec.isRead ?? false,
-    relatedEntityType: "session",
-    relatedEntityId: 9000 + i,
+    relatedEntityType: spec.relatedEntityType === undefined ? "session" : spec.relatedEntityType,
+    relatedEntityId: spec.relatedEntityId === undefined ? 9000 + i : spec.relatedEntityId,
     createdAt: new Date(now - (spec.minutesAgo ?? specs.length - 1 - i) * 60_000),
   }));
 }
@@ -717,6 +734,312 @@ describe("NotificationRepository concurrency (mark storms)", () => {
       // Whatever the interleaving: fully read, zero duplicates.
       expect(await NotificationRepository.countUnread(user.id, tx)).toBe(0);
       expect(await readUserRows(tx, user.id)).toHaveLength(2);
+    });
+  });
+});
+
+// ─── Retraction + linked-set stats (tx branch + non-tx branch) ───────────────
+
+describe("NotificationRepository.deleteByRelatedEntity", () => {
+  // ─── Tier 1: branch/statement (tx branch) ───────────────────────────
+
+  test("deletes exactly the linked rows in one statement and returns the count", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      await seedRows(
+        tx,
+        buildInserts(user.id, [
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 7001 },
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 7001 },
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 7002 },
+          { type: NotificationType.SessionRequest, relatedEntityType: "session", relatedEntityId: 7001 },
+        ])
+      );
+
+      const affected = await NotificationRepository.deleteByRelatedEntity("broadcast", 7001, tx);
+
+      expect(affected).toBe(2);
+      // Only the linked pair is gone; the other id and the other type remain.
+      const rows = await readUserRows(tx, user.id);
+      expect(rows).toHaveLength(2);
+      expect(rows.some(row => row.relatedEntityType === "broadcast" && row.relatedEntityId === 7002)).toBe(true);
+      expect(rows.some(row => row.relatedEntityType === "session")).toBe(true);
+    });
+  });
+
+  test("returns 0 for a pair matching nothing; a pointer-less row is structurally immune", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      await seedRows(
+        tx,
+        buildInserts(user.id, [
+          { type: NotificationType.SystemBroadcast, relatedEntityType: null, relatedEntityId: null },
+        ])
+      );
+
+      expect(await NotificationRepository.deleteByRelatedEntity("broadcast", 42, tx)).toBe(0);
+      // A retracted (already-deleted) pair also reports 0.
+      expect(await NotificationRepository.deleteByRelatedEntity("broadcast", 42, tx)).toBe(0);
+      // The pointer-less row never matches — `NULL = $1` is NULL in SQL.
+      expect(await readUserRows(tx, user.id)).toHaveLength(1);
+    });
+  });
+
+  // ─── Tier 3: concurrent retraction storms ───────────────────────────
+
+  test("concurrent double retract: one reports the rows, the other 0", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      await seedRows(
+        tx,
+        buildInserts(user.id, [
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 7101 },
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 7101 },
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 7101 },
+        ])
+      );
+
+      const settled = await Promise.allSettled([
+        NotificationRepository.deleteByRelatedEntity("broadcast", 7101, tx),
+        NotificationRepository.deleteByRelatedEntity("broadcast", 7101, tx),
+      ]);
+
+      expect(settled).toHaveLength(2);
+      const counts = settled.map(outcome => fulfilledValue(outcome) ?? -1).toSorted((a, b) => a - b);
+      // The set-based delete is race-free: whichever call runs first removes
+      // all 3, the second matches nothing.
+      expect(counts).toEqual([0, 3]);
+      expect(await readUserRows(tx, user.id)).toHaveLength(0);
+    });
+  });
+
+  test("concurrent stats-vs-retract: all settle and the post-state is the empty row set", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      await seedRows(
+        tx,
+        buildInserts(user.id, [
+          {
+            type: NotificationType.SystemBroadcast,
+            isRead: true,
+            relatedEntityType: "broadcast",
+            relatedEntityId: 7102,
+          },
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 7102 },
+        ])
+      );
+
+      const settled = await Promise.allSettled([
+        NotificationRepository.readStatsByRelatedEntity("broadcast", 7102, tx),
+        NotificationRepository.deleteByRelatedEntity("broadcast", 7102, tx),
+      ]);
+
+      for (const outcome of settled) {
+        expect(outcome.status).toBe("fulfilled");
+      }
+      // Whatever the interleaving (queries serialize on the shared tx), the
+      // post-state is the empty row set either way.
+      expect(await NotificationRepository.readStatsByRelatedEntity("broadcast", 7102, tx)).toEqual({
+        total: 0,
+        read: 0,
+      });
+    });
+  });
+});
+
+describe("NotificationRepository.readStatsByRelatedEntity", () => {
+  // ─── Tier 1: branch/statement (tx branch) ───────────────────────────
+
+  test("ONE aggregate matches the live row set (mixed isRead, cross-user linkage)", async () => {
+    await runInRollback(async tx => {
+      const userA = await createTestUser(tx);
+      const userB = await createTestUser(tx);
+      await seedRows(
+        tx,
+        buildInserts(userA.id, [
+          {
+            type: NotificationType.SystemBroadcast,
+            isRead: false,
+            relatedEntityType: "broadcast",
+            relatedEntityId: 8001,
+          },
+          {
+            type: NotificationType.SystemBroadcast,
+            isRead: true,
+            relatedEntityType: "broadcast",
+            relatedEntityId: 8001,
+          },
+          {
+            type: NotificationType.SystemBroadcast,
+            isRead: false,
+            relatedEntityType: "broadcast",
+            relatedEntityId: 8001,
+          },
+        ])
+      );
+      // The linkage spans recipients — userB's rows with the SAME pair count too.
+      await seedRows(
+        tx,
+        buildInserts(userB.id, [
+          {
+            type: NotificationType.SystemBroadcast,
+            isRead: true,
+            relatedEntityType: "broadcast",
+            relatedEntityId: 8001,
+          },
+        ])
+      );
+      // A sibling pair (same type, other id) stays out of the aggregate.
+      await seedRows(
+        tx,
+        buildInserts(userA.id, [
+          { type: NotificationType.SystemBroadcast, relatedEntityType: "broadcast", relatedEntityId: 8002 },
+        ])
+      );
+
+      expect(await NotificationRepository.readStatsByRelatedEntity("broadcast", 8001, tx)).toEqual({
+        total: 4,
+        read: 2,
+      });
+      expect(await NotificationRepository.readStatsByRelatedEntity("broadcast", 8002, tx)).toEqual({
+        total: 1,
+        read: 0,
+      });
+    });
+  });
+
+  // ─── Tier 2: zero-linked + unicode payload boundaries ───────────────
+
+  test("a pair matching nothing aggregates 0/0; unicode/RTL payloads are inert to the pair", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      const unicodeTitle = "\u202Eلا تخفي %_الحقيقة; --\u202C";
+      await seedRows(
+        tx,
+        buildInserts(user.id, [
+          {
+            type: NotificationType.SystemBroadcast,
+            isRead: true,
+            title: unicodeTitle,
+            relatedEntityType: "broadcast",
+            relatedEntityId: 8101,
+          },
+          {
+            type: NotificationType.SystemBroadcast,
+            title: "سmile 🎉",
+            relatedEntityType: "broadcast",
+            relatedEntityId: 8101,
+          },
+        ])
+      );
+
+      // Unknown pair → {0, 0}.
+      expect(await NotificationRepository.readStatsByRelatedEntity("broadcast", 999_999, tx)).toEqual({
+        total: 0,
+        read: 0,
+      });
+
+      // The unicode payload rows match by the pair alone.
+      expect(await NotificationRepository.readStatsByRelatedEntity("broadcast", 8101, tx)).toEqual({
+        total: 2,
+        read: 1,
+      });
+    });
+  });
+
+  // ─── Tier 1 + 4: non-tx branch (committed fixtures, tracked teardown) ─
+
+  describe("non-tx branch (committed fixtures)", () => {
+    const committedUsers: UserSelectType[] = [];
+    const STATS_PAIR_TYPE = `stats-${randomUUID()}`;
+    const DELETE_PAIR_TYPE = `delete-${randomUUID()}`;
+    const OTHER_PAIR_TYPE = `other-${randomUUID()}`;
+
+    beforeAll(async () => {
+      await db.transaction(async tx => {
+        const statsUser = await createTestUser(tx);
+        const deleteUser = await createTestUser(tx);
+        committedUsers.push(statsUser, deleteUser);
+        await seedRows(
+          tx,
+          buildInserts(statsUser.id, [
+            {
+              type: NotificationType.SystemBroadcast,
+              isRead: true,
+              relatedEntityType: STATS_PAIR_TYPE,
+              relatedEntityId: 4201,
+            },
+            { type: NotificationType.SystemBroadcast, relatedEntityType: STATS_PAIR_TYPE, relatedEntityId: 4201 },
+            { type: NotificationType.SystemBroadcast, relatedEntityType: STATS_PAIR_TYPE, relatedEntityId: 4201 },
+          ])
+        );
+        await seedRows(
+          tx,
+          buildInserts(deleteUser.id, [
+            {
+              type: NotificationType.SystemBroadcast,
+              title: "\u202E%s_' OR 1=1; --\u202C",
+              relatedEntityType: DELETE_PAIR_TYPE,
+              relatedEntityId: 4202,
+            },
+            { type: NotificationType.SystemBroadcast, relatedEntityType: DELETE_PAIR_TYPE, relatedEntityId: 4202 },
+            { type: NotificationType.SystemBroadcast, relatedEntityType: OTHER_PAIR_TYPE, relatedEntityId: 4203 },
+          ])
+        );
+      });
+    });
+
+    afterAll(async () => {
+      const userIds = committedUsers.map(user => user.id);
+      if (userIds.length === 0) {
+        return;
+      }
+      const notificationResidueFilter = or(...userIds.map(id => eq(notifications.userId, id)));
+      const userResidueFilter = or(...userIds.map(id => eq(users.id, id)));
+      await db.delete(notifications).where(notificationResidueFilter);
+      await db.delete(users).where(userResidueFilter);
+      const notificationResidue = (
+        await db.select({ value: count() }).from(notifications).where(notificationResidueFilter)
+      ).at(0);
+      const userResidue = (await db.select({ value: count() }).from(users).where(userResidueFilter)).at(0);
+      expect(notificationResidue?.value ?? 0).toBe(0);
+      expect(userResidue?.value ?? 0).toBe(0);
+    });
+
+    test("readStatsByRelatedEntity without tx aggregates the committed row set", async () => {
+      const stats = await NotificationRepository.readStatsByRelatedEntity(STATS_PAIR_TYPE, 4201);
+
+      expect(stats).toEqual({ total: 3, read: 1 });
+    });
+
+    test("deleteByRelatedEntity without tx deletes exactly the linked committed rows", async () => {
+      const affected = await NotificationRepository.deleteByRelatedEntity(DELETE_PAIR_TYPE, 4202);
+
+      expect(affected).toBe(2);
+      // The unicode-payload row and its sibling are gone; the unrelated pair remains.
+      const survivors = await db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.relatedEntityType, DELETE_PAIR_TYPE), eq(notifications.relatedEntityId, 4202)));
+      expect(survivors).toHaveLength(0);
+      const others = await db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.relatedEntityType, OTHER_PAIR_TYPE), eq(notifications.relatedEntityId, 4203)));
+      expect(others).toHaveLength(1);
+      // The stats pair is untouched by the delete.
+      expect(await NotificationRepository.readStatsByRelatedEntity(STATS_PAIR_TYPE, 4201)).toEqual({
+        total: 3,
+        read: 1,
+      });
+    });
+
+    test("non-tx calls on a pair matching nothing report 0 / 0-0", async () => {
+      expect(await NotificationRepository.deleteByRelatedEntity(DELETE_PAIR_TYPE, 123_456)).toBe(0);
+      expect(await NotificationRepository.readStatsByRelatedEntity(DELETE_PAIR_TYPE, 123_456)).toEqual({
+        total: 0,
+        read: 0,
+      });
     });
   });
 });

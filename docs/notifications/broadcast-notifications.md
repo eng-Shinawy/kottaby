@@ -6,6 +6,8 @@ Provenance: shipped as "Broadcast Notifications — System-Wide & Targeted". Com
 
 An admin composes a free-text announcement (title ≤ 255 chars, optional body) addressed to one audience cohort. On accept, exactly one `system_broadcast` notification row per resolved recipient is inserted through the engine's emit path, exactly one audit row records the composition, and a real-time publish fan-out reaches connected recipients. Recipients observe the broadcast in their own self-scoped inbox (`NotificationEngine.listMyNotifications`), identical in shape to every other notification — broadcasts are NOT a separate read surface.
 
+Broadcasts are first-class records: a `broadcasts` header table holds ONE row per accepted send (title, body, audience scope, actor, recipient counts, lifecycle status). Every emitted notification row is linked to its header through the EXISTING polymorphic related-entity pair — `relatedEntityType = "broadcast"` + the header's id — so retraction, history, and per-recipient observability all resolve through the engine's existing related-entity machinery rather than any broadcast-specific join.
+
 Live surfaces:
 
 | Layer | Artifact |
@@ -62,7 +64,7 @@ The resolved cohort length is checked against the 5000 cap BEFORE any write; a b
 ## 7. Audit contract
 
 - Exactly ONE `audit_logs` row per ACCEPTED broadcast, written inside the same transaction.
-- `actionType: create`, `entityType: "notification_broadcast"`, `entityId: NULL` (a broadcast has no single backing entity — the audit write contract admits a null `entityId`; the schema column is nullable and `AuditLogWriteContract.entityId` is widened to the schema-derived `number | null`).
+- `actionType: create`, `entityType: "notification_broadcast"`, `entityId: <broadcast header id>` on every NEW send (the send is now a first-class record — the audit row points at its header). HISTORICAL rows predating the header table keep `entityId = NULL` — an accepted, documented mixed state; anything reading the audit trail must tolerate both shapes (census, listing joins, detail views). The schema column stays nullable and `AuditLogWriteContract.entityId` remains the schema-derived `number | null` precisely because of the historical rows.
 - `details` carries metadata ONLY — `{ scope, <companion>, recipientCount }`. Never the title, never the body, never recipient identifiers (log hygiene: the same metadata-only discipline applies to every log line on the path).
 - Zero audit rows on denial (see §3 ordering).
 - The `audit_logs` immutability triggers (update/delete blocks from the audit hardening migration) do not interfere: the path only ever INSERTs.
@@ -79,6 +81,9 @@ Admin-authored title/body are stored byte-for-byte (unicode, RTL, and injection-
 - **Never add a fifth audience kind via schema** — the taxonomy is TS-only by design; a new kind is an enum + repo-branch + input-registration change with zero migration.
 - **Never move the governance predicate** — the tx and raw branches must stay semantically identical; the exclusion set (deleted/blocked out, suspended in) is invariant-pinned.
 - **Never expose a pre-send audience-size count** — no preview query exists; the persisted count returns only after the write.
+- **Never retract notifications by ad-hoc SQL** — stop is engine-mediated retraction: the engine is the single writer on the way in AND the way out; retraction composes through `NotificationEngine.retractByRelatedEntity` (resolved by `relatedEntityType = "broadcast"` + the header id), so delete semantics, status flips, and observer consistency stay engine-owned. The broadcast layer never issues its own `DELETE`/`UPDATE` against `notifications`.
+- **Never emit before the header exists** — the send transaction is header-first by order: header insert → engine emission → audit row. A residual emission with no header (the ghost-claim case: the claim cache accepted the key but the header insert yields no usable id) rolls the WHOLE transaction back — the invariant is "no notification row without its header", never a partial send.
+- **Never fork the audit id carrying** — new send audit rows carry the broadcast id; historical null-`entityId` rows are accepted as-is and are NEVER rewritten (the `audit_logs` immutability posture forbids it anyway).
 
 ## 10. Test map (evidence)
 
@@ -87,5 +92,13 @@ Admin-authored title/body are stored byte-for-byte (unicode, RTL, and injection-
 - **Repository suite** — `backend/db/test/logic/notifications/broadcast-audience.repository.test.ts`: both resolution branches, governance predicates, active-window boundaries (inclusive start / exclusive end), wildcard-shaped countries matching nobody.
 - **Wire integration** — `backend/graphql/test/admin-broadcast.integration.test.ts`: UNAUTHORIZED/FORBIDDEN wall over the REAL HTTP stack, BOPLA smuggled-field probes, `$all` snapshot pin, single-arg surface.
 - **Locale parity** — `shared/locale/adminBroadcasts-namespace.parity.test.ts`: en/ar key parity, Arabic plural boundary pins (incl. ≥100 cycles), zero hardcoded copy across the surface.
+
+Lifecycle evidence (the first-class-record era):
+
+- **Cross-actor retraction journey** — `test/workflows/notifications/broadcast-retraction.journey.test.ts`: the stop lifecycle over the REAL service + real DB (send → recipient observation → stop → recipient-side retraction observability, cross-actor).
+- **Repository suites** — `backend/db/test/logic/notifications/broadcast.repository.test.ts` (header CRUD, related-entity linkage resolution, status transitions) and the extended `backend/db/test/logic/notifications/notification.repository.test.ts` (related-entity retraction/lookup paths backing the broadcast pair).
+- **Service suites** — `backend/services/notifications/admin-broadcast.service.test.ts` (send-path matrix incl. header-first ordering and ghost-claim full rollback) + `backend/services/notifications/admin-broadcast-lifecycle.service.test.ts` (list/detail/stop behavior matrices).
+- **Wire integration** — `backend/graphql/test/admin-broadcast-history.integration.test.ts`: the list/detail/stop operations over the REAL HTTP GraphQL stack (auth walls, filters, windows, wire enums).
+- **Locale parity (lifecycle)** — `shared/locale/adminBroadcasts-namespace.parity.test.ts` (extended with the history/detail/stop surface) + `shared/locale/errors-namespace.parity.test.ts` (the localized denial/error keys the lifecycle surface emits).
 
 Import-by-reference: future emitters and reviewers should read `docs/notifications/realtime-engine.md` §3.2 (consumption table + receipt composition) and §3.6 (idempotency posture) alongside this doc — the engine's rules are cited there and are NOT duplicated here.

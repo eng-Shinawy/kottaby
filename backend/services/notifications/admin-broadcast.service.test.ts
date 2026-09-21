@@ -21,9 +21,12 @@
  *    object+method pair), so happy paths can prove they log NOTHING.
  *
  * Coverage map (the full behavior matrix):
- *  - happy path per cohort kind (`all` / `role` / `country` / `plan`): rows
- *    + ONE metadata-only audit row + ONE full-list envelope + correct count
- *    + zero logs;
+ *  - happy path per cohort kind (`all` / `role` / `country` / `plan`): ONE
+ *    `broadcasts` header row (status active, recorded cohort size, verified
+ *    sender) + notification rows linked to that header through the
+ *    related-entity pair + ONE metadata-only audit row naming the header
+ *    (entityId = header id) + ONE full-list envelope + correct count + zero
+ *    logs;
  *  - gate denials: anonymous → UNAUTHORIZED, non-admin / missing actor →
  *    FORBIDDEN — all pre-transaction with zero rows / audit / publish;
  *  - validation matrix: title defects, the full companion coherence matrix
@@ -32,8 +35,10 @@
  *    existence read never consulted;
  *  - cohort guards: empty resolution and a >cap scripted resolution —
  *    localized rejections with zero state;
- *  - replay: same key + live cache → identical count, ZERO new rows /
- *    audit / publishes;
+ *  - replay absorption: same key + live cache → the header's ORIGINAL
+ *    recipient count, ZERO new rows / audit / publishes, and NO duplicate
+ *    header (the nullable-unique idempotency key is the DB-durable replay
+ *    arbiter);
  *  - cache-claim outage: fail-open insert + exactly ONE engine warn, the
  *    audit row and the publish still happen;
  *  - forced insert failure: the whole unit rolls back — zero notifications,
@@ -46,10 +51,9 @@
  *  - second-admin gate probe: the seeded second admin passes the SAME real
  *    gate and lands its OWN audit row — audit rows are append-only with
  *    per-actor attribution, so no cross-admin alteration is possible;
- *  - concurrent same-key race: two SEQUENTIAL same-key submits yield ONE
- *    row-set (the deterministic guarantee), while the parallel loser of the
- *    claim (held, receipt not yet visible) takes the engine's documented
- *    fail-open ladder — insert + audit + publish with exactly ONE warn.
+ *  - ghost-claim residual: an engine-reported replay landing AFTER the
+ *    header insert rejects `BROADCAST_GHOST_CLAIM` and rolls the whole
+ *    unit back — ZERO orphan header rows, zero notifications, zero audit.
  */
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
@@ -58,22 +62,29 @@ import { and, eq } from "drizzle-orm";
 import { BroadcastAudienceRepository, NotificationRepository, PlanRepository, UserRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
+import { broadcasts } from "@/backend/db/schema/notifications/broadcasts";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
 import { users } from "@/backend/db/schema/users/users";
 import { createTestPlan, createTestUser } from "@/backend/db/test/entity-setup";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { BroadcastAudienceType } from "@/backend/enum/notifications/broadcast-audience-type.enum";
+import { BroadcastStatus } from "@/backend/enum/notifications/broadcast-status.enum";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
-import { DomainError, ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
+import { ConflictError, DomainError, ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
 import { type DomainErrorContext, logger } from "@/backend/lib/logger";
 import { AuditService } from "@/backend/services/admin/audit.service";
 import {
   AdminBroadcastService,
   BROADCAST_MAX_RECIPIENTS,
 } from "@/backend/services/notifications/admin-broadcast.service";
-import type { NotificationIdempotencyClaimCache } from "@/backend/services/notifications/emit-idempotency";
+import {
+  buildEmitClaimKey,
+  NOTIFICATION_EMIT_CLAIM_TTL_SECONDS,
+  type NotificationIdempotencyClaimCache,
+  serializeEmitReceipt,
+} from "@/backend/services/notifications/emit-idempotency";
 import { NotificationEngine } from "@/backend/services/notifications/notification-engine.service";
 import type { BroadcastNotificationSubmitInput, DBTransaction, UserSelectType } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
@@ -84,6 +95,9 @@ const EN_ERRORS = getServerTranslations(LOCALE).errorsTranslations;
 
 /** The audit entityType the service writes for every accepted broadcast. */
 const AUDIT_ENTITY_TYPE = "notification_broadcast";
+
+/** The related-entity type linking every emitted notification row to its header. */
+const BROADCAST_RELATED_ENTITY_TYPE = "broadcast";
 
 /** A user id that cannot exist in the test database. */
 const NONEXISTENT_USER_ID = 2_000_000_000;
@@ -187,39 +201,6 @@ class ScriptedClaimCache implements NotificationIdempotencyClaimCache {
   }
 }
 
-/**
- * Claim cache scripted for the same-key race: the FIRST claimant wins, and a
- * receipt only becomes storable after the held loser's cache miss has been
- * observed — the loser therefore reads NO receipt and deterministically takes
- * the engine's fail-open path (mirrors SET-NX-EX with a real in-flight
- * emission still holding the key).
- */
-class RaceWindowClaimCache implements NotificationIdempotencyClaimCache {
-  private claims = 0;
-  private readonly stored = new Map<string, string>();
-  private releaseStore: (() => void) | undefined;
-  private readonly loserMissObserved: Promise<void> = new Promise(resolve => {
-    this.releaseStore = resolve;
-  });
-
-  async claim(_key: string, _ttlSeconds: number): Promise<boolean> {
-    this.claims += 1;
-    return this.claims === 1;
-  }
-
-  async get(key: string): Promise<string | null> {
-    if (this.claims >= 2) {
-      this.releaseStore?.();
-    }
-    return this.stored.get(key) ?? null;
-  }
-
-  async store(key: string, value: string, _ttlSeconds: number): Promise<void> {
-    await this.loserMissObserved;
-    this.stored.set(key, value);
-  }
-}
-
 /** Provisions the four-user cast (admin + the three non-admin roles). */
 async function provisionCast(tx: DBTransaction): Promise<BroadcastCast> {
   const admin = await createTestUser(tx, { role: "admin" });
@@ -258,6 +239,15 @@ async function rowsByTitle(tx: DBTransaction, title: string) {
   return tx.select().from(notifications).where(eq(notifications.title, title));
 }
 
+/** The single persisted broadcast header row created under one run-unique title. */
+async function headerByTitle(tx: DBTransaction, title: string) {
+  const [header] = await tx.select().from(broadcasts).where(eq(broadcasts.title, title));
+  if (!header) {
+    throw new Error(`expected a broadcasts header row under title ${title}`);
+  }
+  return header;
+}
+
 /** Asserts a caught error is a `DomainError` carrying the expected `code`. */
 function assertDomainCode(error: Error, expectedCode: string): void {
   expect(error).toBeInstanceOf(DomainError);
@@ -294,7 +284,7 @@ async function probeValidationCases(
 }
 
 describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
-  test("all cohort — one row per governed user, ONE metadata-only audit row, ONE full-list envelope, zero logs", async () => {
+  test("all cohort — header row recorded, rows linked to it, ONE metadata-only audit row naming it, zero logs", async () => {
     await runInRollback(async tx => {
       const cast = await provisionCast(tx);
       const transportSpy = new SpiedFanoutTransport();
@@ -302,6 +292,7 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       const logs = recordDomainLogs();
       const title = `svc_all_${randomUUID()}`;
       const body = `svc_all_body_${randomUUID()}`;
+      const key = randomUUID();
 
       try {
         const broadcastCount = await callBroadcast(
@@ -309,8 +300,22 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
           { title, body, audience: { type: BroadcastAudienceType.All } },
           cast.admin.id,
           options,
-          randomUUID()
+          key
         );
+
+        // The send's first side effect: ONE `broadcasts` header row — born
+        // active, recording the persisted cohort size and the verified sender.
+        const header = await headerByTitle(tx, title);
+        expect(header.status).toBe(BroadcastStatus.Active);
+        expect(header.recipientCount).toBe(broadcastCount);
+        expect(header.sentById).toBe(cast.admin.id);
+        expect(header.audienceType).toBe(BroadcastAudienceType.All);
+        expect(header.audienceRole).toBeNull();
+        expect(header.audienceCountry).toBeNull();
+        expect(header.audiencePlanId).toBeNull();
+        expect(header.idempotencyKey).toBe(key);
+        expect(header.stoppedById).toBeNull();
+        expect(header.stoppedAt).toBeNull();
 
         const rows = await rowsByTitle(tx, title);
         expect(broadcastCount).toBe(rows.length);
@@ -321,8 +326,10 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         }
         for (const row of rows) {
           expect(row.type).toBe(NotificationType.SystemBroadcast);
-          expect(row.relatedEntityType).toBeNull();
-          expect(row.relatedEntityId).toBeNull();
+          // Every emitted row is linked to its header through the
+          // polymorphic related-entity pair.
+          expect(row.relatedEntityType).toBe(BROADCAST_RELATED_ENTITY_TYPE);
+          expect(row.relatedEntityId).toBe(header.id);
           expect(row.isRead).toBe(false);
           expect(row.title).toBe(title);
           expect(row.body).toBe(body);
@@ -335,7 +342,7 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
           throw new Error("expected exactly one audit row for the fresh broadcast");
         }
         expect(auditRow.actionType).toBe(AuditActionType.Create);
-        expect(auditRow.entityId).toBeNull();
+        expect(auditRow.entityId).toBe(header.id);
         const metadata: unknown = JSON.parse(auditRow.details ?? "{}");
         expect(metadata).toEqual({ scope: "all", recipientCount: broadcastCount });
         expect(JSON.stringify(metadata)).not.toContain(title);
@@ -349,6 +356,8 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         expect([...publish.userIds].toSorted((a, b) => a - b)).toEqual([...recipientIds].toSorted((a, b) => a - b));
         expect(publish.payload.data.type).toBe(NotificationType.SystemBroadcast);
         expect(publish.payload.data.title).toBe(title);
+        expect(publish.payload.data.relatedEntityType).toBe(BROADCAST_RELATED_ENTITY_TYPE);
+        expect(publish.payload.data.relatedEntityId).toBe(header.id);
 
         // Happy paths log NOTHING (including the engine's seams).
         expect(logs.entries).toEqual([]);
@@ -829,6 +838,14 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
 
       const replayCount = await callBroadcast(tx, input, cast.admin.id, options, key);
 
+      // The replay returns the header's ORIGINAL recipient count and the
+      // header is NOT duplicated — the unique idempotency key is the
+      // DB-durable arbiter.
+      const headers = await tx.select().from(broadcasts).where(eq(broadcasts.idempotencyKey, key));
+      expect(headers).toHaveLength(1);
+      expect(headers[0]?.recipientCount).toBe(freshCount);
+      expect(replayCount).toBe(headers[0]?.recipientCount);
+
       expect(replayCount).toBe(freshCount);
       expect(await rowsByTitle(tx, title)).toHaveLength(freshRows.length);
       expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(auditAfterFresh.length);
@@ -882,7 +899,9 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       const secondAdminNewRows = seededAuditAfter.filter(row => !seededAuditBeforeIds.has(row.id));
       expect(secondAdminNewRows).toHaveLength(1);
       const secondRow = secondAdminNewRows[0];
-      expect(secondRow?.entityId).toBeNull();
+      // The second admin's audit row names ITS OWN header — per-send
+      // attribution, never the first admin's row.
+      expect(secondRow?.entityId).toBe((await headerByTitle(tx, secondTitle)).id);
       const secondMetadata: unknown = JSON.parse(secondRow?.details ?? "{}");
       expect(secondMetadata).toEqual({ scope: "role", role: "teacher", recipientCount: secondCount });
 
@@ -892,81 +911,88 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
     });
   });
 
-  test("concurrent same-key race — sequential same-key submits yield ONE row-set; the parallel claim loser fails OPEN", async () => {
+  test("ghost-claim residual — an engine replay reported after the header insert rolls the whole unit back with ZERO orphan headers", async () => {
     await runInRollback(async tx => {
       const cast = await provisionCast(tx);
+      // A run-unique country pins the cohort to EXACTLY the cast's teacher
+      // (the audience repository's governance filter resolves all governed
+      // users per selector — a fresh sentinel country keeps the emission
+      // identity this test scripts deterministic in the shared database).
+      const country = `QT${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+      await tx.update(users).set({ country }).where(eq(users.id, cast.teacher.id));
       const transportSpy = new SpiedFanoutTransport();
+      const cache = new ScriptedClaimCache();
+      const options = { transport: transportSpy, cache };
       const logs = recordDomainLogs();
+      const title = `svc_ghost_${randomUUID()}`;
+      const key = randomUUID();
+
+      // Script the residual: the cache already holds a replayable receipt
+      // for this exact emission identity (cohort + type + key) while NO
+      // header exists for the key — the header insert therefore succeeds,
+      // then the engine reports the stored receipt with no claim key
+      // attached.
+      const claimKey = buildEmitClaimKey([cast.teacher.id], NotificationType.SystemBroadcast, key);
+      await cache.claim(claimKey, NOTIFICATION_EMIT_CLAIM_TTL_SECONDS);
+      await cache.store(
+        claimKey,
+        serializeEmitReceipt({
+          notifications: [
+            {
+              id: 1,
+              userId: cast.teacher.id,
+              type: NotificationType.SystemBroadcast,
+              title: "prior emission",
+              body: null,
+              isRead: false,
+              relatedEntityType: null,
+              relatedEntityId: null,
+              createdAt: new Date(),
+            },
+          ],
+          recipientUserIds: [cast.teacher.id],
+        }),
+        NOTIFICATION_EMIT_CLAIM_TTL_SECONDS
+      );
+
+      const auditBefore = (await broadcastAuditRowsFor(tx, cast.admin.id)).length;
 
       try {
-        // Sequential leg (deterministic guarantee): the same key submitted
-        // twice through a live cache collapses to ONE row-set — the second
-        // submit replays the prior count with zero new rows / audit / publish.
-        const sequentialCache = new ScriptedClaimCache();
-        const seqTitle = `svc_race_seq_${randomUUID()}`;
-        const seqInput: BroadcastNotificationSubmitInput = {
-          title: seqTitle,
-          body: null,
-          audience: { type: BroadcastAudienceType.Role, role: UserRole.Teacher },
-        };
-        const seqKey = randomUUID();
-        const seqFirst = await callBroadcast(
-          tx,
-          seqInput,
-          cast.admin.id,
-          { transport: transportSpy, cache: sequentialCache },
-          seqKey
+        const error = await expectRepoError(() =>
+          callBroadcast(
+            tx,
+            { title, body: null, audience: { type: BroadcastAudienceType.Country, country } },
+            cast.admin.id,
+            options,
+            key
+          )
         );
-        const seqSecond = await callBroadcast(
+
+        expect(error).toBeInstanceOf(ConflictError);
+        assertDomainCode(error, "BROADCAST_GHOST_CLAIM");
+
+        // The whole write unit rolled back: NO orphan header row (a header
+        // never commits without its notification rows), no notification
+        // rows, no audit row, no publish.
+        expect(await tx.select().from(broadcasts).where(eq(broadcasts.idempotencyKey, key))).toHaveLength(0);
+        expect(await rowsByTitle(tx, title)).toHaveLength(0);
+        expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(auditBefore);
+        expect(transportSpy.publishCount).toBe(0);
+
+        // Exactly ONE bounded domain log — the ghost-claim rejection itself.
+        expect(logs.entries).toEqual([{ code: "BROADCAST_GHOST_CLAIM", entity: "notifications" }]);
+
+        // The savepoint rolled back — the outer transaction is still usable:
+        // a follow-up keyless send through the same seam lands normally.
+        const followUpTitle = `svc_ghost_ok_${randomUUID()}`;
+        const followUpCount = await callBroadcast(
           tx,
-          seqInput,
+          { title: followUpTitle, body: null, audience: { type: BroadcastAudienceType.Role, role: UserRole.Teacher } },
           cast.admin.id,
-          { transport: transportSpy, cache: sequentialCache },
-          seqKey
+          { transport: transportSpy, cache: new ScriptedClaimCache() }
         );
-        expect(seqSecond).toBe(seqFirst);
-        expect(await rowsByTitle(tx, seqTitle)).toHaveLength(seqFirst);
-        expect(seqFirst).toBeGreaterThanOrEqual(1);
-
-        // Parallel leg: two concurrent submits race ONE key. The scripted
-        // cache makes the in-flight window deterministic — the first claimant
-        // wins; receipts only become storable after the held loser's cache
-        // miss, so the loser reads NO receipt and takes the engine's
-        // documented fail-open ladder (insert + audit + publish + ONE warn).
-        const raceCache = new RaceWindowClaimCache();
-        const raceTitle = `svc_race_par_${randomUUID()}`;
-        const raceInput: BroadcastNotificationSubmitInput = {
-          title: raceTitle,
-          body: null,
-          audience: { type: BroadcastAudienceType.Role, role: UserRole.Teacher },
-        };
-        const raceKey = randomUUID();
-        const raceOutcomes = await Promise.allSettled([
-          callBroadcast(tx, raceInput, cast.admin.id, { transport: transportSpy, cache: raceCache }, raceKey),
-          callBroadcast(tx, raceInput, cast.admin.id, { transport: transportSpy, cache: raceCache }, raceKey),
-        ]);
-        for (const outcome of raceOutcomes) {
-          expect(outcome.status).toBe("fulfilled");
-        }
-        const raceCounts = raceOutcomes.flatMap(outcome => (outcome.status === "fulfilled" ? [outcome.value] : []));
-        // Every accepted emission landed EXACTLY one full cohort — the two
-        // counts match the sequential cohort, and the title holds both
-        // row-sets whole (never a partial or silent write).
-        expect(raceCounts).toHaveLength(2);
-        expect(raceCounts[0]).toBe(seqFirst);
-        expect(raceCounts[1]).toBe(seqFirst);
-        expect(await rowsByTitle(tx, raceTitle)).toHaveLength(2 * seqFirst);
-
-        // The race produced two fresh emissions: two audit rows (one per
-        // accepted emission, both attributed to the calling admin) and two
-        // publish envelopes, on top of the sequential leg's one-of-each.
-        expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(3);
-        expect(transportSpy.publishCount).toBe(3);
-
-        // Exactly ONE degrade warn across the WHOLE test — the parallel
-        // loser's documented fail-open posture; the sequential replay and the
-        // winner log nothing.
-        expect(logs.entries).toEqual([{ code: "NOTIFICATION_IDEMPOTENCY_DEGRADED", entity: "notifications" }]);
+        expect(followUpCount).toBe((await rowsByTitle(tx, followUpTitle)).length);
+        expect(await headerByTitle(tx, followUpTitle)).toBeTruthy();
       } finally {
         logs.spy.mockRestore();
       }
@@ -1037,6 +1063,9 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
       expect(error).toBeInstanceOf(Error);
       expect(insertSpy).toHaveBeenCalledTimes(1);
       expect(await rowsByTitle(tx, title)).toHaveLength(0);
+      // The header row landed FIRST inside the same unit — it rolled back
+      // with it, leaving NO orphan header behind.
+      expect(await tx.select().from(broadcasts).where(eq(broadcasts.title, title))).toHaveLength(0);
       expect(await broadcastAuditRowsFor(tx, cast.admin.id)).toHaveLength(0);
       expect(transportSpy.publishCount).toBe(0);
 
@@ -1087,6 +1116,7 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
 
       const broadcastCount = await callBroadcast(tx, input, cast.admin.id, options, key);
       expect(broadcastCount).toBe(1);
+      const header = await headerByTitle(tx, title);
 
       // Gate read: the CALLER's tx.
       expect(gateSpy).toHaveBeenCalledTimes(1);
@@ -1114,8 +1144,8 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         type: NotificationType.SystemBroadcast,
         title,
         body,
-        relatedEntityType: null,
-        relatedEntityId: null,
+        relatedEntityType: BROADCAST_RELATED_ENTITY_TYPE,
+        relatedEntityId: header.id,
         idempotencyKey: key,
       });
       expect(emitLocale).toBe(LOCALE);
@@ -1137,7 +1167,7 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
         actorId: cast.admin.id,
         actionType: AuditActionType.Create,
         entityType: AUDIT_ENTITY_TYPE,
-        entityId: null,
+        entityId: header.id,
         details: JSON.stringify({ scope: "plan", planId: plan.id, recipientCount: 1 }),
       });
       expect(auditTx).not.toBe(tx);

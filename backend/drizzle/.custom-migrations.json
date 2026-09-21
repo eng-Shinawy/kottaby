@@ -1,5 +1,5 @@
 {
-  "manifestHash": "f59ca5c878ac6ade568948104afc5920d7096be1c7ac47ed1c6743ddabf62e51",
+  "manifestHash": "d89ad6abc0f33bdd2936c2d6bb09581357165defb903b2bc2754a2b35d3aba61",
   "manifest": [
     {
       "file": "2-functions.sql",
@@ -36,6 +36,10 @@
     {
       "file": "7-notification-dispute-types.sql",
       "sha256": "34a24c6edd5e6040cdc7e996c8769ea3612f4135def32331bb1c60ac7993846d"
+    },
+    {
+      "file": "8-broadcast-history-backfill.sql",
+      "sha256": "68a9f9a3204d5a25bd71b96b94dbc6b8523829a0a8c0ed9885b3cc91d998c275"
     }
   ],
   "appliedFolders": [
@@ -49,6 +53,10 @@
     "20260914064155_custom_5-teacher-transaction-settlement",
     "20260915091059_custom_5-session-columns-patch",
     "20260915232949_custom_6-transaction-type-arbitration-reversal",
-    "20260915232950_custom_7-notification-dispute-types"
+    "20260915232950_custom_7-notification-dispute-types",
+    "20260919081638_custom_8-broadcast-history-backfill",
+    "20260919100332_custom_8-broadcast-history-backfill",
+    "20260919222143_custom_8-broadcast-history-backfill",
+    "20260919222508_custom_8-broadcast-history-backfill"
   ]
 }

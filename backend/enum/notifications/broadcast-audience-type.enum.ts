@@ -5,10 +5,12 @@
  * a single user role (`role`), a single country (`country`), or the active
  * subscribers of a plan (`plan`).
  *
- * The enum types the audience selector that arrives with a compose request;
- * it is never persisted as a column type — individual notification rows
- * record the resolved recipient, not the cohort — so it has no `pgEnum`
- * counterpart.
+ * The enum types the runtime audience selector that arrives with a compose
+ * request — individual notification rows record the resolved recipient, not
+ * the cohort, so the selector itself is never persisted as a column type.
+ * The matching `broadcast_audience_type` pgEnum persists the header table's
+ * audience snapshot instead (one row per send records the targeted cohort),
+ * while this enum remains the runtime source of truth for cohort resolution.
  */
 export enum BroadcastAudienceType {
   All = "all",

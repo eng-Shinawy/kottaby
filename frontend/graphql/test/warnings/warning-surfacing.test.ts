@@ -347,6 +347,12 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
  * payload (denials ride `errors[]` — localized field codes on
  * `extensions.fields[]`, never a partial-success wrapper), so they are
  * warning-incapable like the plan-catalog entries enumerated above.
+ *
+ * Refreshed for the broadcast stop control: `adminStopBroadcast` resolves to
+ * the canonical retracted-recipient `Int!` count (every denial — including
+ * the already-stopped conflict and the not-found cell — rides `errors[]`),
+ * so it is warning-incapable exactly like its `adminBroadcastNotification`
+ * sibling.
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
   "adjustTeacherWallet",
@@ -364,6 +370,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "adminSetUserBlocked",
   "adminSetUserDeleted",
   "adminSetUserSuspended",
+  "adminStopBroadcast",
   "adminUpdateUser",
   "approveWithdrawal",
   "bookEvaluationSession",

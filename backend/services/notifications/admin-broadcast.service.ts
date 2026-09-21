@@ -1,36 +1,53 @@
 /**
  * AdminBroadcastService — the composition core of the admin broadcast
- * surface. One admin-authored announcement becomes one `system_broadcast`
- * notification per resolved recipient, exactly one audit row, and — only
- * after the unit commits — one realtime fan-out envelope carrying the full
- * recipient list.
+ * surface. One admin-authored announcement becomes one first-class
+ * `broadcasts` header row, one `system_broadcast` notification per resolved
+ * recipient (each linked to its header through the related-entity pair),
+ * exactly one audit row, and — only after the unit commits — one realtime
+ * fan-out envelope carrying the full recipient list.
  *
  * The service is a pure COMPOSITOR: it never writes `notifications` rows
  * itself. The notification engine is consumed by reference (imported, never
  * edited, never bypassed) and remains the single writer of the notifications
- * table; the audience repository resolves recipients; the shared audit
- * writer persists the trail. Every write shares ONE transaction: the batch
+ * table; the audience repository resolves recipients; the broadcast
+ * repository persists the header; the shared audit writer persists the
+ * trail. Every write shares ONE transaction: the header row, the batch
  * insert and the audit row commit or roll back together, and the fan-out
  * publish happens strictly after that commit.
  *
- * Flow (one public entry point, `broadcast`):
+ * Flow (one public send entry point, `broadcast`):
  *  1. Shared admin gate — pre-transaction; both denial flavors write
  *     nothing and are logged by the gate itself (never re-logged here).
  *  2. Pre-DB validation — title bounds plus the audience coherence
- *     matrix, fail-closed with localized, documented error codes.
+ *     matrix (the `admin-broadcast.guards.ts` sibling), fail-closed with
+ *     localized, documented error codes.
  *  3. Plan existence (plan cohorts) and cohort resolution through the
  *     audience repository (governance-filtered, de-duplicated, id ASC).
  *     Reads ride the caller's transaction when one is supplied.
  *  4. Empty / oversized cohort guards — both reject before ANY write.
- *  5. ONE transaction: the engine's batch emit plus exactly one audit
- *     row. A same-key replay is detected structurally (the engine hands
- *     back a stored receipt) and writes NOTHING.
+ *  5. ONE transaction: the header row inserted FIRST (its nullable-unique
+ *     idempotency key is the DB-durable replay arbiter — a caught 23505
+ *     returns the earlier send's persisted count and writes nothing
+ *     further), then the engine's batch emit carrying the header linkage,
+ *     then exactly one audit row naming the header. An engine-reported
+ *     replay after the header insert (a ghost claim residual) rolls the
+ *     whole unit back — a header never commits without its notification
+ *     rows.
  *  6. Post-commit fan-out publish — fresh emissions only.
  *  7. Return the persisted recipient count.
  *
+ * File layout (the notification-engine sibling-module pattern): the
+ * audience coherence matrix lives in `admin-broadcast.guards.ts`, the
+ * read/stop lifecycle methods (list / detail / stop — surfaced below
+ * through thin same-signature delegates so the public namespace API is
+ * unchanged) live in `admin-broadcast-lifecycle.service.ts`, and the
+ * constants + localized rejection primitive shared across the halves live
+ * in `admin-broadcast.service.helpers.ts`.
+ *
  * Security posture:
- *  - Input mapping is field-by-field into the engine's batch contract —
- *    never a spread — so no transport-smuggled field can reach persistence.
+ *  - Input mapping is field-by-field into the engine's batch contract and
+ *    the header insert — never a spread — so no transport-smuggled field
+ *    can reach persistence.
  *  - The ONLY identity input is the verified actor id (resolved to a real
  *    admin row by the shared gate); recipients are derived server-side
  *    from the audience selector, so there is no per-identity surface.
@@ -39,26 +56,40 @@
  *    lists, never the raw idempotency key); happy paths, including
  *    replays, log NOTHING.
  */
-import { BroadcastAudienceRepository, PlanRepository } from "@/backend/db/repo";
+import { BroadcastAudienceRepository, BroadcastRepository, PlanRepository } from "@/backend/db/repo";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
-import {
-  BroadcastAudienceType,
-  isBroadcastAudienceType,
-} from "@/backend/enum/notifications/broadcast-audience-type.enum";
+import { BroadcastAudienceType } from "@/backend/enum/notifications/broadcast-audience-type.enum";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
-import { toUserRole, type UserRole } from "@/backend/enum/users/user-role.enum";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
-import { NotFoundError, ValidationError } from "@/backend/lib/errors";
+import { ConflictError, NotFoundError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { assertActorAdmin } from "@/backend/services/admin/admin-gate.helpers";
 import { AuditService } from "@/backend/services/admin/audit.service";
-import { isPositiveSafeInt } from "@/backend/services/notifications/emit-validation";
+import {
+  type ValidatedAudienceSelector,
+  validateAudienceCoherence,
+} from "@/backend/services/notifications/admin-broadcast.guards";
+import {
+  AUDIT_ENTITY_TYPE,
+  BROADCAST_RELATED_ENTITY_TYPE,
+  rejectBroadcast,
+} from "@/backend/services/notifications/admin-broadcast.service.helpers";
+import { AdminBroadcastLifecycleService } from "@/backend/services/notifications/admin-broadcast-lifecycle.service";
 import {
   NotificationEngine,
   type NotificationEngineCallOptions,
 } from "@/backend/services/notifications/notification-engine.service";
 import { resolveBroadcastClaimCache } from "@/backend/services/notifications/redis-claim-cache";
-import type { BroadcastAudienceSelector, BroadcastNotificationSubmitInput, DBTransaction } from "@/backend/types";
+import type {
+  AdminBroadcastDetailReturnType,
+  AdminBroadcastListFilters,
+  AdminBroadcastPageReturnType,
+  BroadcastInsertType,
+  BroadcastNotificationSubmitInput,
+  BroadcastSelectType,
+  DBTransaction,
+  NotificationDeliveryReceipt,
+} from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /**
@@ -69,181 +100,8 @@ import { getServerTranslations } from "@/shared/locale/server-graphql";
  */
 export const BROADCAST_MAX_RECIPIENTS = 5000;
 
-/** `users.country` column bound (varchar(100)) — the country companion's ceiling. */
-const COUNTRY_MAX_LENGTH = 100;
-
 /** `notifications.title` column bound (varchar(255)) — mirrors the engine's emit ceiling. */
 const TITLE_MAX_LENGTH = 255;
-
-/** The audit entity label for every accepted broadcast (a broadcast has no single backing row). */
-const AUDIT_ENTITY_TYPE = "notification_broadcast";
-
-/**
- * The coherence-validated audience selector — the closed, per-kind normalized
- * shape that flows onward to cohort resolution and the audit metadata. Each
- * member carries EXACTLY the companion its kind requires (never a spread of
- * the raw input); the union is structurally assignable to the canonical
- * `BroadcastAudienceSelector` the repository consumes, while letting the
- * flow narrow each companion honestly (no type assertions).
- */
-type ValidatedAudienceSelector =
-  | { readonly type: BroadcastAudienceType.All }
-  | { readonly type: BroadcastAudienceType.Role; readonly role: UserRole }
-  | { readonly type: BroadcastAudienceType.Country; readonly country: string }
-  | { readonly type: BroadcastAudienceType.Plan; readonly planId: number };
-
-/** Wire-level "not provided" semantics: both absent and explicit null are absent. */
-function isCompanionPresent<T>(value: T | null | undefined): value is T {
-  return value !== undefined && value !== null;
-}
-
-/**
- * One bounded diagnostic + localized rejection for the broadcast surface's
- * expected `ValidationError` codes. The message is server-side diagnostics
- * only (codes and bounds — no copy text, no recipient data); the localized
- * user-facing string rides the thrown error.
- */
-function rejectBroadcast(locale: string, code: string, diagnostic: string, localizedMessage: string): never {
-  logger.logDomainError(diagnostic, { code, entity: "notifications", locale });
-  throw new ValidationError(code, localizedMessage);
-}
-
-/**
- * Per-kind companion validation — `null` when the kind's coherence rule is
- * violated, otherwise the normalized companion-only selector. Kept as one
- * tiny validator per kind so each rule stays independently readable.
- *
- *  - `all`     — every companion absent;
- *  - `role`    — a recognized user role required, country/planId absent;
- *  - `country` — a trimmed, non-empty, ≤100 character country required,
- *                role/planId absent (the trimmed value is what resolves);
- *  - `plan`    — a positive safe integer planId required, role/country absent.
- */
-function validateAllKind(selector: BroadcastAudienceSelector): ValidatedAudienceSelector | null {
-  if (
-    isCompanionPresent(selector.role) ||
-    isCompanionPresent(selector.country) ||
-    isCompanionPresent(selector.planId)
-  ) {
-    return null;
-  }
-  return { type: BroadcastAudienceType.All };
-}
-
-function validateRoleKind(selector: BroadcastAudienceSelector): ValidatedAudienceSelector | null {
-  if (isCompanionPresent(selector.country) || isCompanionPresent(selector.planId)) {
-    return null;
-  }
-  if (!isCompanionPresent(selector.role)) {
-    return null;
-  }
-  const role = toUserRole(selector.role);
-  if (role === null) {
-    return null;
-  }
-  return { type: BroadcastAudienceType.Role, role };
-}
-
-function validateCountryKind(selector: BroadcastAudienceSelector): ValidatedAudienceSelector | null {
-  if (isCompanionPresent(selector.role) || isCompanionPresent(selector.planId)) {
-    return null;
-  }
-  if (!isCompanionPresent(selector.country) || typeof selector.country !== "string") {
-    return null;
-  }
-  const country = selector.country.trim();
-  if (country.length === 0 || country.length > COUNTRY_MAX_LENGTH) {
-    return null;
-  }
-  return { type: BroadcastAudienceType.Country, country };
-}
-
-function validatePlanKind(selector: BroadcastAudienceSelector): ValidatedAudienceSelector | null {
-  if (isCompanionPresent(selector.role) || isCompanionPresent(selector.country)) {
-    return null;
-  }
-  if (!isPositiveSafeInt(selector.planId)) {
-    return null;
-  }
-  return { type: BroadcastAudienceType.Plan, planId: selector.planId };
-}
-
-/**
- * Validates the audience selector against the closed coherence matrix and
- * returns the normalized companion-only selector. Any violation — including
- * a hostile non-member kind string or a role the role coercion rejects — is
- * one bounded log + one localized rejection.
- */
-function validateAudienceCoherence(
-  selector: BroadcastAudienceSelector,
-  locale: string,
-  audienceInvalidMessage: string
-): ValidatedAudienceSelector {
-  const fail = (): never =>
-    rejectBroadcast(
-      locale,
-      "BROADCAST_AUDIENCE_INVALID",
-      "Admin broadcast rejected: audience selector violates the coherence matrix",
-      audienceInvalidMessage
-    );
-
-  if (!isBroadcastAudienceType(selector.type)) {
-    return fail();
-  }
-
-  let validated: ValidatedAudienceSelector | null;
-  switch (selector.type) {
-    case BroadcastAudienceType.All: {
-      validated = validateAllKind(selector);
-      break;
-    }
-    case BroadcastAudienceType.Role: {
-      validated = validateRoleKind(selector);
-      break;
-    }
-    case BroadcastAudienceType.Country: {
-      validated = validateCountryKind(selector);
-      break;
-    }
-    case BroadcastAudienceType.Plan: {
-      validated = validatePlanKind(selector);
-      break;
-    }
-    default: {
-      // Fail-closed arm for a runtime-hostile discriminant that evaded the
-      // enum guard (TS enums are erased at runtime) — same posture as the
-      // audience repository's unhandled-kind arm.
-      validated = null;
-    }
-  }
-
-  if (validated === null) {
-    return fail();
-  }
-  return validated;
-}
-
-/**
- * Composes the audit metadata for one accepted broadcast, in the documented
- * key order — the cohort scope first, exactly the companion its kind
- * requires, and the persisted recipient count last — NEVER the copy text,
- * never recipient identifiers. The shared audit writer defensively caps the
- * serialized payload to its column bound.
- */
-function buildBroadcastAuditDetails(selector: ValidatedAudienceSelector, recipientCount: number): string {
-  const metadata: Record<string, unknown> = { scope: selector.type };
-  if (selector.type === BroadcastAudienceType.Role) {
-    metadata.role = selector.role;
-  }
-  if (selector.type === BroadcastAudienceType.Country) {
-    metadata.country = selector.country;
-  }
-  if (selector.type === BroadcastAudienceType.Plan) {
-    metadata.planId = selector.planId;
-  }
-  metadata.recipientCount = recipientCount;
-  return JSON.stringify(metadata);
-}
 
 /**
  * Resolves the broadcast's recipient cohort: plan existence first on the
@@ -302,6 +160,192 @@ function assertCohortSize(
       tooLargeMessage
     );
   }
+}
+
+/**
+ * Builds the `broadcasts` header insert for one accepted broadcast —
+ * field-by-field from the validated selector (never a spread of the raw
+ * input): the audience snapshot carries EXACTLY the companion its kind
+ * requires, the persisted recipient count, the verified sender, and the
+ * caller-owned idempotency key (absent keys stay NULL — only key-declaring
+ * sends participate in replay dedupe). The header's `body` column is
+ * NOT NULL, so an absent long-form copy normalizes to the empty string —
+ * the entry contract's non-nullable `body` reflects exactly that.
+ */
+function buildBroadcastHeaderInsert(
+  title: string,
+  body: string | null,
+  selector: ValidatedAudienceSelector,
+  recipientCount: number,
+  sentById: number,
+  idempotencyKey: string | undefined
+): BroadcastInsertType {
+  return {
+    title,
+    body: body ?? "",
+    audienceType: selector.type,
+    audienceRole: selector.type === BroadcastAudienceType.Role ? selector.role : null,
+    audienceCountry: selector.type === BroadcastAudienceType.Country ? selector.country : null,
+    audiencePlanId: selector.type === BroadcastAudienceType.Plan ? selector.planId : null,
+    recipientCount,
+    sentById,
+    idempotencyKey,
+  };
+}
+
+/**
+ * The header-insert outcome of one send unit: either the freshly inserted
+ * header row, or an idempotent replay of an earlier send (its persisted
+ * recipient count is the result to return — nothing further is written).
+ */
+type HeaderInsertOutcome =
+  | { readonly kind: "inserted"; readonly header: BroadcastSelectType }
+  | { readonly kind: "replayed"; readonly recipientCount: number };
+
+/**
+ * Inserts the header row FIRST inside the caller's transaction and
+ * arbitrates the DB-durable replay belt. The header's nullable-unique
+ * idempotency key is the race-free replay arbiter: a caught 23505
+ * (translated to `ConflictError` by the repository) means the key was
+ * committed by a prior send — the earlier header is read back on the SAME
+ * transaction and its persisted recipient count returned; nothing further
+ * is emitted, audited, or published. A 23505 with NO discoverable header
+ * (unreachable by construction — the unique index and the key travel
+ * together) rethrows rather than inventing a count.
+ *
+ * The insert runs in its own nested savepoint so the caught conflict leaves
+ * the surrounding transaction usable for the replay read.
+ */
+async function insertBroadcastHeaderOrReplay(
+  insert: BroadcastInsertType,
+  idempotencyKey: string | undefined,
+  tx: DBTransaction
+): Promise<HeaderInsertOutcome> {
+  let header: BroadcastSelectType;
+  try {
+    header = await withTransaction(tx, txArg => BroadcastRepository.create(insert, txArg));
+  } catch (error) {
+    if (!(error instanceof ConflictError)) {
+      throw error;
+    }
+    if (idempotencyKey === undefined) {
+      throw error;
+    }
+    const existing = await BroadcastRepository.findByIdempotencyKey(idempotencyKey, tx);
+    if (existing === null) {
+      throw error;
+    }
+    return { kind: "replayed", recipientCount: existing.recipientCount };
+  }
+  return { kind: "inserted", header };
+}
+
+/**
+ * Composes the audit metadata for one accepted broadcast, in the documented
+ * key order — the cohort scope first, exactly the companion its kind
+ * requires, and the persisted recipient count last — NEVER the copy text,
+ * never recipient identifiers. The shared audit writer defensively caps the
+ * serialized payload to its column bound.
+ */
+function buildBroadcastAuditDetails(selector: ValidatedAudienceSelector, recipientCount: number): string {
+  const metadata: Record<string, unknown> = { scope: selector.type };
+  if (selector.type === BroadcastAudienceType.Role) {
+    metadata.role = selector.role;
+  }
+  if (selector.type === BroadcastAudienceType.Country) {
+    metadata.country = selector.country;
+  }
+  if (selector.type === BroadcastAudienceType.Plan) {
+    metadata.planId = selector.planId;
+  }
+  metadata.recipientCount = recipientCount;
+  return JSON.stringify(metadata);
+}
+
+/** The fully-resolved inputs of one send unit (the transaction body's contract). */
+interface BroadcastUnitParams {
+  readonly title: string;
+  readonly body: string | null;
+  readonly selector: ValidatedAudienceSelector;
+  readonly recipientIds: readonly number[];
+  readonly actorId: number;
+  readonly idempotencyKey: string | undefined;
+  readonly locale: string;
+  readonly engineOptions: NotificationEngineCallOptions;
+}
+
+/** The outcome of one send unit: a fresh emission, or an idempotent replay. */
+type BroadcastUnitOutcome =
+  | { readonly kind: "fresh"; readonly receipt: NotificationDeliveryReceipt }
+  | { readonly kind: "replayed"; readonly recipientCount: number };
+
+/**
+ * The ONE-transaction body of a send: the header row inserted FIRST (the
+ * DB-durable replay arbiter), the engine's batch emit (the single
+ * notifications writer) carrying the header linkage, and exactly one audit
+ * row naming the header. A keyed emit against a live cache is a REPLAY
+ * exactly when the engine returned a stored receipt (no claim key
+ * attached) — and a replay reported AFTER the header insert (a ghost claim
+ * residual) rolls the whole unit back: a header never commits without its
+ * notification rows.
+ */
+async function composeBroadcastUnit(params: BroadcastUnitParams, tx: DBTransaction): Promise<BroadcastUnitOutcome> {
+  const headerInsert = buildBroadcastHeaderInsert(
+    params.title,
+    params.body,
+    params.selector,
+    params.recipientIds.length,
+    params.actorId,
+    params.idempotencyKey
+  );
+
+  const headerOutcome = await insertBroadcastHeaderOrReplay(headerInsert, params.idempotencyKey, tx);
+  if (headerOutcome.kind === "replayed") {
+    return { kind: "replayed", recipientCount: headerOutcome.recipientCount };
+  }
+
+  const emitReceipt = await NotificationEngine.emitForUsers(
+    {
+      userIds: [...params.recipientIds],
+      type: NotificationType.SystemBroadcast,
+      title: params.title,
+      body: params.body,
+      relatedEntityType: BROADCAST_RELATED_ENTITY_TYPE,
+      relatedEntityId: headerOutcome.header.id,
+      idempotencyKey: params.idempotencyKey,
+    },
+    params.locale,
+    tx,
+    params.engineOptions
+  );
+
+  const replayDetected =
+    params.idempotencyKey !== undefined &&
+    params.engineOptions.cache !== undefined &&
+    emitReceipt.emitClaimKey === undefined;
+
+  if (replayDetected) {
+    logger.logDomainError("Admin broadcast rejected: engine replayed after the header insert (ghost claim residual)", {
+      code: "BROADCAST_GHOST_CLAIM",
+      entity: "notifications",
+      locale: params.locale,
+    });
+    const tErrors = getServerTranslations(params.locale).errorsTranslations;
+    throw new ConflictError("BROADCAST_GHOST_CLAIM", tErrors.broadcastGhostClaim);
+  }
+
+  await AuditService.createAuditLog(
+    {
+      actorId: params.actorId,
+      actionType: AuditActionType.Create,
+      entityType: AUDIT_ENTITY_TYPE,
+      entityId: headerOutcome.header.id,
+      details: buildBroadcastAuditDetails(params.selector, emitReceipt.recipientUserIds.length),
+    },
+    tx
+  );
+
+  return { kind: "fresh", receipt: emitReceipt };
 }
 
 export namespace AdminBroadcastService {
@@ -367,52 +411,74 @@ export namespace AdminBroadcastService {
     // valid engine value — its documented fail-open posture).
     const engineOptions: NotificationEngineCallOptions = options ?? { cache: resolveBroadcastClaimCache() };
 
-    // 5. ONE atomic unit: the engine's batch emit (the single notifications
-    //    writer) + exactly one audit row. A keyed emit against a live cache
-    //    is a REPLAY exactly when the engine returned a stored receipt (no
-    //    claim key attached) — replays write zero audit rows.
-    const { receipt, isReplay } = await withTransaction(outerTx, async tx => {
-      const emitReceipt = await NotificationEngine.emitForUsers(
+    // 5. The ONE atomic unit (header row, batch emit, audit row), then the
+    //    post-commit fan-out for fresh emissions only.
+    const outcome = await withTransaction(outerTx, tx =>
+      composeBroadcastUnit(
         {
-          userIds: recipientIds,
-          type: NotificationType.SystemBroadcast,
           title,
           body: input.body,
-          relatedEntityType: null,
-          relatedEntityId: null,
+          selector,
+          recipientIds,
+          actorId,
           idempotencyKey,
+          locale,
+          engineOptions,
         },
-        locale,
-        tx,
-        engineOptions
-      );
+        tx
+      )
+    );
 
-      const replayDetected =
-        idempotencyKey !== undefined && engineOptions.cache !== undefined && emitReceipt.emitClaimKey === undefined;
-
-      if (!replayDetected) {
-        await AuditService.createAuditLog(
-          {
-            actorId,
-            actionType: AuditActionType.Create,
-            entityType: AUDIT_ENTITY_TYPE,
-            entityId: null,
-            details: buildBroadcastAuditDetails(selector, emitReceipt.recipientUserIds.length),
-          },
-          tx
-        );
-      }
-
-      return { receipt: emitReceipt, isReplay: replayDetected };
-    });
-
-    // 6. Post-commit fan-out — fresh emissions only, strictly after the
-    //    unit above resolved successfully (publish-after-commit).
-    if (!isReplay) {
-      await NotificationEngine.publishReceipts([receipt], locale, engineOptions);
+    if (outcome.kind === "replayed") {
+      return outcome.recipientCount;
     }
+    await NotificationEngine.publishReceipts([outcome.receipt], locale, engineOptions);
+    return outcome.receipt.recipientUserIds.length;
+  }
 
-    // 7. The persisted recipient count.
-    return receipt.recipientUserIds.length;
+  /**
+   * Lists one page of the broadcast history, newest-first, behind the
+   * shared admin gate — thin delegate to the lifecycle sibling module.
+   * Contract: `admin-broadcast-lifecycle.service.ts` (`listBroadcasts`).
+   */
+  export async function listBroadcasts(
+    filters: AdminBroadcastListFilters,
+    page: number,
+    pageSize: number | undefined,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<AdminBroadcastPageReturnType> {
+    return AdminBroadcastLifecycleService.listBroadcasts(filters, page, pageSize, actorId, locale, outerTx);
+  }
+
+  /**
+   * Resolves the detail view payload for one broadcast (entry + live
+   * delivered/read aggregates) — thin delegate to the lifecycle sibling
+   * module. Contract: `admin-broadcast-lifecycle.service.ts`
+   * (`broadcastDetail`).
+   */
+  export async function broadcastDetail(
+    broadcastId: number,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<AdminBroadcastDetailReturnType> {
+    return AdminBroadcastLifecycleService.broadcastDetail(broadcastId, actorId, locale, outerTx);
+  }
+
+  /**
+   * Stops an ACTIVE broadcast (one-way CAS transition, engine-mediated
+   * recipient retraction, one Suspend audit row) — thin delegate to the
+   * lifecycle sibling module. Contract: `admin-broadcast-lifecycle.service.ts`
+   * (`stopBroadcast`).
+   */
+  export async function stopBroadcast(
+    broadcastId: number,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<number> {
+    return AdminBroadcastLifecycleService.stopBroadcast(broadcastId, actorId, locale, outerTx);
   }
 }

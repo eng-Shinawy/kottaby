@@ -75,10 +75,47 @@ type AdminAuditLogPage {
   totalCount: Int!
 }
 
+type AdminBroadcastDetail {
+  entry: AdminBroadcastEntry!
+  liveDeliveredCount: Int!
+  liveReadCount: Int!
+}
+
+type AdminBroadcastEntry {
+  audienceCountry: String
+  audiencePlanId: Int
+  audienceRole: UserRole
+  audienceType: BroadcastAudienceType
+  body: String!
+  id: ID!
+  recipientCount: Int!
+  sentAt: DateTime!
+  sentById: Int!
+  sentByName: String!
+  status: BroadcastStatus!
+  stoppedAt: DateTime
+  stoppedById: Int
+  stoppedByName: String
+  title: String!
+}
+
+input AdminBroadcastFiltersInput {
+  audienceType: BroadcastAudienceType
+  status: BroadcastStatus
+  titleSearch: String
+}
+
 input AdminBroadcastNotificationInput {
   audience: BroadcastAudienceInput!
   body: String
   title: String!
+}
+
+type AdminBroadcastPage {
+  items: [AdminBroadcastEntry!]!
+  page: Int!
+  pageSize: Int!
+  totalCount: Int!
 }
 
 input AdminCreateUserInput {
@@ -464,6 +501,11 @@ enum BroadcastAudienceType {
   Role
 }
 
+enum BroadcastStatus {
+  Active
+  Stopped
+}
+
 """
 Input for cancelling an active subscription while preserving its balance lanes.
 """
@@ -777,6 +819,11 @@ type Mutation {
   adminSetUserBlocked(blocked: Boolean!, id: Int!): AdminUserDetail!
   adminSetUserDeleted(deleted: Boolean!, id: Int!): AdminUserDetail!
   adminSetUserSuspended(id: Int!, periodDays: Int, suspended: Boolean!): AdminUserDetail!
+
+  """
+  Stops an active broadcast (one-way active → stopped transition, engine-mediated recipient retraction) and returns the retracted notification count.
+  """
+  adminStopBroadcast(broadcastId: Int!): Int!
   adminUpdateUser(id: Int!, input: AdminUpdateUserInput!): AdminUserDetail!
   approveWithdrawal(transactionId: ID!): TeacherTransaction!
 
@@ -1262,6 +1309,16 @@ type PurchaseSubscriptionPayload {
 type Query {
   _health: HealthCheck!
   adminAuditLogs(filters: AdminAuditLogFiltersInput, page: Int, pageSize: Int): AdminAuditLogPage!
+
+  """
+  The detail payload for one broadcast — the header entry plus the live delivered/read counts derived from the broadcast's still-present notification rows.
+  """
+  adminBroadcastDetail(broadcastId: Int!): AdminBroadcastDetail!
+
+  """
+  One page of the admin broadcast history, newest-first — items, totalCount, page, pageSize. Optional conjunctive filters (titleSearch, status, audienceType); page defaults to 1, pageSize defaults to 25 (values outside 1..100 are rejected).
+  """
+  adminBroadcasts(filters: AdminBroadcastFiltersInput, page: Int, pageSize: Int): AdminBroadcastPage!
 
   """
   Read the aggregate dispute analytics snapshot (admin-only): the open dispute count (the arbitration queue's own membership), the resolved total, and the per-outcome breakdown across both escrow generations. Honest counts — zero is the legitimate empty state. Strictly side-effect free.

@@ -51,6 +51,7 @@ import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transact
 import { wallet } from "@/backend/db/schema/billing/wallet";
 import { lessons } from "@/backend/db/schema/classes/lessons";
 import { session } from "@/backend/db/schema/classes/session";
+import { broadcasts } from "@/backend/db/schema/notifications/broadcasts";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
 import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
@@ -216,7 +217,11 @@ const USER_LIFECYCLE_LEG = [
   "adminSetUserSuspended",
   "adminSetUserBlocked",
 ] as const;
-const CERTIFICATION_BROADCAST_LEG = ["adminCertifyTeacherColdStart", "adminBroadcastNotification"] as const;
+const CERTIFICATION_BROADCAST_LEG = [
+  "adminCertifyTeacherColdStart",
+  "adminBroadcastNotification",
+  "adminStopBroadcast",
+] as const;
 const PLAN_CATALOG_LEG = ["createPlan", "updatePlan", "setPlanActiveStatus"] as const;
 const LESSON_LEG = ["createLesson", "updateLesson", "deleteLesson"] as const;
 const DISPUTE_LEG = ["resolveSessionDispute"] as const;
@@ -404,6 +409,8 @@ let rescheduleSessionId = 0;
 let cancelSessionId = 0;
 let reassignSessionId = 0;
 let joinSessionId = 0;
+/** The broadcast header the stop census row retracts (minted by the send leg). */
+let stopTargetBroadcastId = 0;
 /** Subscription-admin anchors: two same-lane plans + the subscription rows the legs act on and mint. */
 let sourcePlanId = 0;
 let downgradePlanId = 0;
@@ -592,7 +599,23 @@ const censusRunners: Record<string, CensusRunner> = {
     });
     // The run-unique country cohort resolves exactly the one cast student.
     expect(recipientCount).toBe(1);
-    record(executed, entry, AuditActionType.Create, null, {
+
+    // The send's audit row names the committed header id — the header is
+    // the trail anchor for the send AND the later stop row, so the id is
+    // captured here and registered for tracked teardown (the header's
+    // `sent_by_id` FK restricts on user deletion).
+    const [headerRow] = await db
+      .select({ id: broadcasts.id })
+      .from(broadcasts)
+      .where(eq(broadcasts.title, BROADCAST_TITLE))
+      .limit(1);
+    if (!headerRow) {
+      throw new Error("broadcast leg: the committed header row is missing");
+    }
+    stopTargetBroadcastId = headerRow.id;
+    tracked.register(broadcasts, stopTargetBroadcastId);
+
+    record(executed, entry, AuditActionType.Create, stopTargetBroadcastId, {
       scope: "country",
       country: COHORT_COUNTRY,
       recipientCount,
@@ -602,6 +625,34 @@ const censusRunners: Record<string, CensusRunner> = {
     // cohort member only.
     expect(transportSpy.publishCount).toBe(1);
     expect(transportSpy.publishedUserIds).toEqual([studentActor.userId]);
+  },
+
+  adminStopBroadcast: async (entry, executed) => {
+    // One-way lifecycle: the send leg's still-active header is retracted
+    // through the real stop path. The cohort held exactly one recipient, so
+    // the retraction count is honest at one.
+    const retractedCount = await AdminBroadcastService.stopBroadcast(
+      stopTargetBroadcastId,
+      adminA.userId,
+      adminA.locale
+    );
+    expect(retractedCount).toBe(1);
+
+    // Exactly ONE Suspend row anchors the stopped header (the Create row
+    // from the send leg is the only other row on the same anchor).
+    const suspendRows = await db.$count(
+      auditLogs,
+      and(
+        eq(auditLogs.entityType, "notification_broadcast"),
+        eq(auditLogs.entityId, stopTargetBroadcastId),
+        eq(auditLogs.actionType, AuditActionType.Suspend)
+      )
+    );
+    expect(suspendRows).toBe(1);
+    record(executed, entry, AuditActionType.Suspend, stopTargetBroadcastId, {
+      recipientCount: 1,
+      retractedCount,
+    });
   },
 
   createPlan: async (entry, executed) => {
@@ -1276,7 +1327,9 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     const legActions = await executeCensusRows(CERTIFICATION_BROADCAST_LEG);
     executedActions.push(...legActions);
 
-    expect(legActions).toHaveLength(2);
+    // Certification + the broadcast send/stop pair (the stop row adds one
+    // more execution to the leg's earlier two).
+    expect(legActions).toHaveLength(3);
     expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
     expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
   });
@@ -1531,9 +1584,9 @@ describe("Audit-trail completeness journey — execute every admin action, prove
 
   test("observer reads every executed action back: 1:1 mapping with full row shapes, no missing, no phantom", async () => {
     // Group the execution log per entity anchor (insertion order = execution
-    // order). The broadcast row is the only anchor without an id — the
-    // entityId axis cannot address it, so its group is read through the
-    // entity type alone.
+    // order). The broadcast header anchors BOTH of its rows — the send's
+    // Create and the stop's Suspend ride the same committed header id, so
+    // that anchor's group legitimately holds two actions.
     const anchors = new Map<string, ExecutedAction[]>();
     for (const action of executedActions) {
       const key = `${action.entityType}:${action.entityId ?? "null"}`;
@@ -1821,6 +1874,10 @@ describe("Audit-trail completeness journey — execute every admin action, prove
             undefined,
             { transport: transportSpy }
           ),
+      },
+      {
+        field: "adminStopBroadcast",
+        call: actorId => AdminBroadcastService.stopBroadcast(stopTargetBroadcastId, actorId, LOCALE),
       },
       {
         field: "createPlan",

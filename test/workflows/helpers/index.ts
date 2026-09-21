@@ -6,6 +6,8 @@
  * The sibling scaffolds coexist by design:
  *  - `actor-context` — real actor provisioning (users row + role-child row)
  *    for journey casts.
+ *  - `in-memory-claim-cache` — in-memory SET-NX-EX idempotency-claim
+ *    stand-in injected at the engine's `cache` seam (no Redis in journeys).
  *  - `journey-fixtures` — cast provisioning via the REAL
  *    `RegistrationService` on a domain-scoped prefix (#34 lineage).
  *  - `journey-actor-fixtures` — actor-cast provisioner with snapshot
@@ -22,6 +24,7 @@
  */
 
 export * from "./actor-context";
+export * from "./in-memory-claim-cache";
 export * from "./journey-actor-fixtures";
 export * from "./journey-cleanup";
 export * from "./journey-fixture-registry";

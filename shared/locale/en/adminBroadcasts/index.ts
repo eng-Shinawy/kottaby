@@ -32,4 +32,56 @@ export const adminBroadcastsEn: AdminBroadcastsLabels = {
     return `Broadcast sent to ${count} recipients`;
   },
   errorTitle: "Couldn't send the broadcast",
+
+  // ─── History & lifecycle surface ────────────────────────────────────────
+  historyTab: "History",
+  composeTab: "Compose",
+  historyTitle: "Broadcast history",
+  historySubtitle: "Every broadcast sent from this dashboard, with its delivery counts and current lifecycle state.",
+  filterSearchLabel: "Search by title",
+  filterStatusLabel: "Status",
+  filterAudienceLabel: "Audience type",
+  filterAllLabel: "All",
+  filterApply: "Apply filters",
+  filterReset: "Reset filters",
+  columnTitle: "Title",
+  columnAudience: "Audience",
+  columnRecipientCount: "Recipients",
+  columnStatus: "Status",
+  columnSentAt: "Sent at",
+  columnSentBy: "Sent by",
+  columnActions: "Actions",
+  statusActive: "Active",
+  statusStopped: "Stopped",
+  viewDetails: "View details",
+  stopAction: "Stop",
+  detailTitle: "Broadcast details",
+  detailAudience: "Audience",
+  detailRecipients: "Recipients",
+  detailDelivered: "Delivered",
+  detailRead: "Read",
+  detailUnread: "Unread",
+  detailSentAt: "Sent at",
+  detailStoppedAt: "Stopped at",
+  detailStoppedBy: "Stopped by",
+  detailRetractedNote:
+    "This broadcast was stopped and its notification retracted — it is no longer shown to recipients.",
+  stopConfirmTitle: "Stop this broadcast?",
+  stopConfirmBody: (count: number) => {
+    if (count === 0) return "No recipients have been reached yet. Stopping now prevents any further delivery.";
+    if (count === 1)
+      return "This broadcast has already reached 1 recipient. Stopping it retracts the notification and prevents any further delivery.";
+    return `This broadcast has already reached ${count} recipients. Stopping it retracts the notification and prevents any further delivery.`;
+  },
+  stopConfirmAction: "Stop broadcast",
+  stopConfirmCancel: "Cancel",
+  stopSuccessToast: (count: number) => {
+    if (count === 0) return "The broadcast was stopped before reaching any recipient";
+    if (count === 1) return "The broadcast was stopped — it had already reached 1 recipient";
+    return `The broadcast was stopped — it had already reached ${count} recipients`;
+  },
+  emptyTitle: "No broadcasts yet",
+  emptyBody: "Broadcasts you send from the compose tab appear here with their delivery counts and status.",
+  pagerPrev: "Previous page",
+  pagerNext: "Next page",
 };

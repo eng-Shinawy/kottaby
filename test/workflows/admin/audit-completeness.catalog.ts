@@ -120,6 +120,13 @@ export const ADMIN_ACTION_CENSUS: readonly AdminActionCensusEntry[] = [
     expectedEntityType: "notification_broadcast",
     kind: "wired",
   },
+  {
+    mutationField: "adminStopBroadcast",
+    serviceEntry: "AdminBroadcastService.stopBroadcast",
+    expectedActionTypes: [AuditActionType.Suspend],
+    expectedEntityType: "notification_broadcast",
+    kind: "wired",
+  },
 
   // ── Plan catalog ───────────────────────────────────────────────────────────
   {
