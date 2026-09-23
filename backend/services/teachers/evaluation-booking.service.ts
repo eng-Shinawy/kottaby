@@ -185,7 +185,14 @@ export namespace EvaluationBookingService {
       return {
         bookedCount: booked,
         completedCount: completed,
-        remainingCredits: VERIFICATION_PLAN_SESSION_COUNT - booked,
+        // The credit remainder is CLAMPED at zero: a cycle that somehow
+        // carries more bookings than the plan ceiling (admin seeds,
+        // migrations, a cast provisioned outside the booking flow) must
+        // never answer a negative "remaining" — the client derives its
+        // progress denominator from this field, and a negative remainder
+        // there produced a >100% bar and "remaining -1" copy (QA finding).
+        // The over-ceiling bookings themselves stay honestly reported.
+        remainingCredits: Math.max(0, VERIFICATION_PLAN_SESSION_COUNT - booked),
         cycleStartDate: cycle.cycleStart,
       };
     });

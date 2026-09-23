@@ -63,6 +63,26 @@
  *    numbers (the float8 cast guarantee); absurd subject ids are
  *    bound-parameter safe — no match, and an id beyond the int4 domain is
  *    rejected loudly by the parameter typing (raw 22003).
+ *  - Rubric payload tier (runInRollback): `insertOnce` persists the two
+ *    rubric-only members — notes plus the failing score's weakness area —
+ *    and the NULL-weakness passing shape; a duplicate rubric insert still
+ *    raises the RAW 23505 on `evaluations_session_evaluator_unique` (the
+ *    widened payload changes nothing about the arbiter).
+ *  - findBySessionAndEvaluator tier (runInRollback): the pair read hits
+ *    for its own (session, evaluator) — including a SOFT-DELETED row (the
+ *    unique arbiter's slot view, which the pre-check must not filter) —
+ *    observes the caller transaction's own uncommitted insert, misses for
+ *    a foreign evaluator / unknown session / absurd ids.
+ *  - listCycleRubricSubmissions tier (runInRollback): the quorum read
+ *    counts scored submissions across DISTINCT completed evaluation
+ *    sessions of one applicant, earliest first, with the mapped weakness
+ *    members; unscored rows, non-completed sessions, mistyped sessions,
+ *    and other applicants' rows never join; a hostile scored row joined
+ *    through the applicant's own session but evaluated for someone else
+ *    (the row's evaluated-subject leg ≠ the applicant) never joins either;
+ *    the half-open created_at
+ *    window bounds the cycle; absurd applicant ids are bound-parameter
+ *    safe (raw 22003 beyond the int4 domain).
  *  - tx propagation: an insert made with the explicit `tx` inside
  *    `runInRollback` is absent afterwards, observed via a fresh executor
  *    read against the table.
@@ -89,7 +109,14 @@ import {
 } from "@/backend/db/test/entity-setup";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
-import type { DBTransaction, EvaluationRatingAggregateType, EvaluationSelectType } from "@/backend/types";
+import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
+import { RubricWeaknessArea } from "@/backend/enum/teachers/rubric-weakness-area.enum";
+import type {
+  DBTransaction,
+  EvaluationRatingAggregateType,
+  EvaluationSelectType,
+  SessionSelectType,
+} from "@/backend/types";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
 /** PostgreSQL error code for `unique_violation`. */
@@ -113,6 +140,7 @@ const EVALUATION_ROW_KEYS = [
   "score",
   "sessionId",
   "updatedAt",
+  "weaknessArea",
 ] as const;
 
 /** Shared-PK ids for one rating cast (evaluated subject, rater, session). */
@@ -147,6 +175,61 @@ async function createExtraRater(tx: DBTransaction): Promise<number> {
   const raterUser = await createTestUser(tx, { role: "student" });
   await createTestStudent(tx, raterUser.id);
   return raterUser.id;
+}
+
+/** Shared instant for the rubric fixtures' session/evaluation timestamps. */
+const RUBRIC_NOW = new Date();
+
+/**
+ * Creates one rubric cast: an applicant (bare user — the evaluated leg) and
+ * a certified-evaluator-shaped user (teacher row on the shared PK — the
+ * session's teacher leg FK targets `teacher.id`).
+ */
+async function createRubricCast(tx: DBTransaction): Promise<{ applicantId: number; evaluatorId: number }> {
+  const applicant = await createTestUser(tx, { role: "teacher" });
+  const evaluator = await createTestUser(tx, { role: "teacher" });
+  await createTestTeacherRow(tx, evaluator.id);
+  return { applicantId: applicant.id, evaluatorId: evaluator.id };
+}
+
+/** Creates one extra evaluator (user + teacher role-child row) beyond the primary cast. */
+async function createExtraEvaluator(tx: DBTransaction): Promise<number> {
+  const evaluatorUser = await createTestUser(tx, { role: "teacher" });
+  await createTestTeacherRow(tx, evaluatorUser.id);
+  return evaluatorUser.id;
+}
+
+/** Books one completed `teacher_evaluation` session for the cast. */
+async function createCompletedEvaluationSession(
+  tx: DBTransaction,
+  applicantId: number,
+  evaluatorId: number,
+  overrides: Partial<SessionSelectType> = {}
+) {
+  return createTestSession(tx, evaluatorId, applicantId, {
+    sessionType: SessionType.TeacherEvaluation,
+    status: SessionStatus.Completed,
+    startedAt: RUBRIC_NOW,
+    endedAt: RUBRIC_NOW,
+    createdAt: RUBRIC_NOW,
+    ...overrides,
+  });
+}
+
+/** Inserts one rubric submission: session-linked, scored, notes, optional weakness. */
+async function insertRubricSubmission(
+  tx: DBTransaction,
+  applicantId: number,
+  evaluatorId: number,
+  sessionId: number,
+  score: number,
+  weaknessArea: RubricWeaknessArea | null,
+  notes = "qualitative observations"
+) {
+  return EvaluationRepository.insertOnce(
+    { evaluatedId: applicantId, evaluatorId, sessionId, score, notes, weaknessArea },
+    tx
+  );
 }
 
 /**
@@ -460,6 +543,342 @@ describe("EvaluationRepository — transactional paths (runInRollback)", () => {
   });
 });
 
+describe("EvaluationRepository.insertOnce — the rubric payload (runInRollback)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("stores the rubric payload: notes plus the failing score's weakness area", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const evalSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId);
+
+      const inserted = await insertRubricSubmission(
+        tx,
+        cast.applicantId,
+        cast.evaluatorId,
+        evalSession.id,
+        65,
+        RubricWeaknessArea.Tajweed,
+        "needs madd work"
+      );
+
+      expect(inserted.id).toBeGreaterThan(0);
+      expect(inserted.evaluatedId).toBe(cast.applicantId);
+      expect(inserted.sessionId).toBe(evalSession.id);
+      expect(inserted.score).toBe(65);
+      expect(inserted.notes).toBe("needs madd work");
+      expect(inserted.weaknessArea).toBe(RubricWeaknessArea.Tajweed);
+      // Read-back oracle: the stored row carries the same members.
+      const persisted = await readEvaluationRow(tx, inserted.id);
+      expect(persisted.notes).toBe("needs madd work");
+      expect(persisted.weaknessArea).toBe(RubricWeaknessArea.Tajweed);
+    });
+  });
+
+  test("stores a NULL weakness area for a passing score (the rating flow's shape)", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const evalSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId);
+
+      const inserted = await insertRubricSubmission(
+        tx,
+        cast.applicantId,
+        cast.evaluatorId,
+        evalSession.id,
+        80,
+        null,
+        "strong recitation"
+      );
+
+      expect(inserted.score).toBe(80);
+      expect(inserted.notes).toBe("strong recitation");
+      expect(inserted.weaknessArea).toBeNull();
+    });
+  });
+
+  // ─── Tier 3: the widened payload changes nothing about the arbiter ──
+
+  test("a duplicate rubric insert (notes + weakness) still raises the RAW 23505 on the unique arbiter", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const evalSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId);
+      const first = await insertRubricSubmission(
+        tx,
+        cast.applicantId,
+        cast.evaluatorId,
+        evalSession.id,
+        65,
+        RubricWeaknessArea.Tajweed
+      );
+
+      await tx.execute(sql`savepoint rubric_duplicate_probe`);
+      const duplicateError = await expectRepoError(() =>
+        insertRubricSubmission(tx, cast.applicantId, cast.evaluatorId, evalSession.id, 70, RubricWeaknessArea.Hifz)
+      );
+      await tx.execute(sql`rollback to savepoint rubric_duplicate_probe`);
+
+      expect(hasPostgresErrorCode(duplicateError, PG_UNIQUE_VIOLATION)).toBe(true);
+      expect(constraintNameOf(duplicateError)).toBe("evaluations_session_evaluator_unique");
+      // The savepoint bracket kept the transaction queryable and the
+      // winner's row intact — exactly one row for the pair.
+      const rows = await EvaluationRepository.listByEvaluator(cast.evaluatorId, tx);
+      expect(rows.map(row => row.id)).toEqual([first.id]);
+    });
+  });
+});
+
+describe("EvaluationRepository.findBySessionAndEvaluator — the pair pre-check read (runInRollback)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("returns the pair's row for its own (session, evaluator) and observes same-tx inserts", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const evalSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId);
+      expect(await EvaluationRepository.findBySessionAndEvaluator(evalSession.id, cast.evaluatorId, tx)).toBeNull();
+
+      const inserted = await insertRubricSubmission(
+        tx,
+        cast.applicantId,
+        cast.evaluatorId,
+        evalSession.id,
+        72,
+        RubricWeaknessArea.Hifz
+      );
+
+      const found = await EvaluationRepository.findBySessionAndEvaluator(evalSession.id, cast.evaluatorId, tx);
+      expect(found?.id).toBe(inserted.id);
+      expect(found?.score).toBe(72);
+      expect(found?.weaknessArea).toBe(RubricWeaknessArea.Hifz);
+    });
+  });
+
+  // ─── Tier 2: the slot view includes soft-deleted rows ───────────────
+
+  test("sees a soft-deleted row — the unique arbiter's slot, which the pre-check must not filter", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const evalSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId);
+      const deleted = await createTestEvaluation(tx, cast.applicantId, cast.evaluatorId, evalSession.id, {
+        isDeleted: true,
+        deletedAt: new Date(),
+        score: 60,
+      });
+
+      const found = await EvaluationRepository.findBySessionAndEvaluator(evalSession.id, cast.evaluatorId, tx);
+
+      expect(found?.id).toBe(deleted.id);
+      expect(found?.isDeleted).toBe(true);
+    });
+  });
+
+  test("returns null for a foreign evaluator, an unknown session, and absurd ids", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const otherEvaluator = await createExtraEvaluator(tx);
+      const evalSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId);
+      await insertRubricSubmission(tx, cast.applicantId, cast.evaluatorId, evalSession.id, 80, null);
+
+      expect(await EvaluationRepository.findBySessionAndEvaluator(evalSession.id, otherEvaluator, tx)).toBeNull();
+      expect(await EvaluationRepository.findBySessionAndEvaluator(2_147_483_647, cast.evaluatorId, tx)).toBeNull();
+      expect(await EvaluationRepository.findBySessionAndEvaluator(0, cast.evaluatorId, tx)).toBeNull();
+      expect(await EvaluationRepository.findBySessionAndEvaluator(-1, cast.evaluatorId, tx)).toBeNull();
+    });
+  });
+});
+
+describe("EvaluationRepository.listCycleRubricSubmissions — the quorum read (runInRollback)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("returns the scored submissions across DISTINCT completed evaluation sessions, earliest first", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const secondEvaluator = await createExtraEvaluator(tx);
+      const cycleStart = new Date(RUBRIC_NOW.getTime() - 10_000);
+      const sessionA = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: new Date(RUBRIC_NOW.getTime() - 2_000),
+      });
+      const sessionB = await createCompletedEvaluationSession(tx, cast.applicantId, secondEvaluator, {
+        createdAt: new Date(RUBRIC_NOW.getTime() - 1_000),
+      });
+      // The submission instants are pinned explicitly: within one
+      // transaction PostgreSQL's now() is a single instant, so the read's
+      // `created_at ASC, id ASC` order is only observable with distinct
+      // stamps.
+      await createTestEvaluation(tx, cast.applicantId, cast.evaluatorId, sessionA.id, {
+        score: 82,
+        createdAt: new Date(RUBRIC_NOW.getTime() - 1_500),
+      });
+      await createTestEvaluation(tx, cast.applicantId, secondEvaluator, sessionB.id, {
+        score: 77,
+        weaknessArea: RubricWeaknessArea.Hifz,
+        createdAt: new Date(RUBRIC_NOW.getTime() - 500),
+      });
+
+      const rows = await EvaluationRepository.listCycleRubricSubmissions(cast.applicantId, cycleStart, tx);
+
+      // Every row is a distinct (session, evaluator) pair by the unique
+      // arbiter; the order is earliest submission first.
+      expect(rows.map(row => row.sessionId)).toEqual([sessionA.id, sessionB.id]);
+      expect(rows.map(row => row.evaluatorId).toSorted((a, b) => a - b)).toEqual(
+        [cast.evaluatorId, secondEvaluator].toSorted((a, b) => a - b)
+      );
+      expect(new Set(rows.map(row => row.evaluatorId)).size).toBe(2);
+      expect(rows.map(row => row.score)).toEqual([82, 77]);
+      // The sealed projection — exactly the quorum-read keys.
+      expect(Object.keys(rows[0] ?? {}).toSorted((a, b) => a.localeCompare(b))).toEqual([
+        "createdAt",
+        "evaluatorId",
+        "id",
+        "score",
+        "sessionId",
+        "weaknessArea",
+      ]);
+    });
+  });
+
+  test("projects the mapped weakness members onto the canonical enum vocabulary", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const cycleStart = new Date(RUBRIC_NOW.getTime() - 10_000);
+      const first = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: new Date(RUBRIC_NOW.getTime() - 1_000),
+      });
+      const second = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: RUBRIC_NOW,
+      });
+      await insertRubricSubmission(tx, cast.applicantId, cast.evaluatorId, first.id, 65, RubricWeaknessArea.Tajweed);
+      await insertRubricSubmission(tx, cast.applicantId, cast.evaluatorId, second.id, 79, RubricWeaknessArea.Hifz);
+      // Distinct submission instants pin the earliest-first order (same-tx
+      // now() is one instant — see the distinctness test above).
+      await tx
+        .update(evaluations)
+        .set({ createdAt: new Date(RUBRIC_NOW.getTime() - 1_500) })
+        .where(eq(evaluations.sessionId, first.id));
+      await tx
+        .update(evaluations)
+        .set({ createdAt: new Date(RUBRIC_NOW.getTime() - 500) })
+        .where(eq(evaluations.sessionId, second.id));
+
+      const rows = await EvaluationRepository.listCycleRubricSubmissions(cast.applicantId, cycleStart, tx);
+
+      expect(rows.map(row => row.weaknessArea)).toEqual([RubricWeaknessArea.Tajweed, RubricWeaknessArea.Hifz]);
+      expect(rows.map(row => row.sessionId)).toEqual([first.id, second.id]);
+    });
+  });
+
+  // ─── Tier 2: the exclusion matrix + cycle window ────────────────────
+
+  test("unscored rows, non-completed and mistyped sessions never join the quorum", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const scored = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId);
+      await insertRubricSubmission(tx, cast.applicantId, cast.evaluatorId, scored.id, 84, null);
+
+      // Unscored submission on another completed session — not aggregable.
+      const unscored = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: new Date(RUBRIC_NOW.getTime() + 1_000),
+      });
+      await createTestEvaluation(tx, cast.applicantId, cast.evaluatorId, unscored.id, { score: null });
+      // A scheduled (non-completed) evaluation session with a scored row.
+      const scheduled = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        status: SessionStatus.Scheduled,
+        startedAt: null,
+        endedAt: null,
+        createdAt: new Date(RUBRIC_NOW.getTime() + 2_000),
+      });
+      await createTestEvaluation(tx, cast.applicantId, cast.evaluatorId, scheduled.id, { score: 90 });
+      // A mistyped session: a regular student session carrying a scored row.
+      await createTestStudent(tx, cast.applicantId);
+      const studentSession = await createTestSession(tx, cast.evaluatorId, cast.applicantId, {
+        createdAt: new Date(RUBRIC_NOW.getTime() + 3_000),
+      });
+      await createTestEvaluation(tx, cast.applicantId, cast.evaluatorId, studentSession.id, { score: 95 });
+      // A hostile row: joined through the applicant's OWN completed
+      // evaluation session (the session's student leg matches) but evaluated
+      // for a DIFFERENT user — the row's own evaluated-subject leg fails, so
+      // the row is never aggregable for this applicant.
+      const foreignSubject = await createTestUser(tx, { role: "teacher" });
+      const hostileSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: new Date(RUBRIC_NOW.getTime() + 4_000),
+      });
+      await createTestEvaluation(tx, foreignSubject.id, cast.evaluatorId, hostileSession.id, { score: 99 });
+
+      const rows = await EvaluationRepository.listCycleRubricSubmissions(
+        cast.applicantId,
+        new Date(RUBRIC_NOW.getTime() - 10_000),
+        tx
+      );
+
+      expect(rows.map(row => row.sessionId)).toEqual([scored.id]);
+      expect(rows.map(row => row.score)).toEqual([84]);
+    });
+  });
+
+  test("other applicants' evaluation sessions never join, and the half-open window bounds the cycle", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricCast(tx);
+      const otherApplicant = await createTestUser(tx, { role: "teacher" });
+      const cycleStart = new Date(RUBRIC_NOW.getTime() + 10_000);
+
+      // Another applicant's completed, scored evaluation session.
+      const foreignSession = await createCompletedEvaluationSession(tx, otherApplicant.id, cast.evaluatorId, {
+        createdAt: new Date(cycleStart.getTime() + 1_000),
+      });
+      await insertRubricSubmission(tx, otherApplicant.id, cast.evaluatorId, foreignSession.id, 90, null);
+      // A prior-cycle session for THIS applicant (created before cycleStart).
+      const priorSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: new Date(cycleStart.getTime() - 60_000),
+      });
+      await insertRubricSubmission(
+        tx,
+        cast.applicantId,
+        cast.evaluatorId,
+        priorSession.id,
+        70,
+        RubricWeaknessArea.Hifz
+      );
+      // The current-cycle session (created after cycleStart).
+      const currentSession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: new Date(cycleStart.getTime() + 1_000),
+      });
+      await insertRubricSubmission(tx, cast.applicantId, cast.evaluatorId, currentSession.id, 88, null);
+      // The exact boundary instant: session.created_at === cycleStart IS
+      // included (the window is half-open — `created_at >= cycleStart`).
+      const boundarySession = await createCompletedEvaluationSession(tx, cast.applicantId, cast.evaluatorId, {
+        createdAt: cycleStart,
+      });
+      await insertRubricSubmission(tx, cast.applicantId, cast.evaluatorId, boundarySession.id, 75, null);
+      // Distinct submission instants pin the earliest-first order (same-tx
+      // now() is one instant — see the distinctness test above).
+      await tx.update(evaluations).set({ createdAt: cycleStart }).where(eq(evaluations.sessionId, boundarySession.id));
+      await tx
+        .update(evaluations)
+        .set({ createdAt: new Date(cycleStart.getTime() + 1_000) })
+        .where(eq(evaluations.sessionId, currentSession.id));
+
+      const rows = await EvaluationRepository.listCycleRubricSubmissions(cast.applicantId, cycleStart, tx);
+
+      // Earliest first: the boundary instant (session.created_at ===
+      // cycleStart) joins the quorum and sorts before the +1s current-cycle
+      // session; the prior-cycle and foreign sessions stay excluded.
+      expect(rows.map(row => row.sessionId)).toEqual([boundarySession.id, currentSession.id]);
+      expect(rows.map(row => row.createdAt)).toEqual([cycleStart, new Date(cycleStart.getTime() + 1_000)]);
+    });
+  });
+
+  // ─── Tier 4: absurd applicant ids ───────────────────────────────────
+
+  test("absurd applicant ids are bound-parameter safe: zero and negative match nothing, out-of-domain is rejected loudly", async () => {
+    await runInRollback(async tx => {
+      expect(await EvaluationRepository.listCycleRubricSubmissions(0, RUBRIC_NOW, tx)).toEqual([]);
+      expect(await EvaluationRepository.listCycleRubricSubmissions(-7, RUBRIC_NOW, tx)).toEqual([]);
+      const rangeError = await expectRepoError(() =>
+        EvaluationRepository.listCycleRubricSubmissions(Number.MAX_SAFE_INTEGER + 1, RUBRIC_NOW, tx)
+      );
+      expect(hasPostgresErrorCode(rangeError, PG_NUMERIC_VALUE_OUT_OF_RANGE)).toBe(true);
+    });
+  });
+});
+
 describe("EvaluationRepository.aggregateLiveRatings — the live-family aggregate (runInRollback)", () => {
   // ─── Tier 1: branch/statement ───────────────────────────────────────
 
@@ -749,7 +1168,7 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
 
   const repoSource = readFileSync(join(import.meta.dir, "../../../repo/teachers/evaluation.repository.ts"), "utf8");
 
-  test("source: executor discipline — REQUIRED tx write, two-branch read, tx last on every signature", () => {
+  test("source: executor discipline — REQUIRED tx on the write and same-tx reads, two-branch list read, tx last on every signature", () => {
     expect(repoSource.includes("const executor = tx ?? db;")).toBe(false);
     expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(1);
     // Slice each `export async function` signature out up to its parameter
@@ -765,7 +1184,7 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
       signatures.push(repoSource.slice(start, close));
       start = repoSource.indexOf("export async function ", close);
     }
-    expect(signatures).toHaveLength(3);
+    expect(signatures).toHaveLength(5);
     expect(signatures[0]?.startsWith("export async function insertOnce(")).toBe(true);
     // The write's tx is REQUIRED and is the LAST parameter.
     expect(signatures[0]?.trimEnd().endsWith("tx: DBTransaction")).toBe(true);
@@ -776,6 +1195,12 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
     // The aggregate's tx is REQUIRED and is the LAST parameter — it is a
     // same-transaction read whose result feeds a write on that tx.
     expect(signatures[2]?.trimEnd().endsWith("tx: DBTransaction")).toBe(true);
+    expect(signatures[3]?.startsWith("export async function findBySessionAndEvaluator(")).toBe(true);
+    // The pair pre-check runs inside the caller's submission transaction.
+    expect(signatures[3]?.trimEnd().endsWith("tx: DBTransaction")).toBe(true);
+    expect(signatures[4]?.startsWith("export async function listCycleRubricSubmissions(")).toBe(true);
+    // The quorum read runs under the caller's applicant row lock.
+    expect(signatures[4]?.trimEnd().endsWith("tx: DBTransaction")).toBe(true);
   });
 
   test("source: bound parameters only, no wildcard select, no prepared statements, no SQL line comments", () => {
@@ -786,12 +1211,13 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
     expect(repoSource.includes("inArray")).toBe(false);
     expect(repoSource.includes("sql.raw")).toBe(false);
     expect(repoSource.includes("--")).toBe(false);
-    // The ONLY template interpolation is the Drizzle schema-column ref
-    // inside the aggregate's sql fragment (bound, parameterized — never
-    // a JS value concatenated into SQL text).
+    // The ONLY template interpolations are the Drizzle schema-column refs
+    // inside the sql fragments (the aggregate's mean and the quorum read's
+    // score projection — bound, parameterized, never a JS value
+    // concatenated into SQL text).
     const interpolations = repoSource.match(/\$\{[^}]*\}/g) ?? [];
-    expect(interpolations).toHaveLength(1);
-    expect(interpolations[0]).toContain("evaluations.score");
+    expect(interpolations).toHaveLength(2);
+    expect(interpolations.every(fragment => fragment.includes("evaluations.score"))).toBe(true);
   });
 
   test("source: soft-delete exclusion is NULL-safe on both read paths", () => {
@@ -802,8 +1228,9 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
   test("source: caller-scoped read, database-owned arbiter, no i18n/logger/console, one namespace", () => {
     // The list read stays caller-scoped: the evaluator id is its only
     // filter. The aggregate is keyed BY the rated subject, so its single
-    // `evaluatedId` parameter is the family's key, not a widening knob.
-    expect(repoSource.match(/evaluatorId: number/g) ?? []).toHaveLength(1);
+    // `evaluatedId` parameter is the family's key, not a widening knob; the
+    // pair read binds both legs of the unique arbiter.
+    expect(repoSource.match(/evaluatorId: number/g) ?? []).toHaveLength(2);
     expect(repoSource.match(/evaluatedId: number/g) ?? []).toHaveLength(1);
     // The write-once arbiter is the database's — no SELECT-then-INSERT
     // guard, no error translation in the repository.

@@ -10,9 +10,9 @@
 
 import { SchoolOutlined as EmptyIcon } from "@mui/icons-material";
 import type { ReactNode } from "react";
-import type {
-  MyTeacherSessionsQuery,
-  MyTeacherSessionsQuery_myTeacherSessions_items,
+import {
+  type MyTeacherSessionsQuery,
+  type MyTeacherSessionsQuery_myTeacherSessions_items,
   SessionStatus,
 } from "@/frontend/graphql/generated/gql/graphql";
 import {
@@ -24,6 +24,7 @@ import type { SessionRowRole } from "@/frontend/views/student/sessions/sessionRo
 import { TeacherSessionsLoadingSkeleton } from "@/frontend/views/teacher/sessions/TeacherSessionsLoadingSkeleton";
 import { teacherActionsForSession } from "@/frontend/views/teacher/sessions/teacherSessionCacheArms";
 import type { InFlightSlots } from "@/frontend/views/teacher/sessions/teacherSessionSlots";
+import { filterSessionsAwaitingRubric } from "@/frontend/views/teacher/sessions/teacherSessionsPendingFilter.helpers";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
 
 export interface TeacherSessionsBodyProps {
@@ -43,6 +44,29 @@ export interface TeacherSessionsBodyProps {
   readonly onHomework: (sessionId: string) => void;
   /** Opens the session report submission dialog for a Completed session. */
   readonly onReport: (sessionId: string) => void;
+  /** Opens the rubric-evaluation dialog for a completed evaluation session. */
+  readonly onSubmitEvaluation: (sessionId: string) => void;
+  /**
+   * Session ids that still owe a rubric submission (the evaluator's
+   * pending read) — the submit-evaluation affordance gate.
+   */
+  readonly pendingRubricSessionIds: ReadonlySet<string>;
+  /**
+   * The parked-draft overlay — the storage membership read's id set plus
+   * the localized chip label (see `SessionsRowList`). Omitted by surfaces
+   * without the rubric flow.
+   */
+  readonly parkedDrafts?: {
+    readonly ids: ReadonlySet<string>;
+    readonly label: string;
+  };
+  /**
+   * The pending-rubric banner's client-side lane — the settled rows are
+   * filtered to the pending membership set (filter, pill, and CTA share
+   * one source of truth). The status filter stays server-side; the two
+   * lanes compose (toggle-ON clears the chip in the container).
+   */
+  readonly awaitingOnly: boolean;
   /**
    * The row-owner role token supplied by the teacher container (the
    * teacher surface constant) — scopes the rows' dispute affordance matrix
@@ -69,6 +93,7 @@ export function TeacherSessionsBody({
   loading,
   error,
   data,
+  awaitingOnly,
   rowAlerts,
   onCancelIntent,
   onDisputeIntent,
@@ -78,6 +103,9 @@ export function TeacherSessionsBody({
   onComplete,
   onHomework,
   onReport,
+  onSubmitEvaluation,
+  pendingRubricSessionIds,
+  parkedDrafts,
   role,
   onCaseIntent,
   t,
@@ -99,15 +127,21 @@ export function TeacherSessionsBody({
   if (!data) {
     return <TeacherSessionsLoadingSkeleton />;
   }
-  const sessions: readonly MyTeacherSessionsQuery_myTeacherSessions_items[] = data.myTeacherSessions.items;
+  const settledSessions: readonly MyTeacherSessionsQuery_myTeacherSessions_items[] = data.myTeacherSessions.items;
+  // The pending-only lane is a client-side membership pass (the status
+  // chips stay server-side); an empty result under the lane renders the
+  // filtered-empty copy (the lane counts as an active filter).
+  const sessions = awaitingOnly
+    ? filterSessionsAwaitingRubric(settledSessions, pendingRubricSessionIds)
+    : settledSessions;
   if (sessions.length === 0) {
     // Branches 4a/4b — an empty page (the applicant teacher's permanent
     // state: an empty page, NEVER an error). The DISTINCT filtered-empty
-    // copy only when a status chip is active; the generic empty state stays
-    // reserved for the unfiltered "all" view.
+    // copy only when a status chip OR the pending-only lane is active; the
+    // generic empty state stays reserved for the unfiltered "all" view.
     return (
       <SessionsEmptyBranch
-        statusFilter={statusFilter}
+        statusFilter={awaitingOnly ? (statusFilter ?? SessionStatus.Completed) : statusFilter}
         testId="teacher-sessions-empty"
         emptyIcon={EmptyIcon}
         emptyTitle={t.teacherEmptyTitle}
@@ -128,9 +162,22 @@ export function TeacherSessionsBody({
       disputeInFlightSlots={disputeInFlightSlots}
       role={role}
       actionsFor={session =>
-        teacherActionsForSession(session, { t, inFlightSlots, onStart, onComplete, onHomework, onReport })
+        teacherActionsForSession(session, {
+          t,
+          inFlightSlots,
+          onStart,
+          onComplete,
+          onHomework,
+          onReport,
+          onSubmitEvaluation,
+          pendingRubricSessionIds,
+        })
       }
       onCaseIntent={onCaseIntent}
+      // The rubric-pending overlay rides the SAME membership set that
+      // gates the rows' submit CTA — pill and affordance can never drift.
+      awaitingEvaluation={{ ids: pendingRubricSessionIds, label: t.awaitingEvaluation }}
+      parkedDrafts={parkedDrafts}
     />
   );
 }

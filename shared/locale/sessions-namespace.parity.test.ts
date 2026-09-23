@@ -31,6 +31,9 @@
  *      the namespace the way component suites warm it before rendering.
  *   5. ARABIC-SCRIPT SANITY — sampled Arabic values actually contain Arabic
  *      script (guards a copy paste of English into the `ar` leaf).
+ *   6. RUBRIC DIALOG PINS — the ten rubric-submission dialog keys resolve in
+ *      BOTH locales as flat, interpolation-free copy, and the two
+ *      weakness-area options stay distinct per locale.
  *
  * Mirrors the structure of `shared/locale/applicant-namespace.parity.test.ts`
  * (the closest sibling: new keys on `errors` + a brand-new namespace).
@@ -207,6 +210,31 @@ const MANDATED_SESSIONS_KEYS = [
   "reportSessionDateLabel",
   "reportReviewedNotesLabel",
   "reportReviewedRatingLabel",
+  // ─── Rubric Evaluation Submission (evaluator dialog) — the new plan's vocabulary.
+  "submitEvaluationAction",
+  "awaitingEvaluation",
+  "rubricDialogTitle",
+  "rubricScoreLabel",
+  "rubricScoreBandPassing",
+  "rubricScoreBandFailing",
+  "rubricNotesLabel",
+  "rubricWeaknessLabel",
+  "rubricWeaknessTajweed",
+  "rubricWeaknessHifz",
+  "rubricWeaknessHelper",
+  "rubricSubmitCta",
+  "rubricSubmittedSuccess",
+  "rubricImpactPass",
+  "rubricImpactFail",
+  "rubricDraftRestoredNotice",
+  "rubricDraftDiscardCta",
+  "rubricDraftSavedAtLabel",
+  "rubricDraftParkedChip",
+  "rubricDraftsPrunedLine",
+  // ─── Pending-rubric banner (teacher sessions surface) — the new vocabulary.
+  "pendingRubricCountLine",
+  "pendingRubricFilterCta",
+  "pendingRubricFilterActiveCta",
 ] as const;
 
 /**
@@ -222,6 +250,8 @@ const FUNCTION_LABEL_KEYS: ReadonlySet<string> = new Set([
   "ratingStarAriaLabel",
   "surahJuzLabel",
   "reportGradeAriaLabel",
+  "pendingRubricCountLine",
+  "rubricDraftsPrunedLine",
 ]);
 
 /** Keys resolved through `getTranslations(locale)` in the sync-resolution tier. */
@@ -237,6 +267,7 @@ const SYNC_SAMPLE_SESSIONS_KEYS = [
   "escrowConsumedChip",
   "resolutionPartialRefundLabel",
   "caseReviewTitle",
+  "rubricSubmittedSuccess",
 ] as const;
 
 /** Keys probed for Arabic-script content in the `ar` leaf. */
@@ -250,6 +281,14 @@ const ARABIC_SCRIPT_SAMPLE_KEYS = [
   "adminDisputesEmptyBody",
   "resolutionRefundHelper",
   "caseReviewEmptyReport",
+  "rubricWeaknessHelper",
+  "rubricWeaknessTajweed",
+  "pendingRubricFilterCta",
+  "pendingRubricFilterActiveCta",
+  "rubricDraftRestoredNotice",
+  "rubricDraftDiscardCta",
+  "rubricDraftSavedAtLabel",
+  "rubricDraftParkedChip",
 ] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -421,6 +460,55 @@ describe("sessions namespace — compile-time parity mirror", () => {
     for (const key of ARABIC_SCRIPT_SAMPLE_KEYS) {
       expect(arabicLetter.test(nonEmptyLabelOf(sessionsAr, key, "ar"))).toBe(true);
     }
+  });
+});
+
+// ===========================================================================
+describe("rubric evaluation dialog keys — pinned in BOTH locales", () => {
+  /** The ten dialog keys minted for the evaluator's rubric submission surface. */
+  const RUBRIC_DIALOG_KEYS = [
+    "submitEvaluationAction",
+    "awaitingEvaluation",
+    "rubricDialogTitle",
+    "rubricScoreLabel",
+    "rubricNotesLabel",
+    "rubricWeaknessLabel",
+    "rubricWeaknessTajweed",
+    "rubricWeaknessHifz",
+    "rubricWeaknessHelper",
+    "rubricSubmitCta",
+    "rubricSubmittedSuccess",
+    "rubricImpactPass",
+    "rubricImpactFail",
+    "rubricDraftRestoredNotice",
+    "rubricDraftDiscardCta",
+    "rubricDraftSavedAtLabel",
+    "rubricDraftParkedChip",
+  ] as const;
+
+  test.each([...RUBRIC_DIALOG_KEYS])("rubric dialog key `%s` resolves as a non-empty string in BOTH locales", key => {
+    expect(nonEmptyLabelOf(sessionsAr, key, "ar").length).toBeGreaterThan(0);
+    expect(nonEmptyLabelOf(sessionsEn, key, "en").length).toBeGreaterThan(0);
+    // Key must be part of the COMPILE-TIME schema too — Reflect-only
+    // additions (untyped holes) are prohibited by the SessionsLabels contract.
+    expect(Object.hasOwn(sessionsEn, key)).toBe(true);
+    expect(Object.hasOwn(sessionsAr, key)).toBe(true);
+  });
+
+  test("every rubric dialog key carries ZERO ICU placeholders in BOTH locales (flat dialog copy)", () => {
+    for (const key of RUBRIC_DIALOG_KEYS) {
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(sessionsAr, key, "ar"))).toEqual([]);
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(sessionsEn, key, "en"))).toEqual([]);
+    }
+  });
+
+  test("the two weakness-area options stay DISTINCT copy in BOTH locales (no collapsed options)", () => {
+    expect(nonEmptyLabelOf(sessionsEn, "rubricWeaknessTajweed", "en")).not.toBe(
+      nonEmptyLabelOf(sessionsEn, "rubricWeaknessHifz", "en")
+    );
+    expect(nonEmptyLabelOf(sessionsAr, "rubricWeaknessTajweed", "ar")).not.toBe(
+      nonEmptyLabelOf(sessionsAr, "rubricWeaknessHifz", "ar")
+    );
   });
 });
 

@@ -962,6 +962,11 @@ type Mutation {
   startSession(id: ID!): Session!
 
   """
+  Submit the calling evaluator's rubric for one of their completed teacher_evaluation sessions. Write-once per (session, evaluator). Teacher-only.
+  """
+  submitRubricEvaluation(input: RubricEvaluationSubmitInput!, sessionId: ID!): RubricEvaluation!
+
+  """
   Submit the teacher's report for one completed session: notes, the student rating, and the optional homework composites (previous-row grades + the new assignment) settle atomically. A duplicate submission replays SESSION_REPORT_ALREADY_EXISTS.
   """
   submitSessionReport(id: ID!, input: SubmitSessionReportInput!): SessionReport!
@@ -1438,6 +1443,16 @@ type Query {
   Lists the caller's own parent-child link requests (newest first, capped). Rows keep their post-resolution status; expired rows are rendered without any write.
   """
   myOutgoingParentLinkRequests: [OutgoingParentLinkRequest!]!
+
+  """
+  The calling evaluator's own rubric submission for one session (unknown/foreign -> SESSION_NOT_FOUND).
+  """
+  myRubricEvaluation(sessionId: ID!): RubricEvaluation
+
+  """
+  The calling certified evaluator's completed evaluation sessions with NO rubric submission yet (paged).
+  """
+  myRubricPendingSessions(page: Int, pageSize: Int): SessionPage!
   myStudentSessions(filter: SessionListFilterInput, page: Int = 1, pageSize: Int = 25): SessionPage!
 
   """
@@ -1566,6 +1581,35 @@ input RenewSubscriptionInput {
 input RequestWithdrawalInput {
   """The payout amount as a decimal string (e.g. "125.00")."""
   amount: String!
+}
+
+type RubricEvaluation {
+  applicantStatus: ApplicantStatus!
+  createdAt: DateTime!
+  evaluatedId: ID!
+  evaluatorId: ID!
+  id: ID!
+  score: Int
+  sessionId: ID
+  weaknessArea: RubricWeaknessArea
+}
+
+input RubricEvaluationSubmitInput {
+  """Qualitative observations (trimmed non-empty, <= 2000 chars)."""
+  notes: String!
+
+  """
+  Integer 0..100 — the per-evaluation verdict is DERIVED (score >= 80), never supplied.
+  """
+  score: Int!
+
+  """Failure area — required iff score < 80, forbidden otherwise."""
+  weaknessArea: RubricWeaknessArea
+}
+
+enum RubricWeaknessArea {
+  Hifz
+  Tajweed
 }
 
 type Session {

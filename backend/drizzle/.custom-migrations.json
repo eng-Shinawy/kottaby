@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d89ad6abc0f33bdd2936c2d6bb09581357165defb903b2bc2754a2b35d3aba61",
+  "manifestHash": "eeed035baa7e4396ea5c756db28ffb92ba6b92f5452ae9f20a6eae691b54d725",
   "manifest": [
     {
       "file": "2-functions.sql",
@@ -40,6 +40,10 @@
     {
       "file": "8-broadcast-history-backfill.sql",
       "sha256": "68a9f9a3204d5a25bd71b96b94dbc6b8523829a0a8c0ed9885b3cc91d998c275"
+    },
+    {
+      "file": "9-rubric-weakness-area.sql",
+      "sha256": "f27eedbedffb82597e7c9feecadcd6dcc32bd18a26108126571766aeee7ecdb6"
     }
   ],
   "appliedFolders": [
@@ -57,6 +61,7 @@
     "20260919081638_custom_8-broadcast-history-backfill",
     "20260919100332_custom_8-broadcast-history-backfill",
     "20260919222143_custom_8-broadcast-history-backfill",
-    "20260919222508_custom_8-broadcast-history-backfill"
+    "20260919222508_custom_8-broadcast-history-backfill",
+    "20260923154213_custom_9-rubric-weakness-area"
   ]
 }

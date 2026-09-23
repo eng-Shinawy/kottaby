@@ -127,6 +127,29 @@ interface SessionsRowListProps {
    * teacher surface's container.
    */
   readonly onCaseIntent?: (sessionId: string) => void;
+  /**
+   * The teacher surface's rubric-pending overlay — the pending read's id
+   * set plus the localized pill label. A row whose id is in the set
+   * renders the "awaiting your evaluation" pill beside its meta cells
+   * (the same membership gate that renders the row's submit CTA, so pill
+   * and CTA always agree). The student surface omits the prop.
+   */
+  readonly awaitingEvaluation?: {
+    readonly ids: ReadonlySet<string>;
+    readonly label: string;
+  };
+  /**
+   * The teacher surface's parked-draft overlay — the storage membership
+   * read's id set (session ids whose draft is parked and restorable) plus
+   * the localized chip label. A row whose id is in the set renders the
+   * chip beside its meta cells so the evaluator can see WHICH pending
+   * sessions carry an unsubmitted draft without opening the dialog. The
+   * student surface omits the prop (no rubric flow there).
+   */
+  readonly parkedDrafts?: {
+    readonly ids: ReadonlySet<string>;
+    readonly label: string;
+  };
 }
 
 /**
@@ -135,8 +158,18 @@ interface SessionsRowListProps {
  * resolved through the caller's affordance matrix (per payload shape).
  */
 export function SessionsRowList(props: Readonly<SessionsRowListProps>): ReactNode {
-  const { sessions, rowAlerts, onCancelIntent, onDisputeIntent, disputeInFlightSlots, role, actionsFor, onCaseIntent } =
-    props;
+  const {
+    sessions,
+    rowAlerts,
+    onCancelIntent,
+    onDisputeIntent,
+    disputeInFlightSlots,
+    role,
+    actionsFor,
+    onCaseIntent,
+    awaitingEvaluation,
+    parkedDrafts,
+  } = props;
   return (
     <Stack sx={{ gap: 2 }}>
       {sessions.map(session => (
@@ -150,6 +183,8 @@ export function SessionsRowList(props: Readonly<SessionsRowListProps>): ReactNod
           role={role}
           actions={actionsFor(session)}
           onCaseIntent={onCaseIntent}
+          awaitingEvaluationLabel={awaitingEvaluation?.ids.has(session.id) ? awaitingEvaluation.label : null}
+          parkedDraftLabel={parkedDrafts?.ids.has(session.id) ? parkedDrafts.label : null}
         />
       ))}
     </Stack>

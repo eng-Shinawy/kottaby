@@ -32,4 +32,11 @@ export const applicantAr: ApplicantLabels = {
   evaluationBookingConfirmCta: "تأكيد الحجز",
   evaluationBookingDialogTitle: "اختر مُقيِّماً",
   evaluationZoneTitle: "حلقة التقييم الخاصة بك",
+  // شارة بدء الحلقة تحت خط التقدّم — يركّب العرض ختم التاريخ المطلق بجانب
+  // هذا النص (بلا خانة ICU؛ تنسيق التاريخ يبقى في الواجهة كسائر الأختام).
+  evaluationCycleStartCaption: "بدأت الحلقة في",
+  evaluationPassedTitle: "لقد أصبحت معلماً معتمداً",
+  evaluationPassedBody: "لقد نجحت في جميع جلسات التقييم الخمس، وسجل المعلم الخاص بك مُفعّل الآن.",
+  evaluationFailedTitle: "نتيجة التقييم",
+  evaluationFailedBody: "يمكنك إعادة التقديم بعد {cooldownUntil}.",
 };

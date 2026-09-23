@@ -134,6 +134,19 @@ interface SessionRowProps {
    * it so its rows open the participant-side case dialog.
    */
   readonly onCaseIntent?: (sessionId: string) => void;
+  /**
+   * Localized "still owes a rubric" label — when supplied (the teacher
+   * surface), the meta band may render the rubric-pending pill for the
+   * rows the caller marks; absent on the student surface.
+   */
+  readonly awaitingEvaluationLabel?: string | null;
+  /**
+   * Localized "unsubmitted draft parked" label — when supplied (the
+   * teacher surface), the meta band may render the parked-draft chip for
+   * the rows the caller marks (the storage membership read). Absent on
+   * the student surface.
+   */
+  readonly parkedDraftLabel?: string | null;
 }
 
 /** One session list card: status chip + intent title + fee/deadline/created meta. */
@@ -146,6 +159,8 @@ export function SessionRow({
   role,
   actions,
   onCaseIntent,
+  awaitingEvaluationLabel,
+  parkedDraftLabel,
 }: Readonly<SessionRowProps>): ReactNode {
   const t = useAppTranslation(Sessions);
   const locale = useAppLocale();
@@ -176,7 +191,12 @@ export function SessionRow({
           justifyContent: "space-between",
         }}
       >
-        <SessionRowMeta session={session} locale={locale} />
+        <SessionRowMeta
+          session={session}
+          locale={locale}
+          awaitingEvaluationLabel={awaitingEvaluationLabel}
+          parkedDraftLabel={parkedDraftLabel}
+        />
         {session.disputeReason !== null && session.disputedAt !== null ? (
           <SessionRowDisputeReason
             sessionId={session.id}

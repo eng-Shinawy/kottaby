@@ -310,6 +310,20 @@ export interface ErrorsLabels {
   readonly applicantNotInEvaluation: string;
   /** Cycle reject — no ACTIVE verification subscription opens an evaluation cycle (the purchase is not completed) → ConflictError. */
   readonly verificationSubscriptionNotActive: string;
+  /** Validation reject — the rubric score is not an integer within 0..100 → ValidationError("RUBRIC_SCORE_INVALID", …). */
+  readonly rubricScoreInvalid: string;
+  /** Validation reject — rubric observations are missing, empty after trimming, or over the 2000-character bound → ValidationError("RUBRIC_NOTES_REQUIRED", …). */
+  readonly rubricNotesRequired: string;
+  /** Validation reject — a rubric score below the pass threshold carries no weakness area → ValidationError("RUBRIC_WEAKNESS_REQUIRED", …). */
+  readonly rubricWeaknessRequired: string;
+  /** Validation reject — a rubric score at or above the pass threshold carries a weakness area → ValidationError("RUBRIC_WEAKNESS_NOT_ALLOWED", …). */
+  readonly rubricWeaknessNotAllowed: string;
+  /** Fail-closed validation reject — the submitted weakness area is not a `rubric_weakness_area` member → ValidationError("RUBRIC_WEAKNESS_INVALID", …). */
+  readonly rubricWeaknessInvalid: string;
+  /** Conflict reject — the rubric session is owned and typed correctly but not yet completed → ConflictError("RUBRIC_SESSION_NOT_COMPLETED", …). */
+  readonly rubricSessionNotCompleted: string;
+  /** Conflict reject — the guarded finalization write matched no in-flight application (a concurrent verdict already committed) → ConflictError("APPLICANT_ALREADY_FINALIZED", …). */
+  readonly applicantAlreadyFinalized: string;
 }
 
 export type ErrorMessageKey = {

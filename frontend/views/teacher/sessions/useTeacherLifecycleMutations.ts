@@ -1,6 +1,7 @@
 /**
- * useTeacherLifecycleMutations — the start/complete mutation wiring,
- * extracted verbatim from `TeacherSessionsContainer` (the max-lines split).
+ * useTeacherLifecycleMutations — the start/complete mutation wiring plus
+ * the rubric-scoring arm composition, extracted verbatim from
+ * `TeacherSessionsContainer` (the max-lines split).
  *
  * Per-call options carry the session id in scope so every outcome arm can
  * address ITS row (row alerts, in-flight clearing) precisely. Cache
@@ -9,6 +10,11 @@
  * fields onto the `Session:<id>` entity (belt-and-braces over the automatic
  * normalized merge). Errors route through the shared
  * `handleLifecycleMutationError` table.
+ *
+ * The rubric-scoring arms ({@link useRubricEvaluation}) compose here so the
+ * container keeps ONE action-intent source: the returned `rubric` carries
+ * the pending-read gate for the row affordances, the submit handler the
+ * rubric dialog calls, and the submit-in-flight flag.
  */
 
 import { useApolloClient, useMutation } from "@apollo/client/react";
@@ -23,6 +29,7 @@ import {
   dropRowAlert,
   type RowActionKind,
 } from "@/frontend/views/teacher/sessions/teacherSessionSlots";
+import { type RubricEvaluationArms, useRubricEvaluation } from "@/frontend/views/teacher/sessions/useRubricEvaluation";
 import { Errors, Sessions, useAppTranslation } from "@/shared/locale";
 
 /** Wiring the mutations need from the container (slot handling + surfaces). */
@@ -42,9 +49,11 @@ export interface TeacherLifecycleMutations {
   readonly handleStart: (sessionId: string) => void;
   /** completeSession (Started → Completed) intent handler for one row. */
   readonly handleComplete: (sessionId: string) => void;
+  /** The rubric-scoring arms (pending-read gate + submit handler). */
+  readonly rubric: RubricEvaluationArms;
 }
 
-/** The start/complete mutation wiring — see the module docblock. */
+/** The start/complete mutation wiring + the composed rubric arms — see the module docblock. */
 export function useTeacherLifecycleMutations(wiring: TeacherLifecycleMutationsWiring): TeacherLifecycleMutations {
   const t = useAppTranslation(Sessions);
   const te = useAppTranslation(Errors);
@@ -85,6 +94,11 @@ export function useTeacherLifecycleMutations(wiring: TeacherLifecycleMutationsWi
 
   const [completeSession] = useMutation(completeSessionMutationDocument);
 
+  // The rubric-scoring arms (pending-read gate + submit handler) compose
+  // alongside the lifecycle mutations — ONE action-intent source for the
+  // container.
+  const rubric = useRubricEvaluation({ setNotice });
+
   const handleComplete = useCallback(
     (sessionId: string): void => {
       claimSlot(sessionId, "complete");
@@ -119,5 +133,5 @@ export function useTeacherLifecycleMutations(wiring: TeacherLifecycleMutationsWi
     [completeSession, client, t, te, claimSlot, clearComplete, setRowAlerts, setNotice]
   );
 
-  return { handleStart, handleComplete };
+  return { handleStart, handleComplete, rubric };
 }

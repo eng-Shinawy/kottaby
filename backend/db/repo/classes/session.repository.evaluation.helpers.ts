@@ -1,22 +1,25 @@
 /**
- * SessionRepository evaluation-booking helpers — the three cycle reads the
- * evaluation-booking write path and its read resolvers share (one
- * implementation each): the active-cycle probe, the per-cycle aggregate,
- * and the applicant evaluation-session list. The public surface stays the
- * `SessionRepository` namespace in `session.repository.ts`: each function
- * below backs the namespace method of the same name as a one-to-one
- * delegation target. Nothing in this module is part of the public API.
+ * SessionRepository evaluation-booking helpers — the four cycle reads the
+ * evaluation-booking write path, its read resolvers, and the evaluator's
+ * rubric surface share (one implementation each): the active-cycle probe,
+ * the per-cycle aggregate, the applicant evaluation-session list, and the
+ * evaluator's completed-but-unscored rubric-session page. The public
+ * surface stays the `SessionRepository` namespace in `session.repository.ts`:
+ * each function below backs the namespace method of the same name as a
+ * one-to-one delegation target. Nothing in this module is part of the
+ * public API.
  *
  * Conventions (per `backend/db/repo/AGENTS.md`):
- *  - the cycle probe and the aggregate take `tx: DBTransaction` as a
- *    REQUIRED last parameter — the cycle and capacity decisions must
- *    observe the caller transaction's own writes (the applicant row lock
- *    is held by the caller across both reads);
- *  - the list read takes `tx?: DBQueryExecutor`: a Drizzle executor runs
- *    the typed page + count reads on the supplied transaction; a
- *    checked-out PoolClient runs the same parameterized SQL on the
- *    SUPPLIED client (session-faithful); a caller without an executor
- *    falls back to raw parameterized SQL via `queryDb` (the
+ *  - the cycle probe, the aggregate, and the pending-rubric list take
+ *    `tx: DBTransaction` as a REQUIRED last parameter — the cycle, capacity,
+ *    and quorum decisions must observe the caller transaction's own writes
+ *    (the applicant row lock is held by the caller across both reads, and
+ *    the pending page + its count must share the one executor/snapshot);
+ *  - the applicant list read takes `tx?: DBQueryExecutor`: a Drizzle
+ *    executor runs the typed page + count reads on the supplied
+ *    transaction; a checked-out PoolClient runs the same parameterized SQL
+ *    on the SUPPLIED client (session-faithful); a caller without an
+ *    executor falls back to raw parameterized SQL via `queryDb` (the
  *    Neon-HTTP-eligible pool path). A bare `Pool` is not a supported
  *    executor arm — it carries no caller session to be faithful to and
  *    degrades to the same `queryDb` pool path;
@@ -27,14 +30,16 @@
  *    the cycle window, and a `null` mean.
  */
 
-import { and, count, desc, eq, gte, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, type SQL, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { PoolClient, QueryResultRow } from "pg";
 import { queryDb } from "@/backend/db";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { session } from "@/backend/db/schema/classes/session";
+import { evaluations } from "@/backend/db/schema/teachers/evaluations";
 import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
+import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import type { DBQueryExecutor, DBTransaction, SessionSelectType } from "@/backend/types";
@@ -65,9 +70,23 @@ export interface EvaluationSessionListFilter {
   readonly pageSize: number;
 }
 
+/**
+ * `RubricPendingSessionsFilter` — repo-internal filter shape for the
+ * evaluator's pending-rubric listing: just the caller's page window, which
+ * the helper normalizes (sane-fallback, never thrown) before any database
+ * work.
+ */
+interface RubricPendingSessionsFilter {
+  readonly page: number;
+  readonly pageSize: number;
+}
+
 /** Upper bound of the evaluation list page size and its fallback — the participant lists' clamp window (1..50, default 25), applied before any database work so the read never fabricates a window. */
 const MAX_PAGE_SIZE = 50;
 const DEFAULT_PAGE_SIZE = 25;
+
+/** Upper bound and fallback of the pending-rubric list page window (1..100, default 25), applied before any database work. */
+const RUBRIC_PENDING_MAX_PAGE_SIZE = 100;
 
 /** Column alias list for the list read's raw-SQL branches — mirrors `$inferSelect` typing 1:1. */
 const EVALUATION_SESSION_SELECT_COLUMNS = `
@@ -282,4 +301,67 @@ export async function listEvaluationSessionsForApplicant(
  */
 function isPoolClientExecutor(tx: DBQueryExecutor): tx is PoolClient {
   return typeof tx === "object" && "release" in tx && typeof tx.release === "function";
+}
+
+/**
+ * Lists the evaluator's OWN completed evaluation sessions that still await
+ * a rubric submission, newest first, paged: a LEFT JOIN anti-join against
+ * the evaluator's own `evaluations` rows (the join binds BOTH the session
+ * link and the evaluator id, and the predicate keeps only the rows whose
+ * joined side is NULL — a session this evaluator already scored drops
+ * out, while another evaluator's submission on it changes nothing), over
+ * the owner equality on the session's teacher leg, the session type pinned
+ * to the teacher-evaluation member, the evaluation-intent pin (the same
+ * value-import enum member the submission gate enforces — the read gate
+ * and the write gate describe one and the same session set), and the
+ * completed lifecycle state.
+ * The (session_id, evaluator_id) unique arbiter caps the join at one row
+ * per session, so the anti-join never multiplies rows and the page count
+ * stays honest.
+ *
+ * The page window normalizes with the same sane-fallback shape the
+ * applicant list uses — a page below 1 falls back to the first page, a
+ * page size outside 1..100 falls back to the default 25 — and never
+ * throws. The page query and the same-predicate `count(*)` describe one
+ * filtered set, so the total is always honest.
+ *
+ * `tx` is REQUIRED: the caller resolves the evaluator's certification
+ * inside the same transaction and the page must observe that snapshot.
+ *
+ * @returns The page rows plus the honest total (an out-of-range page
+ *          yields an empty `items` array with the unchanged total).
+ */
+export async function listCompletedRubricPendingSessions(
+  evaluatorUserId: number,
+  filter: RubricPendingSessionsFilter,
+  tx: DBTransaction
+): Promise<{ items: SessionSelectType[]; totalCount: number }> {
+  const safePage = Number.isSafeInteger(filter.page) && filter.page >= 1 ? filter.page : 1;
+  const safePageSize =
+    Number.isSafeInteger(filter.pageSize) && filter.pageSize >= 1 && filter.pageSize <= RUBRIC_PENDING_MAX_PAGE_SIZE
+      ? filter.pageSize
+      : DEFAULT_PAGE_SIZE;
+  const resolvedOffset = (safePage - 1) * safePageSize;
+  const ownSubmissionJoin = and(eq(evaluations.sessionId, session.id), eq(evaluations.evaluatorId, evaluatorUserId));
+  const pendingPredicate = and(
+    eq(session.teacherId, evaluatorUserId),
+    eq(session.sessionType, SessionType.TeacherEvaluation),
+    // The intent pin mirrors the submission gate's semantics: only
+    // evaluation-intent sessions are scorable, so only those are pending.
+    eq(session.intent, SessionIntent.Evaluation),
+    eq(session.status, SessionStatus.Completed),
+    isNull(evaluations.id)
+  );
+  const [rows, countRows] = await Promise.all([
+    tx
+      .select({ sessionRow: session })
+      .from(session)
+      .leftJoin(evaluations, ownSubmissionJoin)
+      .where(pendingPredicate)
+      .orderBy(desc(session.createdAt), desc(session.id))
+      .limit(safePageSize)
+      .offset(resolvedOffset),
+    tx.select({ value: count() }).from(session).leftJoin(evaluations, ownSubmissionJoin).where(pendingPredicate),
+  ]);
+  return { items: rows.map(row => row.sessionRow), totalCount: countRows[0]?.value ?? 0 };
 }

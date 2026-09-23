@@ -92,6 +92,23 @@ fails, fall back to `mock.module(...)` and restore in `afterAll`). Assert both t
 happened **and which userIds it targeted** — targeting the wrong actor is exactly the bug class
 journeys exist to catch.
 
+**Publish-window discipline (spied receipt assertions).** Post-commit publishes
+(`NotificationEngine.publishReceipts`) are asynchronous *relative to the step that caused them*:
+a spy window opened BEFORE the preceding step's `await` has fully flushed will swallow that
+step's own receipt (e.g. a `session_completion` publish from a completion helper) and inflate
+the count your assertion receives. Open the window AFTER the triggering await resolves, then
+assert the exact window delta (typically `publishesBefore + 1`) and that the one receipt in the
+window targets the intended recipient. Diagnose count mismatches by capturing the actual
+publishes seen in the window (type + userId + entityId) before touching the assertion.
+
+## Runner gotcha: dynamic-import specifiers need `@/` aliases
+
+Dynamic `import()` specifiers inside journeys (e.g. a `SERVICE_PATH`-style constant feeding
+`await import(SERVICE_PATH)`) MUST use the `@/` alias convention used by sibling journeys.
+A relative specifier (`../../backend/...`) never resolves under the test runner — the import
+fails at runtime, not at type-check, so the failure surfaces only when the suite executes.
+Mirror the sibling journeys' specifier form verbatim.
+
 ## File organization
 
 - One journey file per cross-actor workflow, grouped by domain subdirectory:

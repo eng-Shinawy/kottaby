@@ -1,30 +1,33 @@
 import { sql } from "drizzle-orm";
 import { boolean, check, index, integer, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { session } from "@/backend/db/schema/classes/session";
+import { rubricWeaknessArea } from "@/backend/db/schema/enums";
 import { users } from "@/backend/db/schema/users/users";
 
 /**
  * Evaluations table (`evaluations`).
  *
- * Write-once record shared by two flows:
+ * Write-once record shared by two flows — the composite unique index
+ * `evaluations_session_evaluator_unique` (`session_id`, `evaluator_id`) is the
+ * write-once arbiter for BOTH of them:
  *
- * 1. Applicant evaluation — a certified sheikh evaluates a teacher
- *    candidate. These records have `session_id = NULL` (the evaluation is
- *    standalone, not tied to a session).
+ * 1. Rubric evaluation — a certified evaluator scores a teacher applicant on
+ *    the `teacher_evaluation` session they booked and completed. Rubric rows
+ *    are session-linked: `session_id` is NOT NULL for rubric submissions and
+ *    `evaluated_id` is the applicant (resolved server-side from the session).
+ *    `weakness_area` records the applicant's primary weakness when — and only
+ *    when — the score is below the pass threshold; it stays NULL otherwise.
  * 2. Student→teacher session rating — a student rates their teacher after a
  *    fully completed session. `session_id` links the rated session and
  *    `score` stores `rating × 20` (whole stars 1–5 map to 20–100 on the
- *    table's 0–100 scale). `evaluations_session_evaluator_unique` enforces
- *    at most one rating per (session, evaluator) pair — a duplicate insert
- *    is rejected by the database's unique violation rather than a
- *    pre-check. NULL `session_id` values are treated as distinct by
- *    PostgreSQL unique semantics, so applicant evaluations are unaffected.
+ *    table's 0–100 scale). Student ratings never record a `weakness_area`.
  *
  * `evaluated_id` is the person being evaluated (cascade delete — their
  * evaluations disappear with them); `evaluator_id` is the user submitting
  * the evaluation (restrict delete — cannot remove a user who still has
- * evaluations on record). `session_id` is nullable and set to NULL on
- * session deletion (the evaluation survives as a standalone record).
+ * evaluations on record). `session_id` is nullable at the column level and
+ * set to NULL on session deletion (the evaluation survives); NULL values are
+ * treated as distinct by PostgreSQL unique semantics.
  *
  * `score` is an integer in [0, 100] (nullable); 80% is the pass threshold.
  * Soft-delete is via `is_deleted`/`deleted_at` (no hard delete).
@@ -44,6 +47,7 @@ export const evaluations = pgTable(
     sessionId: integer("session_id").references(() => session.id, { onDelete: "set null" }),
     score: integer("score"),
     notes: text("notes"),
+    weaknessArea: rubricWeaknessArea("weakness_area"),
     isDeleted: boolean("is_deleted").default(false),
     deletedAt: timestamp("deleted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),

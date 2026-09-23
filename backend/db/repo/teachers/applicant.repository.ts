@@ -437,6 +437,54 @@ export namespace ApplicantRepository {
   }
 
   /**
+   * Fails an applicant out of evaluation: sets `status` to `failed`, stamps
+   * `cooldown_until` with the caller-computed re-application instant
+   * (stored VERBATIM — this method performs no duration arithmetic), and
+   * stamps `updated_at` in ONE guarded atomic UPDATE with `RETURNING *`.
+   *
+   * The guard is the pre-state folded into the WHERE predicate — the row
+   * only matches while its stored status is still `in_evaluation` (the
+   * guarded-transition shape `transitionToInEvaluation` uses). Under
+   * concurrent finalizations the row lock serializes the statements, so
+   * exactly one writer flips the row; the loser matches zero rows. A
+   * zero-row result is the MISS SIGNAL, never an error: it means the
+   * applicant already reached a terminal state (`passed`/`failed`), never
+   * entered evaluation (`pending`), or is absent entirely — the service
+   * tier disambiguates which. The verdict-relevant instant is the
+   * caller's: deriving the cooldown duration from the failure area is a
+   * service-layer decision and never happens here.
+   *
+   * `tx` is REQUIRED (no standalone branch): the write exists solely
+   * inside the caller's finalization transaction — the verdict commits
+   * with its transaction or not at all.
+   *
+   * Parameterized always; the id, the status member, and the cooldown
+   * instant are bound values, never concatenated; no prepared statement
+   * (writes are excluded — `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns The updated applicant row, or `null` when zero rows matched
+   *          the guarded predicate (a concurrent finalization won).
+   */
+  export async function transitionToFailed(
+    userId: number,
+    cooldownUntil: Date,
+    tx: DBTransaction
+  ): Promise<ApplicantSelectType | null> {
+    // Single guarded statement — the lifecycle pre-state IS the WHERE
+    // predicate, so a stale read can never replay an illegal transition.
+    const [row] = await tx
+      .update(applicants)
+      .set({
+        status: ApplicantStatus.Failed,
+        cooldownUntil,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(applicants.id, userId), eq(applicants.status, ApplicantStatus.InEvaluation)))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
    * Finalizes an applicant row upon certification: sets `status` to 'passed',
    * clears any outstanding cooldown (`cooldown_until` → NULL), and stamps
    * `updated_at` in ONE atomic UPDATE with `RETURNING id`.

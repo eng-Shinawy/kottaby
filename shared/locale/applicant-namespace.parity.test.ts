@@ -29,6 +29,11 @@
  *      expanding its four numeric values in the pinned
  *      (booked, total, completed, remaining) first-occurrence order in
  *      BOTH locales (the zone renders the counts positionally).
+ *   6. EVALUATION-OUTCOME NOTIFICATION PINS — the four outcome-notification
+ *      keys minted for the rubric finalization path resolve in BOTH
+ *      locales; the three flat keys stay interpolation-free and
+ *      `evaluationFailedBody` carries EXACTLY ONE `{cooldownUntil}`
+ *      placeholder (name + single occurrence pinned in both locales).
  *
  * Mirrors the structure of `shared/locale/errors-namespace.parity.test.ts`
  * (the sibling dynamic errors gate, which independently covers the three new
@@ -214,6 +219,56 @@ describe("purchase plan-line placeholder pin — fixed (title, price, currency, 
 });
 
 // ===========================================================================
+describe("evaluation-outcome notification pins — finalization copy in BOTH locales", () => {
+  /** The four notification keys minted for the evaluation-cycle finalization path (PASS and FAIL). */
+  const EVALUATION_OUTCOME_KEYS = [
+    "evaluationPassedTitle",
+    "evaluationPassedBody",
+    "evaluationFailedTitle",
+    "evaluationFailedBody",
+  ] as const;
+
+  /** The three flat outcome keys that must stay interpolation-free. */
+  const EVALUATION_OUTCOME_PLACEHOLDER_FREE_KEYS = [
+    "evaluationPassedTitle",
+    "evaluationPassedBody",
+    "evaluationFailedTitle",
+  ] as const;
+
+  test.each([...EVALUATION_OUTCOME_KEYS])(
+    "evaluation-outcome key `%s` resolves as a non-empty string in BOTH locales",
+    key => {
+      expect(nonEmptyLabelOf(applicantAr, key, "ar").length).toBeGreaterThan(0);
+      expect(nonEmptyLabelOf(applicantEn, key, "en").length).toBeGreaterThan(0);
+    }
+  );
+
+  test.each([...EVALUATION_OUTCOME_PLACEHOLDER_FREE_KEYS])(
+    "evaluation-outcome key `%s` carries ZERO ICU placeholders in BOTH locales",
+    key => {
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(applicantAr, key, "ar"))).toEqual([]);
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(applicantEn, key, "en"))).toEqual([]);
+    }
+  );
+
+  test("evaluationFailedBody carries exactly one placeholder named cooldownUntil in BOTH locales (template order pinned)", () => {
+    // The FAIL notification interpolates ONLY the re-application expiry
+    // moment. The placeholder NAME and its single occurrence are pinned in
+    // both locales so the server-side expansion (typed replacement, the
+    // cooldown-template seam) can never leave residue behind and the
+    // template order cannot drift per locale.
+    for (const [localeName, localeMap] of [
+      ["ar", applicantAr],
+      ["en", applicantEn],
+    ] as const) {
+      const template = nonEmptyLabelOf(localeMap, "evaluationFailedBody", localeName);
+      expect(icuPlaceholderSequenceOf(template)).toEqual([COOLDOWN_PLACEHOLDER]);
+      expect(icuPlaceholderOccurrenceCount(template, COOLDOWN_PLACEHOLDER)).toBe(1);
+    }
+  });
+});
+
+// ===========================================================================
 describe("registry + bundle wiring", () => {
   test("namespaces registry exposes the Applicant handle with the `<ns>.<ns>` id convention", () => {
     expect(Object.hasOwn(namespaces, "Applicant")).toBe(true);
@@ -233,7 +288,7 @@ describe("registry + bundle wiring", () => {
 
 // ===========================================================================
 describe("evaluation-zone pins — booking-zone keys + progress-line order", () => {
-  /** The seven placeholder-free evaluation-zone string keys (zone chrome, dialog chrome, notices). */
+  /** The eight placeholder-free evaluation-zone string keys (zone chrome, dialog chrome, notices, provenance caption). */
   const EVALUATION_ZONE_STRING_KEYS = [
     "bookEvaluationCta",
     "availableEvaluatorsEmpty",
@@ -242,6 +297,7 @@ describe("evaluation-zone pins — booking-zone keys + progress-line order", () 
     "evaluationBookingConfirmCta",
     "evaluationBookingDialogTitle",
     "evaluationZoneTitle",
+    "evaluationCycleStartCaption",
   ] as const;
 
   test.each([...EVALUATION_ZONE_STRING_KEYS])(

@@ -28,6 +28,10 @@
  * rows (`Completed`/`Cancelled`) render NO action affordances, and DISPUTED
  * rows keep the Cancel CTA VISIBLE but disabled (the state machine forbids
  * cancelling a disputed session — the only edge out is admin arbitration).
+ * Completed EVALUATION rows that still owe a rubric submission (the
+ * evaluator's pending-rubric read decides "still owes") additionally offer
+ * the **submit-evaluation** affordance — the rubric dialog mounts keyed by
+ * session id beside the report dialog.
  * The applicant teacher never owns sessions — the server answers an empty
  * page and the localized EMPTY state renders (never an error).
  *
@@ -95,83 +99,106 @@
 
 import { useQuery } from "@apollo/client/react";
 import { Stack, Typography } from "@mui/material";
-import { type ReactNode, useCallback, useState } from "react";
-import { NoticeSnackbar } from "@/frontend/components/ui/NoticeSnackbar";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import type { SessionStatus } from "@/frontend/graphql/generated/gql/graphql";
 import { myTeacherSessionsQueryDocument } from "@/frontend/graphql/sharedDocuments";
 import { SessionStatusFilterChips } from "@/frontend/views/student/sessions/SessionStatusFilterChips";
-import { StudentSessionsDialogs } from "@/frontend/views/student/sessions/StudentSessionsDialogs";
-import { OPEN_SESSION_DISPUTE_MUTATION } from "@/frontend/views/student/sessions/sessionDisputeMutations";
 import type { SessionRowRole } from "@/frontend/views/student/sessions/sessionRowPresentation";
-import { TeacherDisputeCaseDialog } from "@/frontend/views/teacher/disputes/TeacherDisputeCaseDialog";
-import { TeacherSessionReportDialogMount } from "@/frontend/views/teacher/sessions/TeacherSessionReportDialogMount";
+import { parkedRubricDraftSessionIds } from "@/frontend/views/teacher/sessions/rubricDraftStorage.helpers";
+import { TeacherPendingRubricBanner } from "@/frontend/views/teacher/sessions/TeacherPendingRubricBanner";
 import { TeacherSessionsBody } from "@/frontend/views/teacher/sessions/TeacherSessionsBody";
-import { type ContainerNotice, SNACKBAR_AUTOHIDE_MS } from "@/frontend/views/teacher/sessions/teacherSessionSlots";
-import { useTeacherCancelDialogArms } from "@/frontend/views/teacher/sessions/useTeacherCancelDialogArms";
-import { useTeacherDisputeDialogArms } from "@/frontend/views/teacher/sessions/useTeacherDisputeDialogArms";
-import { useTeacherInFlightSlots } from "@/frontend/views/teacher/sessions/useTeacherInFlightSlots";
-import { useTeacherLifecycleMutations } from "@/frontend/views/teacher/sessions/useTeacherLifecycleMutations";
+import { TeacherSessionsOverlays } from "@/frontend/views/teacher/sessions/TeacherSessionsOverlays";
+import type { ContainerNotice } from "@/frontend/views/teacher/sessions/teacherSessionSlots";
+import { useTeacherSessionArms } from "@/frontend/views/teacher/sessions/useTeacherSessionArms";
+import { useTeacherSessionDialogSessions } from "@/frontend/views/teacher/sessions/useTeacherSessionDialogSessions";
 import { Sessions, useAppTranslation } from "@/shared/locale";
+
+/**
+ * The teacher sessions query variables for the active status filter —
+ * extracted so the container stays within the per-function line budget.
+ */
+const teacherSessionsQueryVariables = (statusFilter: SessionStatus | null) => ({
+  filter: statusFilter === null ? null : { status: statusFilter },
+  page: null,
+  pageSize: null,
+});
 
 /**
  * The teacher sessions view: ALWAYS-ON chrome (title + sticky filter chips)
  * over a swapping body — skeleton / permission fallback / error notice /
  * empty (generic or filtered) / rows with lifecycle CTAs — plus the cancel
  * dialog, the dispute case dialog (the session's own teacher's read —
- * rows with dispute history carry the "Case details" affordance) and the
- * snackbar chrome.
+ * rows with dispute history carry the "Case details" affordance), the
+ * rubric-evaluation dialog (completed evaluation rows that still owe a
+ * submission) and the snackbar chrome.
  */
 export function TeacherSessionsContainer(): ReactNode {
   const t = useAppTranslation(Sessions);
   const [statusFilter, setStatusFilter] = useState<SessionStatus | null>(null);
+  /**
+   * The pending-rubric banner's client-side filter ("show only the rows
+   * that still owe a rubric submission"). NOT a query variable — it
+   * filters the settled page rows by the pending id set (one source of
+   * truth with the rows' pill and submit CTA).
+   */
+  const [awaitingOnly, setAwaitingOnly] = useState(false);
   const [rowAlerts, setRowAlerts] = useState<Readonly<Record<string, string>>>({});
   const [notice, setNotice] = useState<ContainerNotice | null>(null);
-  const [caseDialogSessionId, setCaseDialogSessionId] = useState<string | null>(null);
-  const [reportDialogSessionId, setReportDialogSessionId] = useState<string | null>(null);
-  const openCaseDialog = useCallback((sessionId: string) => setCaseDialogSessionId(sessionId), []);
-  const closeCaseDialog = useCallback(() => setCaseDialogSessionId(null), []);
-  const openReportDialog = useCallback((sessionId: string) => setReportDialogSessionId(sessionId), []);
-  const closeReportDialog = useCallback(() => setReportDialogSessionId(null), []);
-  const openHomeworkDialog = useCallback((sessionId: string) => setReportDialogSessionId(sessionId), []);
+  const {
+    caseDialogSessionId,
+    openCaseDialog,
+    closeCaseDialog,
+    reportDialogSessionId,
+    openReportDialog,
+    closeReportDialog,
+    openHomeworkDialog,
+    rubricDialogSessionId,
+    openRubricDialog,
+    closeRubricDialog,
+  } = useTeacherSessionDialogSessions();
   const dismissNotice = useCallback(() => setNotice(null), []);
   const handleFilterChange = useCallback((status: SessionStatus | null) => setStatusFilter(status), []);
 
   const { data, loading, error } = useQuery(myTeacherSessionsQueryDocument, {
-    variables: {
-      filter: statusFilter === null ? null : { status: statusFilter },
-      page: null,
-      pageSize: null,
-    },
+    variables: teacherSessionsQueryVariables(statusFilter),
   });
 
-  const slots = useTeacherInFlightSlots();
+  const { slots, cancelArms, disputeArms, mutations } = useTeacherSessionArms({ setRowAlerts, setNotice });
 
-  const cancelArms = useTeacherCancelDialogArms({ setRowAlerts, setNotice });
+  const pendingRubricCount = mutations.rubric.pendingSessionIds.size;
 
-  const disputeArms = useTeacherDisputeDialogArms({
-    claimDispute: sessionId => slots.claimSlot(sessionId, "dispute"),
-    releaseDispute: sessionId => slots.releaseSlot(sessionId, "dispute"),
-    setRowAlerts,
-    setNotice,
-  });
+  // The parked-draft chips — which PENDING sessions carry a restorable
+  // draft (the storage intersection read, so a row can name its parked
+  // draft without opening the dialog) — DERIVE during render (a membership read over
+  // the parked-draft namespace, keyed by the pending set's identity): the
+  // read is idempotent and only re-runs when the pending set changes —
+  // on refetches, which is exactly when a chip may gain or lose a draft.
+  const parkedDraftSessionIdSet = useMemo(
+    () => new Set(parkedRubricDraftSessionIds(mutations.rubric.pendingSessionIds)),
+    [mutations.rubric.pendingSessionIds]
+  );
 
-  const mutations = useTeacherLifecycleMutations({
-    setRowAlerts,
-    setNotice,
-    claimSlot: slots.claimSlot,
-    clearStart: slots.clearStart,
-    clearComplete: slots.clearComplete,
-  });
+  // The lane reads as active only while the pending set is non-empty —
+  // when the last submission lands and the set drains, the strip renders
+  // inactive (a stale internal flag stays harmless: the next toggle
+  // re-engages from the effective state, so the page never filters away
+  // to a stranded empty view).
+  const awaitingOnlyActive = awaitingOnly && pendingRubricCount > 0;
 
-  // The teacher surface's row-role constant: teacher rows dispute the
-  // pre-completion path only — the shared row's affordance matrix scopes
-  // the post-confirmation dispute CTA off this surface entirely.
+  /** Toggle the pending-only lane; toggle-ON clears a status chip (the pending rows are COMPLETED sessions — a chip would strand the filter on an empty page). */
+  const toggleAwaitingOnly = useCallback((): void => {
+    if (!awaitingOnlyActive) {
+      setStatusFilter(null);
+    }
+    setAwaitingOnly(!awaitingOnlyActive);
+  }, [awaitingOnlyActive]);
+
+  // The teacher surface's row-role constant — the shared row's affordance
+  // matrix scopes the post-confirmation dispute CTA off this surface.
   const rowRole: SessionRowRole = "teacher";
 
   // The body below the chrome resolves through `TeacherSessionsBody`
-  // (matrix branches 1–5) — extracting it keeps this orchestrator to state +
-  // callbacks only while the chrome above renders in EVERY branch (the user
-  // never loses the filter row).
+  // (matrix branches 1–5) — the chrome above renders in EVERY branch.
   return (
     <Stack data-testid="teacher-sessions-view" sx={{ gap: 3 }}>
       <Stack sx={{ gap: 2 }}>
@@ -179,12 +206,20 @@ export function TeacherSessionsContainer(): ReactNode {
           {t.teacherPageTitle}
         </Typography>
         <SessionStatusFilterChips value={statusFilter} onChange={handleFilterChange} />
+        {pendingRubricCount > 0 ? (
+          <TeacherPendingRubricBanner
+            count={pendingRubricCount}
+            active={awaitingOnlyActive}
+            onToggle={toggleAwaitingOnly}
+          />
+        ) : null}
       </Stack>
       <TeacherSessionsBody
         statusFilter={statusFilter}
         loading={loading}
         error={error}
         data={data}
+        awaitingOnly={awaitingOnlyActive}
         rowAlerts={rowAlerts}
         onCancelIntent={cancelArms.openCancelDialog}
         onDisputeIntent={disputeArms.openDisputeDialog}
@@ -194,37 +229,30 @@ export function TeacherSessionsContainer(): ReactNode {
         onComplete={mutations.handleComplete}
         onHomework={openHomeworkDialog}
         onReport={openReportDialog}
+        onSubmitEvaluation={openRubricDialog}
+        pendingRubricSessionIds={mutations.rubric.pendingSessionIds}
+        parkedDrafts={{ ids: parkedDraftSessionIdSet, label: t.rubricDraftParkedChip }}
         role={rowRole}
         onCaseIntent={openCaseDialog}
         t={t}
       />
-      <StudentSessionsDialogs
-        cancelDialogSessionId={cancelArms.cancelDialogSessionId}
-        disputeDialogSessionId={disputeArms.disputeDialogSessionId}
-        onCloseCancelDialog={cancelArms.closeCancelDialog}
-        onCloseDisputeDialog={disputeArms.closeDisputeDialog}
-        onCancelled={cancelArms.handleCancelled}
-        onSessionMissing={cancelArms.handleSessionMissing}
-        onInvalidTransition={cancelArms.handleInvalidTransition}
-        onDuplicateReplay={cancelArms.handleDuplicateReplay}
-        onCancelFailure={cancelArms.handleFailure}
-        disputeMutation={OPEN_SESSION_DISPUTE_MUTATION}
-        onDisputed={disputeArms.handleDisputed}
-        onDisputeSessionMissing={disputeArms.handleDisputeSessionMissing}
-        onDisputeInvalidTransition={disputeArms.handleDisputeInvalidTransition}
-        onDisputeFailure={disputeArms.handleDisputeFailure}
-      />
-      {caseDialogSessionId !== null ? (
-        <TeacherDisputeCaseDialog sessionId={caseDialogSessionId} open onClose={closeCaseDialog} />
-      ) : null}
-      <TeacherSessionReportDialogMount
-        sessionId={reportDialogSessionId}
+      <TeacherSessionsOverlays
+        cancelArms={cancelArms}
+        disputeArms={disputeArms}
+        caseDialogSessionId={caseDialogSessionId}
+        closeCaseDialog={closeCaseDialog}
+        reportDialogSessionId={reportDialogSessionId}
+        closeReportDialog={closeReportDialog}
+        rubricDialogSessionId={rubricDialogSessionId}
+        closeRubricDialog={closeRubricDialog}
         data={data}
-        onClose={closeReportDialog}
         setNotice={setNotice}
         setRowAlerts={setRowAlerts}
+        submitEvaluation={mutations.rubric.submitEvaluation}
+        submitting={mutations.rubric.submitting}
+        notice={notice}
+        dismissNotice={dismissNotice}
       />
-      <NoticeSnackbar notice={notice} autoHideDuration={SNACKBAR_AUTOHIDE_MS} onClose={dismissNotice} />
     </Stack>
   );
 }

@@ -34,4 +34,12 @@ export const applicantEn: ApplicantLabels = {
   evaluationBookingConfirmCta: "Confirm booking",
   evaluationBookingDialogTitle: "Choose an evaluator",
   evaluationZoneTitle: "Your evaluation loop",
+  // Cycle provenance caption under the progress line — the view composes
+  // the deterministic absolute stamp beside this label (no ICU slot; the
+  // date formatting stays client-side like every other stamp).
+  evaluationCycleStartCaption: "Cycle started",
+  evaluationPassedTitle: "You are a certified teacher",
+  evaluationPassedBody: "You passed all 5 evaluation sessions. Your teacher record is active.",
+  evaluationFailedTitle: "Evaluation result",
+  evaluationFailedBody: "You can re-apply after {cooldownUntil}.",
 };

@@ -6,9 +6,10 @@ import { Alert, Button, LinearProgress, Stack, Typography } from "@mui/material"
 import { type ReactNode, useState } from "react";
 import { myApplicantProfileQueryDocument } from "@/frontend/graphql/sharedDocuments/teachers/applicant.documents";
 import { myEvaluationLoopStatusQueryDocument } from "@/frontend/graphql/sharedDocuments/teachers/evaluation-booking.documents";
+import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
 import { EvaluationBookingDialog } from "@/frontend/views/teachers/dashboard/EvaluationBookingDialog";
 import { VERIFICATION_PLAN_SESSION_COUNT } from "@/shared/constants";
-import { Applicant, Errors, useAppTranslation } from "@/shared/locale";
+import { Applicant, Errors, useAppLocale, useAppTranslation } from "@/shared/locale";
 
 /**
  * Zero-shape rendered while the loop status is absent on the wire
@@ -52,6 +53,7 @@ const ZERO_LOOP_STATUS = {
 export function EvaluationLoopZone(): ReactNode {
   const t = useAppTranslation(Applicant);
   const te = useAppTranslation(Errors);
+  const locale = useAppLocale();
   const [bookingOpen, setBookingOpen] = useState(false);
   const {
     data: loopData,
@@ -66,6 +68,11 @@ export function EvaluationLoopZone(): ReactNode {
   const completed = status.completedCount;
   const remaining = status.remainingCredits;
   const total = booked + remaining;
+  // The determinate bar lives in 0..100 — the wire's counts are clamped
+  // server-side (the remaining-credit floor), and this belt keeps a
+  // hypothetically over-ceiling completed count from ever painting an
+  // out-of-range value (MUI dev-warns a console error on one).
+  const progressPercent = total === 0 ? 0 : Math.min(100, Math.max(0, (completed / total) * 100));
 
   // Loading → indeterminate bar; settled error with no data → the status
   // card's inline error lane (never a fabricated zero-shape progress line);
@@ -80,15 +87,49 @@ export function EvaluationLoopZone(): ReactNode {
       </Alert>
     );
   } else {
+    // The cycle-start provenance caption — the wire's cycleStartDate (the
+    // active subscription window's start) rendered once beside the shared
+    // deterministic stamp formatter; absent on the zero-shape (no cycle).
+    const cycleStartIso = status.cycleStartDate;
     loopReadBlock = (
       <>
         <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
           {t.evaluationProgressLine(booked, completed, remaining, total)}
         </Typography>
+        {cycleStartIso === null ? null : (
+          <Typography
+            variant="caption"
+            component="span"
+            data-testid="evaluation-cycle-start"
+            sx={theme => ({
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 0.5,
+              fontVariantNumeric: "tabular-nums",
+              color: theme.palette.text.disabled,
+            })}
+          >
+            {t.evaluationCycleStartCaption}
+            <span aria-hidden>·</span>
+            {formatApplicantDate(cycleStartIso, locale)}
+          </Typography>
+        )}
         <LinearProgress
           variant="determinate"
-          value={total === 0 ? 0 : (completed / total) * 100}
+          value={progressPercent}
           aria-label={t.evaluationZoneTitle}
+          sx={theme => ({
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: theme.palette.action.hover,
+            // The finished leg tints success: an at-or-past-ceiling bar
+            // reads as "cycle consumed", not as a neutral percentage.
+            "& .MuiLinearProgress-bar1": {
+              borderRadius: 4,
+              backgroundColor:
+                completed > 0 && completed >= total ? theme.palette.success.main : theme.palette.primary.main,
+            },
+          })}
         />
       </>
     );

@@ -144,4 +144,11 @@ export const errorsEn: ErrorsLabels = {
   evaluatorAlreadyUsed: "This evaluator was already booked for the current loop. Choose another evaluator.",
   applicantNotInEvaluation: "Your application is not in the evaluation stage.",
   verificationSubscriptionNotActive: "Your verification plan is not active (complete the purchase first).",
+  rubricScoreInvalid: "Score must be a whole number from 0 to 100.",
+  rubricNotesRequired: "Observations are required (up to 2000 characters).",
+  rubricWeaknessRequired: "A weakness area is required for a score below 80.",
+  rubricWeaknessNotAllowed: "A weakness area applies only to scores below 80.",
+  rubricWeaknessInvalid: "The weakness area must be Tajweed or Hifz.",
+  rubricSessionNotCompleted: "This evaluation session is not completed yet.",
+  applicantAlreadyFinalized: "The application was already finalized.",
 };

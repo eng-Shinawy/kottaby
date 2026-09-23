@@ -246,4 +246,42 @@ export const sessionsEn: SessionsLabels = {
         return ref;
     }
   },
+
+  // ─── Rubric Evaluation Submission (evaluator dialog) ────────────────────────
+  submitEvaluationAction: "Submit evaluation",
+  awaitingEvaluation: "Awaiting your evaluation",
+  rubricDialogTitle: "Evaluation rubric",
+  rubricScoreLabel: "Score (0-100)",
+  rubricScoreBandPassing: "Passing — at or above the threshold",
+  rubricScoreBandFailing: "Needs a weakness area",
+  rubricNotesLabel: "Observations",
+  rubricWeaknessLabel: "Primary weakness area",
+  rubricWeaknessTajweed: "Tajweed",
+  rubricWeaknessHifz: "Hifz",
+  rubricWeaknessHelper: "Shown for scores below 80 — the area drives the re-apply cooldown.",
+  rubricSubmitCta: "Submit evaluation",
+  rubricSubmittedSuccess: "Evaluation submitted.",
+  rubricImpactPass: "Filing this rubric advances the applicant one step in the evaluation pipeline.",
+  rubricImpactFail:
+    "Filing below the threshold places the applicant in the weakness-driven waiting period before a re-evaluation.",
+  rubricDraftRestoredNotice: "Unsubmitted draft restored from this device.",
+  rubricDraftDiscardCta: "Discard draft",
+  // Saved-at provenance caption under the restored notice — the relative
+  // "when" itself comes from the platform's Intl.RelativeTimeFormat ladder.
+  rubricDraftSavedAtLabel: "Draft saved",
+  // Parked-draft row chip — the pending row's "a restorable draft is parked
+  // for this session" marker (the list-level membership read decides per
+  // row; the dialog's restore flow owns the actual values).
+  rubricDraftParkedChip: "Unsubmitted draft",
+  // Hygiene diagnostics — the parked-draft prune sweep names how many stale
+  // drafts it cleaned (template-function precedent; the locale owns its
+  // plural rules).
+  rubricDraftsPrunedLine: (count: number) =>
+    count === 1 ? "1 stale draft cleaned up" : `${count} stale drafts cleaned up`,
+
+  // ─── Pending-rubric banner (teacher sessions surface) ───────────────────────
+  pendingRubricCountLine: (count: number) =>
+    count === 1 ? "1 evaluation awaiting your submission" : `${count} evaluations awaiting your submission`,
+  pendingRubricFilterCta: "Show only these",
+  pendingRubricFilterActiveCta: "Showing only these — show all",
 };

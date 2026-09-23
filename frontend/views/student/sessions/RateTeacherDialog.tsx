@@ -159,49 +159,47 @@ export function RateTeacherDialog({
       fullScreen={isCompactViewport}
       slotProps={{
         transition: { timeout: reducedMotion ? 0 : undefined },
-        paper: {
-          component: "form",
-          onSubmit: handleSubmit,
-          // Compact sheet: cluster title + rating + actions as one centered block.
-          sx: isCompactViewport ? { justifyContent: "center" } : undefined,
-        },
+        // Compact sheet: cluster title + rating + actions as one centered block.
+        paper: { sx: isCompactViewport ? { justifyContent: "center" } : undefined },
       }}
       aria-labelledby="rate-teacher-dialog-title"
     >
       <DialogTitle id="rate-teacher-dialog-title" sx={dialogTitleSx(isCompactViewport)}>
         {t.rateTeacherDialogTitle}
       </DialogTitle>
-      <DialogContent sx={{ ...ratingContentSx, ...(isCompactViewport && { flex: "0 0 auto" }) }}>
-        <RateTeacherRatingField
-          value={rating}
-          compact={isCompactViewport}
-          fieldError={ratingFieldError}
-          onChange={value => {
-            setRating(value);
-            setRatingFieldError(null); // live validation relief — a new choice clears a raised flag
-          }}
-        />
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 3, pt: 2, gap: 1.5 }}>
-        <Button
-          onClick={onClose}
-          disabled={loading}
-          variant="outlined"
-          color="inherit"
-          sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}
-        >
-          {t.rateTeacherDialogCancel}
-        </Button>
-        <Button
-          type="submit"
-          variant="contained"
-          disabled={loading || rating === null}
-          aria-busy={loading}
-          sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}
-        >
-          {t.rateTeacherDialogSubmit}
-        </Button>
-      </DialogActions>
+      <form onSubmit={handleSubmit} noValidate style={{ display: "contents" }}>
+        <DialogContent sx={{ ...ratingContentSx, ...(isCompactViewport && { flex: "0 0 auto" }) }}>
+          <RateTeacherRatingField
+            value={rating}
+            compact={isCompactViewport}
+            fieldError={ratingFieldError}
+            onChange={value => {
+              setRating(value);
+              setRatingFieldError(null); // live validation relief — a new choice clears a raised flag
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, gap: 1.5 }}>
+          <Button
+            onClick={onClose}
+            disabled={loading}
+            variant="outlined"
+            color="inherit"
+            sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}
+          >
+            {t.rateTeacherDialogCancel}
+          </Button>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={loading || rating === null}
+            aria-busy={loading}
+            sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}
+          >
+            {t.rateTeacherDialogSubmit}
+          </Button>
+        </DialogActions>
+      </form>
     </Dialog>
   );
 }

@@ -116,9 +116,11 @@ function formatCooldownExpiry(cooldownUntil: Date, locale: string): string {
  * cooldown template. The repo has NO runtime ICU expander yet — consumers
  * interpolate via simple typed replacement; the placeholder NAME is pinned
  * identical across ar/en by the locale parity suites, so a bare `replace`
- * cannot leave residue behind.
+ * cannot leave residue behind. Shared by every cooldown-copy composer in
+ * the domain (the purchase guard below and the evaluation-outcome
+ * notification) so the rendered instant keeps ONE format.
  */
-function expandCooldownTemplate(template: string, cooldownUntil: Date, locale: string): string {
+export function expandCooldownTemplate(template: string, cooldownUntil: Date, locale: string): string {
   return template.replace("{cooldownUntil}", formatCooldownExpiry(cooldownUntil, locale));
 }
 

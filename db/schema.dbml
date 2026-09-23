@@ -38,6 +38,11 @@ Enum session_intent {
   evaluation
 }
 
+Enum rubric_weakness_area {
+  tajweed
+  hifz
+}
+
 Enum payment_status {
   pending
   paid
@@ -352,6 +357,7 @@ Table evaluations {
   session_id    integer
   score         integer   [check: `score >= 0 AND score <= 100`, note: 'B.1: 80% pass threshold']
   notes         text
+  weakness_area rubric_weakness_area
   is_deleted    boolean   [default: false]
   deleted_at    timestamp
   created_at    timestamp [default: `now()`]

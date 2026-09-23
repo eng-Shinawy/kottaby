@@ -2,11 +2,13 @@
  * Teacher Sessions Cache Arms — pure matrix tests for
  * `teacherActionsForSession`.
  *
- * Verifies the lifecycle → affordance matrix per the Task 4 spec:
+ * Verifies the lifecycle → affordance matrix:
  *  - `Scheduled` → `["start"]`
  *  - `Started`    → `["complete", "homework"]` (order stable — Complete
  *    BEFORE Homework, mirroring the lifecycle time-arrow)
- *  - `Completed`  → `["report"]`
+ *  - `Completed`  → `["report"]`, plus `"submitEvaluation"` on evaluation
+ *    rows that still owe a rubric submission (order stable — the report
+ *    descriptor stays first; the pending set decides "still owes")
  *  - `Cancelled`   → `[]`
  *  - `Disputed`    → `[]`
  *
@@ -46,15 +48,27 @@ const START_IN_FLIGHT_FOR_42: InFlightSlots = {
 /** A canonical dispute-resolution value (the null sentinel — no dispute ever filed). */
 const NO_DISPUTE_RESOLUTION: DisputeResolution | null = null;
 
+/** An empty pending-rubric set — no row owes a rubric submission. */
+const EMPTY_PENDING_RUBRIC: ReadonlySet<string> = new Set();
+
+/** A pending-rubric set where session "42" still owes its rubric submission. */
+const PENDING_RUBRIC_FOR_42: ReadonlySet<string> = new Set(["42"]);
+
 /** Builds a minimal session row with the given id + status, satisfying the
  *  full codegen row contract — every required field is present, with the
- *  nullable legs set to `null` and the lifecycle status under test. */
-function sessionOf(id: string, status: SessionStatus): MyTeacherSessionsQuery_myTeacherSessions_items {
+ *  nullable legs set to `null` and the lifecycle status under test. The
+ *  session type defaults to the non-evaluation variant so only the
+ *  rubric-affordance rows opt into the evaluation type. */
+function sessionOf(
+  id: string,
+  status: SessionStatus,
+  sessionType: SessionType = SessionType.ReEvaluation
+): MyTeacherSessionsQuery_myTeacherSessions_items {
   return {
     id,
     status,
     intent: SessionIntent.Hifz,
-    sessionType: SessionType.ReEvaluation,
+    sessionType,
     fee: "0",
     feeHeld: false,
     studentId: "0",
@@ -81,7 +95,10 @@ const noopIntent = (_sessionId: string): void => {
 };
 
 /** The wiring under test with NO mutation in flight + all CTAs wired. */
-function wiringOf(inFlightSlots: InFlightSlots = EMPTY_IN_FLIGHT_SLOTS) {
+function wiringOf(
+  inFlightSlots: InFlightSlots = EMPTY_IN_FLIGHT_SLOTS,
+  pendingRubricSessionIds: ReadonlySet<string> = EMPTY_PENDING_RUBRIC
+) {
   return {
     t: sessionsEn,
     inFlightSlots,
@@ -89,6 +106,8 @@ function wiringOf(inFlightSlots: InFlightSlots = EMPTY_IN_FLIGHT_SLOTS) {
     onComplete: noopIntent,
     onHomework: noopIntent,
     onReport: noopIntent,
+    onSubmitEvaluation: noopIntent,
+    pendingRubricSessionIds,
   };
 }
 
@@ -179,6 +198,74 @@ describe("teacherActionsForSession — in-flight discipline (lifecycle slots)", 
     const reportAction = actions.find(action => action.id === "report");
     expect(reportAction?.disabled).toBeUndefined();
   });
+
+  test("Submit-evaluation CTA never carries a `disabled` flag (the dialog owns loading; the CTA is status-pure)", () => {
+    const actions = teacherActionsForSession(
+      sessionOf("42", SessionStatus.Completed, SessionType.TeacherEvaluation),
+      wiringOf(EMPTY_IN_FLIGHT_SLOTS, PENDING_RUBRIC_FOR_42)
+    );
+    const rubricAction = actions.find(action => action.id === "submitEvaluation");
+    expect(rubricAction?.disabled).toBeUndefined();
+  });
+});
+
+describe("teacherActionsForSession — rubric-evaluation affordance (pending-set + type gate)", () => {
+  test("Completed evaluation row that still owes a submission → ['report', 'submitEvaluation'] in STABLE ORDER (Report first)", () => {
+    const actions = teacherActionsForSession(
+      sessionOf("42", SessionStatus.Completed, SessionType.TeacherEvaluation),
+      wiringOf(EMPTY_IN_FLIGHT_SLOTS, PENDING_RUBRIC_FOR_42)
+    );
+    expect(actions).toHaveLength(2);
+    expect(actions[0]?.id).toBe("report");
+    expect(actions[1]?.id).toBe("submitEvaluation");
+    expect(actions[1]?.label).toBe(sessionsEn.submitEvaluationAction);
+  });
+
+  test("Completed evaluation row whose submission already landed → ['report'] ONLY (the row loses its action)", () => {
+    const actions = teacherActionsForSession(
+      sessionOf("42", SessionStatus.Completed, SessionType.TeacherEvaluation),
+      wiringOf(EMPTY_IN_FLIGHT_SLOTS, EMPTY_PENDING_RUBRIC)
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.id).toBe("report");
+  });
+
+  test("Completed non-evaluation row inside the pending set → ['report'] ONLY (the session-type gate holds)", () => {
+    const actions = teacherActionsForSession(
+      sessionOf("42", SessionStatus.Completed, SessionType.StudentSession),
+      wiringOf(EMPTY_IN_FLIGHT_SLOTS, PENDING_RUBRIC_FOR_42)
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.id).toBe("report");
+  });
+
+  test("Pending membership never leaks the rubric CTA onto non-Completed rows", () => {
+    for (const status of [
+      SessionStatus.Scheduled,
+      SessionStatus.Started,
+      SessionStatus.Cancelled,
+      SessionStatus.Disputed,
+    ]) {
+      const actions = teacherActionsForSession(
+        sessionOf("42", status, SessionType.TeacherEvaluation),
+        wiringOf(EMPTY_IN_FLIGHT_SLOTS, PENDING_RUBRIC_FOR_42)
+      );
+      expect(actions.find(action => action.id === "submitEvaluation")).toBeUndefined();
+    }
+  });
+
+  test("Sibling completed evaluation rows stay gated independently (no cross-row contamination)", () => {
+    const submittedSibling = teacherActionsForSession(
+      sessionOf("OTHER", SessionStatus.Completed, SessionType.TeacherEvaluation),
+      wiringOf(EMPTY_IN_FLIGHT_SLOTS, PENDING_RUBRIC_FOR_42)
+    );
+    expect(submittedSibling.find(action => action.id === "submitEvaluation")).toBeUndefined();
+    const pendingSibling = teacherActionsForSession(
+      sessionOf("42", SessionStatus.Completed, SessionType.TeacherEvaluation),
+      wiringOf(EMPTY_IN_FLIGHT_SLOTS, PENDING_RUBRIC_FOR_42)
+    );
+    expect(pendingSibling.find(action => action.id === "submitEvaluation")).toBeDefined();
+  });
 });
 
 describe("teacherActionsForSession — label identity (compile-time i18n keys, no hardcoded strings)", () => {
@@ -193,24 +280,31 @@ describe("teacherActionsForSession — label identity (compile-time i18n keys, n
         action => action.id === "complete"
       )?.label
     ).toBe(sessionsEn.completeSession);
-    // The Homework CTA's label is the type-pinned `viewHomeworkAction` key (Task 3's pinned name).
+    // The Homework CTA's label is the type-pinned `viewHomeworkAction` key (the pinned affordance name).
     expect(
       teacherActionsForSession(sessionOf("1", SessionStatus.Started), wiringOf()).find(
         action => action.id === "homework"
       )?.label
     ).toBe(sessionsEn.viewHomeworkAction);
-    // The Report CTA's label is the type-pinned `sessionReportAction` key (Task 3's pinned name).
+    // The Report CTA's label is the type-pinned `sessionReportAction` key.
     expect(teacherActionsForSession(sessionOf("1", SessionStatus.Completed), wiringOf())[0]?.label).toBe(
       sessionsEn.sessionReportAction
     );
+    // The Submit-evaluation CTA's label is the type-pinned `submitEvaluationAction` key.
+    expect(
+      teacherActionsForSession(
+        sessionOf("42", SessionStatus.Completed, SessionType.TeacherEvaluation),
+        wiringOf(EMPTY_IN_FLIGHT_SLOTS, PENDING_RUBRIC_FOR_42)
+      ).find(action => action.id === "submitEvaluation")?.label
+    ).toBe(sessionsEn.submitEvaluationAction);
   });
 });
 
 describe("teacherActionsForSession — action id union stays closed", () => {
   // Pin the closed union — every action id the matrix emits MUST be one of
-  // the six canonical ids. A future drift where someone widens the union
+  // the canonical ids. A future drift where someone widens the union
   // to `string` would surface here.
-  test("every emitted action id is one of {start, complete, homework, report}", () => {
+  test("every emitted action id is one of {start, complete, homework, report, submitEvaluation}", () => {
     const allStatuses = [
       SessionStatus.Scheduled,
       SessionStatus.Started,
@@ -220,13 +314,18 @@ describe("teacherActionsForSession — action id union stays closed", () => {
     ];
     const seenIds = new Set<string>();
     for (const status of allStatuses) {
-      for (const action of teacherActionsForSession(sessionOf("1", status), wiringOf())) {
-        seenIds.add(action.id);
+      for (const sessionType of [SessionType.TeacherEvaluation, SessionType.StudentSession]) {
+        for (const action of teacherActionsForSession(
+          sessionOf("1", status, sessionType),
+          wiringOf(EMPTY_IN_FLIGHT_SLOTS, new Set(["1"]))
+        )) {
+          seenIds.add(action.id);
+        }
       }
     }
-    // The matrix covers exactly the lifecycle + the two new CTAs; the
-    // student-surface-only `confirm` and `rate` ids never appear on the
-    // teacher surface.
-    expect(seenIds).toEqual(new Set(["start", "complete", "homework", "report"]));
+    // The matrix covers exactly the lifecycle + the three dialog-opening
+    // CTAs; the student-surface-only `confirm` and `rate` ids never appear
+    // on the teacher surface.
+    expect(seenIds).toEqual(new Set(["start", "complete", "homework", "report", "submitEvaluation"]));
   });
 });

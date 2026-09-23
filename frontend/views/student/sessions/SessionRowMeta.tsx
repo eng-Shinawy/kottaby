@@ -1,11 +1,15 @@
 "use client";
 
-import { HourglassTopOutlined as PendingConfirmIcon } from "@mui/icons-material";
-import { Chip, Stack } from "@mui/material";
+import { Stack } from "@mui/material";
 import type { ReactNode } from "react";
 import { SessionMetaCell } from "@/frontend/components/ui/sessionList";
 import type { MyStudentSessionsQuery_myStudentSessions_items } from "@/frontend/graphql/generated/gql/graphql";
 import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
+import {
+  AwaitingConfirmationPill,
+  AwaitingEvaluationPill,
+  ParkedDraftChip,
+} from "@/frontend/views/student/sessions/SessionRowMetaPills";
 import {
   CONFIRM_PENDING_STATUSES,
   NO_VALUE_PLACEHOLDER,
@@ -25,7 +29,26 @@ import type { AppLocale } from "@/shared/locale/AppLocale";
 export function SessionRowMeta({
   session,
   locale,
-}: Readonly<{ session: MyStudentSessionsQuery_myStudentSessions_items; locale: AppLocale }>): ReactNode {
+  awaitingEvaluationLabel,
+  parkedDraftLabel,
+}: Readonly<{
+  session: MyStudentSessionsQuery_myStudentSessions_items;
+  locale: AppLocale;
+  /**
+   * Localized label for the evaluator's "still owes a rubric" pill, or
+   * absent/null on surfaces without the pending-rubric overlay (the
+   * student surface omits it entirely; the teacher surface passes the
+   * label and lets the pending-id set decide per row).
+   */
+  readonly awaitingEvaluationLabel?: string | null;
+  /**
+   * Localized label for the evaluator's "unsubmitted draft parked" chip,
+   * or absent/null on surfaces without the parked-draft overlay (the
+   * student surface omits it entirely; the teacher surface passes the
+   * label and lets the storage membership read decide per row).
+   */
+  readonly parkedDraftLabel?: string | null;
+}>): ReactNode {
   const t = useAppTranslation(Sessions);
 
   const feeText = session.fee === null ? NO_VALUE_PLACEHOLDER : `${session.fee} ${SESSION_FEE_CURRENCY}`;
@@ -84,33 +107,12 @@ export function SessionRowMeta({
       {isConfirmPending ? (
         <AwaitingConfirmationPill sessionId={session.id} label={t.awaitingStudentConfirmation} />
       ) : null}
+      {awaitingEvaluationLabel !== undefined && awaitingEvaluationLabel !== null ? (
+        <AwaitingEvaluationPill sessionId={session.id} label={awaitingEvaluationLabel} />
+      ) : null}
+      {parkedDraftLabel !== undefined && parkedDraftLabel !== null ? (
+        <ParkedDraftChip sessionId={session.id} label={parkedDraftLabel} />
+      ) : null}
     </Stack>
-  );
-}
-
-/**
- * Confirm-pending hint — a completed session whose hold is still marked
- * and whose student stamp is unset. On the teacher surface it explains WHY
- * the wallet credit has not fired; on the student surface it names what the
- * Confirm CTA settles. Info-toned pill through theme tokens (no raw hex).
- */
-function AwaitingConfirmationPill({ sessionId, label }: Readonly<{ sessionId: string; label: string }>): ReactNode {
-  return (
-    <Chip
-      icon={<PendingConfirmIcon fontSize="small" />}
-      label={label}
-      size="small"
-      variant="outlined"
-      data-testid={`session-awaiting-confirmation-${sessionId}`}
-      sx={theme => ({
-        alignSelf: "center",
-        borderColor: theme.palette.infoContainer,
-        bgcolor: theme.palette.surfaceContainerLowest,
-        color: theme.palette.onInfoContainer,
-        "& .MuiChip-icon": {
-          color: theme.palette.onInfoContainer,
-        },
-      })}
-    />
   );
 }

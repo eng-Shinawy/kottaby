@@ -83,7 +83,7 @@ export function ExtendSubscriptionDialog({
         <SubscriptionDialogActions
           onClose={onClose}
           loading={loading}
-          dismissLabel={tc.cancel}
+          dismissLabel={tc.close}
           submitLabel={t.actions.extend}
           submitTestId={`extend-subscription-submit-${subscription.id}`}
           submitDisabled={daysInvalid && parseExtendDays(days) === null}

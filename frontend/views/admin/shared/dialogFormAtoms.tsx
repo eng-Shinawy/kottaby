@@ -60,19 +60,18 @@ export function AdminFormDialog({
   };
 
   return (
-    <Dialog
-      open={open}
-      onClose={handleDialogClose}
-      fullWidth
-      maxWidth={maxWidth}
-      slotProps={{ paper: { component: "form", onSubmit } }}
-      aria-labelledby={titleId}
-    >
+    <Dialog open={open} onClose={handleDialogClose} fullWidth maxWidth={maxWidth} aria-labelledby={titleId}>
       <DialogTitle id={titleId} sx={theme => ({ color: theme.palette.onSurface })}>
         {title}
       </DialogTitle>
-      <DialogContent sx={{ display: "grid", gap: 2 }}>{children}</DialogContent>
-      {actions}
+      {/* Explicit paper form (the CreateUserDialog pattern) — MUI's paper
+          slot types only its default div element, so `component: "form"` +
+          `noValidate` there cannot typecheck; `display: contents` keeps the
+          paper's flex layout intact while the form owns the submit event. */}
+      <form onSubmit={onSubmit} noValidate style={{ display: "contents" }}>
+        <DialogContent sx={{ display: "grid", gap: 2 }}>{children}</DialogContent>
+        {actions}
+      </form>
     </Dialog>
   );
 }
@@ -131,6 +130,9 @@ export function AdminDialogActionsPair({
           minHeight: { xs: 44, sm: 40 },
           px: 3,
           whiteSpace: "nowrap",
+          // Semi-bold submit copy — the ONE contained action of the pair must
+          // outweigh the outlined dismiss at a glance (affordance hierarchy).
+          fontWeight: 600,
           // A disabled destructive submit keeps its error identity (dimmed
           // error-container pair instead of the neutral disabled wash) —
           // the destructive intent must read before the form is valid.

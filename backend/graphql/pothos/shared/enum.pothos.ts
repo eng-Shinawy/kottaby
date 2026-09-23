@@ -29,6 +29,7 @@
  *  - `AppLocale` (the per-user UI/copy preference — "ar" | "en")
  *  - `LinkStatus` (pending|confirmed|rejected|expired — parent-child link request lifecycle)
  *  - `SurahJuzRef` (5 surahs + 30 juz — home_work assignment/ref vocabulary)
+ *  - `RubricWeaknessArea` (tajweed|hifz — rubric evaluation weakness vocabulary)
  *
  * After registering a new enum here, run `bun run generate:gqlSchema` and
  * `bun codegen` to refresh the SDL + frontend codegen.
@@ -53,6 +54,7 @@ import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { LinkStatus } from "@/backend/enum/shared/link-status.enum";
 import { SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
+import { RubricWeaknessArea } from "@/backend/enum/teachers/rubric-weakness-area.enum";
 import { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
 import { AppLocale } from "@/backend/enum/users/app-locale.enum";
 import { Gender } from "@/backend/enum/users/gender.enum";
@@ -113,6 +115,24 @@ export const RecitationReadingPothosEnum = gqlSchemaBuilder.enumType(RecitationR
  */
 export const ApplicantStatusPothosEnum = gqlSchemaBuilder.enumType(ApplicantStatus, {
   name: "ApplicantStatus",
+});
+
+/**
+ * GraphQL `RubricWeaknessArea` enum (wire names `Tajweed`/`Hifz` over the
+ * runtime strings "tajweed"/"hifz") — the primary-weakness vocabulary
+ * recorded on a rubric evaluation (`evaluations.weakness_area`).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/teachers/rubric-weakness-area.enum.ts`), which mirrors the
+ * `rubric_weakness_area` pgEnum. Per the Pothos enum-object convention
+ * (identical to `NotificationType`/`LinkStatus`), the enum KEYS are the
+ * GraphQL value names on the wire while the lowercase string values remain
+ * the runtime and database representation. A submission carries a weakness
+ * area when — and only when — its score is below the pass threshold (the
+ * iff-rule is the service's authority; the wire type guards the vocabulary).
+ */
+export const RubricWeaknessAreaPothosEnum = gqlSchemaBuilder.enumType(RubricWeaknessArea, {
+  name: "RubricWeaknessArea",
 });
 
 /**

@@ -98,41 +98,36 @@ export function TeacherSessionReportDialog({
     );
   }
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      fullWidth
-      maxWidth="sm"
-      slotProps={{ paper: { component: "form", onSubmit: handleSubmit } }}
-      aria-labelledby="teacher-session-report-dialog-title"
-    >
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="teacher-session-report-dialog-title">
       <DialogTitle id="teacher-session-report-dialog-title">{dialogTitle}</DialogTitle>
-      <DialogContent sx={{ display: "grid", gap: 3 }}>
-        {mode === "review" && reportQuery.data?.sessionReport ? (
-          <ReviewState report={reportQuery.data.sessionReport} t={t} />
-        ) : null}
-        {mode === "review" || mode === "prepare" ? (
-          // The session's homework row was fetched by the queries hook but
-          // never rendered — review mode shows the recorded Jadid/Madi, prepare
-          // mode the current assignment to build the report on.
-          <TeacherSessionReportHomeworkReview homework={homeworkQuery.data?.sessionHomework ?? null} t={t} />
-        ) : null}
-        {/* Prepare mode is the read-only review above — the editable
+      <form onSubmit={handleSubmit} noValidate style={{ display: "contents" }}>
+        <DialogContent sx={{ display: "grid", gap: 3 }}>
+          {mode === "review" && reportQuery.data?.sessionReport ? (
+            <ReviewState report={reportQuery.data.sessionReport} t={t} />
+          ) : null}
+          {mode === "review" || mode === "prepare" ? (
+            // The session's homework row was fetched by the queries hook but
+            // never rendered — review mode shows the recorded Jadid/Madi, prepare
+            // mode the current assignment to build the report on.
+            <TeacherSessionReportHomeworkReview homework={homeworkQuery.data?.sessionHomework ?? null} t={t} />
+          ) : null}
+          {/* Prepare mode is the read-only review above — the editable
             sub-forms have no submit path for a started session (the
             mutation denies it server-side), so they are submit-only. */}
-        {mode === "submit" ? (
-          <SubmitForm
-            mode={mode}
-            form={form}
-            setForm={setForm}
-            t={t}
-            newestRow={newestRow}
-            isNewestUngraded={isNewestUngraded}
-            submitLoading={mutationResult.loading}
-            onClose={onClose}
-          />
-        ) : null}
-      </DialogContent>
+          {mode === "submit" ? (
+            <SubmitForm
+              mode={mode}
+              form={form}
+              setForm={setForm}
+              t={t}
+              newestRow={newestRow}
+              isNewestUngraded={isNewestUngraded}
+              submitLoading={mutationResult.loading}
+              onClose={onClose}
+            />
+          ) : null}
+        </DialogContent>
+      </form>
     </Dialog>
   );
 }

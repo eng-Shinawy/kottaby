@@ -1,7 +1,7 @@
 import { pgEnum } from "drizzle-orm/pg-core";
 
 /**
- * pgEnum registry — single source of truth for all 20 PostgreSQL enums.
+ * pgEnum registry — single source of truth for all 21 PostgreSQL enums.
  * Values + order are canonical and mirrored in the matching
  * TypeScript enums under `backend/enum/`.
  */
@@ -40,6 +40,17 @@ export const disputeResolution = pgEnum("dispute_resolution", [
 export const sessionType = pgEnum("session_type", ["student_session", "teacher_evaluation", "re_evaluation"]);
 
 export const sessionIntent = pgEnum("session_intent", ["hifz", "tajweed", "evaluation"]);
+
+/**
+ * Primary weakness area recorded on a rubric evaluation
+ * (`evaluations.weakness_area`). Unlike `session_intent` — which classifies a
+ * session's purpose — this is a failure-area vocabulary: it names the Quranic
+ * discipline the evaluated applicant was weakest in, and drives the
+ * re-application cooldown length on a failed verification cycle. Nullable at
+ * the column level: only rubric submissions record one; student ratings
+ * (which share the table) leave it NULL.
+ */
+export const rubricWeaknessArea = pgEnum("rubric_weakness_area", ["tajweed", "hifz"]);
 
 export const paymentStatus = pgEnum("payment_status", ["pending", "paid", "failed", "refunded"]);
 

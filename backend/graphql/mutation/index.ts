@@ -28,13 +28,17 @@
  * `evaluation-booking.mutation.ts` wires the teacher-applicant evaluation
  * booking mutation (`bookEvaluationSession` — one sealed input field, the
  * evaluator id; identity from the session, every stored column derived
- * server-side).
+ * server-side); `evaluation-rubric.mutation.ts` wires the certified
+ * evaluator's rubric submission mutation (`submitRubricEvaluation` — the
+ * rubric fields only; identity from the session, the evaluated subject and
+ * the verdict derived server-side, no idempotency key).
  */
 import "./auth.mutation";
 import "./admin";
 import "./billing";
 import "./classes";
 import "./evaluation-booking.mutation";
+import "./evaluation-rubric.mutation";
 import "./notifications";
 import "./parents";
 import "./plan-catalog.mutation";

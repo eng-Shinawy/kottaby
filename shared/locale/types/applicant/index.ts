@@ -97,4 +97,24 @@ export interface ApplicantLabels {
   readonly evaluationBookingDialogTitle: string;
   /** Evaluation-zone heading on the teacher dashboard. */
   readonly evaluationZoneTitle: string;
+  /**
+   * Cycle provenance caption prefix — the view composes the deterministic
+   * absolute stamp of the cycle's start instant beside this label (no ICU
+   * slot; date formatting stays client-side like every other stamp).
+   */
+  readonly evaluationCycleStartCaption: string;
+  /** Notification title emitted to the applicant when the evaluation cycle finalizes as PASS (all five sessions passed). */
+  readonly evaluationPassedTitle: string;
+  /** Notification body emitted alongside `evaluationPassedTitle` — pure copy, no identifiers. */
+  readonly evaluationPassedBody: string;
+  /** Notification title emitted to the applicant when the evaluation cycle finalizes as FAIL (cooldown stamped). */
+  readonly evaluationFailedTitle: string;
+  /**
+   * Notification body emitted alongside `evaluationFailedTitle`.
+   * Interpolates ONLY the re-application expiry moment via the single ICU
+   * placeholder `{cooldownUntil}` — expanded server-side into a
+   * locale-formatted stamp; the placeholder NAME is pinned identical across
+   * both locales by the parity test.
+   */
+  readonly evaluationFailedBody: string;
 }

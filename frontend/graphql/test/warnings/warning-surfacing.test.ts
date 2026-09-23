@@ -400,6 +400,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "setPlanActiveStatus",
   "setSessionRecitation",
   "startSession",
+  "submitRubricEvaluation",
   "submitSessionReport",
   "submitTeacherEvaluation",
   "updateLesson",

@@ -1,7 +1,8 @@
 /**
  * SessionRepository evaluation-booking cycle reads — `resolveCurrentEvaluationCycle`,
- * `countEvaluationBookingsInCycle`, `listEvaluationSessionsForApplicant` — against
- * the live PostgreSQL test instance.
+ * `countEvaluationBookingsInCycle`, `listEvaluationSessionsForApplicant`, and
+ * `listCompletedRubricPendingSessions` — against the live PostgreSQL test
+ * instance.
  *
  * Per `backend/db/test/AGENTS.md`:
  *  - Rollback-isolated tests run inside `runInRollback`; `tx` is passed to
@@ -33,6 +34,15 @@
  *    against the students leg; the helpers' source has no SQL line-comment
  *    sequences, no prepared statements, enum members only, and no
  *    plan-artifact references in comments.
+ *  - listCompletedRubricPendingSessions tier (runInRollback): the pending
+ *    page lists ONLY the evaluator's own completed evaluation sessions with
+ *    no own submission — an own submitted row drops out while another
+ *    evaluator's submission on the same session changes nothing (the
+ *    per-evaluator anti-join); scheduled, untyped-intent, mistyped-intent,
+ *    and non-owned rows never join (the intent pin mirrors the submission
+ *    gate); the page window normalizes sane-fallback (page 0 → first page,
+ *    oversized size → default 25) with an honest total, and an out-of-range
+ *    page is empty with the unchanged total.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -43,6 +53,7 @@ import { SessionRepository } from "@/backend/db/repo";
 import { session } from "@/backend/db/schema/classes/session";
 import {
   createTestApplicant,
+  createTestEvaluation,
   createTestPlan,
   createTestSession,
   createTestStudent,
@@ -52,6 +63,7 @@ import {
 } from "@/backend/db/test/entity-setup";
 import { runInRollback } from "@/backend/db/test/test-utils";
 import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
+import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
@@ -375,6 +387,189 @@ describe("SessionRepository.listEvaluationSessionsForApplicant", () => {
   });
 });
 
+/**
+ * Rubric pending-list fixtures: an evaluator, a second evaluator (for the
+ * cross-evaluator anti-join probes), and an applicant (bare user — the
+ * evaluation loop's student leg needs no `students` child row).
+ */
+async function createRubricPendingCast(tx: DBTransaction) {
+  const evaluator = await createTestUser(tx, { role: "teacher" });
+  await createTestTeacherRow(tx, evaluator.id);
+  const secondEvaluator = await createTestUser(tx, { role: "teacher" });
+  await createTestTeacherRow(tx, secondEvaluator.id);
+  const applicant = await createTestUser(tx, { role: "teacher" });
+  return { evaluator: evaluator.id, secondEvaluator: secondEvaluator.id, applicant: applicant.id };
+}
+
+/**
+ * Books one completed evaluation session for the applicant; when
+ * `submittedBy` is set, that evaluator's scored rubric row lands on it.
+ * The booking carries the evaluation intent — the pending page's predicate
+ * pins the same member the submission gate enforces.
+ */
+async function bookCompletedEvaluationSession(
+  tx: DBTransaction,
+  cast: Awaited<ReturnType<typeof createRubricPendingCast>>,
+  evaluatorId: number,
+  submittedBy: number | null,
+  createdAt = new Date()
+) {
+  const booked = await createTestSession(tx, evaluatorId, cast.applicant, {
+    sessionType: SessionType.TeacherEvaluation,
+    intent: SessionIntent.Evaluation,
+    status: SessionStatus.Completed,
+    startedAt: createdAt,
+    endedAt: createdAt,
+    createdAt,
+  });
+  if (submittedBy !== null) {
+    await createTestEvaluation(tx, cast.applicant, submittedBy, booked.id, { score: 80 });
+  }
+  return booked;
+}
+
+describe("SessionRepository.listCompletedRubricPendingSessions", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("pages only the evaluator's own completed evaluation sessions with no own submission", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricPendingCast(tx);
+      const now = Date.now();
+      const pendingNewer = await bookCompletedEvaluationSession(tx, cast, cast.evaluator, null, new Date(now + 2_000));
+      const foreignScored = await bookCompletedEvaluationSession(
+        tx,
+        cast,
+        cast.evaluator,
+        cast.secondEvaluator,
+        new Date(now + 1_000)
+      );
+      const pendingOlder = await bookCompletedEvaluationSession(tx, cast, cast.evaluator, null, new Date(now));
+      // An own submitted row drops out of the evaluator's pending page.
+      await bookCompletedEvaluationSession(tx, cast, cast.evaluator, cast.evaluator, new Date(now - 1_000));
+      // A scheduled (non-completed) evaluation session never joins.
+      await createTestSession(tx, cast.evaluator, cast.applicant, {
+        sessionType: SessionType.TeacherEvaluation,
+        createdAt: new Date(now - 2_000),
+      });
+      // A completed evaluation session without the evaluation intent never
+      // joins either — an untyped (null) row and a mistyped (hifz) row both
+      // drop out of the pending page, mirroring the submission gate's
+      // evaluation-intent leg (the read gate and the write gate agree).
+      await createTestSession(tx, cast.evaluator, cast.applicant, {
+        sessionType: SessionType.TeacherEvaluation,
+        intent: null,
+        status: SessionStatus.Completed,
+        startedAt: new Date(now - 4_000),
+        endedAt: new Date(now - 4_000),
+        createdAt: new Date(now - 4_000),
+      });
+      await createTestSession(tx, cast.evaluator, cast.applicant, {
+        sessionType: SessionType.TeacherEvaluation,
+        intent: SessionIntent.Hifz,
+        status: SessionStatus.Completed,
+        startedAt: new Date(now - 5_000),
+        endedAt: new Date(now - 5_000),
+        createdAt: new Date(now - 5_000),
+      });
+      // Another evaluator's completed session (owner equality) never joins.
+      await bookCompletedEvaluationSession(tx, cast, cast.secondEvaluator, null, new Date(now - 3_000));
+
+      const page = await SessionRepository.listCompletedRubricPendingSessions(
+        cast.evaluator,
+        { page: 1, pageSize: 25 },
+        tx
+      );
+
+      // The other evaluator's submission on foreignScored changes nothing —
+      // the anti-join binds BOTH the session link and the evaluator id.
+      expect(page.totalCount).toBe(3);
+      expect(page.items.map(row => row.id)).toEqual([pendingNewer.id, foreignScored.id, pendingOlder.id]);
+      expect(page.items.every(row => row.sessionType === (SessionType.TeacherEvaluation as string))).toBe(true);
+    });
+  });
+
+  test("resolves empty for an evaluator with no completed evaluation sessions", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricPendingCast(tx);
+
+      const page = await SessionRepository.listCompletedRubricPendingSessions(
+        cast.evaluator,
+        { page: 1, pageSize: 25 },
+        tx
+      );
+
+      expect(page.items).toEqual([]);
+      expect(page.totalCount).toBe(0);
+    });
+  });
+
+  // ─── Tier 2: page-window edges ─────────────────────────────────────
+
+  test("the page window normalizes: page 0 falls back to the first page, an oversized size to the default", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricPendingCast(tx);
+      // Thirty pending sessions — enough rows to distinguish the default
+      // fallback (25) from a pass-through of the oversized requested size.
+      const base = Date.now();
+      await tx.insert(session).values(
+        Array.from({ length: 30 }, (_, index) => ({
+          teacherId: cast.evaluator,
+          studentId: cast.applicant,
+          status: SessionStatus.Completed,
+          sessionType: SessionType.TeacherEvaluation,
+          intent: SessionIntent.Evaluation,
+          startedAt: new Date(base),
+          endedAt: new Date(base),
+          createdAt: new Date(base + index * 1_000),
+        }))
+      );
+
+      const oversized = await SessionRepository.listCompletedRubricPendingSessions(
+        cast.evaluator,
+        { page: 1, pageSize: 150 },
+        tx
+      );
+      expect(oversized.items).toHaveLength(25);
+      expect(oversized.totalCount).toBe(30);
+
+      const firstPage = await SessionRepository.listCompletedRubricPendingSessions(
+        cast.evaluator,
+        { page: 0, pageSize: 25 },
+        tx
+      );
+      expect(firstPage.items).toHaveLength(25);
+      expect(firstPage.totalCount).toBe(30);
+
+      const secondPage = await SessionRepository.listCompletedRubricPendingSessions(
+        cast.evaluator,
+        { page: 2, pageSize: 25 },
+        tx
+      );
+      expect(secondPage.items).toHaveLength(5);
+      expect(secondPage.totalCount).toBe(30);
+      // Pages never overlap: the second page holds the five OLDEST rows.
+      const firstPageIds = new Set(firstPage.items.map(row => row.id));
+      expect(secondPage.items.every(row => !firstPageIds.has(row.id))).toBe(true);
+    });
+  });
+
+  test("an out-of-range page yields an empty items array with the unchanged total", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRubricPendingCast(tx);
+      await bookCompletedEvaluationSession(tx, cast, cast.evaluator, null);
+
+      const page = await SessionRepository.listCompletedRubricPendingSessions(
+        cast.evaluator,
+        { page: 2, pageSize: 25 },
+        tx
+      );
+
+      expect(page.items).toEqual([]);
+      expect(page.totalCount).toBe(1);
+    });
+  });
+});
+
 describe("SessionRepository evaluation-booking FK retarget", () => {
   // ─── Tier 4: schema contract ────────────────────────────────────────
 
@@ -423,6 +618,17 @@ describe("SessionRepository evaluation-booking FK retarget", () => {
     expect(helpersSource.includes("--")).toBe(false);
     expect(helpersSource.includes(".prepare(")).toBe(false);
     expect(helpersSource.includes("sql.placeholder")).toBe(false);
+  });
+
+  test("source: the pending-rubric anti-join is a required-tx read over the canonical vocabularies", () => {
+    expect(helpersSource).toContain("export async function listCompletedRubricPendingSessions(");
+    // The anti-join keeps only rows whose own-submission side is NULL, the
+    // intent pin mirrors the submission gate's evaluation-intent leg, and
+    // the page window normalizes sane-fallback before any database work.
+    expect(helpersSource).toContain("isNull(evaluations.id)");
+    expect(helpersSource).toContain("SessionIntent.Evaluation");
+    expect(helpersSource).toContain("RUBRIC_PENDING_MAX_PAGE_SIZE");
+    expect(helpersSource).toContain("tx: DBTransaction");
   });
 
   test("source: lifecycle and type vocabularies ride the canonical enum members (no string literals)", () => {

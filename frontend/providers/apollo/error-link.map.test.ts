@@ -252,6 +252,117 @@ describe("mapGraphQLErrorByCode — pure branch table", () => {
     expect(action.duplicateSuccessEquivalent).toBeUndefined();
   });
 
+  test("row RUBRIC_SCORE_INVALID → localized toast with its own denial copy", () => {
+    const action = mapped("RUBRIC_SCORE_INVALID", mutationContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.rubricScoreInvalid);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    // Rubric rows are custom codes, never VALIDATION — no field pairs ride along.
+    expect(action.fieldErrors).toBeUndefined();
+    expect(arLabels.rubricScoreInvalid.length).toBeGreaterThan(0);
+  });
+
+  test("row RUBRIC_NOTES_REQUIRED → localized toast with its own denial copy", () => {
+    const action = mapped("RUBRIC_NOTES_REQUIRED", mutationContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.rubricNotesRequired);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.fieldErrors).toBeUndefined();
+    expect(arLabels.rubricNotesRequired.length).toBeGreaterThan(0);
+  });
+
+  test("row RUBRIC_WEAKNESS_REQUIRED → localized toast with its own denial copy", () => {
+    const action = mapped("RUBRIC_WEAKNESS_REQUIRED", mutationContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.rubricWeaknessRequired);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.fieldErrors).toBeUndefined();
+    expect(arLabels.rubricWeaknessRequired.length).toBeGreaterThan(0);
+  });
+
+  test("row RUBRIC_WEAKNESS_NOT_ALLOWED → localized toast with its own denial copy", () => {
+    const action = mapped("RUBRIC_WEAKNESS_NOT_ALLOWED", mutationContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.rubricWeaknessNotAllowed);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.fieldErrors).toBeUndefined();
+    expect(arLabels.rubricWeaknessNotAllowed.length).toBeGreaterThan(0);
+  });
+
+  test("row RUBRIC_WEAKNESS_INVALID → localized toast with its own denial copy", () => {
+    const action = mapped("RUBRIC_WEAKNESS_INVALID", mutationContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.rubricWeaknessInvalid);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.fieldErrors).toBeUndefined();
+    expect(arLabels.rubricWeaknessInvalid.length).toBeGreaterThan(0);
+  });
+
+  test("row RUBRIC_SESSION_NOT_COMPLETED → conflict notice with its own denial copy", () => {
+    const action = mapped("RUBRIC_SESSION_NOT_COMPLETED", mutationContext);
+    expect(action.kind).toBe("notice");
+    expect(action.noticeKind).toBe("conflict");
+    expect(shownCopyOf(action)).toBe(labels.rubricSessionNotCompleted);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.duplicateSuccessEquivalent).toBeUndefined();
+    expect(arLabels.rubricSessionNotCompleted.length).toBeGreaterThan(0);
+  });
+
+  test("row APPLICANT_ALREADY_FINALIZED → conflict notice with its own denial copy", () => {
+    const action = mapped("APPLICANT_ALREADY_FINALIZED", mutationContext);
+    expect(action.kind).toBe("notice");
+    expect(action.noticeKind).toBe("conflict");
+    expect(shownCopyOf(action)).toBe(labels.applicantAlreadyFinalized);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.duplicateSuccessEquivalent).toBeUndefined();
+    expect(arLabels.applicantAlreadyFinalized.length).toBeGreaterThan(0);
+  });
+
+  test("row TEACHER_NOT_CERTIFIED → localized toast with its own caller-state denial copy", () => {
+    // The caller's certification state is a caller-side validation denial —
+    // toast treatment (error tone, non-retryable), never a section fallback.
+    const action = mapped("TEACHER_NOT_CERTIFIED", mutationContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.teacherNotCertified);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.fieldErrors).toBeUndefined();
+    expect(arLabels.teacherNotCertified.length).toBeGreaterThan(0);
+  });
+
+  test("row APPLICANT_NOT_IN_EVALUATION → conflict notice with its own denial copy", () => {
+    const action = mapped("APPLICANT_NOT_IN_EVALUATION", mutationContext);
+    expect(action.kind).toBe("notice");
+    expect(action.noticeKind).toBe("conflict");
+    expect(shownCopyOf(action)).toBe(labels.applicantNotInEvaluation);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.duplicateSuccessEquivalent).toBeUndefined();
+    expect(arLabels.applicantNotInEvaluation.length).toBeGreaterThan(0);
+  });
+
+  test("row APPLICANT_STATUS_CORRUPT → localized toast with its own integrity-denial copy", () => {
+    // The read arm's fail-closed integrity denial (a missing applicant row
+    // or a foreign stored status) — toast treatment with the row's OWN
+    // copy, never the generic validation fallback; the producing surface is
+    // the caller's own-submission READ, so the query context is faithful.
+    const action = mapped("APPLICANT_STATUS_CORRUPT", queryContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.applicantStatusCorrupt);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.fieldErrors).toBeUndefined();
+    expect(action.duplicateSuccessEquivalent).toBeUndefined();
+    expect(arLabels.applicantStatusCorrupt.length).toBeGreaterThan(0);
+  });
+
   test("row DUPLICATE_REQUEST → success-equivalent idempotent notice (docs/IDEMPOTENCY.md §3)", () => {
     const action = mapped("DUPLICATE_REQUEST", mutationContext);
     expect(action.kind).toBe("notice");

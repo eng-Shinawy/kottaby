@@ -261,7 +261,7 @@ function mapValidationRow(code: string, context: GraphQLErrorMappingContext): Gr
 }
 
 /**
- * Rows 4–10 — inline notices: not-found family, conflict, the teacher-
+ * Inline notice rows — not-found family, conflict, the teacher-
  * rating gate + write-once rejections (both domain-conflict denials with
  * their OWN localized copy), duplicate-replay (success-equivalent per
  * docs/IDEMPOTENCY.md §3), rate-limited retry-later, and service-
@@ -343,7 +343,69 @@ function mapInlineNoticeRow(code: string, context: GraphQLErrorMappingContext): 
 }
 
 /**
- * Row 9 — masked INTERNAL_SERVER_ERROR: generic localized copy + correlation
+ * Rubric-evaluation caller-state VALIDATION toasts — the five pre-DB
+ * payload denials, the submitter's certification re-check
+ * (`TEACHER_NOT_CERTIFIED`, a caller-STATE validation), and the read arm's
+ * fail-closed integrity denial (`APPLICANT_STATUS_CORRUPT` — a missing
+ * applicant row or a foreign stored status is never interpreted loosely)
+ * each surface their OWN `errors`-namespace copy as a localized toast
+ * (never the generic `validation` copy).
+ */
+const RUBRIC_VALIDATION_TOAST_ROWS: Readonly<Record<string, ErrorMessageKey | undefined>> = {
+  RUBRIC_SCORE_INVALID: "rubricScoreInvalid",
+  RUBRIC_NOTES_REQUIRED: "rubricNotesRequired",
+  RUBRIC_WEAKNESS_REQUIRED: "rubricWeaknessRequired",
+  RUBRIC_WEAKNESS_NOT_ALLOWED: "rubricWeaknessNotAllowed",
+  RUBRIC_WEAKNESS_INVALID: "rubricWeaknessInvalid",
+  TEACHER_NOT_CERTIFIED: "teacherNotCertified",
+  APPLICANT_STATUS_CORRUPT: "applicantStatusCorrupt",
+};
+
+/**
+ * Rubric-evaluation CONFLICT denials — state denials carrying their OWN
+ * localized copy as conflict notices, the same treatment as the
+ * teacher-rating gate row above: the applicant-status gates
+ * (`APPLICANT_NOT_IN_EVALUATION`, `APPLICANT_ALREADY_FINALIZED`) and the
+ * incomplete-session gate.
+ */
+const RUBRIC_CONFLICT_NOTICE_ROWS: Readonly<Record<string, ErrorMessageKey | undefined>> = {
+  RUBRIC_SESSION_NOT_COMPLETED: "rubricSessionNotCompleted",
+  APPLICANT_NOT_IN_EVALUATION: "applicantNotInEvaluation",
+  APPLICANT_ALREADY_FINALIZED: "applicantAlreadyFinalized",
+};
+
+/**
+ * Rubric-evaluation submission rows — the five pre-DB validation denials,
+ * the caller-state certification denial, and the read arm's fail-closed
+ * integrity denial resolve as localized toasts, the three state-conflict
+ * denials as conflict notices. Every denial keeps its dedicated copy; no
+ * threshold, score, or identifier rides the action.
+ */
+function mapRubricEvaluationRow(code: string, context: GraphQLErrorMappingContext): GraphQLErrorAction | null {
+  const validationMessageKey = RUBRIC_VALIDATION_TOAST_ROWS[code];
+  if (validationMessageKey !== undefined) {
+    return withCorrelation(context, {
+      kind: "toast",
+      messageKey: validationMessageKey,
+      tone: "error",
+      retryable: false,
+    });
+  }
+  const conflictMessageKey = RUBRIC_CONFLICT_NOTICE_ROWS[code];
+  if (conflictMessageKey !== undefined) {
+    return withCorrelation(context, {
+      kind: "notice",
+      noticeKind: "conflict",
+      messageKey: conflictMessageKey,
+      tone: "error",
+      retryable: false,
+    });
+  }
+  return null;
+}
+
+/**
+ * Final row — masked INTERNAL_SERVER_ERROR: generic localized copy + correlation
  * guidance ONLY; the masked wire message must never reach users.
  */
 function mapMaskedInternalRow(code: string, context: GraphQLErrorMappingContext): GraphQLErrorAction | null {
@@ -371,6 +433,16 @@ function mapMaskedInternalRow(code: string, context: GraphQLErrorMappingContext)
  * | CONFLICT                                     | any                | notice conflict (`conflict`) |
  * | EVALUATION_SESSION_NOT_COMPLETED             | any                | notice conflict (`evaluationSessionNotCompleted`) |
  * | EVALUATION_ALREADY_SUBMITTED                 | any                | notice conflict, info tone (`evaluationAlreadySubmitted`) — consumers mark the row rated |
+ * | RUBRIC_SCORE_INVALID                         | any                | toast (`rubricScoreInvalid`) |
+ * | RUBRIC_NOTES_REQUIRED                        | any                | toast (`rubricNotesRequired`) |
+ * | RUBRIC_WEAKNESS_REQUIRED                     | any                | toast (`rubricWeaknessRequired`) |
+ * | RUBRIC_WEAKNESS_NOT_ALLOWED                  | any                | toast (`rubricWeaknessNotAllowed`) |
+ * | RUBRIC_WEAKNESS_INVALID                      | any                | toast (`rubricWeaknessInvalid`) |
+ * | RUBRIC_SESSION_NOT_COMPLETED                 | any                | notice conflict (`rubricSessionNotCompleted`) |
+ * | APPLICANT_ALREADY_FINALIZED                  | any                | notice conflict (`applicantAlreadyFinalized`) |
+ * | TEACHER_NOT_CERTIFIED                        | any                | toast (`teacherNotCertified`) — caller-state validation denial |
+ * | APPLICANT_NOT_IN_EVALUATION                  | any                | notice conflict (`applicantNotInEvaluation`) |
+ * | APPLICANT_STATUS_CORRUPT                     | any                | toast (`applicantStatusCorrupt`) — fail-closed read-path integrity denial |
  * | DUPLICATE_REQUEST                            | any                | notice duplicate-request (`duplicateRequest`, success-equivalent) |
  * | RATE_LIMITED (+legacy RATE_LIMIT_EXCEEDED)   | any                | notice retry-later (`rateLimitExceeded`) — thresholds/counters NEVER surfaced |
  * | SERVICE_UNAVAILABLE                          | any                | notice retryable-service-unavailable (`serviceUnavailable`) |
@@ -392,6 +464,7 @@ export function mapGraphQLErrorByCode(rawCode: string, context: GraphQLErrorMapp
     mapPermissionRow(code, context) ??
     mapValidationRow(code, context) ??
     mapInlineNoticeRow(code, context) ??
+    mapRubricEvaluationRow(code, context) ??
     mapMaskedInternalRow(code, context)
   );
 }

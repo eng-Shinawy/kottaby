@@ -387,4 +387,63 @@ export interface SessionsLabels {
    * exhaustive over the 35-member vocabulary (5 surahs + 30 juz).
    */
   readonly surahJuzLabel: (ref: string) => string;
+
+  // ─── Rubric Evaluation Submission (evaluator dialog) ────────────────────────
+  /** Teacher row action — submit the rubric evaluation for one of the teacher's completed evaluation sessions. */
+  readonly submitEvaluationAction: string;
+  /** Row pill shown on the teacher surface while the session still owes a rubric submission. */
+  readonly awaitingEvaluation: string;
+  /** Rubric dialog title. */
+  readonly rubricDialogTitle: string;
+  /** Rubric score field label — integer 0..100; the per-evaluation verdict is derived server-side, never supplied. */
+  readonly rubricScoreLabel: string;
+  /** Live band chip shown on the score field while the entered score sits at or above the pass threshold. */
+  readonly rubricScoreBandPassing: string;
+  /** Live band chip shown on the score field while the entered score sits below the pass threshold. */
+  readonly rubricScoreBandFailing: string;
+  /** Rubric qualitative-observations field label. */
+  readonly rubricNotesLabel: string;
+  /** Weakness-area select label (rendered only while the entered score is below the pass threshold). */
+  readonly rubricWeaknessLabel: string;
+  /** Weakness-area select option — the tajweed failure area. */
+  readonly rubricWeaknessTajweed: string;
+  /** Weakness-area select option — the hifz failure area. */
+  readonly rubricWeaknessHifz: string;
+  /** Weakness-area helper line — why the select appears and what the recorded area drives. */
+  readonly rubricWeaknessHelper: string;
+  /** Rubric dialog submit button (fires the submission mutation). */
+  readonly rubricSubmitCta: string;
+  /** Success notice — the rubric evaluation was submitted. */
+  readonly rubricSubmittedSuccess: string;
+  /** Impact callout shown while the entered score sits at or above the pass threshold. */
+  readonly rubricImpactPass: string;
+  /** Impact callout shown while the entered score sits below the pass threshold. */
+  readonly rubricImpactFail: string;
+
+  /** Restored-draft notice — the dialog re-seeded its controls from a parked draft. */
+  readonly rubricDraftRestoredNotice: string;
+  /** Restored-draft discard CTA — clears the parked draft and resets the dialog. */
+  readonly rubricDraftDiscardCta: string;
+  /** Saved-at provenance label — prefixes the relative "saved ago" caption inside the restored notice. */
+  readonly rubricDraftSavedAtLabel: string;
+  /** Parked-draft row chip — marks a pending row that carries a restorable parked draft. */
+  readonly rubricDraftParkedChip: string;
+
+  /**
+   * Hygiene diagnostics — the parked-draft prune sweep removed `count` stale
+   * drafts (the `adminDisputesCountLine` template-function precedent; each
+   * locale owns its plural rules).
+   */
+  readonly rubricDraftsPrunedLine: (count: number) => string;
+
+  // ─── Pending-rubric banner (teacher sessions surface) ───────────────────────
+  /**
+   * Banner headline — the honest pending count (the `adminDisputesCountLine`
+   * template-function precedent; each locale owns its plural rules).
+   */
+  readonly pendingRubricCountLine: (count: number) => string;
+  /** Banner toggle hint while the pending-only filter is OFF. */
+  readonly pendingRubricFilterCta: string;
+  /** Banner toggle hint while the pending-only filter is ON. */
+  readonly pendingRubricFilterActiveCta: string;
 }

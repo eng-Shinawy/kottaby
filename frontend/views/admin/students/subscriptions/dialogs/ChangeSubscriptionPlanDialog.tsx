@@ -141,7 +141,7 @@ export function ChangeSubscriptionPlanDialog({
         <SubscriptionDialogActions
           onClose={onClose}
           loading={loading}
-          dismissLabel={tc.cancel}
+          dismissLabel={tc.close}
           submitLabel={t.actions.changePlan}
           submitTestId={`change-subscription-plan-submit-${subscription.id}`}
           submitDisabled={newPlanId === ""}

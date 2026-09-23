@@ -12,7 +12,10 @@
  *  - `student-evaluation.query.ts` registers `myTeacherEvaluations`.
  *  - `evaluation-booking.query.ts` registers `myEvaluationLoopStatus`,
  *    `availableEvaluators`, and `myEvaluationSessions`.
+ *  - `evaluation-rubric.query.ts` registers `myRubricPendingSessions` and
+ *    `myRubricEvaluation`.
  */
 import "./applicant.query";
 import "./evaluation-booking.query";
+import "./evaluation-rubric.query";
 import "./student-evaluation.query";

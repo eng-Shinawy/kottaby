@@ -1,7 +1,8 @@
 /**
  * ApplicantRepository tests — the guarded `pending|failed → in_evaluation`
- * lifecycle write and the `findForBookingGate` lock read against the live
- * PostgreSQL test instance.
+ * lifecycle write, the guarded `in_evaluation → failed` verdict write, and
+ * the `findForBookingGate` lock read against the live PostgreSQL test
+ * instance.
  *
  * Per `backend/db/test/AGENTS.md`:
  *  - Rollback-isolated tests run inside `runInRollback`; `tx` is passed to
@@ -30,6 +31,14 @@
  *    folded into WHERE, no SELECT-then-UPDATE), enum members only (no
  *    hardcoded status literals), no prepared statements, no i18n/logger
  *    surface, and no plan-artifact references in comments.
+ *  - transitionToFailed tier (runInRollback): an `in_evaluation` applicant
+ *    flips to `failed` with the caller's cooldown instant stored VERBATIM
+ *    (no duration arithmetic in the repo) and the full row returned; a
+ *    pre-existing cooldown value is overwritten; the guarded pre-state
+ *    rejects `passed` / `failed` / `pending` rows and absent ids with a
+ *    zero-row null (non-positive ids included); the write is tx-REQUIRED
+ *    (no global-handle branch) and a repeat call inside ONE tx is a
+ *    zero-row no-op.
  *  - findForBookingGate: the lock-acquiring read returns the FULL row inside
  *    the same statement and a missing id resolves null; the read observes
  *    the caller transaction's own uncommitted writes; re-locking inside one
@@ -317,6 +326,193 @@ describe("ApplicantRepository.transitionToInEvaluation", () => {
 
   test("source: comments describe domain behavior only (no plan-artifact references)", () => {
     expect(/REQ-\d|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(repoSource)).toBe(false);
+  });
+});
+
+describe("ApplicantRepository.transitionToFailed", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("flips an in_evaluation applicant to failed with the cooldown instant stored VERBATIM", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.InEvaluation });
+      const cooldownUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      const row = await ApplicantRepository.transitionToFailed(user.id, cooldownUntil, tx);
+
+      expect(row).not.toBeNull();
+      if (!row) throw new Error("expected the updated applicant row");
+      // RETURNING * — exactly the canonical seven select columns.
+      expect(Object.keys(row).toSorted((a, b) => a.localeCompare(b))).toEqual([
+        "cooldownUntil",
+        "createdAt",
+        "id",
+        "lastAttemptAt",
+        "status",
+        "updatedAt",
+        "verificationAttempts",
+      ]);
+      expect(row.id).toBe(user.id);
+      expect(row.status).toBe(ApplicantStatus.Failed);
+      // The verdict instant is the caller's value, stored verbatim — the
+      // repo performs no duration arithmetic.
+      expect(row.cooldownUntil?.getTime()).toBe(cooldownUntil.getTime());
+      const persisted = await readApplicantRow(tx, user.id);
+      expect(persisted?.status).toBe(ApplicantStatus.Failed);
+      expect(persisted?.cooldownUntil?.getTime()).toBe(cooldownUntil.getTime());
+    });
+  });
+
+  // ─── Tier 2: boundary / data-shape edges ────────────────────────────
+
+  test("overwrites a pre-existing cooldown value and stamps updated_at forward", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      const staleCooldown = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const seededUpdatedAt = new Date(Date.now() - 60_000);
+      await createTestApplicant(tx, user.id, {
+        status: ApplicantStatus.InEvaluation,
+        cooldownUntil: staleCooldown,
+        updatedAt: seededUpdatedAt,
+      });
+      const cooldownUntil = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+
+      const row = await ApplicantRepository.transitionToFailed(user.id, cooldownUntil, tx);
+
+      expect(row?.status).toBe(ApplicantStatus.Failed);
+      expect(row?.cooldownUntil?.getTime()).toBe(cooldownUntil.getTime());
+      expect(row?.cooldownUntil?.getTime()).not.toBe(staleCooldown.getTime());
+      expect(row?.updatedAt?.getTime()).toBeGreaterThan(seededUpdatedAt.getTime());
+    });
+  });
+
+  test("preserves the attempt audit trail (verification_attempts + last_attempt_at untouched)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      const lastAttemptAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+      await createTestApplicant(tx, user.id, {
+        status: ApplicantStatus.InEvaluation,
+        verificationAttempts: 3,
+        lastAttemptAt,
+      });
+
+      const row = await ApplicantRepository.transitionToFailed(user.id, new Date(), tx);
+
+      expect(row?.status).toBe(ApplicantStatus.Failed);
+      expect(row?.verificationAttempts).toBe(3);
+      expect(row?.lastAttemptAt?.getTime()).toBe(lastAttemptAt.getTime());
+    });
+  });
+
+  // ─── Tier 2: the guarded pre-state rejects non-matching rows ────────
+
+  test("matches ZERO rows for a passed applicant (status and cooldown unchanged)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.Passed });
+
+      const row = await ApplicantRepository.transitionToFailed(user.id, new Date(), tx);
+
+      expect(row).toBeNull();
+      const persisted = await readApplicantRow(tx, user.id);
+      expect(persisted?.status).toBe(ApplicantStatus.Passed);
+      expect(persisted?.cooldownUntil).toBeNull();
+    });
+  });
+
+  test("matches ZERO rows for an already-failed applicant (a second finalization never replays)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      const firstCooldown = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.Failed, cooldownUntil: firstCooldown });
+
+      const row = await ApplicantRepository.transitionToFailed(user.id, new Date(), tx);
+
+      expect(row).toBeNull();
+      const persisted = await readApplicantRow(tx, user.id);
+      expect(persisted?.status).toBe(ApplicantStatus.Failed);
+      expect(persisted?.cooldownUntil?.getTime()).toBe(firstCooldown.getTime());
+    });
+  });
+
+  test("matches ZERO rows for a pending applicant (never entered evaluation)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.Pending });
+
+      const row = await ApplicantRepository.transitionToFailed(user.id, new Date(), tx);
+
+      expect(row).toBeNull();
+      const persisted = await readApplicantRow(tx, user.id);
+      expect(persisted?.status).toBe(ApplicantStatus.Pending);
+      expect(persisted?.cooldownUntil).toBeNull();
+    });
+  });
+
+  test("returns null for a nonexistent and for a non-positive applicant id", async () => {
+    await runInRollback(async tx => {
+      const missingId = await absentApplicantId(tx);
+      expect(await ApplicantRepository.transitionToFailed(missingId, new Date(), tx)).toBeNull();
+      expect(await ApplicantRepository.transitionToFailed(0, new Date(), tx)).toBeNull();
+      expect(await ApplicantRepository.transitionToFailed(-1, new Date(), tx)).toBeNull();
+    });
+  });
+
+  // ─── Tier 3: repeat call inside ONE transaction ─────────────────────
+
+  test("a repeat call inside ONE transaction is a zero-row no-op (row already flipped)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.InEvaluation });
+      const cooldownUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      const first = await ApplicantRepository.transitionToFailed(user.id, cooldownUntil, tx);
+      const second = await ApplicantRepository.transitionToFailed(user.id, new Date(), tx);
+
+      expect(first?.status).toBe(ApplicantStatus.Failed);
+      expect(second).toBeNull();
+      expect((await readApplicantRow(tx, user.id))?.cooldownUntil?.getTime()).toBe(cooldownUntil.getTime());
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  const FAILED_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/applicant.repository.ts");
+  const failedRepoSource = readFileSync(FAILED_REPO_FILE, "utf8");
+
+  /** The transitionToFailed slice of the repository source (the static pin target). */
+  function failedTransitionSource(): string {
+    const start = failedRepoSource.indexOf("export async function transitionToFailed(");
+    return failedRepoSource.slice(start, failedRepoSource.indexOf("\n  }\n", start));
+  }
+
+  test("source: a single guarded UPDATE with the in_evaluation pre-state folded into WHERE", () => {
+    expect(failedTransitionSource()).toContain(".update(applicants)");
+    expect(failedTransitionSource()).toContain("eq(applicants.status, ApplicantStatus.InEvaluation)");
+    expect(failedTransitionSource().includes(".select(")).toBe(false);
+    expect(failedTransitionSource()).toContain(".returning()");
+  });
+
+  test("source: REQUIRED tx — no standalone global-handle branch, no prepared statements", () => {
+    expect(failedTransitionSource()).toContain("tx: DBTransaction");
+    expect(failedTransitionSource().includes("tx?")).toBe(false);
+    expect(failedTransitionSource().includes("tx ?? db")).toBe(false);
+    expect(failedTransitionSource().includes("db.update")).toBe(false);
+    expect(failedRepoSource.includes(".prepare(")).toBe(false);
+  });
+
+  test("source: the cooldown instant is the caller's verbatim value (no duration arithmetic)", () => {
+    expect(failedTransitionSource()).toContain("cooldownUntil,");
+    expect(failedTransitionSource().includes("getDate(")).toBe(false);
+    expect(failedTransitionSource().includes("COOLDOWN_DAYS")).toBe(false);
+    expect(/'(pending|failed|in_evaluation|passed)'/.test(failedTransitionSource())).toBe(false);
+    expect(failedTransitionSource().includes("getServerTranslations")).toBe(false);
+    expect(failedTransitionSource().includes("logger")).toBe(false);
+    expect(failedTransitionSource().includes("console.")).toBe(false);
+  });
+
+  test("source: comments describe domain behavior only (no plan-artifact references)", () => {
+    expect(/REQ-\d|DEV2|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(failedRepoSource)).toBe(false);
   });
 });
 

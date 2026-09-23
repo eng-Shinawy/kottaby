@@ -949,6 +949,31 @@ describe("EvaluationBookingService — reads (runInRollback)", () => {
     });
   });
 
+  test("loop status — an over-ceiling cycle CLAMPS the credit remainder at zero (never a negative wire answer)", async () => {
+    await runInRollback(async tx => {
+      const { applicantUserId } = await createVerificationApplicant(tx);
+      const now = new Date();
+      // Six in-cycle COMPLETED sessions — one past the plan's five-session
+      // ceiling (the shape a QA cast / admin seed / migration can produce
+      // outside the booking flow's capacity gate).
+      await fillCycle(tx, applicantUserId, 6, {
+        status: SessionStatus.Completed,
+        startedAt: now,
+        endedAt: now,
+      });
+
+      const status = await EvaluationBookingService.myEvaluationLoopStatus(applicantUserId, LOCALE, tx);
+
+      // The over-ceiling bookings stay honestly reported, but the credit
+      // remainder floors at zero — the client's derived progress
+      // denominator (booked + remaining) then yields a 0..100 bar.
+      expect(status.bookedCount).toBe(6);
+      expect(status.completedCount).toBe(6);
+      expect(status.remainingCredits).toBe(0);
+      expectZeroLogCalls();
+    });
+  });
+
   test("loop status — the fixed zero-shape (never an error) for a caller with NO applicants row and for a caller with NO active cycle", async () => {
     await runInRollback(async tx => {
       const zeroShape = { bookedCount: 0, completedCount: 0, remainingCredits: 0, cycleStartDate: null };

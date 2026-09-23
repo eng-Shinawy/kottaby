@@ -141,4 +141,11 @@ export const errorsAr: ErrorsLabels = {
   evaluatorAlreadyUsed: "تم حجز هذا المُقيِّم بالفعل في الحلقة الحالية. اختر مُقيِّماً آخر.",
   applicantNotInEvaluation: "طلبك ليس في مرحلة التقييم.",
   verificationSubscriptionNotActive: "خطة التوثيق الخاصة بك غير مفعّلة (أكمل عملية الشراء أولاً).",
+  rubricScoreInvalid: "يجب أن تكون الدرجة رقماً صحيحاً بين 0 و100.",
+  rubricNotesRequired: "الملاحظات مطلوبة (حتى 2000 حرف).",
+  rubricWeaknessRequired: "مجال الضعف مطلوب للدرجة الأقل من 80.",
+  rubricWeaknessNotAllowed: "مجال الضعف مخصص للدرجات الأقل من 80 فقط.",
+  rubricWeaknessInvalid: "يجب أن يكون مجال الضعف إما التجويد أو الحفظ.",
+  rubricSessionNotCompleted: "جلسة التقييم هذه لم تكتمل بعد.",
+  applicantAlreadyFinalized: "تم إصدار القرار النهائي لهذا الطلب بالفعل.",
 };

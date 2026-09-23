@@ -96,36 +96,42 @@ export function SessionConfirmDialogLayout({
       onClose={handleDialogClose}
       fullWidth
       maxWidth="sm"
-      slotProps={{ paper: { component: "form", onSubmit: handleSubmit } }}
+      // `noValidate` — the required reason field's native constraint would
+      // otherwise silently cancel the submit for an empty draft before the
+      // programmatic validation can raise the localized error flag.
       aria-labelledby={`${idPrefix}-dialog-title`}
     >
       <DialogTitle id={`${idPrefix}-dialog-title`} sx={theme => ({ color: theme.palette.onSurface })}>
         {title}
       </DialogTitle>
-      <DialogContent sx={{ display: "grid", gap: 2 }}>
-        <SessionDialogWarningCallout message={warningMessage} />
-        <SessionDialogReasonField
-          value={reason}
-          onValueChange={value => {
-            setReason(value);
-            // Live validation relief — an edit clears a raised flag.
-            setReasonInvalid(false);
-          }}
-          label={reasonLabel}
-          placeholder={reasonPlaceholder}
-          required={reasonRequired}
-          error={reasonInvalid}
-          helperText={reasonInvalid && reasonRequiredMessage ? reasonRequiredMessage : `${reason.length}/${maxLength}`}
-          maxLength={maxLength}
+      <form onSubmit={handleSubmit} noValidate style={{ display: "contents" }}>
+        <DialogContent sx={{ display: "grid", gap: 2 }}>
+          <SessionDialogWarningCallout message={warningMessage} />
+          <SessionDialogReasonField
+            value={reason}
+            onValueChange={value => {
+              setReason(value);
+              // Live validation relief — an edit clears a raised flag.
+              setReasonInvalid(false);
+            }}
+            label={reasonLabel}
+            placeholder={reasonPlaceholder}
+            required={reasonRequired}
+            error={reasonInvalid}
+            helperText={
+              reasonInvalid && reasonRequiredMessage ? reasonRequiredMessage : `${reason.length}/${maxLength}`
+            }
+            maxLength={maxLength}
+          />
+        </DialogContent>
+        <SessionDialogActionButtons
+          loading={loading}
+          onClose={onClose}
+          submitLabel={submitLabel}
+          submitColor={submitColor}
+          submitDisabled={loading}
         />
-      </DialogContent>
-      <SessionDialogActionButtons
-        loading={loading}
-        onClose={onClose}
-        submitLabel={submitLabel}
-        submitColor={submitColor}
-        submitDisabled={loading}
-      />
+      </form>
     </Dialog>
   );
 }

@@ -14,6 +14,7 @@ import type { ApolloCache } from "@apollo/client";
 import {
   type MyTeacherSessionsQuery_myTeacherSessions_items,
   SessionStatus,
+  SessionType,
 } from "@/frontend/graphql/generated/gql/graphql";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import {
@@ -114,20 +115,44 @@ export interface TeacherActionsWiring {
   readonly onHomework: (sessionId: string) => void;
   /** Opens the session report submission dialog for a Completed session. */
   readonly onReport: (sessionId: string) => void;
+  /** Opens the rubric-evaluation dialog for a completed evaluation session. */
+  readonly onSubmitEvaluation: (sessionId: string) => void;
+  /**
+   * Session ids from the evaluator's pending-rubric read — the rows that
+   * still owe a submission. A session id OUTSIDE this set has already been
+   * scored, so its row must NOT offer the submit-evaluation affordance
+   * (the pending read refetches after every submission, dropping the CTA).
+   */
+  readonly pendingRubricSessionIds: ReadonlySet<string>;
 }
+
+/**
+ * Session-type gate for the rubric affordance — a `Record` lookup over the
+ * row's own `sessionType` value (never a string-literal enum comparison):
+ * only evaluation sessions carry the write-once rubric verdict.
+ */
+const RUBRIC_SESSION_TYPES: Readonly<Record<SessionType, boolean>> = {
+  [SessionType.TeacherEvaluation]: true,
+  [SessionType.ReEvaluation]: false,
+  [SessionType.StudentSession]: false,
+};
 
 /**
  * Lifecycle → affordance matrix:
  *  - `Scheduled` → Start
  *  - `Started`    → Complete + Homework (read-only viewer)
  *  - `Completed`  → Report (submission dialog; resolves prepare/submit/review
- *    on open via the dialog's own mode resolution)
+ *    on open via the dialog's own mode resolution), PLUS Submit evaluation
+ *    on completed EVALUATION rows that still owe a rubric submission (the
+ *    caller's pending-rubric set decides "still owes"; the report descriptor
+ *    stays FIRST so the submitted rows keep their report affordance alone)
  *  - terminal `Cancelled`/`Disputed` → [] (no affordances; the row stays
  *    a pure read-only display).
  * Each descriptor disables while ITS OWN row+kind slot is in flight
  * (`isInFlight` over the per-row slot book) — sibling rows and the other
- * action kind stay interactive. The Homework/Report actions carry NO
- * in-flight slot (the dialog owns loading; the CTA is status-pure — no N+1).
+ * action kind stay interactive. The Homework/Report/Evaluation actions
+ * carry NO in-flight slot (the dialog owns loading; the CTA is status-pure
+ * — no N+1).
  */
 export function teacherActionsForSession(
   session: MyTeacherSessionsQuery_myTeacherSessions_items,
@@ -161,6 +186,13 @@ export function teacherActionsForSession(
       label: wiring.t.sessionReportAction,
       onIntent: wiring.onReport,
     });
+    if (RUBRIC_SESSION_TYPES[session.sessionType] && wiring.pendingRubricSessionIds.has(session.id)) {
+      actions.push({
+        id: "submitEvaluation",
+        label: wiring.t.submitEvaluationAction,
+        onIntent: wiring.onSubmitEvaluation,
+      });
+    }
   }
   return actions;
 }

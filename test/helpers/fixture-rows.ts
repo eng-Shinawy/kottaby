@@ -120,6 +120,25 @@ export async function promoteApplicantToEvaluation(userId: number): Promise<stri
 }
 
 /**
+ * Flips an existing `applicants` row back to `pending` — the pre-finalization
+ * lifecycle state with NO wire operation (the only wire paths write the
+ * lifecycle FORWARD: booking requires `in_evaluation`, and finalization moves
+ * it to `passed`/`failed`). The rubric suites use it to pin the
+ * APPLICANT_NOT_IN_EVALUATION status gate over the live wire. Returns the
+ * effective status for assertion convenience.
+ */
+export async function demoteApplicantToPending(userId: number): Promise<string> {
+  const [row] = await db
+    .update(applicants)
+    .set({ status: ApplicantStatus.Pending })
+    .where(eq(applicants.id, userId))
+    .returning({ status: applicants.status });
+  if (!row) throw new Error("applicant demotion returned no rows (applicants row missing?)");
+  if (row.status === null) throw new Error("applicant demotion returned a null status");
+  return row.status;
+}
+
+/**
  * Inserts an ACTIVE verification-plan subscription for the given user — the
  * fixture stand-in for the gateway-confirmed purchase activation (the cycle
  * probe reads the newest ACTIVE subscription on the canonical verification

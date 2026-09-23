@@ -74,6 +74,30 @@ throw new NotFoundError("STUDENT", tErrors.studentNotFound(name));
 throw new NotFoundError("SUGGESTION_NOT_FOUND", message); // → "SUGGESTION_NOT_FOUND_NOT_FOUND"
 ```
 
+### Domain Code Registry
+
+Flow-specific custom codes are registered here as they ship (the transport taxonomy in
+[`error-handling-contract.md`](./error-handling-contract.md) stays category-only — custom
+codes never resolve through it, ride the GraphQL error envelope, and clients branch on
+`extensions.code` ONLY). Every registry row is bijective with its lowercase-camelCase key
+in the compile-time `errors` namespace and carries a dedicated row in
+`frontend/providers/apollo/error-link.map.ts`.
+
+| Code | Meaning | Surface | GraphQL / HTTP semantics | i18n key (`errors`) |
+|------|---------|---------|--------------------------|---------------------|
+| `RUBRIC_SCORE_INVALID` | Score must be a whole number from 0 to 100 | `EvaluationRubricService.submitRubricEvaluation` pre-DB input validation (`backend/services/teachers/evaluation-rubric.service.ts`) | `ValidationError` (custom code); error-envelope pass-through (GraphQL over HTTP 200); non-retryable toast, dialog stays open | `rubricScoreInvalid` |
+| `RUBRIC_NOTES_REQUIRED` | Observations are required (1–2000 characters after trim) | same pre-DB pass | `ValidationError` (custom code); same envelope/toast treatment | `rubricNotesRequired` |
+| `RUBRIC_WEAKNESS_REQUIRED` | A weakness area is required for a score below 80 | same pre-DB pass (iff-rule, below-threshold arm) | `ValidationError` (custom code); same envelope/toast treatment | `rubricWeaknessRequired` |
+| `RUBRIC_WEAKNESS_NOT_ALLOWED` | A weakness area applies only to scores below 80 | same pre-DB pass (iff-rule, at-or-above-threshold arm) | `ValidationError` (custom code); same envelope/toast treatment | `rubricWeaknessNotAllowed` |
+| `RUBRIC_WEAKNESS_INVALID` | The weakness area must be Tajweed or Hifz (fail-closed vocabulary) | same pre-DB pass (`isRubricWeaknessArea` guard) | `ValidationError` (custom code); same envelope/toast treatment | `rubricWeaknessInvalid` |
+| `RUBRIC_SESSION_NOT_COMPLETED` | This evaluation session is not completed yet | service completion gate (owned session, pre-quorum) | `ConflictError` (custom code); conflict-notice treatment (the `EVALUATION_SESSION_NOT_COMPLETED` sibling row) | `rubricSessionNotCompleted` |
+| `APPLICANT_ALREADY_FINALIZED` | The application was already finalized — the verdict exists and cannot be re-issued | quorum finalization: zero-row `finalizeOnCertification` / zero-row `ApplicantRepository.transitionToFailed` (whole transaction rolls back) | `ConflictError` (custom code); conflict-notice treatment (the `EVALUATION_ALREADY_SUBMITTED` sibling row) | `applicantAlreadyFinalized` |
+
+Canonical flow contract: `docs/teachers/evaluation-rubric-scoring.md`. Codes with
+established meanings (`SESSION_NOT_FOUND`, `TEACHER_NOT_CERTIFIED`,
+`APPLICANT_NOT_IN_EVALUATION`, `EVALUATION_ALREADY_SUBMITTED`) are reused unchanged by
+this flow and keep their existing surfaces.
+
 ### Usage in Services and Repositories
 
 ```typescript

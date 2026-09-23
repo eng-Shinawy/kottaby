@@ -33,6 +33,9 @@
  *      partialRefundAmountInvalid — emitted by the arbitration service and
  *      surfaced verbatim inside the admin resolve dialog) are pinned with
  *      the same belt.
+ *   6. RUBRIC-SCORING KEY PINS — the seven rubric-submission denials
+ *      (five pre-DB validation rejections + two state-conflict rejections)
+ *      are pinned in BOTH locales as flat, placeholder-free copy.
  *
  * ENVELOPE LOCALIZATION (rendering-path evidence): behavioral proof that the
  * transport rejection envelopes carry the LOCALIZED value (never a literal) is
@@ -246,10 +249,12 @@ describe("applicant-lifecycle service keys — pinned in BOTH locales", () => {
   test("the domain inventory is exhaustive (no silent drift on the pinned applicant keys)", () => {
     const pinned = new Set<string>(APPLICANT_LIFECYCLE_KEYS);
     const bookingPinned = new Set<string>(EVALUATION_BOOKING_KEYS);
+    const rubricPinned = new Set<string>(EVALUATION_RUBRIC_SCORING_KEYS);
     for (const key of Object.keys(errorsAr)) {
-      // The evaluation-booking governance denial lives in its own pinned
-      // inventory below — the lifecycle pin stays exclusive to its own keys.
-      if (key.startsWith("applicant") && !bookingPinned.has(key)) {
+      // The evaluation-booking governance denial and the rubric finalization
+      // denial each live in their own pinned inventories below — the
+      // lifecycle pin stays exclusive to its own keys.
+      if (key.startsWith("applicant") && !bookingPinned.has(key) && !rubricPinned.has(key)) {
         expect(pinned.has(key)).toBe(true);
       }
     }
@@ -303,6 +308,59 @@ describe("evaluation-booking service keys — pinned in BOTH locales", () => {
     // Each denial is flat copy consumed verbatim by the booking dialog's
     // error mapping — no interpolated value may ever slip into either locale.
     for (const key of EVALUATION_BOOKING_KEYS) {
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, key, "ar"))).toEqual([]);
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, key, "en"))).toEqual([]);
+    }
+  });
+});
+
+// ─── Rubric-scoring domain-service key pins ───────────────────────────────
+
+/**
+ * The `errors` keys minted for the rubric-scoring service surface: the five
+ * pre-DB validation denials (score range, notes bound, the
+ * weakness-iff-failing rule in both directions, and the fail-closed
+ * weakness guard) plus the two state-conflict denials (uncompleted session,
+ * already-finalized application). Like the pins above, these are consumed
+ * by the domain service through `getServerTranslations(locale)
+ * .errorsTranslations`, so the route-source discovery cannot see them —
+ * they are pinned here in BOTH locales (removing a key from both maps
+ * simultaneously still fails).
+ */
+const EVALUATION_RUBRIC_SCORING_KEYS = [
+  "rubricScoreInvalid",
+  "rubricNotesRequired",
+  "rubricWeaknessRequired",
+  "rubricWeaknessNotAllowed",
+  "rubricWeaknessInvalid",
+  "rubricSessionNotCompleted",
+  "applicantAlreadyFinalized",
+] as const;
+
+// ===========================================================================
+describe("rubric-scoring service keys — pinned in BOTH locales", () => {
+  test("the domain inventory is exhaustive (no silent drift on the pinned rubric keys)", () => {
+    const pinned = new Set<string>(EVALUATION_RUBRIC_SCORING_KEYS);
+    for (const key of Object.keys(errorsAr)) {
+      if (key.startsWith("rubric") || key === "applicantAlreadyFinalized") {
+        expect(pinned.has(key)).toBe(true);
+      }
+    }
+  });
+
+  test.each([...EVALUATION_RUBRIC_SCORING_KEYS])("domain key `%s` resolves non-empty in BOTH ar and en maps", key => {
+    expect(nonEmptyLabelOf(errorsAr, key, "ar").length).toBeGreaterThan(0);
+    expect(nonEmptyLabelOf(errorsEn, key, "en").length).toBeGreaterThan(0);
+    // Key must be part of the COMPILE-TIME schema too — Reflect-only
+    // additions (untyped holes) are prohibited by the ErrorsLabels contract.
+    expect(Object.hasOwn(errorsEn, key)).toBe(true);
+    expect(Object.hasOwn(errorsAr, key)).toBe(true);
+  });
+
+  test("the seven rubric denials carry ZERO ICU placeholders in BOTH locales", () => {
+    // Each denial is flat copy consumed verbatim by the evaluator dialog's
+    // error mapping — no interpolated value may ever slip into either locale.
+    for (const key of EVALUATION_RUBRIC_SCORING_KEYS) {
       expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, key, "ar"))).toEqual([]);
       expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, key, "en"))).toEqual([]);
     }

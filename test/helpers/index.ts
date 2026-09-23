@@ -1,6 +1,7 @@
 export { countUsersByIds, deleteSessionsByParticipantUserIds, deleteUsersByIds } from "./db-cleanup";
 export * from "./expect-mutation-error";
 export {
+  demoteApplicantToPending,
   insertActiveVerificationSubscription,
   insertAdminUserWithChildRow,
   insertCertifiedTeacherRow,

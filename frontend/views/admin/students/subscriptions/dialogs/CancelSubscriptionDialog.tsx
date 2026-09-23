@@ -78,7 +78,7 @@ export function CancelSubscriptionDialog({
         <SubscriptionDialogActions
           onClose={onClose}
           loading={loading}
-          dismissLabel={tc.cancel}
+          dismissLabel={tc.close}
           submitLabel={t.actions.cancel}
           submitTestId={`cancel-subscription-submit-${subscription.id}`}
           submitColor="error"

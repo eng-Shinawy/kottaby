@@ -65,8 +65,9 @@
  * post-confirmation dispute primitives live in the sibling
  * `session.repository.arbitration.helpers.ts` module (same extraction
  * pattern); the evaluation-booking cycle reads (the active-cycle probe,
- * the per-cycle aggregate, and the applicant evaluation-session list) live
- * in the sibling `session.repository.evaluation.helpers.ts` module. The
+ * the per-cycle aggregate, the applicant evaluation-session list, and the
+ * evaluator's pending-rubric page) live in the sibling
+ * `session.repository.evaluation.helpers.ts` module. The
  * guarded write transitions stay in this file, their shared
  * participant live-state predicate factored into the module-level
  * `buildLiveParticipantTransitionPredicate` builder. Every read
@@ -844,6 +845,26 @@ export namespace SessionRepository {
   ): Promise<{ items: SessionSelectType[]; total: number }> {
     return sessionRepositoryEvaluationImpl.listEvaluationSessionsForApplicant(applicantUserId, filter, tx);
   }
+
+  /**
+   * Lists the evaluator's OWN completed evaluation sessions that still
+   * await a rubric submission, newest first, paged: a LEFT JOIN anti-join
+   * against the evaluator's own `evaluations` rows over the owner equality
+   * on the session's teacher leg, the teacher-evaluation type member, and
+   * the completed lifecycle state — the evaluator's own not-yet-scored
+   * rows by construction (a session this evaluator already scored drops
+   * out; another evaluator's submission on it changes nothing). The page
+   * window normalizes sane-fallback (page < 1 → first page, size outside
+   * 1..100 → 25) and the total is honest (the unique arbiter caps the
+   * anti-join at one row per session).
+   *
+   * Type-exact const re-export (the namespace-delegation convention): the
+   * REQUIRED `tx` keeps the page on the caller's transaction snapshot.
+   *
+   * @returns The page rows plus the honest total (an out-of-range page
+   *          yields an empty `items` array with the unchanged total).
+   */
+  export const listCompletedRubricPendingSessions = sessionRepositoryEvaluationImpl.listCompletedRubricPendingSessions;
 
   /**
    * Teacher↔student relationship probe: does ANY session row (any status)

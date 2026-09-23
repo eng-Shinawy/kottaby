@@ -520,6 +520,23 @@ const EVALUATION_BOOKING_TYPE_NAMES = [
   "EvaluationEvaluatorOptionPage",
   "EvaluationLoopStatus",
 ] as const;
+/**
+ * Rubric evaluation surface — the certified-evaluator rubric submission
+ * write plus the caller-scoped pending-sessions read and own-submission
+ * read. All three root fields carry the explicit
+ * `$all { authenticated: true, role: [UserRole.Teacher] }` conjunction;
+ * the pending read reuses the canonical `SessionPage` envelope, and the
+ * weakness vocabulary is registered ONCE from the canonical
+ * `rubric_weakness_area` pgEnum mirror. The evaluator identity, the
+ * evaluated subject, and the derived verdict are all server-side — the
+ * input carries only the rubric fields (score / observations / optional
+ * weakness area). All authScopes-gated — none is allowlist material; the
+ * public-operation registry stays byte-unchanged.
+ */
+const EVALUATION_RUBRIC_MUTATION_FIELDS = ["submitRubricEvaluation"] as const;
+const EVALUATION_RUBRIC_QUERY_FIELDS = ["myRubricEvaluation", "myRubricPendingSessions"] as const;
+const EVALUATION_RUBRIC_ENUMS = ["RubricWeaknessArea"] as const;
+const EVALUATION_RUBRIC_TYPE_NAMES = ["RubricEvaluation", "RubricEvaluationSubmitInput"] as const;
 /** Student homework history read — the paginated own-homework listing. */
 const STUDENT_HOMEWORK_QUERY_FIELDS = ["studentHomeworkHistory"] as const;
 const STUDENT_HOMEWORK_TYPE_NAMES = ["StudentHomeworkPage"] as const;
@@ -873,6 +890,7 @@ describe("Query._health — retyped probe surface", () => {
         ...PARENT_HOMEWORK_QUERY_FIELDS,
         ...CURRICULUM_LESSON_QUERY_FIELDS,
         ...EVALUATION_BOOKING_QUERY_FIELDS,
+        ...EVALUATION_RUBRIC_QUERY_FIELDS,
         ...STUDENT_HOMEWORK_QUERY_FIELDS,
         ...SUBSCRIPTION_ADMIN_QUERY_FIELDS,
         ...WALLET_LEDGER_QUERY_FIELDS,
@@ -937,7 +955,7 @@ describe("HealthCheck object shape — four scalar fields, no id", () => {
 });
 
 describe("Surface freeze — pinned additions vs the baseline inventory", () => {
-  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user trio + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write)", () => {
+  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user trio + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write)", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
@@ -984,6 +1002,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...STUDENT_EVALUATION_MUTATION_FIELDS,
         ...CURRICULUM_LESSON_MUTATION_FIELDS,
         ...EVALUATION_BOOKING_MUTATION_FIELDS,
+        ...EVALUATION_RUBRIC_MUTATION_FIELDS,
         ...SUBSCRIPTION_ADMIN_MUTATION_FIELDS,
         ...RECONCILED_VERIFICATION_PLAN_PURCHASE_MUTATION_FIELDS,
       ].toSorted((a, b) => a.localeCompare(b))
@@ -1043,7 +1062,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     expect(slice).toEqual(adminMutationNames);
   });
 
-  test("enum set is pinned (every new enum named explicitly; LinkStatus + BroadcastAudienceType re-anchored as documented drift; BroadcastStatus is the sanctioned broadcast-lifecycle vocabulary)", () => {
+  test("enum set is pinned (every new enum named explicitly; LinkStatus + BroadcastAudienceType re-anchored as documented drift; BroadcastStatus is the sanctioned broadcast-lifecycle vocabulary; RubricWeaknessArea is the sanctioned rubric-evaluation vocabulary)", () => {
     const enumNames = Object.values(graphQLSchema.getTypeMap())
       .filter(type => type instanceof GraphQLEnumType && !type.name.startsWith("__"))
       .map(type => type.name)
@@ -1075,6 +1094,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...RECONCILED_ENUMS,
         ...ADMIN_FINANCE_ENUMS,
         ...SUBSCRIPTION_ADMIN_ENUMS,
+        ...EVALUATION_RUBRIC_ENUMS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -1169,9 +1189,11 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...STUDENT_EVALUATION_TYPE_NAMES,
         ...CURRICULUM_LESSON_TYPE_NAMES,
         ...EVALUATION_BOOKING_TYPE_NAMES,
+        ...EVALUATION_RUBRIC_TYPE_NAMES,
         ...STUDENT_HOMEWORK_TYPE_NAMES,
         ...SUBSCRIPTION_ADMIN_TYPE_NAMES,
         ...SUBSCRIPTION_ADMIN_ENUMS,
+        ...EVALUATION_RUBRIC_ENUMS,
         ...WALLET_LEDGER_TYPE_NAMES,
       ].toSorted((a, b) => a.localeCompare(b))
     );

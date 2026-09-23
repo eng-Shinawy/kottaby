@@ -71,7 +71,7 @@ export function RenewSubscriptionDialog({
         <SubscriptionDialogActions
           onClose={onClose}
           loading={loading}
-          dismissLabel={tc.cancel}
+          dismissLabel={tc.close}
           submitLabel={t.actions.renew}
           submitTestId={`renew-subscription-submit-${subscription.id}`}
         />

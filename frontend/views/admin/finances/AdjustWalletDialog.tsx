@@ -89,51 +89,52 @@ export function AdjustWalletDialog({
       onClose={handleDialogClose}
       fullWidth
       maxWidth="sm"
-      slotProps={{ paper: { component: "form", onSubmit: handleSubmit } }}
       aria-labelledby="adjust-wallet-dialog-title"
     >
       <DialogTitle id="adjust-wallet-dialog-title" sx={theme => ({ color: theme.palette.onSurface })}>
         {t.adjustDialogTitle}
       </DialogTitle>
-      <DialogContent sx={{ display: "grid", gap: 2 }}>
-        <AdjustWalletFields
-          teacherName={teacherName}
-          drafts={drafts}
-          amountError={amountError || zeroAmount}
-          reasonError={reasonInvalid}
-          onAmountChange={amount => {
-            setDrafts(current => ({ ...current, amount }));
-            setAmountInvalid(false);
-          }}
-          onReasonChange={reason => {
-            setDrafts(current => ({ ...current, reason }));
-            setReasonInvalid(false);
-          }}
-          onDirectionPick={direction => {
-            setDrafts(current => ({ ...current, direction }));
-          }}
-        />
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-        <Button
-          onClick={onClose}
-          disabled={loading}
-          variant="outlined"
-          color="inherit"
-          sx={{ minHeight: { xs: 44, sm: 40 }, px: 3, whiteSpace: "nowrap" }}
-        >
-          {tc.cancel}
-        </Button>
-        <Button
-          type="submit"
-          variant="contained"
-          disabled={loading || drafts.amount.trim() === "" || drafts.reason.trim() === ""}
-          data-testid={submitTestId}
-          sx={{ minHeight: { xs: 44, sm: 40 }, px: 3, whiteSpace: "nowrap" }}
-        >
-          {t.adjustSubmit}
-        </Button>
-      </DialogActions>
+      <form onSubmit={handleSubmit} noValidate style={{ display: "contents" }}>
+        <DialogContent sx={{ display: "grid", gap: 2 }}>
+          <AdjustWalletFields
+            teacherName={teacherName}
+            drafts={drafts}
+            amountError={amountError || zeroAmount}
+            reasonError={reasonInvalid}
+            onAmountChange={amount => {
+              setDrafts(current => ({ ...current, amount }));
+              setAmountInvalid(false);
+            }}
+            onReasonChange={reason => {
+              setDrafts(current => ({ ...current, reason }));
+              setReasonInvalid(false);
+            }}
+            onDirectionPick={direction => {
+              setDrafts(current => ({ ...current, direction }));
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+          <Button
+            onClick={onClose}
+            disabled={loading}
+            variant="outlined"
+            color="inherit"
+            sx={{ minHeight: { xs: 44, sm: 40 }, px: 3, whiteSpace: "nowrap" }}
+          >
+            {tc.cancel}
+          </Button>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={loading || drafts.amount.trim() === "" || drafts.reason.trim() === ""}
+            data-testid={submitTestId}
+            sx={{ minHeight: { xs: 44, sm: 40 }, px: 3, whiteSpace: "nowrap" }}
+          >
+            {t.adjustSubmit}
+          </Button>
+        </DialogActions>
+      </form>
     </Dialog>
   );
 }

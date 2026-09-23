@@ -242,4 +242,48 @@ export const sessionsAr: SessionsLabels = {
         return ref;
     }
   },
+
+  // ─── Rubric Evaluation Submission (evaluator dialog) ────────────────────────
+  submitEvaluationAction: "إرسال التقييم",
+  awaitingEvaluation: "بانتظار تقييمك",
+  rubricDialogTitle: "استمارة التقييم",
+  rubricScoreLabel: "الدرجة (٠-١٠٠)",
+  rubricScoreBandPassing: "ناجحة — عند الحد الأدنى أو أعلى",
+  rubricScoreBandFailing: "بحاجة إلى تحديد مجال الضعف",
+  rubricNotesLabel: "الملاحظات",
+  rubricWeaknessLabel: "مجال الضعف الرئيسي",
+  rubricWeaknessTajweed: "التجويد",
+  rubricWeaknessHifz: "الحفظ",
+  rubricWeaknessHelper: "يظهر للدرجات الأقل من ٨٠ — ويحدد مجال الضعف مدة الانتظار قبل إعادة التقديم.",
+  rubricSubmitCta: "إرسال التقييم",
+  rubricSubmittedSuccess: "تم إرسال التقييم.",
+  rubricImpactPass: "بمجرد الحفظ يتقدّم المتقدّم خطوة في مسار التقييم.",
+  rubricImpactFail: "يُدخل الحفظ دون الحد الأدنى المتقدّم في مدة انتظار يحدّدها مجال الضعف قبل إعادة التقييم.",
+  rubricDraftRestoredNotice: "استُعيدت مسودّتك غير المُرسَلة من هذا الجهاز.",
+  rubricDraftDiscardCta: "حذف المسودّة",
+  // شارة إثبات الحفظ تحت تنبيه الاستعادة — صيغة "متى" النسبية تأتي من سلّم
+  // Intl.RelativeTimeFormat الخاص بالمنصّة.
+  rubricDraftSavedAtLabel: "حُفظت المسودّة",
+  // شارة المسودّة الموقوفة على الصفوف قيد الانتظار — تُعلن أنّ مسودّة قابلة
+  // للاستعادة محفوظة لهذه الجلسة (قراءة العضوية على مستوى القائمة تقرّر لكل
+  // صف؛ وقيم الاستعادة الفعلية ملك حوار الاستعادة).
+  rubricDraftParkedChip: "مسودّة غير مُرسَلة",
+  // تشخيصات النظافة — اجتياز تنظيف المسودّات الموقوفة يذكر كم مسودّة قديمة
+  // نظّفها (سابقة دالة القالب؛ كل لغة تملك قواعد الجمع الخاصة بها).
+  rubricDraftsPrunedLine: (count: number) => {
+    if (count === 1) return "تم تنظيف مسودّة قديمة واحدة";
+    if (count === 2) return "تم تنظيف مسودّتين قديمتين";
+    if (count <= 10) return `تم تنظيف ${count} من المسودّات القديمة`;
+    return `تم تنظيف ${count} مسودّة قديمة`;
+  },
+
+  // ─── Pending-rubric banner (teacher sessions surface) ───────────────────────
+  pendingRubricCountLine: (count: number) => {
+    if (count === 1) return "تقييم واحد بانتظار إرسالك";
+    if (count === 2) return "تقييمان بانتظار إرسالك";
+    if (count <= 10) return `${count} تقييمات بانتظار إرسالك`;
+    return `${count} تقييماً بانتظار إرسالك`;
+  },
+  pendingRubricFilterCta: "اعرض هذه الجلسات فقط",
+  pendingRubricFilterActiveCta: "تُعرض هذه الجلسات فقط — إظهار الجميع",
 };
