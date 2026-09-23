@@ -67,3 +67,12 @@ rests on a dismissed finding — arbitrate with DOM ground truth via `agent-brow
 styles (`letterSpacing`, `minHeight`, `textAlign`), `getBoundingClientRect` for sizes/centering,
 Range client-rects for bidi/line ordering, and the translation source for copy claims. Record the
 measurement in the outcome; a finding disproven by DOM evidence is dismissed, not accepted debt.
+
+## Modal-capture arbitration (added 2026-09-23)
+
+Dialog/overlay captures attract modal-semantics delusions: inspectors score a modal DOWN for
+"obscuring the primary content" (its purpose), claim "lacks a backdrop" against a DOM-verified
+`rgba(0, 0, 0, 0.5)` `.MuiBackdrop-root`, and invent phantom UI states. Arbitrate EVERY
+backdrop/centering/occlusion claim against `getComputedStyle` before acting, and treat
+re-inspection findings that contradict the prior pass's DOM evidence as inspector noise —
+never as new regressions.

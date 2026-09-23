@@ -301,3 +301,30 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
 - Landing provisioning rows with `OVERRIDING SYSTEM VALUE` does not advance identity sequences —
   later auto-inserts collide; `setval(pg_get_serial_sequence(...), MAX(id))` after manual-ID loads.
   → plan outcome only (rig-specific).
+
+### 2026-09-23 — direct_student_onboarding_with_offline_payment (visual-improvement-loop run: 30 captures, 4 surfaces, EN+AR, PGlite dev rig)
+
+- Subagent contexts in this sandbox cannot render images (`Read` → "[1 image(s) omitted: images are
+  not available in sub-agent context]") — the orchestrator must inspect via the `z-ai vision` CLI,
+  ONE image per call (preserves the one-image golden rule mechanically). → landed:
+  `references/capture-protocol.md` (inspector fallback, updated in this change).
+- `z-ai vision -o <relative-path>` silently fails in this harness; `-o /abs/path.json` works and the
+  script wrapper `scripts/visual-loop/vlm-score-pass.sh`'s relative `vi-out/` outputs never appear.
+  → landed: `references/capture-protocol.md` (CLI invocation notes, updated in this change).
+- VLM inspectors hallucinate whole UI states under modal conditions (invented "Duplicate Students"
+  dialog, fabricated non-existent locale strings, "lacks backdrop" against a DOM-verified
+  rgba(0,0,0,.5) backdrop) — modal captures attract modal-semantics delusions; arbitrate EVERY
+  backdrop/centering/occlusion claim against `getComputedStyle` before acting, and treat v2
+  findings that contradict v1 as noise. → landed: `references/rubric.md` (modal-capture arbitration
+  note, updated in this change).
+- `text-overflow: ellipsis` without `white-space: nowrap` is DEAD CODE — the v1 pass proved it live
+  (history-dialog name line). Fix shape: always ship the three-property truncation recipe as a set.
+  → landed: `references/fix-patterns.md` (truncation-recipe row updated in this change).
+- Real submissions during capture drives double as free denial-path E2E: the duplicate-email and
+  duplicate-reference guards rendered their localized inline errors while driving the dialog —
+  worth an explicit step in the capture protocol when the surface has unique-constraint UX.
+  → landed: `references/capture-protocol.md` (state-drive note, updated in this change).
+- Per-user locale can silently re-assert between capture batches (LocaleSwitcher's write-through
+  mutation vs the cookie-only API): re-set the cookie AND re-verify the toolbar button's
+  aria-label before every batch. → landed: `references/capture-protocol.md` (Sessions & auth,
+  updated in this change).

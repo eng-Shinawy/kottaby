@@ -146,3 +146,26 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
   findings, which the gate reports as a lint FAILURE. Stop the dev server before running sub-loop
   gates (`pkill -f next-server`), run the gates with `LINT_QUEUE_CONCURRENCY=1
   LINT_MAX_OLD_SPACE_MB=1536`, then restart the dev server for recapture.
+
+## Inspector fallback (added 2026-09-23)
+
+When task-subagents cannot render images (sandbox harness: `Read` in a subagent returns
+"[1 image(s) omitted: images are not available in sub-agent context]"), inspect via the
+`z-ai vision` CLI instead — ONE image per call, which mechanically preserves the one-image
+golden rule. Always pass an ABSOLUTE output path (`-o /abs/dir/verdict.json`): relative
+`-o` paths silently produce no file. Keep verdicts idempotent (skip images that already
+have a verdict file) so recapture batches can reuse the same runner.
+
+## Real-form capture drives (added 2026-09-23)
+
+When the surface under capture has unique-constraint UX (emails, payment references,
+idempotency tokens), driving a REAL submission during the capture pass doubles as free
+denial-path E2E: resubmitting the same payload renders the localized inline error as part
+of the flow. Capture the error state too — it is one of the states reviewers ask about.
+
+## Locale re-assertion between batches (added 2026-09-23)
+
+The per-user locale preference can silently re-assert between capture batches (the
+switcher writes through to the account; the cookie API does not). Before EVERY batch:
+re-set the locale cookie AND re-verify the page's toolbar button aria-label marker —
+if the marker doesn't match the expected locale's label, the batch will marker-fail.

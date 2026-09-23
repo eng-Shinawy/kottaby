@@ -20,6 +20,7 @@ import type { ReactNode } from "react";
 import { DirectoryCopyEmailButton } from "@/frontend/views/admin/directory-shared/DirectoryCopyEmailButton";
 import { DirectoryViewDetailsButton } from "@/frontend/views/admin/directory-shared/DirectoryViewDetailsButton";
 import type { StudentDirectoryItem } from "@/frontend/views/admin/students/AdminStudentRowCells";
+import { StudentRecentOnboardingChip } from "@/frontend/views/admin/students/StudentRecentOnboardingChip";
 import { useDirectoryCopyEmail } from "@/frontend/views/admin/users/directory";
 import { UserAvatar } from "@/frontend/views/admin/users/ui";
 import type { AdminStudentsLabels } from "@/shared/locale/types/adminStudents";
@@ -30,11 +31,13 @@ const STUDENT_AVATAR_ROLE = "Student" as const;
 
 interface StudentIdentityCellProps {
   readonly student: StudentDirectoryItem;
-  readonly labels: Pick<AdminStudentsLabels, "quickActions" | "drawer">;
+  readonly labels: Pick<AdminStudentsLabels, "quickActions" | "drawer" | "recentlyOnboarded">;
   /** Invoked after the email copy resolves successfully (drives the snackbar). */
   readonly onCopyEmail?: () => void;
   /** Opens the detail drawer (the explicit per-row view-details affordance). */
   readonly onViewDetails?: () => void;
+  /** Renders the "recently onboarded" flag chip beside the name. */
+  readonly recentlyOnboarded?: boolean;
 }
 
 export function StudentIdentityCell({
@@ -42,6 +45,7 @@ export function StudentIdentityCell({
   labels,
   onCopyEmail,
   onViewDetails,
+  recentlyOnboarded,
 }: StudentIdentityCellProps): ReactNode {
   const { emailCopied, handleCopyEmail } = useDirectoryCopyEmail(student.email, onCopyEmail);
   return (
@@ -49,23 +53,26 @@ export function StudentIdentityCell({
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
         <UserAvatar fullName={student.name} role={STUDENT_AVATAR_ROLE} size={40} />
         <Box sx={{ minWidth: 0 }}>
-          <Typography
-            component="div"
-            title={student.name}
-            dir="ltr"
-            sx={{
-              fontSize: 15,
-              fontWeight: 600,
-              unicodeBidi: "isolate",
-              textAlign: "start",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              minWidth: 0,
-            }}
-          >
-            {student.name}
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+            <Typography
+              component="div"
+              title={student.name}
+              dir="ltr"
+              sx={{
+                fontSize: 15,
+                fontWeight: 600,
+                unicodeBidi: "isolate",
+                textAlign: "start",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              {student.name}
+            </Typography>
+            {recentlyOnboarded === true ? <StudentRecentOnboardingChip labels={labels} /> : null}
+          </Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
             {/* MUI Tooltip (not a bare `title`) — the email is the row's
                 identification datum and the column truncates it mid-address,

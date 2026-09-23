@@ -38,6 +38,8 @@ interface DirectoryMobileCardProps {
   readonly rows: ReactNode;
   /** Card click (opens the detail drawer); omit for inert cards. */
   readonly onClick?: () => void;
+  /** Highlight mode's quiet lane — dims this card (mirrors the desktop row). */
+  readonly quiet?: boolean;
 }
 
 export function DirectoryMobileCard({
@@ -48,6 +50,7 @@ export function DirectoryMobileCard({
   identity,
   rows,
   onClick,
+  quiet = false,
 }: DirectoryMobileCardProps): ReactNode {
   return (
     <Card
@@ -58,6 +61,7 @@ export function DirectoryMobileCard({
         boxShadow: theme.palette.shadow.card,
         p: 2,
         ...(onClick !== undefined && { cursor: "pointer" }),
+        ...(quiet && { opacity: 0.38, transition: theme.transitions.create("opacity") }),
       })}
     >
       {/*

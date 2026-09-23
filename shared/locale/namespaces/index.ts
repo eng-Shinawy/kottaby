@@ -24,6 +24,7 @@ export * from "./recitation";
 export * from "./registry";
 export * from "./schedule";
 export * from "./sessions";
+export * from "./studentOnboarding";
 export * from "./subscriptionAdmin";
 export * from "./upNext";
 export * from "./wallet";

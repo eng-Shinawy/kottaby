@@ -7,6 +7,7 @@
  *    that consume them; this barrel exists for ergonomic re-export.
  */
 export * from "./admin-finance.pothos";
+export * from "./admin-student-onboarding.pothos";
 export * from "./admin-students.pothos";
 export * from "./admin-teacher-applicants.pothos";
 export * from "./admin-teachers.pothos";

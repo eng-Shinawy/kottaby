@@ -566,6 +566,18 @@ const SUBSCRIPTION_ADMIN_TYPE_NAMES = [
   "StudentSubscriptionAuditPeek",
 ] as const;
 /**
+ * Admin direct-onboarding surface — the admin-gated one-call student
+ * provisioning write. The mutation carries the
+ * `authScopes: { $all: { authenticated: true, role: [UserRole.Admin] } }`
+ * conjunction and composes the EXISTING `AdminUserDetail` and
+ * `StudentSubscription` objects into the `AdminOnboardStudentResult`
+ * payload (no new entity object type); the wire input is the closed
+ * `AdminOnboardStudentOfflineInput` whitelist. The subscription lane,
+ * status, and gateway vocabularies are the already-pinned enum surfaces.
+ */
+const ADMIN_STUDENT_ONBOARDING_MUTATION_FIELDS = ["adminOnboardStudentWithOfflinePayment"] as const;
+const ADMIN_STUDENT_ONBOARDING_TYPE_NAMES = ["AdminOnboardStudentOfflineInput", "AdminOnboardStudentResult"] as const;
+/**
  * Teacher wallet ledger read (merged from main) — the paginated
  * own-transaction listing from the withdrawal workflow. The canonical
  * `TeacherTransaction` row object is REUSED (single canonical object
@@ -618,6 +630,7 @@ const ADMIN_FINANCE_TYPE_NAMES = [
  * session-target describe below.)
  */
 const PARENT_MONITORING_QUERY_FIELDS = [
+  "myChildrenUpcomingSessions",
   "myLinkedChildren",
   "parentChildHomework",
   "parentChildProgress",
@@ -630,6 +643,8 @@ const PARENT_MONITORING_TYPE_NAMES = [
   "ParentAttendanceEntry",
   "ParentAttendancePage",
   "ParentChildProgress",
+  "ParentChildUpcomingBlock",
+  "ParentChildUpcomingSession",
   "ParentHomeworkEntry",
   "ParentHomeworkPage",
   "ParentHomeworkPosition",
@@ -697,14 +712,16 @@ const RECONCILED_ADMIN_BROADCAST_CERTIFY_MUTATION_FIELDS = [
   "adminStopBroadcast",
 ] as const;
 /**
- * Teacher verification-plan purchase mutation — RECONCILED baseline drift
- * (the inputless applicant-purchase write shipped alongside the checkout
- * surface but was never enumerated in the Mutation-root additions pin;
- * first surfaced once the parent-monitoring deep-link read joined the
- * pinned inventory). Re-anchored as a documented one-time reconciliation
- * (NOT a silent baseline flip).
+ * Teacher verification-plan purchase mutation — RECONCILED duplicate pin.
+ * The inputless applicant-purchase write (`purchaseVerificationPlan`)
+ * shipped alongside the checkout surface and was reconciled into the
+ * Mutation-root additions pin — but it was ALREADY enumerated via
+ * `VERIFICATION_PLAN_MUTATION_FIELDS`, so the reconciled second spread
+ * double-pinned the field and made the freeze un-satisfiable against the
+ * unique live field list. The original pin stands; no second spread
+ * exists (NOT a silent baseline flip — the freeze keeps forbidding any
+ * unenumerated addition).
  */
-const RECONCILED_VERIFICATION_PLAN_PURCHASE_MUTATION_FIELDS = ["purchaseVerificationPlan"] as const;
 /**
  * Reconciled enum drift: the parent-link lifecycle vocabulary
  * (`LinkStatus`) and the broadcast-audience vocabulary
@@ -860,7 +877,8 @@ describe("Query._health — retyped probe surface", () => {
     // wallet ledger read (`myWalletLedger` — merged from main), and the
     // parent-portal student homework read (`myHomework` — the student
     // nav's homework entry, reusing the parent portal's canonical
-    // homework page projection).
+    // homework page projection), and the parent-portal upcoming-sessions
+    // read (`myChildrenUpcomingSessions` — merged from main).
     const additions = fieldNames.filter(name => !(PRE_3_1_QUERY_FIELDS as readonly string[]).includes(name));
     expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual(
       [
@@ -955,7 +973,7 @@ describe("HealthCheck object shape — four scalar fields, no id", () => {
 });
 
 describe("Surface freeze — pinned additions vs the baseline inventory", () => {
-  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user trio + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write)", () => {
+  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user trio + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write)", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
@@ -978,7 +996,10 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // alongside the R4 statusCounts aggregate), the session-recitation
     // write (`setSessionRecitation`), the admin financial-auditing trio
     // (`approveWithdrawal` / `rejectWithdrawal` / `adjustTeacherWallet`),
-    // and the student-evaluation rating write (`submitTeacherEvaluation`).
+    // and the student-evaluation rating write (`submitTeacherEvaluation`),
+    // and the evaluation-rubric submission write (`submitRubricEvaluation`),
+    // and the admin direct-onboarding write
+    // (`adminOnboardStudentWithOfflinePayment`).
     // All authScopes-gated — none is allowlist material; the
     // public-operation registry stays byte-unchanged.
     expect(names).toEqual(
@@ -1004,20 +1025,24 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...EVALUATION_BOOKING_MUTATION_FIELDS,
         ...EVALUATION_RUBRIC_MUTATION_FIELDS,
         ...SUBSCRIPTION_ADMIN_MUTATION_FIELDS,
-        ...RECONCILED_VERIFICATION_PLAN_PURCHASE_MUTATION_FIELDS,
+        // `purchaseVerificationPlan` is pinned once via
+        // VERIFICATION_PLAN_MUTATION_FIELDS — the reconciled second spread
+        // double-pinned it (see the reconciled-duplicate note above).
+        ...ADMIN_STUDENT_ONBOARDING_MUTATION_FIELDS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
     expect(names).not.toContain("_health");
   });
 
   test("admin mutations sit at their SORTED positions as ONE contiguous block in the Mutation root inventory", () => {
-    // The sixteen admin-root mutations must appear in this exact
+    // The seventeen admin-root mutations must appear in this exact
     // lexicographic order as ONE contiguous slice in the sorted Mutation
     // root inventory:
     //   adminBroadcastNotification < adminCancelSession <
     //   adminCancelSubscription < adminCertifyTeacherColdStart <
     //   adminChangeSubscriptionPlan < adminCreateUser <
-    //   adminExtendSubscription < adminJoinSession < adminReassignTeacher <
+    //   adminExtendSubscription < adminJoinSession <
+    //   adminOnboardStudentWithOfflinePayment < adminReassignTeacher <
     //   adminRenewSubscription < adminRescheduleSession <
     //   adminSetUserBlocked < adminSetUserDeleted < adminSetUserSuspended <
     //   adminStopBroadcast < adminUpdateUser
@@ -1029,9 +1054,10 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // interleaves the whole band (cancel/change-plan before
     // adminCertifyTeacherColdStart, extend between adminCreateUser and
     // adminJoinSession, renew between adminReassignTeacher and
-    // adminRescheduleSession), so the contiguity pin is re-anchored to
-    // the whole admin block, exactly as the sorted live schema emits
-    // them.
+    // adminRescheduleSession), and the direct-onboarding write lands
+    // between adminJoinSession and adminReassignTeacher, so the
+    // contiguity pin stays anchored to the whole admin block, exactly as
+    // the sorted live schema emits them.
     const names = Object.keys(graphQLSchema.getMutationType()?.getFields() ?? {}).toSorted((a, b) =>
       a.localeCompare(b)
     );
@@ -1044,6 +1070,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
       "adminCreateUser",
       "adminExtendSubscription",
       "adminJoinSession",
+      "adminOnboardStudentWithOfflinePayment",
       "adminReassignTeacher",
       "adminRenewSubscription",
       "adminRescheduleSession",
@@ -1053,7 +1080,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
       "adminStopBroadcast",
       "adminUpdateUser",
     ];
-    // Contiguous slice: the sixteen admin mutations MUST be adjacent in
+    // Contiguous slice: the seventeen admin mutations MUST be adjacent in
     // the sorted Mutation root inventory (no non-admin field interleaves
     // between them).
     const firstIndex = names.indexOf(adminMutationNames[0] ?? "");
@@ -1151,7 +1178,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the parent upcoming-sessions block pair + the direct-onboarding input/result pair", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1195,6 +1222,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...SUBSCRIPTION_ADMIN_ENUMS,
         ...EVALUATION_RUBRIC_ENUMS,
         ...WALLET_LEDGER_TYPE_NAMES,
+        ...ADMIN_STUDENT_ONBOARDING_TYPE_NAMES,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });

@@ -33,6 +33,10 @@ interface AdminStudentsResultsProps {
   readonly onCopyEmail?: () => void;
   /** Opens the detail drawer for a row/card (the directory owns the drawer). */
   readonly onViewDetails?: (student: StudentDirectoryItem) => void;
+  /** Lowercased emails of the admin's recent onboardings (the chip match). */
+  readonly recentEmails?: ReadonlySet<string>;
+  /** Highlight mode — rows/cards outside the recent set render in the quiet lane. */
+  readonly highlightRecent?: boolean;
 }
 
 export function AdminStudentsResults({
@@ -40,6 +44,8 @@ export function AdminStudentsResults({
   directory,
   onCopyEmail,
   onViewDetails,
+  recentEmails,
+  highlightRecent,
 }: AdminStudentsResultsProps): ReactNode {
   // When the query (or a refetch with no cached rows) failed, the error
   // alert in `AdminStudentsDirectoryContainer` is the sole surface — rendering
@@ -55,6 +61,8 @@ export function AdminStudentsResults({
         hasFilters={directory.hasFilters}
         onCopyEmail={onCopyEmail}
         onViewDetails={onViewDetails}
+        recentEmails={recentEmails}
+        highlightRecent={highlightRecent}
         pagination={
           <DirectoryPagination
             labels={labels}
@@ -74,6 +82,8 @@ export function AdminStudentsResults({
         hasFilters={directory.hasFilters}
         onCopyEmail={onCopyEmail}
         onViewDetails={onViewDetails}
+        recentEmails={recentEmails}
+        highlightRecent={highlightRecent}
       />
 
       <AdminStudentsMobilePaginationCard

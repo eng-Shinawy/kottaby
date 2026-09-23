@@ -161,6 +161,69 @@ type AdminDisputedSessionRow {
   teacherName: String
 }
 
+input AdminOnboardStudentOfflineInput {
+  """The student's country of residence."""
+  country: String!
+
+  """The student's login email — globally unique; a duplicate conflicts."""
+  email: String!
+
+  """The student's full name, stored on the new user row."""
+  fullName: String!
+
+  """Optional gender; omitted leaves the student's gender unset."""
+  gender: Gender
+
+  """
+  Optional id of the parent to link to the new student; omitted or null onboards unlinked. Must reference an existing parent user (server-validated).
+  """
+  parentId: Int
+
+  """Admin-authored initial password for the new student account."""
+  password: String!
+
+  """
+  Offline payment method of the collection (offline cash, bank transfer, or scholarship); online gateways are rejected server-side.
+  """
+  paymentMethod: PaymentGateway!
+
+  """
+  Human reference of the offline payment (1–255 characters after trimming; unique across subscriptions).
+  """
+  paymentReference: String!
+
+  """The student's contact phone number."""
+  phone: String!
+
+  """
+  Id of the subscription plan to activate (must be an active plan with a configured credit lane; server-validated).
+  """
+  planId: Int!
+}
+
+type AdminOnboardStudentResult {
+  """Balance lane the plan's session credit was applied to."""
+  creditedLane: SubscriptionCreditLane!
+
+  """
+  Sessions credited to that lane (the plan's full session count — never prorated).
+  """
+  creditedSessions: Int!
+
+  """
+  The student's unique handshake code, echoed flat for the confirming UI (the same value the nested student snapshot carries).
+  """
+  handshakeCode: String!
+
+  """The freshly provisioned student as a full admin user detail."""
+  student: AdminUserDetail!
+
+  """
+  The activated subscription row carrying the recorded offline payment evidence.
+  """
+  subscription: StudentSubscription!
+}
+
 type AdminParentSnapshot {
   linkedChildrenCount: Int!
 }
@@ -798,6 +861,7 @@ type Mutation {
   Join one started session as a read-only observer (admin-only, audit-only — no session column changes). Rows that are not started are SESSION_INVALID_TRANSITION conflicts with zero audit rows.
   """
   adminJoinSession(input: AdminSessionJoinInput!): Session!
+  adminOnboardStudentWithOfflinePayment(input: AdminOnboardStudentOfflineInput!): AdminOnboardStudentResult!
 
   """
   Reassign one scheduled session to a different certified teacher (admin-only; scheduled rows only). The candidate's certification is asserted under lock — an unapproved candidate is TEACHER_NOT_CERTIFIED and leaves the row untouched.

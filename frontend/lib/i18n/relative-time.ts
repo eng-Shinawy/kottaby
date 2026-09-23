@@ -27,7 +27,7 @@
  *    behavior) — one ladder, no duplicated divisions.
  */
 
-import { resolveLocaleTag } from "@/frontend/lib/i18n/format-date";
+import { formatApplicantDate, resolveLocaleTag } from "@/frontend/lib/i18n/format-date";
 
 /**
  * Relative captions render only for entries younger than this window;
@@ -124,4 +124,16 @@ export function formatRelativeAuditStamp(iso: string, locale: string, now: numbe
  */
 export function formatUnboundedRelativeTime(iso: string, locale: string, now: number = Date.now()): string | null {
   return formatRelativeTime(iso, locale, { windowMs: null, now });
+}
+
+/**
+ * The bounded-window stamp with absolute fallback — one call for surfaces
+ * that show EITHER caption (history lists, drawers): the relative caption
+ * when the instant sits inside the 7-day window, the deterministic
+ * absolute stamp otherwise. (`AuditTrailRow` deliberately does NOT use
+ * this — it renders the relative and absolute captions TOGETHER, relative
+ * primary + absolute precision.)
+ */
+export function formatBoundedStampOrAbsolute(iso: string, locale: string): string {
+  return formatRelativeAuditStamp(iso, locale) ?? formatApplicantDate(iso, locale);
 }

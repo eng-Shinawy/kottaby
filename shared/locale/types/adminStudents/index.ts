@@ -90,6 +90,10 @@ export interface AdminStudentsLabels {
     readonly clear: string;
     /** Refresh button — re-fetches the current page. */
     readonly refresh: string;
+    /** Toolbar toggle — dims rows/cards NOT in the device's recent onboardings. */
+    readonly highlightRecent: string;
+    /** Tooltip for the highlight toggle (honest device-scoped wording). */
+    readonly highlightRecentHint: string;
   };
 
   /** Shared/derived filter option labels not covered by the parent labels. */
@@ -100,6 +104,28 @@ export interface AdminStudentsLabels {
 
   /** Trial chip label shown above the granted timestamp in the trial column. */
   readonly trialBadge: string;
+  /** The "recently onboarded" flag chip on directory rows (localStorage match). */
+  readonly recentlyOnboarded: {
+    /** The compact chip label beside the row name. */
+    readonly chip: string;
+    /** Tooltip pointing at the onboarding dialog's handoff-code history. */
+    readonly tooltip: string;
+  };
+  /** The onboarding-history dialog (device-scoped cohort memory). */
+  readonly history: {
+    /** Toolbar button tooltip / accessible name. */
+    readonly open: string;
+    /** Dialog title. */
+    readonly title: string;
+    /** Empty state (no onboardings recorded yet). */
+    readonly empty: string;
+    /** Per-row copy affordance tooltip. */
+    readonly copyCode: string;
+    /** Post-copy tooltip state. */
+    readonly copied: string;
+    /** Footer caption — the honest privacy contract. */
+    readonly deviceNote: string;
+  };
 
   /** Accessible label for the floating scroll-back-to-top affordance. */
   readonly scrollBackToTop: string;

@@ -22,6 +22,7 @@ import type { PlansLabels } from "@/shared/locale/types/plans";
 import type { RecitationLabels } from "@/shared/locale/types/recitation";
 import type { ScheduleLabels } from "@/shared/locale/types/schedule";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
+import type { StudentOnboardingLabels } from "@/shared/locale/types/studentOnboarding";
 import type { SubscriptionAdminLabels } from "@/shared/locale/types/subscriptionAdmin";
 import type { UpNextLabels } from "@/shared/locale/types/upNext";
 import type { WalletLabels } from "@/shared/locale/types/wallet";
@@ -54,4 +55,5 @@ export interface Translations {
   parentMonitoringTranslations: ParentMonitoringLabels;
   analyticsTranslations: AnalyticsLabels;
   subscriptionAdminTranslations: SubscriptionAdminLabels;
+  studentOnboardingTranslations: StudentOnboardingLabels;
 }

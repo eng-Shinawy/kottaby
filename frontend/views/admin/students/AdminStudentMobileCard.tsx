@@ -38,6 +38,7 @@ import {
   StudentLanguageChips,
   StudentTrialContent,
 } from "@/frontend/views/admin/students/AdminStudentRowCells";
+import { StudentRecentOnboardingChip } from "@/frontend/views/admin/students/StudentRecentOnboardingChip";
 import type { AdminStudentsLabels } from "@/shared/locale/types/adminStudents";
 
 /** Role lane for directory avatars (expression-passed — a `role` string
@@ -52,6 +53,10 @@ interface AdminStudentMobileCardProps {
   readonly onCopyEmail?: () => void;
   /** Opens the detail drawer for this card (the directory owns the drawer). */
   readonly onViewDetails?: (student: StudentDirectoryItem) => void;
+  /** Lowercased emails of the admin's recent onboardings (the chip match). */
+  readonly recentEmails?: ReadonlySet<string>;
+  /** Highlight mode — dims this card unless the student was recently onboarded. */
+  readonly highlight?: boolean;
 }
 
 export function AdminStudentMobileCard({
@@ -60,17 +65,22 @@ export function AdminStudentMobileCard({
   locale,
   onCopyEmail,
   onViewDetails,
+  recentEmails,
+  highlight,
 }: AdminStudentMobileCardProps): ReactNode {
   const joinedCaption = formatApplicantDate(student.createdAt, locale);
+  const recentlyOnboarded = recentEmails?.has(student.email.toLowerCase()) === true;
   const openDetails = onViewDetails === undefined ? undefined : () => onViewDetails(student);
   return (
     <DirectoryMobileCard
+      quiet={highlight === true && !recentlyOnboarded}
       avatarName={student.name}
       avatarRole={STUDENT_AVATAR_ROLE}
       onClick={openDetails}
       name={<DirectoryMobileCardName name={student.name} />}
       trailing={
         <>
+          {recentlyOnboarded ? <StudentRecentOnboardingChip labels={labels} /> : null}
           <DirectoryMobileCardCaption caption={joinedCaption} />
           {openDetails !== undefined && (
             <DirectoryMobileCardAction

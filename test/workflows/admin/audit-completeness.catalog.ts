@@ -53,6 +53,22 @@ export interface AdminActionCensusEntry {
   readonly expectedActionTypes: readonly AuditActionType[];
   /** Exact `audit_logs.entity_type` string the producer must stamp. */
   readonly expectedEntityType: string;
+  /**
+   * Optional secondary audit-row shapes for composite producers — mutations
+   * whose single service path mints audit rows for MORE than one entity type
+   * in one commit (e.g. a provisioning flow that mints a `user` row and a
+   * `subscription` row together). Each member pins the exact
+   * `audit_logs.entity_type` string and the action verbs that secondary row
+   * must carry; the primary `expectedActionTypes`/`expectedEntityType` pair
+   * above keeps anchoring the row minted for the primary entity. A secondary
+   * entity type must differ from `expectedEntityType` — an extra same-entity
+   * row is expressed by widening the primary `expectedActionTypes` instead.
+   * Single-entity producers leave this undefined.
+   */
+  readonly secondaryExpectedAuditRows?: readonly {
+    entityType: string;
+    expectedActionTypes: readonly AuditActionType[];
+  }[];
   /** wired = journey must execute it; deferred = no shipped producer (ledger row required). */
   readonly kind: "wired" | "deferred";
   /** deferred rows must name their deferred-items ledger id (e.g. "D-001"). */
@@ -100,6 +116,16 @@ export const ADMIN_ACTION_CENSUS: readonly AdminActionCensusEntry[] = [
     serviceEntry: "AdminUserManagementService.setUserBlocked",
     expectedActionTypes: [AuditActionType.Suspend, AuditActionType.Reactivate],
     expectedEntityType: "user",
+    kind: "wired",
+  },
+
+  // ── Direct student onboarding (StudentOnboardingService) ───────────────────
+  {
+    mutationField: "adminOnboardStudentWithOfflinePayment",
+    serviceEntry: "StudentOnboardingService.onboardStudentWithOfflinePayment",
+    expectedActionTypes: [AuditActionType.Create],
+    expectedEntityType: "user",
+    secondaryExpectedAuditRows: [{ entityType: "subscription", expectedActionTypes: [AuditActionType.Create] }],
     kind: "wired",
   },
 

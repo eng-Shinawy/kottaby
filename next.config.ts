@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // already running"). All test/build scripts already export NEXT_DIST_DIR;
   // plain `bun run dev` keeps the default `.next`.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
-  allowedDevOrigins: ["*.space-z.ai", "*.space-zai"],
+  allowedDevOrigins: ["*.space-z.ai", "*.space-zai", "localhost", "127.0.0.1"],
   // Dev-only polish: hide the floating Next.js dev-tools indicator (the "N"
   // badge parked bottom-left in every dev capture — visual QA kept flagging
   // it as an overlapping artifact on production-looking screenshots; it has

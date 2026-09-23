@@ -575,13 +575,20 @@ describe("lock (a) — students.parent_id single-writer (INV-P1)", () => {
     expect(union).toEqual(["backend/db/repo/students/student.repository.ts"]);
   });
 
-  test("linkParentIfUnlinked is referenced in production by ONLY its definition and the sanctioned service caller", () => {
+  test("linkParentIfUnlinked is referenced in production by ONLY its definition and its sanctioned service callers", () => {
     const references = backendProdSources
       .filter(file => /\blinkParentIfUnlinked\b/u.test(file.content))
       .map(file => file.label)
       .toSorted((a, b) => a.localeCompare(b));
+    // INV-P1 stays intact: students.parent_id is written by EXACTLY ONE
+    // code path (the guarded repository writer above). Both service
+    // callers below are SANCTIONED CONSUMERS of that single writer —
+    // the parent-link-request flow and the admin direct-onboarding flow
+    // (which links the parent in the same onboarding transaction) —
+    // neither writes parent_id directly; a third caller surfaces here.
     expect(references).toEqual([
       "backend/db/repo/students/student.repository.ts",
+      "backend/services/admin/student-onboarding.service.ts",
       "backend/services/parents/parent-link-request.service.ts",
     ]);
   });

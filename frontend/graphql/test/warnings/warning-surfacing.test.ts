@@ -353,6 +353,13 @@ const MUTATION_SURFACE_INVENTORY_QUERY_DOCUMENT: DocumentNode = gql`
  * the already-stopped conflict and the not-found cell — rides `errors[]`),
  * so it is warning-incapable exactly like its `adminBroadcastNotification`
  * sibling.
+ *
+ * Refreshed for the admin direct-onboarding flow: `adminOnboardStudentWithOfflinePayment`
+ * resolves to the canonical onboarding payload (student + subscription +
+ * credited lane/sessions + handshake code; every denial — unauthorized,
+ * forbidden, validation, conflict, plan/user not-found — rides `errors[]`
+ * with structured `extensions.code`, never a partial-success wrapper), so it
+ * is warning-incapable like the canonical-payload entries above.
  */
 const KNOWN_LIVE_MUTATION_FIELDS = [
   "adjustTeacherWallet",
@@ -364,6 +371,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "adminCreateUser",
   "adminExtendSubscription",
   "adminJoinSession",
+  "adminOnboardStudentWithOfflinePayment",
   "adminReassignTeacher",
   "adminRenewSubscription",
   "adminRescheduleSession",

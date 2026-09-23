@@ -109,5 +109,9 @@ export function useAdminStudentsDirectory() {
     hasError,
     firstErrorCode,
     refetch,
+    // The live query variables — the direct-onboarding refetch contract:
+    // a completed onboarding re-fetches THIS query with them so the fresh
+    // row lands on the page/filter view the admin is looking at.
+    variables,
   };
 }

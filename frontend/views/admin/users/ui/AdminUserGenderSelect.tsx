@@ -30,6 +30,11 @@ interface AdminUserGenderSelectProps {
    * dialogs' pre-extraction behavior is preserved exactly.
    */
   readonly error: string | undefined;
+  /**
+   * Disables the select while the host surface is submitting. Optional —
+   * hosts that omit it keep the always-enabled behavior.
+   */
+  readonly disabled?: boolean;
 }
 
 /**
@@ -51,6 +56,7 @@ export function AdminUserGenderSelect({
   value,
   onChange,
   error,
+  disabled,
 }: AdminUserGenderSelectProps): ReactNode {
   // Value → option-text lookup for `renderValue`; keeps the rendered text in
   // sync with the MenuItems below without re-reading the DOM.
@@ -67,6 +73,7 @@ export function AdminUserGenderSelect({
         id={id}
         labelId={`${id}-label`}
         value={value}
+        disabled={disabled}
         onChange={e => onChange(e.target.value)}
         // `displayEmpty` + `renderValue`: an empty selection renders the field
         // label text in `text.secondary` as the placeholder instead of a bare

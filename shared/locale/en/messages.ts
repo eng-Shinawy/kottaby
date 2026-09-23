@@ -22,6 +22,7 @@ import { plansEn } from "@/shared/locale/en/plans";
 import { recitationEn } from "@/shared/locale/en/recitation";
 import { scheduleEn } from "@/shared/locale/en/schedule";
 import { sessionsEn } from "@/shared/locale/en/sessions";
+import { studentOnboardingEn } from "@/shared/locale/en/studentOnboarding";
 import { subscriptionAdminEn } from "@/shared/locale/en/subscriptionAdmin";
 import { upNextEn } from "@/shared/locale/en/upNext";
 import { walletEn } from "@/shared/locale/en/wallet";
@@ -55,4 +56,5 @@ export const enMessages: Translations = {
   parentMonitoringTranslations: parentMonitoringEn,
   analyticsTranslations: analyticsEn,
   subscriptionAdminTranslations: subscriptionAdminEn,
+  studentOnboardingTranslations: studentOnboardingEn,
 };

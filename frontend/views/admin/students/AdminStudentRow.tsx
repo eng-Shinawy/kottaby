@@ -43,6 +43,10 @@ interface AdminStudentRowProps {
   readonly onCopyEmail?: () => void;
   /** Opens the detail drawer for this row (the directory owns the drawer). */
   readonly onViewDetails?: (student: StudentDirectoryItem) => void;
+  /** Lowercased emails of the admin's recent onboardings (the chip match). */
+  readonly recentEmails?: ReadonlySet<string>;
+  /** Highlight mode — dims this row unless the student was recently onboarded. */
+  readonly highlight?: boolean;
 }
 
 export function AdminStudentRow({
@@ -52,11 +56,20 @@ export function AdminStudentRow({
   striped,
   onCopyEmail,
   onViewDetails,
+  recentEmails,
+  highlight,
 }: AdminStudentRowProps): ReactNode {
   const openDetails = onViewDetails === undefined ? undefined : () => onViewDetails(student);
+  const recentlyOnboarded = recentEmails?.has(student.email.toLowerCase()) === true;
   return (
-    <DirectoryBodyRow onClick={openDetails} striped={striped}>
-      <StudentIdentityCell student={student} labels={labels} onCopyEmail={onCopyEmail} onViewDetails={openDetails} />
+    <DirectoryBodyRow onClick={openDetails} striped={striped} quiet={highlight === true && !recentlyOnboarded}>
+      <StudentIdentityCell
+        student={student}
+        labels={labels}
+        onCopyEmail={onCopyEmail}
+        onViewDetails={openDetails}
+        recentlyOnboarded={recentlyOnboarded}
+      />
       <TableCell sx={{ minWidth: 0 }}>
         <StudentBalancesBadges student={student} labels={labels} />
       </TableCell>

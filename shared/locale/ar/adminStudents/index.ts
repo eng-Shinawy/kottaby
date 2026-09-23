@@ -30,11 +30,25 @@ export const adminStudentsAr: AdminStudentsLabels = {
     apply: "تطبيق",
     clear: "مسح المرشحات",
     refresh: "تحديث",
+    highlightRecent: "إبراز المُجهَّزين حديثاً",
+    highlightRecentHint: "يعتم الطلاب غير الموجودين في سجل التجهيزات الحديثة على هذا الجهاز (آخر خمسة).",
   },
   filterOptions: {
     all: "الكل",
   },
   trialBadge: "فترة تجريبية",
+  recentlyOnboarded: {
+    chip: "مُجهَّز حديثاً",
+    tooltip: "تم تجهيزه مؤخراً — رمز التسليم للولي محفوظ في سجل حوار التجهيز.",
+  },
+  history: {
+    open: "سجل التجهيز",
+    title: "التجهيزات الحديثة على هذا الجهاز",
+    empty: "لم يُسجَّل أي تجهيز على هذا الجهاز بعد.",
+    copyCode: "نسخ رمز التسليم",
+    copied: "تم النسخ",
+    deviceNote: "هذه القائمة محفوظة في هذا المتصفح فقط ولا تغادر الجهاز.",
+  },
   scrollBackToTop: "العودة إلى الأعلى",
   emptyState: {
     title: "لا يوجد طلاب بعد",

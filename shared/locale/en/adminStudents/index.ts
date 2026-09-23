@@ -30,11 +30,25 @@ export const adminStudentsEn: AdminStudentsLabels = {
     apply: "Apply",
     clear: "Clear filters",
     refresh: "Refresh",
+    highlightRecent: "Highlight recent",
+    highlightRecentHint: "Dims students that are NOT in this device's recent onboardings (the last five).",
   },
   filterOptions: {
     all: "All",
   },
   trialBadge: "Trial granted",
+  recentlyOnboarded: {
+    chip: "Recently onboarded",
+    tooltip: "Onboarded recently — the parent handoff code lives in the onboarding dialog history.",
+  },
+  history: {
+    open: "Onboarding history",
+    title: "Recent onboardings on this device",
+    empty: "No onboardings recorded on this device yet.",
+    copyCode: "Copy handoff code",
+    copied: "Copied",
+    deviceNote: "This list lives in this browser only — it never leaves the device.",
+  },
   scrollBackToTop: "Back to top",
   emptyState: {
     title: "No students yet",

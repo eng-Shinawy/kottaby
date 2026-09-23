@@ -43,12 +43,16 @@ interface AdminStudentsTableProps {
   readonly onCopyEmail?: () => void;
   /** Opens the detail drawer for a row (the directory owns the drawer). */
   readonly onViewDetails?: (student: StudentDirectoryItem) => void;
+  /** Lowercased emails of the admin's recent onboardings (the chip match). */
+  readonly recentEmails?: ReadonlySet<string>;
+  /** Highlight mode — rows outside the recent set render in the quiet lane. */
+  readonly highlightRecent?: boolean;
   /** Footer slot rendered inside the card (the shared `DirectoryPagination` bar). */
   readonly pagination?: ReactNode;
 }
 
 export function AdminStudentsTable(props: AdminStudentsTableProps): ReactNode {
-  const { labels, items, loading, hasFilters, onCopyEmail, onViewDetails } = props;
+  const { labels, items, loading, hasFilters, onCopyEmail, onViewDetails, recentEmails, highlightRecent } = props;
   const locale = useAppLocale();
   /*
    * Column widths (R5 rebalance): BALANCES 21% restores the 2×2
@@ -82,6 +86,8 @@ export function AdminStudentsTable(props: AdminStudentsTableProps): ReactNode {
           striped={index % 2 === 1}
           onCopyEmail={onCopyEmail}
           onViewDetails={onViewDetails}
+          recentEmails={recentEmails}
+          highlight={highlightRecent === true}
         />
       ))}
       pagination={props.pagination}

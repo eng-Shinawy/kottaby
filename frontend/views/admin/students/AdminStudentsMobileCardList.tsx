@@ -29,6 +29,10 @@ interface AdminStudentsMobileCardListProps {
   readonly onCopyEmail?: () => void;
   /** Opens the detail drawer for a card (the directory owns the drawer). */
   readonly onViewDetails?: (student: StudentDirectoryItem) => void;
+  /** Lowercased emails of the admin's recent onboardings (the chip match). */
+  readonly recentEmails?: ReadonlySet<string>;
+  /** Highlight mode — cards outside the recent set render in the quiet lane. */
+  readonly highlightRecent?: boolean;
 }
 
 export function AdminStudentsMobileCardList(props: AdminStudentsMobileCardListProps): ReactNode {
@@ -47,6 +51,8 @@ export function AdminStudentsMobileCardList(props: AdminStudentsMobileCardListPr
           locale={locale}
           onCopyEmail={props.onCopyEmail}
           onViewDetails={props.onViewDetails}
+          recentEmails={props.recentEmails}
+          highlight={props.highlightRecent === true}
         />
       ))}
     />

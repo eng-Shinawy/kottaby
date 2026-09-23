@@ -14,7 +14,10 @@
  *     wasted queries),
  *  4. flex spacer, then a "clear filters" text button (rendered only while
  *     at least one filter is set) and a refresh text button re-fetching the
- *     current page.
+ *     current page,
+ *  5. an inline-end "Onboard student" primary action opening the direct
+ *     student onboarding dialog (owned by the directory container;
+ *     disabled while that dialog is open or its write is in flight).
  *
  * The card chrome is the SHARED `DirectoryToolbarCard`; the search input and
  * the copy-link / export-CSV / refresh actions are the directory-shared
@@ -34,15 +37,22 @@ import { DirectoryExportCsvButton } from "@/frontend/views/admin/directory-share
 import { DirectoryToolbarCard } from "@/frontend/views/admin/directory-shared/DirectoryToolbarCard";
 import { DirectoryToolbarRefreshButton } from "@/frontend/views/admin/directory-shared/DirectoryToolbarRefreshButton";
 import { DirectoryToolbarSearchField } from "@/frontend/views/admin/directory-shared/DirectoryToolbarSearchField";
-import { StudentLanguageField } from "@/frontend/views/admin/students/AdminStudentsToolbarFields";
+import {
+  HighlightRecentToggle,
+  OnboardingHistoryButton,
+  OnboardStudentButton,
+  StudentLanguageField,
+} from "@/frontend/views/admin/students/AdminStudentsToolbarFields";
 import type { StudentHasParentFilter } from "@/frontend/views/admin/students/adminStudentsDirectory.helpers";
 import type { useAdminStudentsDirectory } from "@/frontend/views/admin/students/hooks";
 import { DirectoryFilterSelect } from "@/frontend/views/admin/users/directory";
+import { useAppTranslation } from "@/shared/locale/client";
+import { StudentOnboarding } from "@/shared/locale/namespaces/studentOnboarding";
 import type { AdminStudentsLabels } from "@/shared/locale/types/adminStudents";
 
 type ToolbarLabels = Pick<
   AdminStudentsLabels,
-  "filters" | "filterOptions" | "parentLabels" | "export" | "quickActions"
+  "filters" | "filterOptions" | "parentLabels" | "export" | "quickActions" | "history"
 >;
 
 /** Directory state slice consumed by the toolbar (from `useAdminStudentsDirectory`). */
@@ -73,6 +83,16 @@ interface AdminStudentsToolbarProps {
   readonly exportLoading: boolean;
   /** `true` while loading or the filtered total is zero — nothing to export. */
   readonly exportDisabled: boolean;
+  /** Opens the direct student onboarding dialog (owned by the container). */
+  readonly onOnboardStudent: () => void;
+  /** Highlight mode state — dims rows/cards outside the recent-onboarding set. */
+  readonly highlightRecent: boolean;
+  /** Flips the highlight mode (the container owns the state). */
+  readonly onToggleHighlightRecent: () => void;
+  /** Opens the device-scoped onboarding-history dialog (container-owned). */
+  readonly onOpenHistory: () => void;
+  /** `true` while the onboarding dialog is open or its write is in flight. */
+  readonly onboardDisabled: boolean;
   /** Invoked after the view URL copies successfully (drives the snackbar). */
   readonly onCopyLink?: () => void;
 }
@@ -93,8 +113,16 @@ export function AdminStudentsToolbar({
   onExportCsv,
   exportLoading,
   exportDisabled,
+  onOnboardStudent,
+  onboardDisabled,
+  highlightRecent,
+  onToggleHighlightRecent,
+  onOpenHistory,
   onCopyLink,
 }: AdminStudentsToolbarProps): ReactNode {
+  // The affordance's copy lives in the onboarding flow's own namespace —
+  // this toolbar renders no other onboarding strings.
+  const onboardingLabels = useAppTranslation(StudentOnboarding);
   // Stable element ids — wire `InputLabel htmlFor` ↔ control `id` so screen
   // readers announce the label when focus lands on the control (axe-core
   // `aria-input-field-name` rule). Prefixed with the component name to avoid
@@ -160,6 +188,9 @@ export function AdminStudentsToolbar({
           void directory.refetch();
         }}
       />
+      <OnboardingHistoryButton labels={labels} onClick={onOpenHistory} />
+      <HighlightRecentToggle active={highlightRecent} onToggle={onToggleHighlightRecent} labels={labels} />
+      <OnboardStudentButton label={onboardingLabels.title} onClick={onOnboardStudent} disabled={onboardDisabled} />
     </DirectoryToolbarCard>
   );
 }

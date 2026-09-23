@@ -12,6 +12,7 @@ export * from "./audit-trail.service";
 export * from "./cold-start-certification.service";
 export * from "./platform-analytics.service";
 export * from "./student-directory.service";
+export * from "./student-onboarding.service";
 export * from "./teacher-applicant-directory.service";
 export * from "./teacher-directory.service";
 export * from "./user-management.service";

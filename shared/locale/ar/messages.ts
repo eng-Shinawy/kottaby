@@ -22,6 +22,7 @@ import { plansAr } from "@/shared/locale/ar/plans";
 import { recitationAr } from "@/shared/locale/ar/recitation";
 import { scheduleAr } from "@/shared/locale/ar/schedule";
 import { sessionsAr } from "@/shared/locale/ar/sessions";
+import { studentOnboardingAr } from "@/shared/locale/ar/studentOnboarding";
 import { subscriptionAdminAr } from "@/shared/locale/ar/subscriptionAdmin";
 import { upNextAr } from "@/shared/locale/ar/upNext";
 import { walletAr } from "@/shared/locale/ar/wallet";
@@ -55,4 +56,5 @@ export const arMessages: Translations = {
   parentMonitoringTranslations: parentMonitoringAr,
   analyticsTranslations: analyticsAr,
   subscriptionAdminTranslations: subscriptionAdminAr,
+  studentOnboardingTranslations: studentOnboardingAr,
 };

@@ -52,7 +52,7 @@ import { Notifications } from "@/shared/locale/namespaces/notifications";
 
 // ─── Mandated key inventory (the notification-feed surface ground truth) ────
 
-/** Every key the notifications UI namespace must carry (70 slots). */
+/** Every key the notifications UI namespace must carry (74 slots). */
 const MANDATED_KEYS = [
   "title",
   "emptyTitle",
@@ -111,6 +111,8 @@ const MANDATED_KEYS = [
   "eventParentLinkExpiringBody",
   "eventPaymentConfirmedTitle",
   "eventPaymentConfirmedBody",
+  "eventPaymentFailedTitle",
+  "eventPaymentFailedBody",
   "eventSessionGovernanceRescheduledTitle",
   "eventSessionGovernanceRescheduledBody",
   "eventSessionGovernanceCancelledTitle",
@@ -151,7 +153,7 @@ const TYPE_LABEL_KEYS = [
   "typeEvaluationResult",
 ] as const;
 
-/** The nineteen function-valued slots (pluralization + interpolation templates). */
+/** The twenty function-valued slots (pluralization + interpolation templates). */
 const FUNCTION_KEYS = [
   "markReadAriaLabel",
   "markAllResult",
@@ -170,6 +172,7 @@ const FUNCTION_KEYS = [
   "eventParentLinkRejectedBody",
   "eventParentLinkExpiringBody",
   "eventPaymentConfirmedBody",
+  "eventPaymentFailedBody",
   "eventSessionReportReadyBody",
   "eventSessionReportReadyParentBody",
 ] as const;
@@ -211,6 +214,7 @@ const FUNCTION_SLOT_SAMPLE_ARGS: Record<
   eventParentLinkRejectedBody: { en: ["Yusuf"], ar: ["الطالب"] },
   eventParentLinkExpiringBody: { en: ["Yusuf"], ar: ["الطالب"] },
   eventPaymentConfirmedBody: { en: ["Hifz Plan"], ar: ["خطة الحفظ"] },
+  eventPaymentFailedBody: { en: ["Hifz Plan"], ar: ["خطة الحفظ"] },
   eventSessionReportReadyBody: { en: ["Sheikh Omar"], ar: ["الشيخ عمر"] },
   eventSessionReportReadyParentBody: { en: ["Yusuf", "Sheikh Omar"], ar: ["يوسف", "الشيخ عمر"] },
 };
@@ -263,7 +267,7 @@ describe("compile-time parity mirror — ar/en key sets agree", () => {
     expect(Object.hasOwn(notificationsEn, key)).toBe(true);
   });
 
-  test("the mandated inventory is exhaustive (no silent key minting beyond the 70 slots)", () => {
+  test("the mandated inventory is exhaustive (no silent key minting beyond the 74 slots)", () => {
     const mandated = new Set<string>(MANDATED_KEYS);
     for (const key of Object.keys(notificationsAr)) {
       expect(mandated.has(key)).toBe(true);
@@ -434,7 +438,7 @@ describe("registry + bundle wiring", () => {
 });
 
 // ===========================================================================
-describe("function-slot inventory — exactly the nineteen locale functions, on BOTH maps", () => {
+describe("function-slot inventory — exactly the twenty locale functions, on BOTH maps", () => {
   test.each([...FUNCTION_KEYS])("slot `%s` is a function on BOTH maps", key => {
     expect(typeof Reflect.get(notificationsAr, key)).toBe("function");
     expect(typeof Reflect.get(notificationsEn, key)).toBe("function");

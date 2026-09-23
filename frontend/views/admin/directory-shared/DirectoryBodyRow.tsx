@@ -19,9 +19,20 @@ interface DirectoryBodyRowProps {
   readonly striped?: boolean;
   /** Row click (opens the detail drawer) — pointer convenience only. */
   readonly onClick?: () => void;
+  /**
+   * Highlight mode's quiet lane: dims this row to push the matching
+   * (highlighted) rows forward without hiding them — the directory stays
+   * complete, the recent cohort just leads the eye.
+   */
+  readonly quiet?: boolean;
 }
 
-export function DirectoryBodyRow({ children, striped = false, onClick }: DirectoryBodyRowProps): ReactNode {
+export function DirectoryBodyRow({
+  children,
+  striped = false,
+  onClick,
+  quiet = false,
+}: DirectoryBodyRowProps): ReactNode {
   const clickable = onClick !== undefined;
   return (
     <TableRow
@@ -38,6 +49,7 @@ export function DirectoryBodyRow({ children, striped = false, onClick }: Directo
         bgcolor: striped ? theme.palette.action.hover : "transparent",
         height: 72,
         ...(clickable && { cursor: "pointer" }),
+        ...(quiet && { opacity: 0.38, transition: theme.transitions.create("opacity") }),
       })}
     >
       {children}

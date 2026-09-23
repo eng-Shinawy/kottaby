@@ -10,5 +10,6 @@
  */
 import "./admin-finance.mutation";
 import "./admin-governance.mutation";
+import "./admin-student-onboarding.mutation";
 import "./admin-teachers.mutation";
 import "./admin-users.mutation";

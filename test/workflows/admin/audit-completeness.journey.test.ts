@@ -59,6 +59,7 @@ import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
 import { createTestPlan, createTestSubscription, createTestWallet } from "@/backend/db/test/entity-setup";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import { PaymentGateway } from "@/backend/enum/billing/payment-gateway.enum";
 import { ProrationDirection } from "@/backend/enum/billing/proration-direction.enum";
 import { SubscriptionCreditLane } from "@/backend/enum/billing/subscription-credit-lane.enum";
 import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
@@ -70,7 +71,12 @@ import { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolution.
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { ConflictError, DomainError, ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
-import { AdminUserManagementService, AuditTrailService, ColdStartCertificationService } from "@/backend/services/admin";
+import {
+  AdminUserManagementService,
+  AuditTrailService,
+  ColdStartCertificationService,
+  StudentOnboardingService,
+} from "@/backend/services/admin";
 import { AdminFinancialAuditingService } from "@/backend/services/billing/admin-financial-auditing.service";
 import { PlanCatalogService } from "@/backend/services/billing/plan-catalog.service";
 import { SubscriptionAdminService } from "@/backend/services/billing/subscription-admin.service";
@@ -83,6 +89,7 @@ import type {
   AdminAuditLogEntryReturnType,
   AdminAuditTrailFiltersSubmitInput,
   AdminCreateUserSubmitInput,
+  AdminOnboardStudentSubmitInput,
   AdminSessionCancelInput,
   AdminSessionJoinInput,
   AdminSessionReassignInput,
@@ -175,6 +182,12 @@ const SOURCE_PLAN_INTERVAL_DAYS = 30;
 const DOWNGRADE_PLAN_SESSION_COUNT = 4;
 const DOWNGRADE_PLAN_PRICE = "50.00";
 const DOWNGRADE_PLAN_INTERVAL_DAYS = 30;
+/** The direct-onboarding leg's lane-bearing plan shape (active, Hifz lane). */
+const ONBOARD_PLAN_SESSION_COUNT = 6;
+const ONBOARD_PLAN_PRICE = "120.00";
+const ONBOARD_PLAN_INTERVAL_DAYS = 30;
+/** The direct-onboarding leg's admin-authored offline reference — the run-unique human idempotency token. */
+const ONBOARD_PAYMENT_REFERENCE = `${runPrefix}-offline-ref`;
 /** Milliseconds per day — the extend leg's window arithmetic unit (whole-second instants stay lossless). */
 const MS_PER_DAY = 86_400_000;
 /** The extend fixture's stored window — whole-second UTC instants the ISO audit details compare exactly. */
@@ -217,6 +230,8 @@ const USER_LIFECYCLE_LEG = [
   "adminSetUserSuspended",
   "adminSetUserBlocked",
 ] as const;
+/** Direct student onboarding — the composite producer (user + subscription rows in one commit). */
+const STUDENT_ONBOARDING_LEG = ["adminOnboardStudentWithOfflinePayment"] as const;
 const CERTIFICATION_BROADCAST_LEG = [
   "adminCertifyTeacherColdStart",
   "adminBroadcastNotification",
@@ -364,12 +379,15 @@ function record(
   entry: AdminActionCensusEntry,
   actionType: AuditActionType,
   entityId: number | null,
-  expectedDetails: Record<string, unknown>
+  expectedDetails: Record<string, unknown>,
+  // Optional entity stamp — defaults to the row's primary anchor; a composite
+  // producer passes its secondary row's declared entity type explicitly.
+  entityType: string = entry.expectedEntityType
 ): void {
   executed.push({
     mutationField: entry.mutationField,
     actionType,
-    entityType: entry.expectedEntityType,
+    entityType,
     entityId,
     expectedDetails,
   });
@@ -414,6 +432,10 @@ let stopTargetBroadcastId = 0;
 /** Subscription-admin anchors: two same-lane plans + the subscription rows the legs act on and mint. */
 let sourcePlanId = 0;
 let downgradePlanId = 0;
+/** The direct-onboarding leg's anchors: the lane-bearing plan + the fresh student + its subscription. */
+let onboardingPlanId = 0;
+let onboardedStudentId = 0;
+let onboardedSubscriptionId = 0;
 let extendSubscriptionId = 0;
 let renewSourceId = 0;
 let renewedSubscriptionId = 0;
@@ -563,6 +585,69 @@ const censusRunners: Record<string, CensusRunner> = {
       changedFields: ["isBlocked", "blockedAt"],
       blocked: false,
     });
+  },
+
+  adminOnboardStudentWithOfflinePayment: async (entry, executed) => {
+    // ONE real service execution mints BOTH census rows in one commit: the
+    // user Create row (minted inside the user-provisioning seam, anchored on
+    // the fresh student user id) and the subscription Create row (anchored
+    // on the activated subscription). The parent fixture is the cast
+    // parent — the flow links the fresh student to that parent inside the
+    // same transaction, so the secondary row's details carry the link.
+    const onboardInput: AdminOnboardStudentSubmitInput = {
+      fullName: `${runPrefix} Onboarded Student`,
+      email: `${runPrefix}-onboarded-${randomUUID().slice(0, 8)}@journey.test`,
+      phone: "+10000000000",
+      password: TARGET_CREDENTIAL,
+      country: "Egypt",
+      parentId: parentActor.userId,
+      planId: onboardingPlanId,
+      paymentMethod: PaymentGateway.OfflineCash,
+      paymentReference: ONBOARD_PAYMENT_REFERENCE,
+    };
+    const onboarded = await StudentOnboardingService.onboardStudentWithOfflinePayment(
+      onboardInput,
+      adminA.userId,
+      LOCALE
+    );
+    onboardedStudentId = onboarded.student.id;
+    onboardedSubscriptionId = onboarded.subscription.id;
+    expect(onboarded.student.student).not.toBeNull();
+    expect(onboarded.subscription.status).toBe(SubscriptionStatus.Active);
+    expect(onboarded.creditedLane).toBe(SubscriptionCreditLane.Hifz);
+    expect(onboarded.creditedSessions).toBe(ONBOARD_PLAN_SESSION_COUNT);
+    expect(onboarded.handshakeCode.length).toBeGreaterThan(0);
+    tracked.register(users, onboardedStudentId);
+    tracked.register(students, onboardedStudentId);
+    tracked.register(subscriptions, onboardedSubscriptionId);
+
+    // Row #1 — the user Create row under the row's primary anchor (the
+    // five-argument record; the entity stamp defaults to the primary
+    // "user" entity type). The details contract is the user-provisioning
+    // seam's: the hard-coded role only.
+    record(executed, entry, AuditActionType.Create, onboardedStudentId, { role: "student" });
+
+    // Row #2 — the subscription Create row recorded under its declared
+    // secondary shape: the six-argument record with the literal
+    // "subscription" entity stamp. The details contract mirrors the
+    // onboarding writer exactly: ids, enums, counts, and the admin-authored
+    // reference — no contact fields, no credentials.
+    record(
+      executed,
+      entry,
+      AuditActionType.Create,
+      onboardedSubscriptionId,
+      {
+        studentUserId: onboardedStudentId,
+        planId: onboardingPlanId,
+        parentId: parentActor.userId,
+        paymentMethod: PaymentGateway.OfflineCash,
+        paymentReference: ONBOARD_PAYMENT_REFERENCE,
+        creditedLane: SubscriptionCreditLane.Hifz,
+        creditedSessions: ONBOARD_PLAN_SESSION_COUNT,
+      },
+      "subscription"
+    );
   },
 
   adminCertifyTeacherColdStart: async (entry, executed) => {
@@ -978,6 +1063,8 @@ const censusRunners: Record<string, CensusRunner> = {
  * Executes the census rows named by `mutationFields` through their real
  * service runners and validates every execution against the census row's
  * pinned contract (verb inside `expectedActionTypes`, entity type exact).
+ * A composite producer's secondary rows are validated against their own
+ * declared `secondaryExpectedAuditRows` shape (entity type + verbs) instead.
  * A missing runner or an off-contract execution fails loudly — the census
  * drives, the services obey.
  */
@@ -1004,6 +1091,25 @@ async function executeCensusRows(mutationFields: readonly string[]): Promise<Exe
       throw new Error(`census execution: "${entry.mutationField}" recorded no executions`);
     }
     for (const action of produced) {
+      // A composite producer's secondary row is validated against its OWN
+      // declared shape: the entity type must be one the census row honestly
+      // declares via `secondaryExpectedAuditRows`, and the verb must come
+      // from that matching member. Primary-anchor rows fall through to the
+      // original contract checks below, unchanged.
+      const secondaryShape = entry.secondaryExpectedAuditRows?.find(
+        candidate =>
+          candidate.entityType === action.entityType &&
+          // The primary anchor keeps precedence over a redundant secondary.
+          candidate.entityType !== entry.expectedEntityType
+      );
+      if (secondaryShape) {
+        if (!secondaryShape.expectedActionTypes.includes(action.actionType)) {
+          throw new Error(
+            `census execution: "${entry.mutationField}" minted unexpected verb "${action.actionType}" for secondary entity "${secondaryShape.entityType}"`
+          );
+        }
+        continue;
+      }
       if (!entry.expectedActionTypes.includes(action.actionType)) {
         throw new Error(`census execution: "${entry.mutationField}" minted unexpected verb "${action.actionType}"`);
       }
@@ -1156,6 +1262,20 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       downgradePlanId = downgradePlan.id;
       tracked.register(plans, downgradePlanId);
 
+      // The direct-onboarding leg's fixture: an ACTIVE lane-bearing plan the
+      // onboarding census runner provisions against (fixture lane — zero
+      // audit rows, so the runner's service execution stays the leg's only
+      // producer footprint).
+      const onboardingPlan = await createTestPlan(tx, {
+        title: `${runPrefix} direct-onboarding plan`,
+        sessionCount: ONBOARD_PLAN_SESSION_COUNT,
+        price: ONBOARD_PLAN_PRICE,
+        intervalDays: ONBOARD_PLAN_INTERVAL_DAYS,
+        balanceLane: SubscriptionCreditLane.Hifz,
+      });
+      onboardingPlanId = onboardingPlan.id;
+      tracked.register(plans, onboardingPlanId);
+
       await tx
         .update(students)
         .set({ balanceHifz: SUBSCRIPTION_LANE_SEED })
@@ -1206,6 +1326,7 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       secondTeacherActor?.userId,
       targetStudentId,
       teacherTargetId,
+      onboardedStudentId,
     ].filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0);
 
     if (journeyUserIds.length > 0) {
@@ -1262,14 +1383,16 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     // 6 actors × (users row + role-child row) + the five fixture sessions
     // (dispute + reschedule + cancel + reassign + join) + the finance
     // teacher's funded wallet fixture + the subscription-admin leg's two
-    // same-lane plans and two subscription rows.
-    expect(tracked.size).toBe(22);
+    // same-lane plans and two subscription rows + the direct-onboarding
+    // leg's lane-bearing plan.
+    expect(tracked.size).toBe(23);
 
     // The dispatch map covers every wired census row — a census row without
     // a runner would silently skip execution and fake completeness.
     const wiredFields: string[] = ADMIN_ACTION_CENSUS.filter(row => row.kind === "wired").map(row => row.mutationField);
     const legFields: string[] = [
       ...USER_LIFECYCLE_LEG,
+      ...STUDENT_ONBOARDING_LEG,
       ...CERTIFICATION_BROADCAST_LEG,
       ...PLAN_CATALOG_LEG,
       ...LESSON_LEG,
@@ -1320,6 +1443,34 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     expect(legActions).toHaveLength(11);
     expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
     expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+  });
+
+  test("producer executes the direct-onboarding census rows through the real service path", async () => {
+    const auditBefore = await countAllAuditRows();
+    const legActions = await executeCensusRows(STUDENT_ONBOARDING_LEG);
+    executedActions.push(...legActions);
+
+    // The composite producer mints BOTH rows in one commit: the user Create
+    // row (primary anchor) and the subscription Create row (declared
+    // secondary shape) — two executions, one service call.
+    expect(legActions).toHaveLength(2);
+    expect(legActions.map(action => action.actionType)).toEqual([AuditActionType.Create, AuditActionType.Create]);
+    expect(legActions.map(action => action.entityType)).toEqual(["user", "subscription"]);
+    expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
+    expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+
+    // The onboarding committed its side effects with the trail rows: the
+    // fresh student row is linked to the cast parent and credited the
+    // plan's full session count on the plan's lane (zero student_payments
+    // movement — the flow writes no ledger rows).
+    expect(onboardedStudentId).toBeGreaterThan(0);
+    const studentRows = await db
+      .select({ parentId: students.parentId, balanceHifz: students.balanceHifz })
+      .from(students)
+      .where(eq(students.id, onboardedStudentId))
+      .limit(1);
+    expect(studentRows[0]?.parentId).toBe(parentActor.userId);
+    expect(studentRows[0]?.balanceHifz).toBe(ONBOARD_PLAN_SESSION_COUNT);
   });
 
   test("producer executes the certification and broadcast census rows through the real service path", async () => {
@@ -1849,6 +2000,24 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       {
         field: "adminSetUserBlocked",
         call: actorId => AdminUserManagementService.setUserBlocked(targetStudentId, true, actorId, LOCALE),
+      },
+      {
+        field: "adminOnboardStudentWithOfflinePayment",
+        call: actorId =>
+          StudentOnboardingService.onboardStudentWithOfflinePayment(
+            {
+              fullName: `${runPrefix} Denied Onboarding`,
+              email: `${runPrefix}-denied-${randomUUID().slice(0, 8)}@journey.test`,
+              phone: "+10000000000",
+              password: TARGET_CREDENTIAL,
+              country: "Egypt",
+              planId: onboardingPlanId,
+              paymentMethod: PaymentGateway.OfflineCash,
+              paymentReference: `${runPrefix}-denied-ref`,
+            },
+            actorId,
+            LOCALE
+          ),
       },
       {
         field: "adminCertifyTeacherColdStart",

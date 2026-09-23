@@ -10,8 +10,13 @@
  * directory-shared `DirectoryToolbarSearchField`.
  */
 
-import { CheckOutlined as ApplyIcon } from "@mui/icons-material";
-import { IconButton, InputAdornment, TextField, Tooltip } from "@mui/material";
+import {
+  CheckOutlined as ApplyIcon,
+  HighlightOutlined as HighlightIcon,
+  HistoryOutlined as HistoryIcon,
+  PersonAddOutlined as PersonAddIcon,
+} from "@mui/icons-material";
+import { Button, IconButton, InputAdornment, TextField, Tooltip } from "@mui/material";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { AdminStudentsLabels } from "@/shared/locale/types/adminStudents";
 
@@ -78,5 +83,110 @@ export function StudentLanguageField({
       }}
       sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" }, "& .MuiInputBase-root": { height: 44 } }}
     />
+  );
+}
+
+interface HighlightRecentToggleProps {
+  /** Whether highlight mode is active (the quiet lane dims non-matching rows). */
+  readonly active: boolean;
+  /** Flips the mode (the container owns the state). */
+  readonly onToggle: () => void;
+  /** The toolbar labels slice (the two toggle strings ride the filters group). */
+  readonly labels: Pick<AdminStudentsLabels, "filters">;
+}
+
+/**
+ * HighlightRecentToggle — the toolbar's aria-pressed toggle for the
+ * directory's highlight mode: active paints the primary tint + a soft
+ * selected background, inactive stays a quiet text button. The tooltip
+ * carries the honest device-scoped wording (the recent set is the local
+ * browser's last five onboardings, not a server fact).
+ */
+export function HighlightRecentToggle({ active, onToggle, labels }: HighlightRecentToggleProps): ReactNode {
+  return (
+    <Tooltip title={labels.filters.highlightRecentHint} placement="top" arrow>
+      <Button
+        variant="text"
+        aria-pressed={active}
+        onClick={onToggle}
+        startIcon={<HighlightIcon />}
+        sx={theme => ({
+          minHeight: 44,
+          flexShrink: 0,
+          whiteSpace: "nowrap",
+          color: active ? theme.palette.primary.main : theme.palette.text.secondary,
+          bgcolor: active ? theme.palette.action.selected : "transparent",
+          transition: theme.transitions.create("background-color"),
+        })}
+      >
+        {labels.filters.highlightRecent}
+      </Button>
+    </Tooltip>
+  );
+}
+
+interface OnboardingHistoryButtonProps {
+  readonly labels: Pick<AdminStudentsLabels, "history">;
+  readonly onClick: () => void;
+}
+
+/**
+ * OnboardingHistoryButton — the toolbar's entry into the device-scoped
+ * onboarding-history dialog (the cohort memory beyond the success screen):
+ * a quiet icon button with the same 44px touch target as its toolbar
+ * siblings and a tooltip carrying the honest device-scoped wording.
+ */
+export function OnboardingHistoryButton({ labels, onClick }: OnboardingHistoryButtonProps): ReactNode {
+  return (
+    <Tooltip title={labels.history.open} placement="top" arrow>
+      <IconButton
+        aria-label={labels.history.open}
+        onClick={onClick}
+        sx={theme => ({
+          minHeight: 44,
+          minWidth: 44,
+          flexShrink: 0,
+          color: theme.palette.text.secondary,
+        })}
+      >
+        <HistoryIcon />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+interface OnboardStudentButtonProps {
+  /** The action label (rides the onboarding namespace's title slot). */
+  readonly label: string;
+  /** Opens the onboarding dialog (the container owns the flow). */
+  readonly onClick: () => void;
+  /** `true` while the dialog is open or its write is in flight. */
+  readonly disabled: boolean;
+}
+
+/**
+ * OnboardStudentButton — the toolbar's primary action (the direct student
+ * onboarding entry): the contained primary button, 44px touch target,
+ * nowrap label, extracted to keep the toolbar module inside its cap.
+ */
+export function OnboardStudentButton({ label, onClick, disabled }: OnboardStudentButtonProps): ReactNode {
+  return (
+    <Button
+      variant="contained"
+      startIcon={<PersonAddIcon />}
+      onClick={onClick}
+      disabled={disabled}
+      sx={theme => ({
+        borderRadius: "8px",
+        minHeight: 44,
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+        bgcolor: theme.palette.primary.main,
+        color: theme.palette.onPrimary,
+        "&:hover": { bgcolor: theme.palette.primary.dark },
+      })}
+    >
+      {label}
+    </Button>
   );
 }
