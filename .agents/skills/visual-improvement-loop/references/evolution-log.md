@@ -328,3 +328,22 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   mutation vs the cookie-only API): re-set the cookie AND re-verify the toolbar button's
   aria-label before every batch. → landed: `references/capture-protocol.md` (Sessions & auth,
   updated in this change).
+
+## 2026-09-23 — admin academic tracking (kottaby #224) visual run
+
+- MUI `Stack divider` NODE with a hairline `width: 1` rendered as a 752×172px block (collapsed width
+  token + flex growth) and cratered a tablet pass to 7.8 — prefer a logical `borderInlineStart`
+  hairline on the second lane (never a layout node for separators). → landed: `references/fix-patterns.md`.
+- Capture rigs must gate on a DATA marker (testid row/card count), not `document.title` alone: Apollo
+  refetch after locale re-pin holds skeletons past the settle and the title guard still passes.
+  → landed: `references/capture-protocol.md` (state-verified capture).
+- `--expect-title` is locale-dependent ("Academic Tracking" vs "التتبع الأكاديمي") — pin the locale and
+  the expected title as ONE pair per batch, or AR batches fail the title gate spuriously.
+  → landed: `references/capture-protocol.md` (locale pinning).
+- Plateau adjudication: at 9.0–9.6 the dominant findings become contradictions across passes (divider
+  "missing" with 2 hairlines in DOM, "add tooltip" with the `title` attr present, fold-crop reported as
+  truncation) — DOM-arbitrate each, then close via the accepted-debt clause instead of re-looping.
+  → landed: `references/rubric.md` (calibration note extension).
+- Dense-table recipe for 9–10 honest columns in a 1126px lane: 8px inline gutters + 13px nowrap headers
+  + stacked two-line position lanes + merged name/email cell + short-track grade lines; full copies ride
+  `title` tooltips so honesty never truncates. → landed: `references/fix-patterns.md` (new row).

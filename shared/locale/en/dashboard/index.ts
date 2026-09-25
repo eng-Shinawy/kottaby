@@ -12,6 +12,7 @@ export const dashboardEn: DashboardLabels = {
   users: "Users",
   teachers: "Teachers",
   students: "Students",
+  academicTracking: "Academic Tracking",
   plans: "Plans",
   lessons: "Lessons",
   audit: "Audit",

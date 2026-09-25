@@ -24,11 +24,13 @@ import {
   CardMembershipOutlined as SubscriptionsIcon,
   type SvgIconComponent,
   PersonOutlined as TeachersIcon,
+  QueryStatsOutlined as TrackingIcon,
   SupervisedUserCircleOutlined as UsersIcon,
   PaymentsOutlined as WalletIcon,
 } from "@mui/icons-material";
 import { UserRole } from "@/frontend/graphql/generated/gql/graphql";
 import { STUDENT_LINK_REQUESTS_ROUTE, STUDENT_SESSIONS_ROUTE } from "@/frontend/lib/notification-route-resolution";
+import { ACADEMIC_TRACKING_DASHBOARD_ROUTE } from "@/frontend/views/admin/academic-tracking/academic-tracking-routes";
 import { dashboardEn } from "@/shared/locale/en/dashboard";
 import type { DashboardLabels } from "@/shared/locale/types/dashboard";
 import type { HandshakeCodeLabels } from "@/shared/locale/types/handshakeCode";
@@ -159,6 +161,15 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     { route: "/admin/users", labelKey: "users", Icon: UsersIcon },
     { route: "/teachers", labelKey: "teachers", Icon: TeachersIcon },
     { route: "/students", labelKey: "students", Icon: StudentsIcon },
+    // Targets the admin-guarded academic-tracking console at
+    // `app/(dashboard)/admin/academic-tracking/page.tsx` — cross-student
+    // memorization + revision milestone tracking. The route string is
+    // single-sourced in the academic-tracking routes leaf.
+    {
+      route: ACADEMIC_TRACKING_DASHBOARD_ROUTE,
+      labelKey: "academicTracking",
+      Icon: TrackingIcon,
+    },
     { route: "/admin/plans", labelKey: "plans", Icon: PlansIcon },
     // Targets the admin-guarded curriculum-lessons catalog at
     // `app/(dashboard)/admin/lessons/page.tsx` — the per-plan lesson CRUD

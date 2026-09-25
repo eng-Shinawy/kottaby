@@ -43,11 +43,20 @@ await runParallelTests({
   // reads live data, not the snapshot, so it fails with 23503 (observed:
   // `notifications_user_id_users_id_fkey`, user created/deleted by a peer
   // file). Serializing both fanout victims to the tail lane closes the race.
+  // The admin academic-tracking suites assert WHOLE-TABLE student totals
+  // (`page.total` = every student row visible to the read tx). A
+  // concurrently-running own-commit fixture file keeps committed student
+  // users alive through its beforeAll/afterAll window, so the total drifts
+  // (observed in CI: `Expected: 2, Received: 3` across five Tier 1–3
+  // assertions). Serializing the file to the tail lane restores the
+  // deterministic empty-table baseline without touching the production
+  // read path.
   sequentialTailPatterns: [
     "notifications/admin-broadcast.service.test.ts",
     "classes/session-admin-governance.service.test.ts",
     "admin/cold-start-certification.chaos.test.ts",
     "classes/session-arbitration.service.test.ts",
     "classes/session-dispute-notification.service.test.ts",
+    "admin/admin-academic-tracking.service.test.ts",
   ],
 });

@@ -627,7 +627,11 @@ const ADMIN_FINANCE_TYPE_NAMES = [
  * pointer into the closed (session, linked-child) id pair. (The behavioral
  * pins for this surface live in `parent-monitoring.wire.test.ts`; the
  * deep-link field's exact arg/return shape is pinned in the
- * session-target describe below.)
+ * session-target describe below.) The seventh read
+ * (`myChildrenUpcomingSessions` — one glance block per linked child)
+ * shipped with the same deep-link round but was never enumerated here;
+ * re-anchored to the live schema as a documented one-time reconciliation
+ * (NOT a silent baseline flip) on the academic-tracking refresh.
  */
 const PARENT_MONITORING_QUERY_FIELDS = [
   "myChildrenUpcomingSessions",
@@ -787,6 +791,46 @@ const R5_ADMIN_EXPORT_TYPE_NAMES = [
   "AdminTeacherExportEnvelope",
 ] as const;
 
+/**
+ * Admin academic-tracking read pair — the sanctioned academic-tracking
+ * addition (`adminAcademicDashboard` + `adminStudentAcademicDetail`). Both
+ * root fields carry the `adminOnlyAuthScopes` `$all` conjunction (the
+ * dedicated describe below pins it) and delegate to
+ * `AdminAcademicTrackingService`; the surface registers ZERO mutations
+ * (read-only — the Mutation-root additions pin above is untouched).
+ */
+const ADMIN_ACADEMIC_QUERY_FIELDS = ["adminAcademicDashboard", "adminStudentAcademicDetail"] as const;
+/**
+ * The ONE new GraphQL enum of the academic-tracking surface — the
+ * needs-attention reason vocabulary (a transient service derivation with
+ * no pgEnum column behind it; the wire members are `lowGrade` /
+ * `staleProgress`). `SurahJuzRef` is the pre-registered recitation enum —
+ * never re-registered.
+ */
+const ADMIN_ACADEMIC_ENUMS = ["AdminAcademicAttentionReason"] as const;
+/**
+ * The thirteen academic object types — the two root payloads
+ * (`AdminAcademicDashboardPage`, `AdminStudentAcademicDetail`) plus the
+ * eleven embedded value/page objects. Entity ids are `ID!` (Apollo
+ * normalization) on the four entity shapes; `isDeleted` surfaces ONLY on
+ * the drill-down echo (governance banner input).
+ */
+const ADMIN_ACADEMIC_TYPE_NAMES = [
+  "AdminAcademicAttentionFlag",
+  "AdminAcademicDashboardPage",
+  "AdminAcademicGradeSummary",
+  "AdminAcademicHomeworkEntry",
+  "AdminAcademicHomeworkPage",
+  "AdminAcademicHomeworkTrack",
+  "AdminAcademicPosition",
+  "AdminAcademicReportEntry",
+  "AdminAcademicReportPage",
+  "AdminAcademicStats",
+  "AdminAcademicStudentDetailEcho",
+  "AdminAcademicStudentRow",
+  "AdminStudentAcademicDetail",
+] as const;
+
 // ─── Schema walk helpers ─────────────────────────────────────────────────────
 
 /** All named SDL type names, introspection builtins + spec scalars excluded, sorted deterministically. */
@@ -835,6 +879,36 @@ function mutationField(name: string): GraphQLField<unknown, unknown> {
   return field;
 }
 
+/**
+ * Fail-fast academic object-type narrowing guard (no casts). Module scope
+ * per the function-scope discipline — used across the academic
+ * describe's field-set pins below.
+ */
+function academicObjectType(name: string): GraphQLObjectType {
+  const type = graphQLSchema.getType(name);
+  if (!(type instanceof GraphQLObjectType)) {
+    throw new Error(`\`${name}\` must be registered as a GraphQL object type`);
+  }
+  return type;
+}
+
+/**
+ * Fail-fast root Query field lookup — module-scope twin of `mutationField`
+ * (`queryRootField`, distinct from the describes' own closure-scoped
+ * `queryField` twins; the academic describe consumes this shared one).
+ */
+function queryRootField(name: string): GraphQLField<unknown, unknown> {
+  const queryType = graphQLSchema.getQueryType();
+  if (!queryType) {
+    throw new Error("Schema must define a root Query type");
+  }
+  const field = queryType.getFields()[name];
+  if (!field) {
+    throw new Error(`Query must register the \`${name}\` root field`);
+  }
+  return field;
+}
+
 describe("Query._health — retyped probe surface", () => {
   const queryType = graphQLSchema.getQueryType();
 
@@ -874,11 +948,15 @@ describe("Query._health — retyped probe surface", () => {
     // `availableEvaluators`), the student homework history read
     // (`studentHomeworkHistory`), the admin subscription listing read
     // (`adminStudentSubscriptions` — merged from main), the teacher
-    // wallet ledger read (`myWalletLedger` — merged from main), and the
+    // wallet ledger read (`myWalletLedger` — merged from main), the
     // parent-portal student homework read (`myHomework` — the student
     // nav's homework entry, reusing the parent portal's canonical
-    // homework page projection), and the parent-portal upcoming-sessions
-    // read (`myChildrenUpcomingSessions` — merged from main).
+    // homework page projection), the admin academic-tracking read pair
+    // (`adminAcademicDashboard` / `adminStudentAcademicDetail` — the
+    // sanctioned read-only surface, registering ZERO mutations), and the
+    // parent upcoming-sessions read (`myChildrenUpcomingSessions` —
+    // merged from main, re-anchored alongside it as a documented
+    // one-time reconciliation).
     const additions = fieldNames.filter(name => !(PRE_3_1_QUERY_FIELDS as readonly string[]).includes(name));
     expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual(
       [
@@ -912,6 +990,7 @@ describe("Query._health — retyped probe surface", () => {
         ...STUDENT_HOMEWORK_QUERY_FIELDS,
         ...SUBSCRIPTION_ADMIN_QUERY_FIELDS,
         ...WALLET_LEDGER_QUERY_FIELDS,
+        ...ADMIN_ACADEMIC_QUERY_FIELDS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -1108,7 +1187,9 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // broadcast-lifecycle addition (active → stopped); the
     // `ProrationDirection` plan-change settlement vocabulary is the
     // sanctioned admin subscription-management addition (merged from
-    // main).
+    // main); the `AdminAcademicAttentionReason` attention vocabulary is
+    // the sanctioned academic-tracking addition (the ONE new enum of
+    // that surface).
     expect(enumNames).toEqual(
       [
         ...PRE_3_1_ENUMS,
@@ -1121,6 +1202,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...RECONCILED_ENUMS,
         ...ADMIN_FINANCE_ENUMS,
         ...SUBSCRIPTION_ADMIN_ENUMS,
+        ...ADMIN_ACADEMIC_ENUMS,
         ...EVALUATION_RUBRIC_ENUMS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
@@ -1178,7 +1260,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the parent upcoming-sessions block pair + the direct-onboarding input/result pair", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1222,6 +1304,8 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...SUBSCRIPTION_ADMIN_ENUMS,
         ...EVALUATION_RUBRIC_ENUMS,
         ...WALLET_LEDGER_TYPE_NAMES,
+        ...ADMIN_ACADEMIC_TYPE_NAMES,
+        ...ADMIN_ACADEMIC_ENUMS,
         ...ADMIN_STUDENT_ONBOARDING_TYPE_NAMES,
       ].toSorted((a, b) => a.localeCompare(b))
     );
@@ -2405,6 +2489,252 @@ describe("Public-operation allowlist agreement", () => {
   });
 });
 
+describe("Admin academic-tracking surface — exact arg shapes + `$all` scope pins + object/enum vocabulary", () => {
+  // The academic describe consumes the module-scope `queryRootField`
+  // helper — no closure-scoped lookup here (identical-function guard).
+
+  test("`adminAcademicDashboard` returns AdminAcademicDashboardPage! with EXACTLY the three declared args (page: Int = 1, pageSize: Int = 25, search: String)", () => {
+    const field = queryRootField("adminAcademicDashboard");
+    expect(field.type.toString()).toBe("AdminAcademicDashboardPage!");
+    // The live sorted SDL emits args alphabetically — `page` < `pageSize`
+    // < `search` (coincidentally the declaration order too).
+    expect(field.args.map(arg => arg.name)).toEqual(["page", "pageSize", "search"]);
+    const argsByName = new Map(field.args.map(arg => [arg.name, arg.type.toString()]));
+    // Both pagination args are SDL-defaulted `Int`s (the resolver's
+    // `?? 1` / `?? 25` restores the declared defaults on EXPLICIT nulls;
+    // the service re-normalizes the effective bounds pre-DB). The defaults
+    // themselves are pinned lexically in the Codegen-sync test below —
+    // the deprecated `defaultValue` accessor is avoided (admin-teachers
+    // precedent).
+    expect(argsByName.get("page")).toBe("Int");
+    expect(argsByName.get("pageSize")).toBe("Int");
+    // The ONLY client-facing filter member — optional, no default.
+    expect(argsByName.get("search")).toBe("String");
+    // BOPLA: no actor/admin/tenant arg exists — the actor identity is
+    // `ctx.user.id` server-side, never a client-supplied argument.
+    expect(field.args).toHaveLength(3);
+  });
+
+  test("`adminStudentAcademicDetail` returns AdminStudentAcademicDetail! with EXACTLY the three declared args (studentId: Int! + the shared page/pageSize defaults)", () => {
+    const field = queryRootField("adminStudentAcademicDetail");
+    expect(field.type.toString()).toBe("AdminStudentAcademicDetail!");
+    // The live sorted SDL emits args alphabetically — the drill-down
+    // PRINTS `page, pageSize, studentId` even though the resolver
+    // declares `studentId` first (arg order carries no semantic weight;
+    // this pin is the documented emission note).
+    expect(field.args.map(arg => arg.name)).toEqual(["page", "pageSize", "studentId"]);
+    const argsByName = new Map(field.args.map(arg => [arg.name, arg.type.toString()]));
+    // The surface's ONLY data-scoping argument is REQUIRED — a missing
+    // `studentId` dies as GRAPHQL_VALIDATION_FAILED before any resolver
+    // runs (no SDL default; the service validates the positive-integer
+    // shape pre-read).
+    expect(argsByName.get("studentId")).toBe("Int!");
+    expect(argsByName.get("page")).toBe("Int");
+    expect(argsByName.get("pageSize")).toBe("Int");
+    expect(field.args).toHaveLength(3);
+  });
+
+  test("BOTH academic queries carry the EXACT `$all` conjunction — `{ authenticated: true, role: [UserRole.Admin] }`", () => {
+    // The `$all` key is load-bearing (a plain key-map degrades to ANY
+    // semantics); the role set is EXACTLY `[UserRole.Admin]` — BFLA:
+    // teacher/student/parent deny 403 pre-resolver, anonymous denies 401.
+    for (const name of ADMIN_ACADEMIC_QUERY_FIELDS) {
+      const scopes = authScopesSnapshot(queryRootField(name));
+      expect(scopes).toEqual({
+        $all: { authenticated: true, role: [UserRole.Admin] },
+      });
+      // SEC: the scope keys are EXACTLY `["$all"]` — no permission /
+      // superAdmin / fallback bypass.
+      expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+      const allScope: unknown = Reflect.get(scopes, "$all");
+      if (!isRecord(allScope)) throw new Error("expected record-shaped $all scope conjunction");
+      expect(Object.keys(allScope).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated", "role"]);
+      const roleSet: unknown = Reflect.get(allScope, "role");
+      expect(Array.isArray(roleSet)).toBe(true);
+      expect(roleSet).toEqual([UserRole.Admin]);
+    }
+  });
+
+  test("anonymous (context-free) in-process execution of BOTH academic queries yields UNAUTHORIZED", async () => {
+    // Each op asserted in its OWN document: both fields are non-null at
+    // the root, so a combined document would null-propagate the first
+    // failure over its sibling. The denial fires PRE-resolver (scope
+    // gate) — no service/DB access happens on the path.
+    const documents = [
+      {
+        source: "{ adminAcademicDashboard { total } }",
+        path: "adminAcademicDashboard",
+      },
+      {
+        source: "{ adminStudentAcademicDetail(studentId: 1) { progressRowCount } }",
+        path: "adminStudentAcademicDetail",
+      },
+    ] as const;
+    const results = await Promise.all(
+      documents.map(async document => graphql({ schema: graphQLSchema, source: document.source, contextValue: {} }))
+    );
+    for (const [index, result] of results.entries()) {
+      const errors = result.errors;
+      if (!errors) throw new Error("expected the anonymous academic query to fail");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?.extensions?.code).toBe("UNAUTHORIZED");
+      expect(errors[0]?.path).toEqual([documents[index]?.path]);
+    }
+  });
+
+  test("root Mutation gains ZERO academic fields — the read-only surface registers nothing on the write root", () => {
+    // The surface is read-only: neither root operation name may leak onto
+    // the Mutation root, and no mutation name may even carry the domain
+    // token — the exact-50 freeze above pins the count; this pins the
+    // ACADEMIC emptiness explicitly.
+    const mutationNames = Object.keys(graphQLSchema.getMutationType()?.getFields() ?? {});
+    for (const name of ADMIN_ACADEMIC_QUERY_FIELDS) {
+      expect(mutationNames).not.toContain(name);
+    }
+    expect(mutationNames.filter(name => name.toLowerCase().includes("academic"))).toEqual([]);
+  });
+
+  test("AdminAcademicAttentionReason carries EXACTLY the two wire values (lowGrade | staleProgress)", () => {
+    const reasonEnum = graphQLSchema.getType("AdminAcademicAttentionReason");
+    if (!(reasonEnum instanceof GraphQLEnumType)) {
+      throw new Error("AdminAcademicAttentionReason must be registered as a GraphQL enum type");
+    }
+    expect(
+      reasonEnum
+        .getValues()
+        .map(value => value.name)
+        .toSorted((a, b) => a.localeCompare(b))
+    ).toEqual(["lowGrade", "staleProgress"]);
+  });
+
+  test("all THIRTEEN academic object types register as GraphQL object types", () => {
+    const registered = ADMIN_ACADEMIC_TYPE_NAMES.map(name => academicObjectType(name).name);
+    expect(registered).toEqual([...ADMIN_ACADEMIC_TYPE_NAMES]);
+  });
+
+  test("the four entity shapes expose `id: ID!` (Apollo normalization); entries anchor `sessionId: Int!` + DateTime stamps", () => {
+    for (const entity of [
+      "AdminAcademicStudentRow",
+      "AdminAcademicStudentDetailEcho",
+      "AdminAcademicHomeworkEntry",
+      "AdminAcademicReportEntry",
+    ]) {
+      const fields = academicObjectType(entity).getFields();
+      expect(fields.id?.type.toString()).toBe("ID!");
+    }
+    // The two drill-down entries keep the parent-monitoring deep-link
+    // conventions: a raw `Int!` session anchor, the nullable session
+    // instant, and the NOT-NULL creation stamp.
+    for (const entity of ["AdminAcademicHomeworkEntry", "AdminAcademicReportEntry"]) {
+      const fields = academicObjectType(entity).getFields();
+      expect(fields.sessionId?.type.toString()).toBe("Int!");
+      expect(fields.sessionStartedAt?.type.toString()).toBe("DateTime");
+      expect(fields.createdAt?.type.toString()).toBe("DateTime!");
+      expect(fields.teacherName?.type.toString()).toBe("String!");
+    }
+  });
+
+  test("`isDeleted` surfaces on EXACTLY the drill-down echo — dashboard rows never carry it (governance banner input)", () => {
+    for (const name of ADMIN_ACADEMIC_TYPE_NAMES) {
+      const fields = academicObjectType(name).getFields();
+      if (name === "AdminAcademicStudentDetailEcho") {
+        expect(fields.isDeleted?.type.toString()).toBe("Boolean!");
+      } else {
+        expect(Object.hasOwn(fields, "isDeleted")).toBe(false);
+      }
+    }
+  });
+
+  test("AdminAcademicDashboardPage discloses EXACTLY the envelope + stats section (items/page/pageSize/pageCount/total, no id)", () => {
+    const fields = academicObjectType("AdminAcademicDashboardPage").getFields();
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "items",
+      "page",
+      "pageCount",
+      "pageSize",
+      "stats",
+      "total",
+    ]);
+    expect(fields.items?.type.toString()).toBe("[AdminAcademicStudentRow!]!");
+    expect(fields.page?.type.toString()).toBe("Int!");
+    expect(fields.pageSize?.type.toString()).toBe("Int!");
+    expect(fields.pageCount?.type.toString()).toBe("Int!");
+    expect(fields.total?.type.toString()).toBe("Int!");
+    expect(fields.stats?.type.toString()).toBe("AdminAcademicStats!");
+  });
+
+  test("AdminStudentAcademicDetail discloses EXACTLY the five-section composite (student + homeworkPage + reportPage + progressRowCount + needsAttention)", () => {
+    const fields = academicObjectType("AdminStudentAcademicDetail").getFields();
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "homeworkPage",
+      "needsAttention",
+      "progressRowCount",
+      "reportPage",
+      "student",
+    ]);
+    expect(fields.student?.type.toString()).toBe("AdminAcademicStudentDetailEcho!");
+    expect(fields.homeworkPage?.type.toString()).toBe("AdminAcademicHomeworkPage!");
+    expect(fields.reportPage?.type.toString()).toBe("AdminAcademicReportPage!");
+    expect(fields.progressRowCount?.type.toString()).toBe("Int!");
+    // The needs-attention flag is NULLABLE — unflagged students carry a
+    // clean null, never an empty-flag object (the honest-absence pin).
+    expect(fields.needsAttention?.type.toString()).toBe("AdminAcademicAttentionFlag");
+  });
+
+  test("AdminAcademicStats discloses EXACTLY the five aggregate scalars (no id — embedded value object)", () => {
+    const fields = academicObjectType("AdminAcademicStats").getFields();
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "averageJadidGrade",
+      "averageMadiGrade",
+      "needingAttentionCount",
+      "studentsWithGradedHomeworkCount",
+      "trackedStudentCount",
+    ]);
+    expect(fields.trackedStudentCount?.type.toString()).toBe("Int!");
+    expect(fields.studentsWithGradedHomeworkCount?.type.toString()).toBe("Int!");
+    expect(fields.needingAttentionCount?.type.toString()).toBe("Int!");
+    // Zero-graded platforms average nothing — the honest nullable pair.
+    expect(fields.averageJadidGrade?.type.toString()).toBe("Float");
+    expect(fields.averageMadiGrade?.type.toString()).toBe("Float");
+  });
+
+  test("AdminAcademicAttentionFlag discloses EXACTLY the closed reasons list (`[AdminAcademicAttentionReason!]!`)", () => {
+    const fields = academicObjectType("AdminAcademicAttentionFlag").getFields();
+    expect(Object.keys(fields)).toEqual(["reasons"]);
+    expect(fields.reasons?.type.toString()).toBe("[AdminAcademicAttentionReason!]!");
+  });
+
+  test("`id` is the FIRST declared field on each of the four academic entity shapes (Apollo normalization convention)", () => {
+    // The built schema's field map and the artifact print are
+    // lexicographically sorted (field order carries no GraphQL
+    // semantics), so the id-FIRST convention is pinned at the source
+    // level — lexical scan by design, like the notification pin above.
+    const source = readFileSync(
+      resolve(process.cwd(), "backend/graphql/pothos/admin/academic-tracking.pothos.ts"),
+      "utf8"
+    );
+    for (const entity of [
+      "AdminAcademicStudentRow",
+      "AdminAcademicStudentDetailEcho",
+      "AdminAcademicHomeworkEntry",
+      "AdminAcademicReportEntry",
+    ]) {
+      const start = source.indexOf(`("${entity}")`);
+      if (start < 0) {
+        throw new Error(`\`${entity}\` must be declared in the academic pothos source`);
+      }
+      const next = source.indexOf("objectRef<", start + 1);
+      const block = source.slice(start, next < 0 ? source.length : next);
+      const firstExposed = /t\.expose\w*\("([A-Za-z]+)"/.exec(block);
+      if (!firstExposed) {
+        throw new Error(`\`${entity}\` must expose fields in the academic pothos source`);
+      }
+      expect(firstExposed[1]).toBe("id");
+      expect(block.indexOf('id: t.exposeID("id")')).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
 describe("Codegen sync — committed SDL is byte-identical to the built schema", () => {
   test("frontend/graphql/generated/schema.graphql matches a fresh deterministic emission", () => {
     const sdlPath = resolve(process.cwd(), "frontend/graphql/generated/schema.graphql");
@@ -2539,5 +2869,21 @@ describe("Codegen sync — committed SDL is byte-identical to the built schema",
     // the committed artifact — at the exact arg shape the resolver binds.
     expect(committedSdl).toContain("parentSessionTarget(sessionId: Int!): ParentSessionTarget!");
     expect(committedSdl).toContain("type ParentSessionTarget {");
+    // …and the admin academic-tracking read pair (2 root queries + the 13
+    // object types + the attention-reason enum) is really inside the
+    // committed artifact — at the exact sorted arg shapes the resolvers
+    // bind (the drill-down prints `page, pageSize, studentId`; the entity
+    // ids print as `ID!`).
+    expect(committedSdl).toContain(
+      "adminAcademicDashboard(page: Int = 1, pageSize: Int = 25, search: String): AdminAcademicDashboardPage!"
+    );
+    expect(committedSdl).toContain(
+      "adminStudentAcademicDetail(page: Int = 1, pageSize: Int = 25, studentId: Int!): AdminStudentAcademicDetail!"
+    );
+    expect(committedSdl).toContain("type AdminAcademicDashboardPage {");
+    expect(committedSdl).toContain("type AdminAcademicStudentRow {");
+    expect(committedSdl).toContain("type AdminStudentAcademicDetail {");
+    expect(committedSdl).toContain("type AdminAcademicStudentDetailEcho {");
+    expect(committedSdl).toContain("enum AdminAcademicAttentionReason {");
   });
 });

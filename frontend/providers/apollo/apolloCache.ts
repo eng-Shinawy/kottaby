@@ -183,6 +183,45 @@ const apolloCacheTypePolicies: NonNullable<InMemoryCacheConfig["typePolicies"]> 
   PlatformAnalyticsRevenueTrendPoint: {
     keyFields: false,
   },
+  // Admin academic-tracking embedded value family (no `id` by design — see
+  // `frontend/graphql/generated/schema.graphql`): the two pagination
+  // envelopes, the aggregate stats block, the per-track position/summary
+  // value objects, the attention flag, the detail wrapper, and the
+  // per-entry homework track block are cached inline under their root
+  // query fields and replaced wholesale on every refetch. The
+  // normalizable entities are the row objects carrying an `id` inside any
+  // wrapper (`AdminAcademicStudentRow` rows in
+  // `AdminAcademicDashboardPage.items`, `AdminAcademicHomeworkEntry` /
+  // `AdminAcademicReportEntry` rows inside the drill-down pages, and the
+  // `AdminAcademicStudentDetailEcho`), so the wrappers themselves never
+  // need an identity. Entries follow the read model's own shape order.
+  AdminAcademicDashboardPage: {
+    keyFields: false,
+  },
+  AdminAcademicStats: {
+    keyFields: false,
+  },
+  AdminAcademicPosition: {
+    keyFields: false,
+  },
+  AdminAcademicGradeSummary: {
+    keyFields: false,
+  },
+  AdminAcademicAttentionFlag: {
+    keyFields: false,
+  },
+  AdminStudentAcademicDetail: {
+    keyFields: false,
+  },
+  AdminAcademicHomeworkPage: {
+    keyFields: false,
+  },
+  AdminAcademicHomeworkTrack: {
+    keyFields: false,
+  },
+  AdminAcademicReportPage: {
+    keyFields: false,
+  },
 };
 
 /** Apollo cache with the module-scope {@link apolloCacheTypePolicies} applied. */

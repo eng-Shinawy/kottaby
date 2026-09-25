@@ -12,6 +12,7 @@ export const dashboardAr: DashboardLabels = {
   users: "المستخدمون",
   teachers: "المعلمون",
   students: "الطلاب",
+  academicTracking: "التتبع الأكاديمي",
   plans: "الخطط",
   lessons: "الدروس",
   audit: "سجل التدقيق",

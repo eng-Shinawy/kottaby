@@ -1,3 +1,4 @@
+import { adminAcademicEn } from "@/shared/locale/en/adminAcademic";
 import { adminBroadcastsEn } from "@/shared/locale/en/adminBroadcasts";
 import { adminFinanceEn } from "@/shared/locale/en/adminFinance";
 import { adminSessionGovernanceEn } from "@/shared/locale/en/adminSessionGovernance";
@@ -43,6 +44,7 @@ export const enMessages: Translations = {
   walletTranslations: walletEn,
   upNextTranslations: upNextEn,
   checkoutTranslations: checkoutEn,
+  adminAcademicTranslations: adminAcademicEn,
   adminUsersTranslations: adminUsersEn,
   adminTeachersTranslations: adminTeachersEn,
   adminStudentsTranslations: adminStudentsEn,

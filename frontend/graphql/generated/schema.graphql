@@ -5,6 +5,109 @@ input AdjustTeacherWalletInput {
   teacherId: ID!
 }
 
+type AdminAcademicAttentionFlag {
+  reasons: [AdminAcademicAttentionReason!]!
+}
+
+"""
+Why a student is flagged as needing academic attention (reasons may co-occur).
+"""
+enum AdminAcademicAttentionReason {
+  lowGrade
+  staleProgress
+}
+
+type AdminAcademicDashboardPage {
+  items: [AdminAcademicStudentRow!]!
+  page: Int!
+  pageCount: Int!
+  pageSize: Int!
+  stats: AdminAcademicStats!
+  total: Int!
+}
+
+type AdminAcademicGradeSummary {
+  averageGrade: Float
+  gradedCount: Int!
+}
+
+type AdminAcademicHomeworkEntry {
+  createdAt: DateTime!
+  id: ID!
+  jadid: AdminAcademicHomeworkTrack
+  madi: AdminAcademicHomeworkTrack
+  sessionId: Int!
+  sessionStartedAt: DateTime
+  teacherName: String!
+}
+
+type AdminAcademicHomeworkPage {
+  items: [AdminAcademicHomeworkEntry!]!
+  page: Int!
+  pageCount: Int!
+  pageSize: Int!
+  total: Int!
+}
+
+type AdminAcademicHomeworkTrack {
+  fromAyah: Int
+  grade: Int
+  surahJuz: SurahJuzRef
+  toAyah: Int
+}
+
+type AdminAcademicPosition {
+  fromAyah: Int
+  surahJuz: SurahJuzRef!
+  toAyah: Int
+}
+
+type AdminAcademicReportEntry {
+  createdAt: DateTime!
+  id: ID!
+  sessionId: Int!
+  sessionStartedAt: DateTime
+  studentRatingByTeacher: Int
+  teacherName: String!
+  teacherNotes: String
+}
+
+type AdminAcademicReportPage {
+  items: [AdminAcademicReportEntry!]!
+  page: Int!
+  pageCount: Int!
+  pageSize: Int!
+  total: Int!
+}
+
+type AdminAcademicStats {
+  averageJadidGrade: Float
+  averageMadiGrade: Float
+  needingAttentionCount: Int!
+  studentsWithGradedHomeworkCount: Int!
+  trackedStudentCount: Int!
+}
+
+type AdminAcademicStudentDetailEcho {
+  email: String!
+  fullName: String!
+  id: ID!
+  isDeleted: Boolean!
+}
+
+type AdminAcademicStudentRow {
+  email: String!
+  fullName: String!
+  id: ID!
+  jadidGradeSummary: AdminAcademicGradeSummary
+  lastGradedHomeworkAt: DateTime
+  latestJadidPosition: AdminAcademicPosition
+  latestMadiPosition: AdminAcademicPosition
+  madiGradeSummary: AdminAcademicGradeSummary
+  needsAttention: AdminAcademicAttentionFlag
+  progressRowCount: Int!
+}
+
 type AdminApplicantExportEnvelope {
   rows: [AdminApplicantItem!]!
   total: Int!
@@ -255,6 +358,14 @@ input AdminSessionRescheduleInput {
   endedAt: DateTime!
   sessionId: ID!
   startedAt: DateTime!
+}
+
+type AdminStudentAcademicDetail {
+  homeworkPage: AdminAcademicHomeworkPage!
+  needsAttention: AdminAcademicAttentionFlag
+  progressRowCount: Int!
+  reportPage: AdminAcademicReportPage!
+  student: AdminAcademicStudentDetailEcho!
 }
 
 type AdminStudentExportEnvelope {
@@ -1394,6 +1505,11 @@ type PurchaseSubscriptionPayload {
 
 type Query {
   _health: HealthCheck!
+
+  """
+  Admin-only paged academic directory over every active student: latest Jadid/Madi positions, grade summaries, progress row counts, per-row needs-attention flags, and one platform-wide stats block. Out-of-range pages return empty items next to the honest total; governed admins are denied at the service tier.
+  """
+  adminAcademicDashboard(page: Int = 1, pageSize: Int = 25, search: String): AdminAcademicDashboardPage!
   adminAuditLogs(filters: AdminAuditLogFiltersInput, page: Int, pageSize: Int): AdminAuditLogPage!
 
   """
@@ -1438,6 +1554,11 @@ type Query {
   List every session for the admin governance directory (admin-only): all rows regardless of state or ownership, newest first, paged with an honest total. Rows carry the server-derived needsAttention badge — presentation only, never an authorization signal.
   """
   adminSessions(filter: AdminSessionListFilterInput!, page: Int = 1, pageSize: Int = 25): SessionPage!
+
+  """
+  Admin-only composite academic record for one student: the student echo (with the soft-delete governance marker), the newest-first homework page, the newest-first reports page, the progress row count, and the needs-attention flag. Soft-deleted students remain viewable for audit; unknown ids deny with a localized not-found error.
+  """
+  adminStudentAcademicDetail(page: Int = 1, pageSize: Int = 25, studentId: Int!): AdminStudentAcademicDetail!
   adminStudentPayments(filters: AdminStudentPaymentsFilterInput, page: Int, pageSize: Int): AdminStudentPaymentPage!
 
   """

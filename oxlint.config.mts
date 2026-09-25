@@ -80,6 +80,15 @@ export default defineConfig({
       },
     },
     {
+      // Audit/demo seed scripts write through PGlite — a SINGLE-CONNECTION
+      // WASM Postgres — so sequential awaits inside loops are structural
+      // (parallel writes cannot exist on one connection).
+      files: ["scripts/*seed*.ts"],
+      rules: {
+        "no-await-in-loop": "off",
+      },
+    },
+    {
       // Test/story files: long describe blocks are idiomatic; size rules add no value.
       files: [
         "**/*.test.{ts,tsx}",

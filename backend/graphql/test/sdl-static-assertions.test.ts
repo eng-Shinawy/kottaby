@@ -97,11 +97,13 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  type DefinitionNode,
   type EnumTypeDefinitionNode,
   type InputObjectTypeDefinitionNode,
   Kind,
   type ObjectTypeDefinitionNode,
   parse,
+  type ScalarTypeDefinitionNode,
   type TypeNode,
 } from "graphql";
 
@@ -186,13 +188,18 @@ const FROZEN_MUTATION_FIELDS = [
 ] as const;
 
 /**
- * Root query fields — the refreshed 59-op baseline + the whole-platform
- * analytics snapshot: the prior frozen baseline + the `_health` probe +
- * the session-report read pair (`sessionHomework` / `sessionReport`) +
- * the reconciled admin-user query quartet + the
+ * Root query fields — the refreshed 62-op baseline: the prior frozen
+ * 59-op baseline + the two sanctioned admin academic-tracking reads
+ * (`adminAcademicDashboard` / `adminStudentAcademicDetail` — the read-only
+ * surface, registering ZERO mutations) + the reconciled parent
+ * upcoming-sessions read (`myChildrenUpcomingSessions` — shipped with the
+ * parent deep-link round but never enumerated here; re-anchored to the
+ * live schema as a documented one-time reconciliation, NOT a silent
+ * baseline flip). The prior baseline had already grown by: the `_health`
+ * probe + the session-report read pair (`sessionHomework` /
+ * `sessionReport`) + the reconciled admin-user query quartet + the
  * participant-read trio + the admin arbitration listing + the admin
- * dispute-case read + the
- * wallet read + the handshake pair + the admin
+ * dispute-case read + the wallet read + the handshake pair + the admin
  * session pair (`adminSession` / `adminSessions` — 4.4 reconcile) + the
  * subscription purchase caller-scoped read + the R1–R3 admin directory
  * trio (`adminTeachers` / `adminStudents` / `adminTeacherApplicants` —
@@ -222,6 +229,7 @@ const FROZEN_MUTATION_FIELDS = [
  */
 const FROZEN_QUERY_FIELDS = [
   "_health",
+  "adminAcademicDashboard",
   "adminAuditLogs",
   "adminBroadcastDetail",
   "adminBroadcasts",
@@ -233,6 +241,7 @@ const FROZEN_QUERY_FIELDS = [
   "adminPlatformAnalytics",
   "adminSession",
   "adminSessions",
+  "adminStudentAcademicDetail",
   "adminStudentPayments",
   "adminStudents",
   "adminStudentsExport",
@@ -250,6 +259,7 @@ const FROZEN_QUERY_FIELDS = [
   "findStudentByHandshakeCode",
   "me",
   "myApplicantProfile",
+  "myChildrenUpcomingSessions",
   "myEvaluationLoopStatus",
   "myEvaluationSessions",
   "myHandshakeCode",
@@ -403,6 +413,26 @@ function objectTypeNameSet(): Set<string> {
   );
 }
 
+/**
+ * Type-name-bearing definition kinds only (no casts — a kind-guard
+ * predicate narrows the union for the `.name` access). Module scope per
+ * the function-scope discipline.
+ */
+function isNamedTypeDefinition(
+  definition: DefinitionNode
+): definition is
+  | ObjectTypeDefinitionNode
+  | InputObjectTypeDefinitionNode
+  | EnumTypeDefinitionNode
+  | ScalarTypeDefinitionNode {
+  return (
+    definition.kind === Kind.OBJECT_TYPE_DEFINITION ||
+    definition.kind === Kind.INPUT_OBJECT_TYPE_DEFINITION ||
+    definition.kind === Kind.ENUM_TYPE_DEFINITION ||
+    definition.kind === Kind.SCALAR_TYPE_DEFINITION
+  );
+}
+
 describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", () => {
   test("ZERO createNotification/updateNotification/deleteNotification field definitions on ANY type", () => {
     const names = allFieldNames();
@@ -422,7 +452,7 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 59-op baseline (the sanctioned dispute-resolution reads — the admin dispute analytics/case pair + the student/teacher dispute-case pair + the financial-auditing trio + the parent-portal read quintet + the deep-link target read (`parentSessionTarget`) + the parent-portal homework read (`myHomework`) + the student homework history read (`studentHomeworkHistory`) + the student-evaluation caller-scoped read + the admin broadcast history read pair + the evaluation-loop reads (status/list/evaluators) + the curriculum-lessons read + the admin subscription-management read + the wallet ledger read; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 62-op baseline (the prior 59-op baseline + the sanctioned admin academic-tracking read pair — `adminAcademicDashboard` / `adminStudentAcademicDetail`, a read-only surface that registers ZERO mutations — + the reconciled parent upcoming-sessions read (`myChildrenUpcomingSessions`, re-anchored as a documented one-time reconciliation); zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -1082,5 +1112,149 @@ describe("Student→teacher rating surface (extend) — write-once mutation, cal
     expect(byName.has("score")).toBe(false);
     expect(byName.has("createdAt")).toBe(false);
     expect(fields).toHaveLength(1);
+  });
+});
+
+describe("Admin academic-tracking surface — artifact-side pins (read-only SDL contract)", () => {
+  /** The thirteen academic OBJECT type names (the enum is pinned separately). */
+  const ACADEMIC_OBJECT_TYPE_NAMES = [
+    "AdminAcademicAttentionFlag",
+    "AdminAcademicDashboardPage",
+    "AdminAcademicGradeSummary",
+    "AdminAcademicHomeworkEntry",
+    "AdminAcademicHomeworkPage",
+    "AdminAcademicHomeworkTrack",
+    "AdminAcademicPosition",
+    "AdminAcademicReportEntry",
+    "AdminAcademicReportPage",
+    "AdminAcademicStats",
+    "AdminAcademicStudentDetailEcho",
+    "AdminAcademicStudentRow",
+    "AdminStudentAcademicDetail",
+  ] as const;
+
+  test("`adminAcademicDashboard(page: Int = 1, pageSize: Int = 25, search: String): AdminAcademicDashboardPage!`", () => {
+    // The artifact prints args in the sorted emission order — the pin is
+    // the EXACT line the deterministic generator writes (defaults ride the
+    // SDL: `page: Int = 1`, `pageSize: Int = 25`).
+    const surface = fieldSurface("Query", "adminAcademicDashboard");
+    expect(surface.type).toBe("AdminAcademicDashboardPage!");
+    expect(surface.args).toEqual([
+      { name: "page", type: "Int" },
+      { name: "pageSize", type: "Int" },
+      { name: "search", type: "String" },
+    ]);
+  });
+
+  test("`adminStudentAcademicDetail(page: Int = 1, pageSize: Int = 25, studentId: Int!): AdminStudentAcademicDetail!` — sorted emission prints `page, pageSize, studentId`", () => {
+    // Documented emission note: the resolver declares `studentId` first,
+    // but the deterministic lexicographic print sorts args alphabetically
+    // — the drill-down line lands as `page, pageSize, studentId`. GraphQL
+    // arg order carries no semantic weight.
+    const surface = fieldSurface("Query", "adminStudentAcademicDetail");
+    expect(surface.type).toBe("AdminStudentAcademicDetail!");
+    expect(surface.args).toEqual([
+      { name: "page", type: "Int" },
+      { name: "pageSize", type: "Int" },
+      { name: "studentId", type: "Int!" },
+    ]);
+  });
+
+  test("both root-field lines appear verbatim in the artifact text (lexical belt-and-braces)", () => {
+    expect(sdlText).toContain(
+      "adminAcademicDashboard(page: Int = 1, pageSize: Int = 25, search: String): AdminAcademicDashboardPage!"
+    );
+    expect(sdlText).toContain(
+      "adminStudentAcademicDetail(page: Int = 1, pageSize: Int = 25, studentId: Int!): AdminStudentAcademicDetail!"
+    );
+  });
+
+  test("the surface registers ZERO mutations — neither root name appears on the Mutation root, and neither token appears in the mutation line set", () => {
+    // Read-only: the Mutation root stays EXACTLY the frozen 50-op baseline
+    // above; the academic operation names must not even exist there as a
+    // lexical accident.
+    const mutationNames = fieldSurfaces("Mutation").map(surface => surface.name);
+    expect(mutationNames).not.toContain("adminAcademicDashboard");
+    expect(mutationNames).not.toContain("adminStudentAcademicDetail");
+    expect(mutationNames.filter(name => name.toLowerCase().includes("academic"))).toEqual([]);
+  });
+
+  test("AdminAcademicAttentionReason is the ONE new enum — EXACTLY the two wire values (lowGrade, staleProgress)", () => {
+    const reasonEnum = sdlDocument.definitions.find(
+      (definition): definition is EnumTypeDefinitionNode =>
+        definition.kind === Kind.ENUM_TYPE_DEFINITION && definition.name.value === "AdminAcademicAttentionReason"
+    );
+    if (!reasonEnum) {
+      throw new Error("Generated SDL must define the `AdminAcademicAttentionReason` enum type");
+    }
+    const values = (reasonEnum.values ?? []).map(value => value.name.value).toSorted((a, b) => a.localeCompare(b));
+    expect(values).toEqual(["lowGrade", "staleProgress"]);
+    // The pre-registered recitation vocabulary stays the ONLY other
+    // SurahJuzRef enum definition — never re-registered.
+    const surahJuzDefinitions = sdlDocument.definitions.filter(
+      definition => definition.kind === Kind.ENUM_TYPE_DEFINITION && definition.name.value === "SurahJuzRef"
+    );
+    expect(surahJuzDefinitions).toHaveLength(1);
+  });
+
+  test("all THIRTEEN academic object types exist in the artifact with the two root payloads and eleven embedded value/page objects", () => {
+    const declared = ACADEMIC_OBJECT_TYPE_NAMES.map(name => objectTypeDefinition(name).name.value);
+    expect(declared).toEqual([...ACADEMIC_OBJECT_TYPE_NAMES]);
+  });
+
+  test("entity ids print as `ID!` on the four entity shapes; entries anchor `sessionId: Int!` (documented Apollo-normalization deviation from the plan's Int! shorthand)", () => {
+    for (const entity of [
+      "AdminAcademicStudentRow",
+      "AdminAcademicStudentDetailEcho",
+      "AdminAcademicHomeworkEntry",
+      "AdminAcademicReportEntry",
+    ]) {
+      expect(fieldSurface(entity, "id").type).toBe("ID!");
+    }
+    for (const entity of ["AdminAcademicHomeworkEntry", "AdminAcademicReportEntry"]) {
+      expect(fieldSurface(entity, "sessionId").type).toBe("Int!");
+      expect(fieldSurface(entity, "sessionStartedAt").type).toBe("DateTime");
+      expect(fieldSurface(entity, "createdAt").type).toBe("DateTime!");
+    }
+  });
+
+  test("`isDeleted` prints on EXACTLY the drill-down echo (governance banner) — dashboard rows stay clean", () => {
+    for (const name of ACADEMIC_OBJECT_TYPE_NAMES) {
+      const surfaces = fieldSurfaces(name).map(surface => surface.name);
+      if (name === "AdminAcademicStudentDetailEcho") {
+        expect(fieldSurface(name, "isDeleted").type).toBe("Boolean!");
+      } else {
+        expect(surfaces).not.toContain("isDeleted");
+      }
+    }
+  });
+
+  test("the page envelopes expose EXACTLY the honest pagination contract (items/page/pageSize/pageCount/total — +stats only on the dashboard; no id)", () => {
+    for (const envelope of ["AdminAcademicDashboardPage", "AdminAcademicHomeworkPage", "AdminAcademicReportPage"]) {
+      const surfaces = fieldSurfaces(envelope)
+        .map(surface => surface.name)
+        .toSorted((a, b) => a.localeCompare(b));
+      // The dashboard envelope additionally carries the stats section —
+      // the two list-only envelopes stay flat.
+      if (envelope === "AdminAcademicDashboardPage") {
+        expect(surfaces).toEqual(["items", "page", "pageCount", "pageSize", "stats", "total"]);
+        expect(fieldSurface(envelope, "stats").type).toBe("AdminAcademicStats!");
+      } else {
+        expect(surfaces).toEqual(["items", "page", "pageCount", "pageSize", "total"]);
+      }
+      expect(surfaces).not.toContain("id");
+    }
+  });
+
+  test("the whole academic named-type surface is the pinned 14 (13 objects + the enum) — zero sibling drift", () => {
+    const declaredNames = sdlDocument.definitions
+      .filter(isNamedTypeDefinition)
+      .map(definition => definition.name.value);
+    const academicNames = declaredNames
+      .filter(name => name.startsWith("AdminAcademic") || name === "AdminStudentAcademicDetail")
+      .toSorted((a, b) => a.localeCompare(b));
+    expect(academicNames).toEqual(
+      [...ACADEMIC_OBJECT_TYPE_NAMES, "AdminAcademicAttentionReason"].toSorted((a, b) => a.localeCompare(b))
+    );
   });
 });

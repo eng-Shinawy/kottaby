@@ -1,3 +1,4 @@
+import type { AdminAcademicLabels } from "@/shared/locale/types/adminAcademic";
 import type { AdminBroadcastsLabels } from "@/shared/locale/types/adminBroadcasts";
 import type { AdminFinanceLabels } from "@/shared/locale/types/adminFinance";
 import type { AdminSessionGovernanceLabels } from "@/shared/locale/types/adminSessionGovernance";
@@ -42,6 +43,7 @@ export interface Translations {
   walletTranslations: WalletLabels;
   upNextTranslations: UpNextLabels;
   checkoutTranslations: CheckoutLabels;
+  adminAcademicTranslations: AdminAcademicLabels;
   adminUsersTranslations: AdminUsersLabels;
   adminTeachersTranslations: AdminTeachersLabels;
   adminStudentsTranslations: AdminStudentsLabels;

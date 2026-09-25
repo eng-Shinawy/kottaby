@@ -7,6 +7,8 @@
 "use client";
 
 import { Paper, Table, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
+import type { SxProps, Theme } from "@mui/material/styles";
+import { mergeSx } from "@/frontend/utils/mergeSx";
 
 interface AdminDesktopTableHeader {
   readonly label: string;
@@ -17,19 +19,29 @@ export interface AdminDesktopTableProps {
   readonly ariaLabel: string;
   readonly headers: readonly AdminDesktopTableHeader[];
   readonly children: React.ReactNode;
+  /**
+   * Optional extra `sx` on the outer TableContainer — lets a wide listing
+   * tune its density (e.g. cell padding) without forking the scaffold.
+   * Composed AFTER the shell styles via `mergeSx` so per-table overrides
+   * win; consumers that omit it keep the default scaffold untouched.
+   */
+  readonly sx?: SxProps<Theme>;
 }
 
-export function AdminDesktopTable({ ariaLabel, headers, children }: AdminDesktopTableProps): React.ReactElement {
+export function AdminDesktopTable({ ariaLabel, headers, children, sx }: AdminDesktopTableProps): React.ReactElement {
   return (
     <TableContainer
       component={Paper}
       elevation={0}
-      sx={theme => ({
-        display: { xs: "none", md: "block" },
-        border: 1,
-        borderColor: theme.palette.divider,
-        borderRadius: 2,
-      })}
+      sx={mergeSx(
+        theme => ({
+          display: { xs: "none", md: "block" },
+          border: 1,
+          borderColor: theme.palette.divider,
+          borderRadius: 2,
+        }),
+        sx
+      )}
     >
       <Table aria-label={ariaLabel}>
         <TableHead>

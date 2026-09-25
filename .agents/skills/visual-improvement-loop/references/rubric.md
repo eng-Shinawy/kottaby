@@ -47,6 +47,7 @@ If the run includes a dark pass (only when the app supports it — record `dark:
 - READY = average ≥ 9.5
 - NEEDS FIXES otherwise. The orchestrator may accept a final LOW-only list as accepted debt, and only when every item is recorded in the outcome with BOTH: (a) why it cannot reach 10 (platform limitation, content-length variance, etc.), and (b) why that is acceptable (no impact on task success or perceived quality). Anything that degrades perceived quality is NOT cosmetic — it goes to a fix wave regardless of its severity label.
 - Calibration note (observed 2026-09-13): VLM inspectors score in integer steps and reserve 10 for "flawless" — totals plateau ≈9.0–9.2 even on surfaces whose every reported finding was fixed or DOM-disproven. When residuals are LOW-only, mutually contradictory across passes, or pixel-disproven, adjudicate via the accepted-debt clause instead of looping indefinitely on inspector noise.
+- Contradiction signature (observed 2026-09-23): at the plateau, the DOMINANT noise class is findings that contradict earlier passes on unchanged pixels — a divider reported "missing" while the DOM shows two hairlines per card, "add a tooltip" while the `title` attribute is present, a fold-crop reported as truncation, pass-to-pass verdicts flipping READY↔NEEDS-FIXES (±0.4 total) on identical pixels. Run the DOM arbitration BEFORE any fix wave item is accepted, and record each arbitration in the outcome — a disproven finding is dismissed, never "fixed".
 
 ## Output contract from each inspector
 

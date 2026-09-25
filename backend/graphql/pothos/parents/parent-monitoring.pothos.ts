@@ -48,6 +48,7 @@
  */
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { SessionStatusPothosEnum, SurahJuzRefPothosEnum } from "@/backend/graphql/pothos/shared/enum.pothos";
+import { implementHomeworkTrackObject } from "@/backend/graphql/pothos/shared/homework-track.pothos";
 import type {
   ParentAttendanceEntryReturnType,
   ParentAttendancePageReturnType,
@@ -198,27 +199,12 @@ export const ParentReportPagePothosObject = gqlSchemaBuilder
  * block means "no assignment on this track" — never fabricated zeros. The
  * surah/juz reference is a member of the canonical `SurahJuzRef`
  * vocabulary; the grade lives on its [0, 100] scale and stays null until
- * the teacher records it.
+ * the teacher records it. Fields register through the shared
+ * homework-track factory (the exact projection the admin academic-tracking
+ * surface exposes).
  */
-export const ParentHomeworkTrackPothosObject = gqlSchemaBuilder
-  .objectRef<ParentHomeworkTrackReturnType>("ParentHomeworkTrack")
-  .implement({
-    fields: t => ({
-      // Surah/juz reference — nullable `SurahJuzRef`. Null when the track
-      // has no assignment recorded (the whole block is null in that case,
-      // but per-field nullability is preserved when only some legs are
-      // unset).
-      surahJuz: t.expose("surahJuz", { type: SurahJuzRefPothosEnum, nullable: true }),
-      // From-ayah — nullable `Int`. Null when the track records a surah/juz
-      // reference without a numeric range.
-      fromAyah: t.exposeInt("fromAyah", { nullable: true }),
-      // To-ayah — nullable `Int` (same nullability rule as `fromAyah`).
-      toAyah: t.exposeInt("toAyah", { nullable: true }),
-      // Recorded grade — nullable `Int` on the [0, 100] scale. Stays null
-      // until the teacher records it (NEVER fabricated to 0).
-      grade: t.exposeInt("grade", { nullable: true }),
-    }),
-  });
+export const ParentHomeworkTrackPothosObject =
+  implementHomeworkTrackObject<ParentHomeworkTrackReturnType>("ParentHomeworkTrack");
 
 /**
  * The canonical `ParentHomeworkEntry` GraphQL object — one homework row

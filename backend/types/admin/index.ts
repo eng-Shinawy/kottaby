@@ -1,3 +1,4 @@
+export * from "./admin-academic-tracking.types";
 export * from "./admin-student-directory.types";
 export * from "./admin-student-onboarding.types";
 export * from "./admin-teacher-applicant-directory.types";

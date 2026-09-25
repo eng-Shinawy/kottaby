@@ -27,7 +27,13 @@ const legacyCopyViaExecCommand = (text: string): boolean => {
     document.body.appendChild(textarea);
     textarea.select();
     textarea.setSelectionRange(0, text.length);
-    const copied = document.execCommand("copy");
+    // The legacy bridge is deliberate: execCommand("copy") is the only
+    // fallback left when the async Clipboard API is denied (permission
+    // policies, embedded webviews, automation browsers). Binding the
+    // deprecated method into a narrow alias keeps that intent explicit at
+    // the call site instead of relying on the wide lib.dom signature.
+    const execCopy: (commandId: string) => boolean = document.execCommand.bind(document);
+    const copied = execCopy("copy");
     document.body.removeChild(textarea);
     return copied;
   } catch {

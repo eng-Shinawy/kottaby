@@ -1,3 +1,4 @@
+import { formatArabicReportsCount } from "@/shared/locale/arabic-reports-count";
 import type { ParentMonitoringLabels } from "@/shared/locale/types/parentMonitoring";
 
 export const parentMonitoringAr: ParentMonitoringLabels = {
@@ -66,13 +67,7 @@ export const parentMonitoringAr: ParentMonitoringLabels = {
 
   // ─── Reports tab ────────────────────────────────────────────────────────
   reportsSectionTitle: "تقارير الجلسات",
-  reportsCount: (count: number) => {
-    if (count === 0) return "لا توجد تقارير";
-    if (count === 1) return "تقرير واحد";
-    if (count === 2) return "تقريران";
-    if (count <= 10) return `${count.toLocaleString("ar")} تقارير`;
-    return `${count.toLocaleString("ar")} تقريراً`;
-  },
+  reportsCount: formatArabicReportsCount,
   reportsEmptyTitle: "لا توجد تقارير بعد",
   reportsEmptyBody: "ستظهر ملاحظات المعلم والتقييمات هنا بعد كل جلسة مكتملة.",
   reportsColumnDate: "التاريخ",

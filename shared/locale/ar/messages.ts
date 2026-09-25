@@ -1,3 +1,4 @@
+import { adminAcademicAr } from "@/shared/locale/ar/adminAcademic";
 import { adminBroadcastsAr } from "@/shared/locale/ar/adminBroadcasts";
 import { adminFinanceAr } from "@/shared/locale/ar/adminFinance";
 import { adminSessionGovernanceAr } from "@/shared/locale/ar/adminSessionGovernance";
@@ -43,6 +44,7 @@ export const arMessages: Translations = {
   walletTranslations: walletAr,
   upNextTranslations: upNextAr,
   checkoutTranslations: checkoutAr,
+  adminAcademicTranslations: adminAcademicAr,
   adminUsersTranslations: adminUsersAr,
   adminTeachersTranslations: adminTeachersAr,
   adminStudentsTranslations: adminStudentsAr,

@@ -35,6 +35,8 @@ export interface DashboardLabels {
   readonly teachers: string;
   /** Sidebar nav: Students link (admin) */
   readonly students: string;
+  /** Sidebar nav: Academic Tracking link (admin — the academic monitoring dashboard) */
+  readonly academicTracking: string;
   /** Sidebar nav: Plans link (admin) */
   readonly plans: string;
   /** Sidebar nav: Lessons link (admin — curriculum management under a plan) */

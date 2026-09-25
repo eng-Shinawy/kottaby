@@ -30,6 +30,7 @@ Screenshots must not be trusted just because `screenshot` exited 0. Verify:
 1. **Title guard** before accepting: `agent-browser eval "document.title"` must match the expected page (e.g. `"Student Credits | Siraj"` — not `"Login | Siraj"`). A stale/expired session turns everything after into login-page screenshots. Re-auth and recapture.
 2. **State guard** for interaction-driven content (expanded banners, selected options, prefilled forms): run the interaction, then check the expected DOM marker twice — immediately before AND after the screenshot. If either check is off, redo.
 3. Allow settle time: dev server + Suspense + apollo mocks need 10-15s on first open per bundle. Use a fixed short sleep then verify via DOM — never `waitForTimeout`-style blind sleeps inside tests; for captures a plain `sleep 10` + DOM verification is correct and sufficient.
+4. **Data-state guard (added 2026-09-23):** Apollo refetch (e.g. after a locale re-pin) can hold a page in MUI skeletons past ANY fixed settle while `document.title` still passes. Gate every capture on a DATA marker — `document.querySelectorAll("[data-testid=…]").length > 0` with zero `.MuiSkeleton-root` — before shooting; retry up to 3×.
 
 ## `--full` screenshot pitfall (observed)
 
@@ -119,7 +120,9 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
   stop server → fresh dir → `bunx drizzle-kit push --force` with a pglite-driver config → re-seed.
 - Locale pinning must be re-applied after EVERY re-login/cookie re-injection: fresh sessions drop
   NEXT_LOCALE and the stored user locale (fresh DBs default to the app locale), silently turning
-  EN capture batches into AR.
+  EN capture batches into AR. The `--expect-title` guard is LOCALE-DEPENDENT — pin locale and
+  expected title as ONE pair per batch ("Academic Tracking" en / "التتبع الأكاديمي" ar), or AR
+  batches fail the title gate spuriously (observed 2026-09-23).
 ## Provider-error arbitration (added 2026-09-19)
 
 - When the objective pre-check's console gate surfaces provider-specific GraphQL

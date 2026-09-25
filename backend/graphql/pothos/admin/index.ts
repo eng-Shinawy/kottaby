@@ -6,6 +6,7 @@
  *  - Domain Pothos files are imported directly by the query/mutation files
  *    that consume them; this barrel exists for ergonomic re-export.
  */
+export * from "./academic-tracking.pothos";
 export * from "./admin-finance.pothos";
 export * from "./admin-student-onboarding.pothos";
 export * from "./admin-students.pothos";

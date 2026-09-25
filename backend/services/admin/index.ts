@@ -6,6 +6,8 @@
  *  - No monolithic services.
  *  - All user-facing error messages resolve through `getServerTranslations`.
  */
+
+export * from "./admin-academic-tracking.service";
 export * from "./admin-gate.helpers";
 export * from "./audit.service";
 export * from "./audit-trail.service";
