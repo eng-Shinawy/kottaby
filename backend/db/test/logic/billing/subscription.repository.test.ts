@@ -7,6 +7,11 @@
  *         settlement).
  * Tier 2: Boundary conditions (unknown ids, unknown references, empty list,
  *         unknown students, non-active plan-change source rows).
+ * Tier 1+2+4 (lane-keyed plan resolution, `findLatestActivePlanIdForLane`):
+ *         newest-active-on-lane resolution with its `start_date DESC, id
+ *         DESC` tiebreak on both executor arms; the miss shapes (another
+ *         lane, every non-active lifecycle state, no subscriptions,
+ *         hostile owner ids, a SQL-shaped id string bound as data).
  * Tier 3: Chaos & concurrency (guarded activation: zero-row replay on an
  *         already-activated subscription; guarded extension: zero-row
  *         replay once the window moved, wrong-status denial; guarded
@@ -36,7 +41,12 @@ import { SubscriptionRepository } from "@/backend/db/repo/billing/subscription.r
 import { StudentRepository } from "@/backend/db/repo/students/student.repository";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
-import { createTestPlan, createTestStudent, createTestUser } from "@/backend/db/test/entity-setup";
+import {
+  createTestPlan,
+  createTestStudent,
+  createTestSubscription,
+  createTestUser,
+} from "@/backend/db/test/entity-setup";
 import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { SubscriptionCreditLane } from "@/backend/enum/billing/subscription-credit-lane.enum";
@@ -53,6 +63,9 @@ const PG_UNIQUE_VIOLATION = "23505";
 
 /** PostgreSQL error code for `check_violation` (the lanes' `>= 0` guards). */
 const PG_CHECK_VIOLATION = "23514";
+
+/** PostgreSQL error code for `invalid_text_representation` (integer parse). */
+const PG_INTEGER_PARSE_VIOLATION = "22P02";
 
 /** Physical name of the partial unique index guarding payment references. */
 const PAYMENT_REFERENCE_UNIQUE = "subscriptions_payment_reference_unique";
@@ -81,6 +94,16 @@ function causeChainContainsMessage(error: unknown, substring: string): boolean {
 async function createPurchaserAndPlan(tx: DBTransaction): Promise<{ userId: number; planId: number }> {
   const user = await createTestUser(tx, { role: "student" });
   const plan = await createTestPlan(tx);
+  return { userId: user.id, planId: plan.id };
+}
+
+/** Creates one purchaser (user) + one plan pinned to the given credit lane. */
+async function createOwnerAndLanePlan(
+  tx: DBTransaction,
+  lane: SubscriptionCreditLane
+): Promise<{ userId: number; planId: number }> {
+  const user = await createTestUser(tx, { role: "student" });
+  const plan = await createTestPlan(tx, { balanceLane: lane });
   return { userId: user.id, planId: plan.id };
 }
 
@@ -677,5 +700,189 @@ describe("SubscriptionRepository", () => {
       const stillThere = await SubscriptionRepository.findByPaymentReference(reference, tx);
       expect(stillThere?.id).toBe(original.id);
     });
+  });
+});
+
+/**
+ * The lane-keyed plan resolution read — the newest `active` subscription
+ * whose plan credits the given lane, `start_date DESC, id DESC`. Tier 1:
+ * the resolved plan id matches the newest active subscription on the
+ * lane, on both executor arms. Tier 2: ordering boundaries (a
+ * later-starting subscription wins; a shared start instant resolves to
+ * the higher subscription id) and every miss shape (another lane, every
+ * non-active lifecycle state, no subscriptions at all). Tier 4: hostile
+ * owner ids are equality misses and a SQL-shaped id string rides ONE
+ * bound parameter — coerced as data, never executed.
+ */
+describe("SubscriptionRepository.findLatestActivePlanIdForLane", () => {
+  // ─── Tier 1: happy path on the transactional arm ───────────────────────
+
+  test("returns the plan id of the student's latest-starting active subscription on the lane", async () => {
+    await runInRollback(async tx => {
+      const owner = await createTestUser(tx, { role: "student" });
+      const olderPlan = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Tajweed });
+      const newerPlan = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Tajweed });
+      await createTestSubscription(tx, owner.id, olderPlan.id, { startDate: new Date("2026-01-01T00:00:00Z") });
+      await createTestSubscription(tx, owner.id, newerPlan.id, { startDate: new Date("2026-03-01T00:00:00Z") });
+
+      const resolved = await SubscriptionRepository.findLatestActivePlanIdForLane(
+        owner.id,
+        SubscriptionCreditLane.Tajweed,
+        tx
+      );
+
+      expect(resolved).toBe(newerPlan.id);
+      expect(typeof resolved).toBe("number");
+    });
+  });
+
+  // ─── Tier 2: ordering boundaries ────────────────────────────────────────
+
+  test("two active subscriptions sharing one start instant resolve to the higher subscription id's plan", async () => {
+    await runInRollback(async tx => {
+      const owner = await createTestUser(tx, { role: "student" });
+      const planA = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Tajweed });
+      const planB = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Tajweed });
+      const sameStart = new Date("2026-02-01T00:00:00Z");
+      const first = await createTestSubscription(tx, owner.id, planA.id, { startDate: sameStart });
+      const second = await createTestSubscription(tx, owner.id, planB.id, { startDate: sameStart });
+      expect(second.id).toBeGreaterThan(first.id);
+
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(owner.id, SubscriptionCreditLane.Tajweed, tx)
+      ).toBe(planB.id);
+    });
+  });
+
+  // ─── Tier 2: miss shapes ────────────────────────────────────────────────
+
+  test("a subscription on another lane never matches — a hifz-lane plan misses the tajweed probe", async () => {
+    await runInRollback(async tx => {
+      const { userId, planId } = await createOwnerAndLanePlan(tx, SubscriptionCreditLane.Hifz);
+      await createTestSubscription(tx, userId, planId);
+
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(userId, SubscriptionCreditLane.Tajweed, tx)
+      ).toBeNull();
+      // The same row resolves under its own lane — the miss is the lane
+      // scoping, not the row's existence.
+      expect(await SubscriptionRepository.findLatestActivePlanIdForLane(userId, SubscriptionCreditLane.Hifz, tx)).toBe(
+        planId
+      );
+    });
+  });
+
+  test("every non-active lifecycle state misses the active-lane resolution", async () => {
+    await runInRollback(async tx => {
+      const owner = await createTestUser(tx, { role: "student" });
+      const plan = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Tajweed });
+      const nonActiveStatuses = [
+        SubscriptionStatus.Pending,
+        SubscriptionStatus.Expired,
+        SubscriptionStatus.Cancelled,
+        SubscriptionStatus.Suspended,
+      ];
+      await Promise.all(
+        nonActiveStatuses.map(status =>
+          createTestSubscription(tx, owner.id, plan.id, {
+            status,
+            startDate: new Date("2026-02-01T00:00:00Z"),
+          })
+        )
+      );
+
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(owner.id, SubscriptionCreditLane.Tajweed, tx)
+      ).toBeNull();
+    });
+  });
+
+  test("a student with no subscriptions resolves to null", async () => {
+    await runInRollback(async tx => {
+      const owner = await createTestUser(tx, { role: "student" });
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(owner.id, SubscriptionCreditLane.Tajweed, tx)
+      ).toBeNull();
+    });
+  });
+
+  // ─── Tier 4: hostile owner ids ──────────────────────────────────────────
+
+  test("hostile owner ids are equality misses — zero and negative match nothing", async () => {
+    await runInRollback(async tx => {
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(0, SubscriptionCreditLane.Tajweed, tx)
+      ).toBeNull();
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(-3, SubscriptionCreditLane.Tajweed, tx)
+      ).toBeNull();
+    });
+  });
+
+  test("a SQL-shaped id string rides ONE bound parameter — coerced as data, never executed", async () => {
+    await runInRollback(async tx => {
+      const { userId, planId } = await createOwnerAndLanePlan(tx, SubscriptionCreditLane.Tajweed);
+      await createTestSubscription(tx, userId, planId);
+
+      // A numeric string is COERCED to its integer value and matches
+      // nothing — a clean miss, no error. The assignment simulates the one
+      // way such a value could reach this layer: a caller that bypassed
+      // every upstream type guard (no type assertion involved).
+      // @ts-expect-error — a hostile caller hands the number-typed slot a string
+      const coercedId: number = "0";
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(coercedId, SubscriptionCreditLane.Tajweed, tx)
+      ).toBeNull();
+
+      // An injection-shaped payload cannot parse as an integer: the driver
+      // hands it to PostgreSQL as ONE bound parameter and the statement
+      // fails with the raw integer-parse data exception — nothing executed.
+      // @ts-expect-error — same hostile bypass, injection-shaped payload
+      const injectionShaped: number = "1 OR 1=1; DELETE FROM subscriptions; --";
+      await tx.execute(sql`savepoint lane_resolution_sql_shaped_probe`);
+      const error = await expectRepoError(() =>
+        SubscriptionRepository.findLatestActivePlanIdForLane(injectionShaped, SubscriptionCreditLane.Tajweed, tx)
+      );
+      await tx.execute(sql`rollback to savepoint lane_resolution_sql_shaped_probe`);
+
+      expect(hasPostgresErrorCode(error, PG_INTEGER_PARSE_VIOLATION)).toBe(true);
+      // Post-rollback the subscription row is intact — the payload never ran.
+      expect(await countSubscriptionsFor(tx, userId)).toBe(1);
+    });
+  });
+
+  // ─── Tier 1: the bare-read arm on a committed fixture ───────────────────
+
+  testOnRealPostgres("findLatestActivePlanIdForLane bare-read arm returns the committed active plan id", async () => {
+    // Committed fixture — the bare read runs on its own pool connection
+    // and cannot see rows created inside another (uncommitted) transaction.
+    const fixture = await db.transaction(async fixtureTx => {
+      const user = await createTestUser(fixtureTx, { role: "student" });
+      const plan = await createTestPlan(fixtureTx, { balanceLane: SubscriptionCreditLane.Tajweed });
+      await createTestSubscription(fixtureTx, user.id, plan.id, { startDate: new Date("2026-02-01T00:00:00Z") });
+      return { ownerId: user.id, planId: plan.id };
+    });
+
+    try {
+      const resolved = await SubscriptionRepository.findLatestActivePlanIdForLane(
+        fixture.ownerId,
+        SubscriptionCreditLane.Tajweed
+      );
+      expect(resolved).toBe(fixture.planId);
+
+      // An unknown owner is the same null miss through the bare arm.
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(99999999, SubscriptionCreditLane.Tajweed)
+      ).toBeNull();
+    } finally {
+      // FK-ordered teardown of the committed fixtures (the subscription
+      // rows cascade with the user; the plan row has no cascade parent).
+      await deleteUsersByIds([fixture.ownerId]);
+      await db.delete(plans).where(eq(plans.id, fixture.planId));
+      // Teardown proof: the bare lane read misses after the cascade.
+      expect(
+        await SubscriptionRepository.findLatestActivePlanIdForLane(fixture.ownerId, SubscriptionCreditLane.Tajweed)
+      ).toBeNull();
+    }
   });
 });

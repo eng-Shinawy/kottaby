@@ -38,6 +38,9 @@ export const errorsAr: ErrorsLabels = {
     lessonPlanNotFound: "لم يتم العثور على الخطة المحددة.",
     lessonPatchEmpty: "يجب تقديم حقل واحد على الأقل لتحديث الدرس.",
   },
+  studentProgress: {
+    studentNotFound: "لم يتم العثور على الطالب المطلوب.",
+  },
   subscriptionPurchase: {
     planNotPurchasable: "خطة الاشتراك هذه غير متاحة للشراء.",
     planLaneUnconfigured: "لا يمكن شراء هذه الخطة بعد لأن مسار الرصيد المخصص لها غير مهيأة.",

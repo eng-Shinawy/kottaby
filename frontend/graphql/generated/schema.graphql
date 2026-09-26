@@ -1712,6 +1712,11 @@ type Query {
   studentHomeworkHistory(page: Int, pageSize: Int, studentId: ID!): StudentHomeworkPage!
 
   """
+  Returns one student's curriculum position (current lesson + completion percentage) on their governing tajweed plan, for the student themselves, teachers sharing a session with them, and admins.
+  """
+  studentProgress(studentId: Int!): StudentProgress!
+
+  """
   Read the dispute case for one session as its own teacher (teacher-only): the session row plus the participant-owned artifacts (report, homework, recitation — honest nulls when absent) and the student display name. Non-participants and unknown or malformed ids are indistinguishable localized not-found denials.
   """
   teacherDisputeCase(id: ID!): TeacherDisputeCase!
@@ -1935,6 +1940,23 @@ type StudentPayment {
 
   """Timestamp when the payment record was last modified."""
   updatedAt: String!
+}
+
+"""
+A student's curriculum position on their governing tajweed plan: the current lesson, the completed count, and the floor-computed completion percentage. Fields are null when no progress exists yet (hasProgress=false) — never fabricated.
+"""
+type StudentProgress {
+  completionPercent: Int!
+  currentLessonId: Int
+  currentLessonPosition: Int
+  currentLessonTitle: String
+  hasProgress: Boolean!
+  isOnFinalLesson: Boolean!
+  lessonsCompleted: Int!
+  planId: Int
+  planTitle: String
+  studentId: Int!
+  totalLessons: Int!
 }
 
 """A student subscription linking a purchaser to a catalog plan."""

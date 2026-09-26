@@ -886,4 +886,29 @@ export namespace SessionRepository {
    *          student, or a pair with zero shared sessions.
    */
   export const existsSessionForTeacherStudent = sessionRepositoryGateImpl.existsSessionForTeacherStudent;
+
+  /**
+   * Counts the session rows linking ONE teacher to ONE student — the
+   * pair-relationship count. Any lifecycle state counts: a shared row
+   * (scheduled, live, settled, or cancelled) is the relationship
+   * evidence, not an outcome claim. Both equality predicates fuse into
+   * ONE WHERE — the composite index `session_teacher_id_student_id_idx`
+   * makes the scan O(1) on the pair — and both ids ride bound parameters,
+   * so the count can never see past the named pair (a foreign teacher's
+   * or another student's rows are invisible by construction).
+   *
+   * Read-only and standalone-capable: the count rides the caller's
+   * transaction when supplied and falls back to the queryDb pool path
+   * otherwise, always returned as a JavaScript number (never
+   * PostgreSQL's bigint-as-string).
+   *
+   * Type-exact const re-export (the namespace-delegation convention): the
+   * implementation lives beside the tenancy probe it mirrors, in the
+   * sibling gate module.
+   *
+   * @returns The pair's row count — `0` when the pair shares no session
+   *          (or either id is unknown); the caller decides what the count
+   *          authorizes.
+   */
+  export const countTeacherStudentSessions = sessionRepositoryGateImpl.countTeacherStudentSessions;
 }

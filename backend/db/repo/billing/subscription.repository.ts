@@ -481,4 +481,64 @@ export namespace SubscriptionRepository {
     `);
     return result.rows[0]?.uncovered ?? false;
   }
+
+  /**
+   * Resolves the plan id of the student's most recent `active`
+   * subscription whose plan credits the given lane — the curriculum
+   * context read for a lane-governed track. The JOIN folds the lane
+   * scoping into the plan side: a subscription on a plan with another
+   * `balance_lane` can never match. Ordering is `start_date DESC NULLS
+   * LAST` with `id DESC` as the deterministic tiebreak: the
+   * newest-started subscription wins even when several actives share one
+   * start instant, and the NULLS LAST clause keeps a null `start_date`
+   * from pinning to the front of the DESC scan (PostgreSQL's implicit
+   * NULLS FIRST for DESC) so the winner is deterministic regardless of
+   * the column's nullability.
+   *
+   * Every value — the owner, the lifecycle state, the lane — travels as a
+   * bound parameter; the state and lane vocabularies are enum members,
+   * never string literals.
+   *
+   * Read-only: on the caller's transaction it runs as a Drizzle join
+   * select; standalone it runs as raw parameterized SQL via `queryDb`
+   * (the Neon HTTP fast path).
+   *
+   * @returns The resolved plan id, or `null` when the student holds no
+   *          active subscription on the lane — the caller decides what
+   *          the miss means.
+   */
+  export async function findLatestActivePlanIdForLane(
+    studentId: number,
+    lane: SubscriptionCreditLane,
+    tx?: DBQueryExecutor
+  ): Promise<number | null> {
+    if (tx && isDBTransaction(tx)) {
+      // Transactional read — Drizzle join on the supplied executor.
+      const rows = await tx
+        .select({ planId: subscriptions.planId })
+        .from(subscriptions)
+        .innerJoin(plans, eq(plans.id, subscriptions.planId))
+        .where(
+          and(
+            eq(subscriptions.userId, studentId),
+            eq(subscriptions.status, SubscriptionStatus.Active),
+            eq(plans.balanceLane, lane)
+          )
+        )
+        .orderBy(sql`${subscriptions.startDate} DESC NULLS LAST`, desc(subscriptions.id))
+        .limit(1);
+      return rows[0]?.planId ?? null;
+    }
+    // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
+    const result = await queryDb<{ planId: number }>(
+      `SELECT s.plan_id AS "planId"
+       FROM subscriptions s
+       INNER JOIN plans p ON p.id = s.plan_id
+       WHERE s.user_id = $1 AND s.status = $2 AND p.balance_lane = $3
+       ORDER BY s.start_date DESC NULLS LAST, s.id DESC
+       LIMIT 1`,
+      [studentId, SubscriptionStatus.Active, lane]
+    );
+    return result.rows[0]?.planId ?? null;
+  }
 }

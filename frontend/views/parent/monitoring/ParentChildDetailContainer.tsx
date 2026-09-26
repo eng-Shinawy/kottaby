@@ -97,6 +97,7 @@ export function ParentChildDetailContainer(props: Readonly<ParentChildDetailCont
         onChange={handleTabChange}
         variant="scrollable"
         scrollButtons="auto"
+        allowScrollButtonsMobile
         aria-label={t.detailPageSubtitle}
         sx={theme => ({
           borderBottom: 1,

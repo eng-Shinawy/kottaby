@@ -15,6 +15,7 @@
  *  - `admin-session-governance.query.ts` registers `adminSessions` and
  *    `adminSession`.
  *  - `lesson.query.ts` registers `planLessons`.
+ *  - `student-progress.query.ts` registers `studentProgress`.
  */
 import "./admin-session-governance.query";
 import "./lesson.query";
@@ -22,3 +23,4 @@ import "./recitation.query";
 import "./session-arbitration.query";
 import "./session-lifecycle.query";
 import "./session-report.query";
+import "./student-progress.query";

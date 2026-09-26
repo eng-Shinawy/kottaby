@@ -16,6 +16,15 @@
  *    `balance`/`total_earning` increase by exactly that fee (no DB
  *    trigger exists — the increment is explicit, atomic with the ledger
  *    row).
+ *  - The SAME settled arm advances the student's curriculum: a tajweed
+ *    session moves the student's progress pointer to the next lesson of
+ *    the governing plan (created lazily on the first completion, pinned
+ *    once the curriculum is finished) through the progress service on
+ *    this transaction — the credit and the advance commit or roll back
+ *    together. A missing curriculum context (no active tajweed-lane
+ *    subscription, an empty plan) is logged and skipped so settlement is
+ *    never blocked by it, while an unexpected advance failure fails
+ *    closed and rolls the whole confirmation back.
  *  - Already-confirmed student, an already-released hold (admin
  *    arbitration consumed it first), or the TEACHER caller (whose stamp
  *    `completeSessionOnce` already wrote): the current row is returned
@@ -35,6 +44,7 @@ import { SessionRepository, WalletRepository } from "@/backend/db/repo";
 import { ConflictError, NotFoundError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { SESSION_COMPLETED_STATUS } from "@/backend/services/classes/session-lifecycle.guards";
+import { StudentProgressService } from "@/backend/services/classes/student-progress.service";
 import type { DBTransaction, SessionReturnType, SessionTransitionProbeRowType } from "@/backend/types";
 import type { getServerTranslations } from "@/shared/locale/server-graphql";
 
@@ -106,8 +116,9 @@ async function resolveSettledOrConflict(
 /**
  * The confirmation transaction body: the exactly-once slice (student stamp
  * + hold release in ONE guarded statement) with the teacher-earning credit
- * composed on the same transaction, and the zero-row miss classified by
- * ONE cold probe read (classification-only — it never feeds a write).
+ * and the curriculum-progress advance composed on the same transaction,
+ * and the zero-row miss classified by ONE cold probe read
+ * (classification-only — it never feeds a write).
  */
 export async function confirmCompletionInTx(
   callerUserId: number,
@@ -127,6 +138,7 @@ export async function confirmCompletionInTx(
       throw new Error("SessionLifecycleService.confirmSessionCompletion: missing session fee");
     }
     await creditTeacherEarning(confirmed, confirmed.fee, tx);
+    await StudentProgressService.incrementForConfirmedSession(confirmed, tx);
     return confirmed;
   }
 

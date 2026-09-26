@@ -112,9 +112,13 @@ import {
 // ─── .test.ts — the single sanctioned growth history) ────────────────────────
 
 /**
- * Root mutation fields — the refreshed 50-op baseline: the prior auth
- * quartet + notification read-latch pair + users-locale surface, the
- * reconciled admin-user-management trio (3 mutations) + the
+ * Root mutation fields — the refreshed 52-op baseline: the prior 51-op
+ * baseline + the admin direct-onboarding write
+ * (`adminOnboardStudentWithOfflinePayment` — shipped with the merged
+ * direct-onboarding surface but never enumerated here; re-anchored to the
+ * live schema as a documented one-time reconciliation, NOT a silent baseline
+ * flip). The baseline itself is: the reconciled admin-user-management trio
+ * (3 mutations) + the
  * session quartet + dispute pair + post-confirmation dispute entry + confirm
  * + payout, the sanctioned admin-governance pair + the
  * session-governance quartet + the subscription purchase write + the
@@ -143,6 +147,7 @@ const FROZEN_MUTATION_FIELDS = [
   "adminCreateUser",
   "adminExtendSubscription",
   "adminJoinSession",
+  "adminOnboardStudentWithOfflinePayment",
   "adminReassignTeacher",
   "adminRenewSubscription",
   "adminRescheduleSession",
@@ -188,14 +193,11 @@ const FROZEN_MUTATION_FIELDS = [
 ] as const;
 
 /**
- * Root query fields — the refreshed 62-op baseline: the prior frozen
- * 59-op baseline + the two sanctioned admin academic-tracking reads
- * (`adminAcademicDashboard` / `adminStudentAcademicDetail` — the read-only
- * surface, registering ZERO mutations) + the reconciled parent
- * upcoming-sessions read (`myChildrenUpcomingSessions` — shipped with the
- * parent deep-link round but never enumerated here; re-anchored to the
- * live schema as a documented one-time reconciliation, NOT a silent
- * baseline flip). The prior baseline had already grown by: the `_health`
+ * Root query fields — the refreshed 65-op baseline: the prior frozen
+ * 64-op baseline + the sanctioned curriculum-progress read
+ * (`studentProgress(studentId: Int!): StudentProgress!` — the gated
+ * read registering ZERO mutations; the pointer's writer is internal-only).
+ * The prior baseline had already grown by: the `_health`
  * probe + the session-report read pair (`sessionHomework` /
  * `sessionReport`) + the reconciled admin-user query quartet + the
  * participant-read trio + the admin arbitration listing + the admin
@@ -291,6 +293,7 @@ const FROZEN_QUERY_FIELDS = [
   "sessionReport",
   "studentDisputeCase",
   "studentHomeworkHistory",
+  "studentProgress",
   "teacherDisputeCase",
 ] as const;
 
@@ -447,12 +450,12 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     }
   });
 
-  test("Mutation root is EXACTLY the refreshed frozen 50-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
+  test("Mutation root is EXACTLY the refreshed frozen 52-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 62-op baseline (the prior 59-op baseline + the sanctioned admin academic-tracking read pair — `adminAcademicDashboard` / `adminStudentAcademicDetail`, a read-only surface that registers ZERO mutations — + the reconciled parent upcoming-sessions read (`myChildrenUpcomingSessions`, re-anchored as a documented one-time reconciliation); zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 65-op baseline (the prior 64-op baseline + the sanctioned curriculum-progress read — `studentProgress(studentId: Int!): StudentProgress!`, a role-gated read that registers ZERO mutations; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -545,13 +548,16 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
       // (cancel/change-plan between `adminCancelSession` and
       // `adminCreateUser`; extend between `adminCreateUser` and
       // `adminJoinSession`; renew between `adminReassignTeacher` and
-      // `adminRescheduleSession`).
+      // `adminRescheduleSession`), the direct-onboarding write lands between
+      // `adminJoinSession` and `adminReassignTeacher`, and the broadcast
+      // stop write between `adminSetUserSuspended` and `adminUpdateUser`.
       "adminCancelSubscription",
       "adminChangeSubscriptionPlan",
       "adminExtendSubscription",
       "adminRenewSubscription",
       "adminCertifyTeacherColdStart",
       "adminStopBroadcast",
+      "adminOnboardStudentWithOfflinePayment",
     ].toSorted((a, b) => a.localeCompare(b));
     expect(sorted.slice(bandStart, bandEnd + 1)).toEqual(expectedBandWindow);
   });
@@ -694,6 +700,64 @@ describe("Users-locale surface (D2) — AppLocale enum + User.locale on the arti
     const surface = fieldSurface("User", "locale");
     expect(surface.type).toBe("AppLocale");
     expect(surface.args).toEqual([]);
+  });
+});
+
+describe("Student-progress surface — artifact-side pins", () => {
+  test("`studentProgress(studentId: Int!): StudentProgress!` — the gated curriculum-position read (NON-NULLABLE, one selector arg)", () => {
+    const surface = fieldSurface("Query", "studentProgress");
+    expect(surface.type).toBe("StudentProgress!");
+    expect(surface.args).toEqual([{ name: "studentId", type: "Int!" }]);
+  });
+
+  test("`StudentProgress` exposes EXACTLY the eleven computed fields with the honest-nullability split", () => {
+    const surfaces = fieldSurfaces("StudentProgress");
+    expect(surfaces.map(surface => surface.name).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "completionPercent",
+      "currentLessonId",
+      "currentLessonPosition",
+      "currentLessonTitle",
+      "hasProgress",
+      "isOnFinalLesson",
+      "lessonsCompleted",
+      "planId",
+      "planTitle",
+      "studentId",
+      "totalLessons",
+    ]);
+    const byName = new Map(surfaces.map(surface => [surface.name, surface]));
+    // The honesty backbone is ALWAYS present (zeroed when hasProgress=false)
+    // — a computed read-model, never a fabricated percentage.
+    expect(byName.get("hasProgress")?.type).toBe("Boolean!");
+    expect(byName.get("isOnFinalLesson")?.type).toBe("Boolean!");
+    expect(byName.get("studentId")?.type).toBe("Int!");
+    expect(byName.get("totalLessons")?.type).toBe("Int!");
+    expect(byName.get("lessonsCompleted")?.type).toBe("Int!");
+    expect(byName.get("completionPercent")?.type).toBe("Int!");
+    // The plan echo and the current-lesson trio collapse to null on the
+    // honest-zero payload.
+    expect(byName.get("planId")?.type).toBe("Int");
+    expect(byName.get("planTitle")?.type).toBe("String");
+    expect(byName.get("currentLessonId")?.type).toBe("Int");
+    expect(byName.get("currentLessonTitle")?.type).toBe("String");
+    expect(byName.get("currentLessonPosition")?.type).toBe("Int");
+  });
+
+  test("NO progress mutation exists — the Mutation root carries zero progress operations (BFLA)", () => {
+    // The pointer's writer is internal-only: no mutation operation exposes it.
+    expect(
+      fieldSurfaces("Mutation")
+        .map(surface => surface.name)
+        .filter(name => name.toLowerCase().includes("progress"))
+    ).toEqual([]);
+    // The read is the ONLY new progress surface on the Query root (the
+    // parent portal's `parentChildProgress` stays the untouched parent surface).
+    expect(
+      fieldSurfaces("Query")
+        .map(surface => surface.name)
+        .filter(name => name.toLowerCase().includes("progress"))
+        .toSorted((a, b) => a.localeCompare(b))
+    ).toEqual(["parentChildProgress", "studentProgress"]);
   });
 });
 

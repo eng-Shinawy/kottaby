@@ -504,6 +504,17 @@ const CURRICULUM_LESSON_MUTATION_FIELDS = ["createLesson", "deleteLesson", "upda
 const CURRICULUM_LESSON_QUERY_FIELDS = ["planLessons"] as const;
 const CURRICULUM_LESSON_TYPE_NAMES = ["CreateLessonInput", "Lesson", "UpdateLessonInput"] as const;
 /**
+ * Curriculum-progress read — the sanctioned studentProgress surface. ONE
+ * role-gated query (`$all { authenticated: true, role: [Admin, Teacher,
+ * Student] }`, the parent scope exclusion is the load-bearing half) over ONE
+ * embedded value object carrying the computed curriculum-position payload;
+ * ZERO mutations (the pointer's only writer is the internal settlement path —
+ * the increment never surfaces through GraphQL). All authScopes-gated — not
+ * allowlist material; the public-operation registry stays byte-unchanged.
+ */
+const STUDENT_PROGRESS_QUERY_FIELDS = ["studentProgress"] as const;
+const STUDENT_PROGRESS_TYPE_NAMES = ["StudentProgress"] as const;
+/**
  * 5-session evaluation-loop booking surface — the student-gated booking
  * write plus the caller-scoped loop reads (status, session list, the
  * paginated evaluator options).
@@ -943,7 +954,8 @@ describe("Query._health — retyped probe surface", () => {
     // surface) + the student-evaluation caller-scoped read
     // (`myTeacherEvaluations`) + the admin broadcast history read pair
     // (`adminBroadcasts` / `adminBroadcastDetail`), the curriculum-lessons
-    // read (`planLessons`), the evaluation-loop booking reads
+    // read (`planLessons`), the curriculum-progress read (`studentProgress`),
+    // the evaluation-loop booking reads
     // (`myEvaluationLoopStatus` / `myEvaluationSessions` /
     // `availableEvaluators`), the student homework history read
     // (`studentHomeworkHistory`), the admin subscription listing read
@@ -985,6 +997,7 @@ describe("Query._health — retyped probe surface", () => {
         ...PARENT_MONITORING_QUERY_FIELDS,
         ...PARENT_HOMEWORK_QUERY_FIELDS,
         ...CURRICULUM_LESSON_QUERY_FIELDS,
+        ...STUDENT_PROGRESS_QUERY_FIELDS,
         ...EVALUATION_BOOKING_QUERY_FIELDS,
         ...EVALUATION_RUBRIC_QUERY_FIELDS,
         ...STUDENT_HOMEWORK_QUERY_FIELDS,
@@ -1260,7 +1273,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1297,6 +1310,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...ADMIN_FINANCE_ENUMS,
         ...STUDENT_EVALUATION_TYPE_NAMES,
         ...CURRICULUM_LESSON_TYPE_NAMES,
+        ...STUDENT_PROGRESS_TYPE_NAMES,
         ...EVALUATION_BOOKING_TYPE_NAMES,
         ...EVALUATION_RUBRIC_TYPE_NAMES,
         ...STUDENT_HOMEWORK_TYPE_NAMES,
@@ -2455,6 +2469,87 @@ describe("Parent portal session-target read — exact deep-link shape + `$all` s
   });
 });
 
+describe("Curriculum-progress read — exact arg shape + `$all` scope pin + closed object shape", () => {
+  test("`studentProgress` returns StudentProgress! with EXACTLY the one selector arg (`studentId: Int!`) and the admin/teacher/student `$all` scope", () => {
+    const field = queryRootField("studentProgress");
+    expect(field.type.toString()).toBe("StudentProgress!");
+    expect(field.args.map(arg => arg.name)).toEqual(["studentId"]);
+    expect(argShapeOf(field, "studentId")).toBe("Int!");
+    // BOPLA: the id is a resource selector only — the caller identity is
+    // `ctx.user.id` server-side, never a client-supplied argument, and no
+    // second arg exists to widen the read.
+    expect(field.args).toHaveLength(1);
+    // The load-bearing `$all` conjunction: anonymous callers answer
+    // UNAUTHORIZED (401), authenticated non-admin/teacher/student roles
+    // (parents included) fail the `role` leg into the canonical FORBIDDEN
+    // (403) BEFORE the resolver body runs — a plain scope map would degrade
+    // to ANY semantics and let a parent through.
+    expect(authScopesSnapshot(field)).toEqual({
+      $all: { authenticated: true, role: [UserRole.Admin, UserRole.Teacher, UserRole.Student] },
+    });
+  });
+
+  test("`StudentProgress` discloses EXACTLY the eleven computed fields with the DTO-mirroring nullability", () => {
+    const progressType = graphQLSchema.getType("StudentProgress");
+    if (!(progressType instanceof GraphQLObjectType)) {
+      throw new Error("StudentProgress must be registered as a GraphQL object type");
+    }
+    const fields = progressType.getFields();
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "completionPercent",
+      "currentLessonId",
+      "currentLessonPosition",
+      "currentLessonTitle",
+      "hasProgress",
+      "isOnFinalLesson",
+      "lessonsCompleted",
+      "planId",
+      "planTitle",
+      "studentId",
+      "totalLessons",
+    ]);
+    // Non-nullable backbone: the honesty counters and flags are ALWAYS sent
+    // (zeroed when no progress exists) — never a fabricated percentage.
+    for (const name of [
+      "completionPercent",
+      "hasProgress",
+      "isOnFinalLesson",
+      "lessonsCompleted",
+      "studentId",
+      "totalLessons",
+    ]) {
+      expect(fields[name]?.type.toString()).toBe(
+        name === "hasProgress" || name === "isOnFinalLesson" ? "Boolean!" : "Int!"
+      );
+    }
+    // Nullable presence fields: the plan echo and the current-lesson trio
+    // collapse to null on the honest-zero payload (hasProgress=false).
+    expect(fields.planId?.type.toString()).toBe("Int");
+    expect(fields.planTitle?.type.toString()).toBe("String");
+    expect(fields.currentLessonId?.type.toString()).toBe("Int");
+    expect(fields.currentLessonTitle?.type.toString()).toBe("String");
+    expect(fields.currentLessonPosition?.type.toString()).toBe("Int");
+  });
+
+  test("carries NO `id` field — embedded value object; selecting `id` FAILS validation", () => {
+    const progressType = graphQLSchema.getType("StudentProgress");
+    if (!(progressType instanceof GraphQLObjectType)) {
+      throw new Error("StudentProgress must be registered as a GraphQL object type");
+    }
+    expect(Object.hasOwn(progressType.getFields(), "id")).toBe(false);
+    const document = parse("{ studentProgress(studentId: 1) { id } }");
+    const errors = validate(graphQLSchema, document);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('Cannot query field "id" on type "StudentProgress"');
+  });
+
+  test("the progress surface registers ZERO mutations — the pointer's writer never surfaces through GraphQL", () => {
+    const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
+    const names = Object.keys(mutationFields);
+    expect(names.filter(name => name.toLowerCase().includes("progress"))).toEqual([]);
+  });
+});
+
 describe("Public-operation allowlist agreement", () => {
   test("`_health` is a member of the closed allowlist 1:1 with its scopeless schema posture", () => {
     expect(PUBLIC_OPERATION_NAMES).toContain("_health");
@@ -2885,5 +2980,10 @@ describe("Codegen sync — committed SDL is byte-identical to the built schema",
     expect(committedSdl).toContain("type AdminStudentAcademicDetail {");
     expect(committedSdl).toContain("type AdminAcademicStudentDetailEcho {");
     expect(committedSdl).toContain("enum AdminAcademicAttentionReason {");
+    // …and the curriculum-progress read (the role-gated position read + its
+    // eleven-field computed value object) is really inside the committed
+    // artifact — at the exact arg shape the resolver binds.
+    expect(committedSdl).toContain("studentProgress(studentId: Int!): StudentProgress!");
+    expect(committedSdl).toContain("type StudentProgress {");
   });
 });

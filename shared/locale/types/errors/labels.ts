@@ -86,6 +86,18 @@ interface SubscriptionAdminErrorsLabels {
   readonly alreadyPlanChanged: string;
 }
 
+/**
+ * Student-progress domain failures surfaced through the `errors` namespace.
+ * Each leaf is a self-contained sentence (no key echo) consumed by the
+ * student-progress service via property access on the localized bundle:
+ * `errorsTranslations.studentProgress.<key>`. Student identifiers (student
+ * id) MUST NOT appear in these strings — only generic, user-facing copy that
+ * does not distinguish a malformed id from a missing student.
+ */
+interface StudentProgressErrorsLabels {
+  readonly studentNotFound: string;
+}
+
 export interface ErrorsLabels {
   readonly unauthorized: string;
   readonly forbidden: string;
@@ -114,6 +126,8 @@ export interface ErrorsLabels {
   readonly planCatalog: PlanCatalogErrorsLabels;
   /** Lesson-catalog domain failures (lookup miss, title validation, plan gating, empty patch). */
   readonly lessonCatalog: LessonCatalogErrorsLabels;
+  /** Student-progress domain failures (student lookup miss on the progress read). */
+  readonly studentProgress: StudentProgressErrorsLabels;
   /** Subscription-purchase domain failures (plan gating, lane gating, idempotency, reference conflicts, settlement mismatch). */
   readonly subscriptionPurchase: SubscriptionPurchaseErrorsLabels;
   /** Admin subscription-lifecycle failures (state denials, plan-change guards, proration bounds, replay conflicts). */

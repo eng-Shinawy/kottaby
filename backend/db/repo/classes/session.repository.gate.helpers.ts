@@ -1,18 +1,22 @@
 /**
  * SessionRepository gate reads — the gate-supporting row reads (the
- * report gate's `FOR UPDATE` lock read, the rating-eligibility probe, and
- * the teacher↔student tenancy probe), extracted VERBATIM from
- * `session.repository.ts` (behavior-identical max-lines extraction;
- * zero logic change). The public surface stays the `SessionRepository`
- * namespace in `session.repository.ts`: each function below backs the
- * namespace method of the same name as a one-to-one delegation target.
- * Nothing in this module is part of the public API.
+ * report gate's `FOR UPDATE` lock read, the rating-eligibility probe, the
+ * teacher↔student tenancy probe, and the pair-relationship count),
+ * extracted VERBATIM from `session.repository.ts` (behavior-identical
+ * max-lines extraction; zero logic change). The public surface stays the
+ * `SessionRepository` namespace in `session.repository.ts`: each function
+ * below backs the namespace method of the same name as a one-to-one
+ * delegation target. Nothing in this module is part of the public API.
  *
  * Conventions carried over unchanged (per `backend/db/repo/AGENTS.md`):
  *  - gate reads take `tx: DBTransaction` as a REQUIRED last parameter —
  *    a locking read without a transaction releases its lock as soon as
  *    the statement finishes, and a gate decision must observe the caller
  *    transaction's own writes;
+ *  - the lock-free relationship reads are the exception: the tenancy
+ *    probe and the pair count take `tx?: DBQueryExecutor` — they ride the
+ *    caller's transaction when supplied and fall back to raw parameterized
+ *    SQL via `queryDb` (the Neon-HTTP-eligible pool path) otherwise;
  *  - NO prepared statements, NO array-membership operators, NO SQL
  *    line-comment sequences in any statement;
  *  - no business logic, no permission checks, no i18n or logging — the
@@ -20,9 +24,19 @@
  */
 
 import { and, eq, sql } from "drizzle-orm";
-import { db } from "@/backend/db";
+import { db, queryDb } from "@/backend/db";
 import { session } from "@/backend/db/schema/classes/session";
-import type { DBTransaction, SessionRatingEligibilityProbeType, SessionTransitionProbeRowType } from "@/backend/types";
+import type {
+  DBQueryExecutor,
+  DBTransaction,
+  SessionRatingEligibilityProbeType,
+  SessionTransitionProbeRowType,
+} from "@/backend/types";
+
+/** Type guard — narrows `DBQueryExecutor` to the Drizzle transaction arm (`.select` presence). */
+function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
+  return typeof tx === "object" && "select" in tx;
+}
 
 /**
  * Report-gate row lock: takes the `FOR UPDATE` lock on the session row
@@ -109,4 +123,38 @@ async function existsSessionForTeacherStudent(
   return rows.length > 0;
 }
 
-export { existsSessionForTeacherStudent, findRatingEligibilityProbe, lockForReportGate };
+/**
+ * Pair-relationship count: HOW MANY session rows (any status) link this
+ * teacher to this student — the counted twin of the tenancy probe above,
+ * over the identical fused equality predicate (the composite index
+ * `session_teacher_id_student_id_idx` serves both). The count is mapped
+ * to a JavaScript number on both executor branches, so callers always
+ * receive a `number` regardless of PostgreSQL's bigint-as-string default
+ * for `count(*)`. Like the probe, it takes `tx` OPTIONAL: a lock-free
+ * relationship read that rides the caller's transaction when supplied.
+ *
+ * @returns The pair's row count — `0` for an unknown caller, an unknown
+ *          student, or a pair with zero shared sessions.
+ */
+async function countTeacherStudentSessions(
+  teacherId: number,
+  studentId: number,
+  tx?: DBQueryExecutor
+): Promise<number> {
+  if (tx && isDBTransaction(tx)) {
+    // Transactional read — Drizzle count select on the supplied executor.
+    const rows = await tx
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+      .from(session)
+      .where(and(eq(session.teacherId, teacherId), eq(session.studentId, studentId)));
+    return rows[0]?.count ?? 0;
+  }
+  // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
+  const result = await queryDb<{ count: string | number }>(
+    `SELECT count(*) AS count FROM session WHERE teacher_id = $1 AND student_id = $2`,
+    [teacherId, studentId]
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+export { countTeacherStudentSessions, existsSessionForTeacherStudent, findRatingEligibilityProbe, lockForReportGate };

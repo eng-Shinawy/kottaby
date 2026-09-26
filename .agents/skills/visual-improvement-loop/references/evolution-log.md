@@ -347,3 +347,24 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
 - Dense-table recipe for 9–10 honest columns in a 1126px lane: 8px inline gutters + 13px nowrap headers
   + stacked two-line position lanes + merged name/email cell + short-track grade lines; full copies ride
   `title` tooltips so honesty never truncates. → landed: `references/fix-patterns.md` (new row).
+
+## 2026-09-26 — student progress tracking surfaces (kottaby #227) visual run
+
+- MUI v9 `Tabs` hides scroll buttons below the `sm` breakpoint by default (`scrollButtonsHideMobile`
+  = `!allowScrollButtonsMobile`), so a scrollable tab strip at 390px shows a mid-word partial next-tab
+  label ("Homework" → "nework") with NO affordance — VLM inspectors reliably flag it as clipping.
+  Adding `allowScrollButtonsMobile` renders the chevrons on compact viewports and leaves desktop
+  untouched (strip not scrollable there). → landed: `references/fix-patterns.md` (new row, updated in
+  this change).
+- Static-fold screenshots of scrollable pages attract "bottom content clipped / no breathing room"
+  findings: arbitrate by scrolling to `scrollHeight` and measuring the last card's gap to the viewport
+  before fixing any padding claim — a fold-crop of a scrollable page is not a defect. → landed:
+  `references/objective-prechecks.md` (manual eval fallbacks, updated in this change).
+- Sandbox auth TTL is short: silent cookie expiry mid-batch turns captures into login pages while the
+  capture script keeps "passing" until the title guard — re-run `browser-login.ts --inject` per batch
+  and treat a generic brand-only title as expiry. → landed: `references/capture-protocol.md`
+  (Sessions & auth, updated in this change).
+- Detail pages can reuse the LIST page's `document.title` (route-shared titles) — per-arm state
+  markers must be localized tab-panel copy (e.g. the progress-record count sentence), never the
+  title. → landed: `references/capture-protocol.md` (document.title page-local gotcha, updated in
+  this change).

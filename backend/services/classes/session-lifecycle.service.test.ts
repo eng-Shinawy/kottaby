@@ -66,7 +66,9 @@
  *    notification engine's publish contract; the unit never imports a
  *    notification repository and never writes a notification row itself),
  *    and the arbitration's audit trail row (the shared append-only audit
- *    writer plus the enum that names the Override verb) — and the unit
+ *    writer plus the enum that names the Override verb), plus the settled
+ *    arm's curriculum-progress advance (the progress service composed
+ *    inside the confirmation transaction, after the credit) — and the unit
  *    holds zero `console.*` calls.
  *
  * Completion-handshake composition (the confirm prompt + the two-leg
@@ -103,16 +105,24 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { WalletRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
+import { progress } from "@/backend/db/schema/classes/progress";
 import { session } from "@/backend/db/schema/classes/session";
 import { sessionRequestIdempotency } from "@/backend/db/schema/classes/session-request-idempotency";
 import { notifications } from "@/backend/db/schema/notifications";
 import { students } from "@/backend/db/schema/students/students";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
-import { createTestStudent, createTestUser } from "@/backend/db/test/entity-setup";
+import {
+  createTestLesson,
+  createTestPlan,
+  createTestStudent,
+  createTestSubscription,
+  createTestUser,
+} from "@/backend/db/test/entity-setup";
 import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import { SubscriptionCreditLane } from "@/backend/enum/billing/subscription-credit-lane.enum";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolution.enum";
 import { HeldBalanceLane } from "@/backend/enum/scheduling/held-balance-lane.enum";
@@ -243,6 +253,26 @@ async function readLaneBalances(tx: DBTransaction, studentId: number) {
 async function readSessionRow(tx: DBTransaction, sessionId: number): Promise<SessionSelectType | null> {
   const [row] = await tx.select().from(session).where(eq(session.id, sessionId));
   return row ?? null;
+}
+
+/**
+ * One student's governing curriculum: a tajweed-lane plan with three
+ * lessons (creation order IS the `id ASC` sequence) plus the student's
+ * active subscription on it — the full context the settled arm's pointer
+ * advance needs.
+ */
+async function createCurriculum(tx: DBTransaction, studentId: number) {
+  const plan = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Tajweed });
+  const firstLesson = await createTestLesson(tx, plan.id);
+  const secondLesson = await createTestLesson(tx, plan.id);
+  const thirdLesson = await createTestLesson(tx, plan.id);
+  await createTestSubscription(tx, studentId, plan.id);
+  return { plan, lessons: [firstLesson, secondLesson, thirdLesson] };
+}
+
+/** Independent read-back oracle: the student's progress pointer rows. */
+async function readProgressRows(tx: DBTransaction, studentId: number) {
+  return tx.select().from(progress).where(eq(progress.studentId, studentId));
 }
 
 /** Every session row booked by the student (count oracle, tx-scoped). */
@@ -1401,7 +1431,7 @@ describe("SessionLifecycleService — transactional flows (runInRollback)", () =
   const serviceSource = unitSources.join("\n");
   const serviceFromClauses = serviceSource.match(/from "[^"]+"/g) ?? [];
 
-  test("source: the unit's cross-surface channels are the wallet-credit slice, the engine-mediated completion waves, and the arbitration's audit trail row — imports are a pinned allowlist (no report import, no notification-repository import)", () => {
+  test("source: the unit's cross-surface channels are the wallet-credit slice, the settlement's curriculum-progress advance, the engine-mediated completion waves, and the arbitration's audit trail row — imports are a pinned allowlist (no report import, no notification-repository import)", () => {
     // HONEST PIN (adapted to the sibling-module split — the same three
     // locks, with the notification and audit channels consciously admitted):
     //  1. every `from "…"` specifier in the unit must be on the explicit
@@ -1418,6 +1448,10 @@ describe("SessionLifecycleService — transactional flows (runInRollback)", () =
     //     admin arbitration appends its single Override row through the
     //     append-only writer INSIDE the arbitration's own transaction
     //     (denials classify before the emission and mint zero rows);
+    //  - the curriculum-progress advance is the sanctioned progress
+    //    channel: the settled arm composes the progress service INSIDE
+    //    the confirmation transaction after the credit, and the unit
+    //    never touches the progress repository itself;
     //  2. the ONLY `@/backend/db/` specifier is the repository barrel itself
     //     (no deep repository bypass), and the UNION of the barrel's named
     //     import lists across the unit is pinned — WalletRepository rides it
@@ -1449,6 +1483,7 @@ describe("SessionLifecycleService — transactional flows (runInRollback)", () =
       "@/backend/services/classes/session-lifecycle.queries",
       "@/backend/services/classes/session-lifecycle.transitions",
       "@/backend/services/classes/session-request-notification.service",
+      "@/backend/services/classes/student-progress.service",
       "@/backend/services/notifications",
       "@/backend/services/admin/audit.service",
       "@/shared/locale/AppLocale",
@@ -2505,6 +2540,175 @@ describe("SessionLifecycleService — dual confirmation (runInRollback)", () => 
         SessionLifecycleService.confirmSessionCompletion(foreign.id, row.id, "en", tx)
       );
       expectDomainDenial(foreignError, "SESSION_NOT_FOUND", t().sessionNotFound);
+    });
+  });
+});
+
+// ─── Confirm-path curriculum progress (the settled arm's pointer) ──
+
+describe("SessionLifecycleService — confirm-path curriculum progress (runInRollback)", () => {
+  test("the settled confirm advances the curriculum pointer: the first confirm inserts the row at the SECOND lesson in the same flow as the credit", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await setLaneBalances(tx, actors.studentUserId, { tajweed: 1 });
+      const { lessons } = await createCurriculum(tx, actors.studentUserId);
+      const row = await bookSession(
+        tx,
+        actors.studentUserId,
+        actors.teacherUserId,
+        SessionIntent.Tajweed,
+        "key-d12-progress-first"
+      );
+      await SessionLifecycleService.startSession(actors.teacherUserId, row.id, "en", tx);
+      await SessionLifecycleService.completeSession(actors.teacherUserId, row.id, "en", tx);
+
+      const confirmed = await SessionLifecycleService.confirmSessionCompletion(actors.studentUserId, row.id, "en", tx);
+
+      // The financial slice still ran — the pointer advance composes
+      // AFTER the credit on the SAME transaction.
+      expect(confirmed.status).toBe(SessionStatus.Completed);
+      expect(confirmed.feeHeld).toBe(false);
+      const walletRow = await WalletRepository.findByTeacherId(actors.teacherUserId, tx);
+      expect(walletRow?.balance).toBe(SESSION_FEE_TAJWEED);
+
+      // The pointer: lazily created, pointing one slot ahead of the
+      // just-completed first lesson.
+      const pointerRows = await readProgressRows(tx, actors.studentUserId);
+      expect(pointerRows).toHaveLength(1);
+      expect(pointerRows[0]?.lessonId).toBe(lessons[1]?.id);
+    });
+  });
+
+  test("the replayed confirm returns the settled row and the pointer does NOT move again", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await setLaneBalances(tx, actors.studentUserId, { tajweed: 1 });
+      const { lessons } = await createCurriculum(tx, actors.studentUserId);
+      const row = await bookSession(
+        tx,
+        actors.studentUserId,
+        actors.teacherUserId,
+        SessionIntent.Tajweed,
+        "key-d12-progress-replay"
+      );
+      await SessionLifecycleService.startSession(actors.teacherUserId, row.id, "en", tx);
+      await SessionLifecycleService.completeSession(actors.teacherUserId, row.id, "en", tx);
+      await SessionLifecycleService.confirmSessionCompletion(actors.studentUserId, row.id, "en", tx);
+      const pointerBefore = await readProgressRows(tx, actors.studentUserId);
+      expect(pointerBefore).toHaveLength(1);
+
+      const replayed = await SessionLifecycleService.confirmSessionCompletion(actors.studentUserId, row.id, "en", tx);
+
+      expect(replayed.id).toBe(row.id);
+      expect(replayed.feeHeld).toBe(false);
+      const pointerAfter = await readProgressRows(tx, actors.studentUserId);
+      expect(pointerAfter).toHaveLength(1);
+      expect(pointerAfter[0]?.id).toBe(pointerBefore[0]?.id);
+      expect(pointerAfter[0]?.lessonId).toBe(lessons[1]?.id);
+      const walletRow = await WalletRepository.findByTeacherId(actors.teacherUserId, tx);
+      const ledger = await WalletRepository.listTransactionsByWalletId(walletRow?.id ?? -1, tx);
+      expect(ledger).toHaveLength(1);
+    });
+  });
+
+  test("an evaluation-intent settlement credits the wallet but NEVER moves the pointer", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      // The full curriculum context exists — the intent is the ONLY thing
+      // that must keep the pointer frozen (the booking service refuses
+      // the evaluation intent, so the settled shape is inserted directly,
+      // mirroring the sweeper's completed-leg fixture).
+      await createCurriculum(tx, actors.studentUserId);
+      const evaluationSession = await insertSessionRow(tx, actors, {
+        intent: SessionIntent.Evaluation,
+        status: SessionStatus.Completed,
+        confirmedByTeacherAt: new Date(),
+        fee: SESSION_FEE_TAJWEED,
+        feeHeld: true,
+        heldBalanceLane: HeldBalanceLane.Tajweed,
+      });
+
+      const settled = await SessionLifecycleService.confirmSessionCompletion(
+        actors.studentUserId,
+        evaluationSession.id,
+        "en",
+        tx
+      );
+
+      // The settlement itself is intent-blind: the wallet is credited
+      // through the same tajweed financial lane.
+      expect(settled.feeHeld).toBe(false);
+      const walletRow = await WalletRepository.findByTeacherId(actors.teacherUserId, tx);
+      expect(walletRow?.balance).toBe(SESSION_FEE_TAJWEED);
+
+      // …but the curriculum pointer is untouched.
+      expect(await readProgressRows(tx, actors.studentUserId)).toHaveLength(0);
+    });
+  });
+
+  test("a failed curriculum advance fails the WHOLE confirmation closed: hold frozen, wallet uncredited, zero pointer rows — a clean retry then settles", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await setLaneBalances(tx, actors.studentUserId, { tajweed: 1 });
+      const { lessons } = await createCurriculum(tx, actors.studentUserId);
+      const row = await bookSession(
+        tx,
+        actors.studentUserId,
+        actors.teacherUserId,
+        SessionIntent.Tajweed,
+        "key-d12-progress-chaos"
+      );
+      await SessionLifecycleService.startSession(actors.teacherUserId, row.id, "en", tx);
+      await SessionLifecycleService.completeSession(actors.teacherUserId, row.id, "en", tx);
+
+      // Chaos injection: a transactional trigger raises on THIS student's
+      // progress inserts only (the advance's first write). The DDL lives
+      // inside the rolled-back test transaction — nothing leaks into the
+      // shared database.
+      const failFn = `raise_progress_insert_fail_${randomUUID().slice(0, 8).replaceAll("-", "_")}`;
+      const failTrigger = `fail_progress_insert_${randomUUID().slice(0, 8).replaceAll("-", "_")}`;
+      await tx.execute(
+        sql.raw(
+          `CREATE FUNCTION ${failFn}() RETURNS trigger LANGUAGE plpgsql AS $fn$ ` +
+            `BEGIN RAISE EXCEPTION 'forced progress-insert failure'; END; $fn$;`
+        )
+      );
+      await tx.execute(
+        sql.raw(
+          `CREATE TRIGGER ${failTrigger} ` +
+            `BEFORE INSERT ON progress FOR EACH ROW WHEN (NEW.student_id = ${actors.studentUserId}) ` +
+            `EXECUTE FUNCTION ${failFn}()`
+        )
+      );
+
+      const error = await expectRepoError(() =>
+        SessionLifecycleService.confirmSessionCompletion(actors.studentUserId, row.id, "en", tx)
+      );
+      // The raw database failure surfaced untouched (no DomainError
+      // masking) as a raise_exception from the trigger.
+      expect(error).not.toBeInstanceOf(DomainError);
+      expect(hasPostgresErrorCode(error, PG_RAISE_EXCEPTION)).toBe(true);
+
+      // Fail-closed: the whole confirmation rolled back — the hold is
+      // still frozen, the wallet was never ensured or credited, and no
+      // pointer row exists.
+      const rolledBack = await readSessionRow(tx, row.id);
+      expect(rolledBack?.status).toBe(SessionStatus.Completed);
+      expect(rolledBack?.feeHeld).toBe(true);
+      expect(rolledBack?.confirmedByStudentAt).toBeNull();
+      expect(await WalletRepository.findByTeacherId(actors.teacherUserId, tx)).toBeNull();
+      expect(await readProgressRows(tx, actors.studentUserId)).toHaveLength(0);
+
+      // Dropping the trigger and retrying settles the SAME session: the
+      // failure was the injected fault, not a poisoned state.
+      await tx.execute(sql.raw(`DROP TRIGGER ${failTrigger} ON progress`));
+      const retried = await SessionLifecycleService.confirmSessionCompletion(actors.studentUserId, row.id, "en", tx);
+      expect(retried.feeHeld).toBe(false);
+      const walletRow = await WalletRepository.findByTeacherId(actors.teacherUserId, tx);
+      expect(walletRow?.balance).toBe(SESSION_FEE_TAJWEED);
+      const pointerRows = await readProgressRows(tx, actors.studentUserId);
+      expect(pointerRows).toHaveLength(1);
+      expect(pointerRows[0]?.lessonId).toBe(lessons[1]?.id);
     });
   });
 });

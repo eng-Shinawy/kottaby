@@ -38,19 +38,48 @@
  *    only, no `SELECT *`, no prepared statements, no SQL line-comment
  *    sequences, `tx` last on the signature, one namespace, no plan-artifact
  *    references, no i18n / logger / console imports.
+ *
+ * Pointer-row methods (`findRowForStudentPlan`, `findNullLessonRowForStudent`,
+ * `insertRow`, `updateRowLesson`) — the settlement path's read/write contract:
+ *  - Tier 1: the plan-scoped join read returns the row whose lesson
+ *    belongs to the plan; `insertRow` writes and returns the row
+ *    (readable straight back through the plan-scoped read);
+ *    `updateRowLesson` moves the pointer and stamps `updated_at`.
+ *  - Tier 2: no-row miss (fresh student); plan partitioning (a row whose
+ *    lesson belongs to a DIFFERENT plan — or whose lesson was deleted,
+ *    leaving `lesson_id` NULL — reads as no-row); multi-row determinism
+ *    (`id DESC`: the newest matching row wins); a zero-row update returns
+ *    `null`. The re-anchor probe (`findNullLessonRowForStudent`) resolves
+ *    exactly those lesson-less rows the join cannot see — newest first —
+ *    and misses (null) when the student holds only attributed rows.
+ *  - Tier 4: hostile ids (0, negative, far-beyond-sequence) are equality
+ *    misses; a SQL-shaped id string rides ONE bound parameter — the driver
+ *    coerces it as data (a clean miss, or the raw integer-parse data
+ *    exception under a savepoint bracket), never an execution. The
+ *    defensive zero-row INSERT guard runs through a typed executor stub
+ *    (unreachable through a live INSERT ... RETURNING); the standalone
+ *    `queryDb` arms of the plan-scoped read and of the re-anchor probe run
+ *    on committed fixtures.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { ProgressRepository } from "@/backend/db/repo";
+import { plans } from "@/backend/db/schema/billing/plans";
+import { lessons } from "@/backend/db/schema/classes/lessons";
 import { progress } from "@/backend/db/schema/classes/progress";
 import { users } from "@/backend/db/schema/users/users";
-import { createTestStudent, createTestUser } from "@/backend/db/test/entity-setup";
-import { runInRollback } from "@/backend/db/test/test-utils";
+import { createTestLesson, createTestPlan, createTestStudent, createTestUser } from "@/backend/db/test/entity-setup";
+import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
+import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
+import { ConflictError } from "@/backend/lib/errors";
 import type { DBTransaction } from "@/backend/types";
+
+/** PostgreSQL error code for `invalid_text_representation` (integer parse). */
+const PG_INTEGER_PARSE_VIOLATION = "22P02";
 
 /** The exact key set of a `progress` row's own columns (alphabetical). */
 const PROGRESS_ROW_KEYS = ["createdAt", "id", "lessonId", "studentId", "updatedAt"] as const;
@@ -70,6 +99,61 @@ function byKeyAscending(a: string, b: string): number {
  */
 async function insertProgressRows(tx: DBTransaction, studentId: number, count: number): Promise<void> {
   await tx.insert(progress).values(Array.from({ length: count }, () => ({ studentId })));
+}
+
+/**
+ * Inserts one progress row pointing AT a lesson — the pointer-row shape
+ * the plan-scoped read resolves — and returns the row's id.
+ */
+async function insertPointerRow(tx: DBTransaction, studentId: number, lessonId: number): Promise<number> {
+  const [row] = await tx.insert(progress).values({ studentId, lessonId }).returning({ id: progress.id });
+  if (!row) {
+    throw new Error("insertPointerRow: insert returned no rows");
+  }
+  return row.id;
+}
+
+/** Creates a plan fixture with one lesson and returns both ids. */
+async function setupPlanWithLesson(tx: DBTransaction): Promise<{ planId: number; lessonId: number }> {
+  const plan = await createTestPlan(tx);
+  const lesson = await createTestLesson(tx, plan.id);
+  return { planId: plan.id, lessonId: lesson.id };
+}
+
+/** An integer id that cannot exist as a `progress` row during this transaction. */
+async function absentProgressId(tx: DBTransaction): Promise<number> {
+  const [row] = await tx.select({ maxId: sql<number>`coalesce(max(${progress.id}), 0)::int` }).from(progress);
+  return (row?.maxId ?? 0) + 1_000_000;
+}
+
+/**
+ * Type guard for the zero-row INSERT stub: it claims the single `insert`
+ * seam the defensive guard consumes (a live `DBTransaction` shape is never
+ * structurally checked here — the guard only ever calls `insert`).
+ */
+function isZeroRowInsertStub(value: unknown): value is DBTransaction {
+  return typeof value === "object" && value !== null && "insert" in value;
+}
+
+/**
+ * Typed executor stub whose `insert(...).values(...).returning()` resolves
+ * to zero rows. A live PostgreSQL INSERT ... RETURNING always yields one
+ * row per inserted tuple, so the repository's defensive zero-row guard
+ * cannot be reached through the database — the stub exercises that guard
+ * without touching a connection (no rollback wrap is needed).
+ */
+function zeroReturningExecutor(): DBTransaction {
+  const stub = {
+    insert: () => ({
+      values: () => ({
+        returning: async (): Promise<Array<typeof progress.$inferSelect>> => [],
+      }),
+    }),
+  };
+  if (!isZeroRowInsertStub(stub)) {
+    throw new Error("zeroReturningExecutor: stub failed its own type guard");
+  }
+  return stub;
 }
 
 /** Creates a student (user + role row) and returns the students-row id. */
@@ -244,18 +328,33 @@ describe("ProgressRepository.countForStudent — transactional path (runInRollba
 
   const repoSource = readFileSync(join(import.meta.dir, "../../../repo/classes/progress.repository.ts"), "utf8");
 
-  test("source: executor discipline — one queryDb read, tx last on the signature", () => {
-    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(1);
+  test("source: executor discipline — three queryDb reads, tx last on every signature", () => {
+    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(3);
     const signatures = repoSource.match(/export async function [a-zA-Z]+\([^)]*\)/g) ?? [];
-    expect(signatures).toHaveLength(1);
-    for (const signature of signatures) {
+    expect(signatures).toHaveLength(5);
+    const readMethods = signatures.filter(signature =>
+      /countForStudent|findRowForStudentPlan|findNullLessonRowForStudent/.test(signature)
+    );
+    const writeMethods = signatures.filter(signature => /insertRow|updateRowLesson/.test(signature));
+    expect(readMethods).toHaveLength(3);
+    expect(writeMethods).toHaveLength(2);
+    for (const signature of readMethods) {
       const flattened = signature.replace(/\s+/g, " ").replace(/ \)/g, ")").trim();
       expect(flattened.endsWith("tx?: DBQueryExecutor)")).toBe(true);
+    }
+    for (const signature of writeMethods) {
+      const flattened = signature.replace(/\s+/g, " ").replace(/ \)/g, ")").trim();
+      // The writers take a REQUIRED transaction as their last parameter —
+      // a write only ever rides the caller's transaction.
+      expect(flattened.endsWith("tx: DBTransaction)")).toBe(true);
     }
   });
 
   test("source: bound parameters only, no wildcard select, no prepared statements, no SQL line comments", () => {
     expect(repoSource.includes("student_id = $1")).toBe(true);
+    // The plan-scoped pointer read binds BOTH ids and orders deterministically.
+    expect(repoSource.includes("lessons.plan_id = $2")).toBe(true);
+    expect(repoSource.includes("ORDER BY progress.id DESC")).toBe(true);
     expect(repoSource.includes("SELECT *")).toBe(false);
     expect(repoSource.includes(".prepare(")).toBe(false);
     expect(repoSource.includes("sql.placeholder")).toBe(false);
@@ -282,5 +381,350 @@ describe("ProgressRepository.countForStudent — standalone executor path (commi
 
   test("returns 0 for an unknown student on the standalone path", async () => {
     expect(await ProgressRepository.countForStudent(NONEXISTENT_STUDENT_ID)).toBe(0);
+  });
+});
+
+describe("ProgressRepository pointer-row methods — transactional path (runInRollback)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("findRowForStudentPlan returns the student's row whose lesson belongs to the plan", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { planId, lessonId } = await setupPlanWithLesson(tx);
+      const pointerId = await insertPointerRow(tx, studentId, lessonId);
+
+      const found = await ProgressRepository.findRowForStudentPlan(studentId, planId, tx);
+
+      expect(found).not.toBeNull();
+      expect(found?.id).toBe(pointerId);
+      expect(found?.studentId).toBe(studentId);
+      expect(found?.lessonId).toBe(lessonId);
+      expect(found?.createdAt).toBeInstanceOf(Date);
+      expect(found?.updatedAt).toBeInstanceOf(Date);
+      expect(Object.keys(found ?? {}).toSorted(byKeyAscending)).toEqual([...PROGRESS_ROW_KEYS]);
+    });
+  });
+
+  test("insertRow writes the pointer row and the plan-scoped read resolves it straight back", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { planId, lessonId } = await setupPlanWithLesson(tx);
+
+      const inserted = await ProgressRepository.insertRow({ studentId, lessonId }, tx);
+
+      expect(inserted.id).toBeGreaterThan(0);
+      expect(inserted.studentId).toBe(studentId);
+      expect(inserted.lessonId).toBe(lessonId);
+      expect(Object.keys(inserted).toSorted(byKeyAscending)).toEqual([...PROGRESS_ROW_KEYS]);
+      // The pointer read resolves the freshly inserted row for the plan.
+      const found = await ProgressRepository.findRowForStudentPlan(studentId, planId, tx);
+      expect(found?.id).toBe(inserted.id);
+      expect(found?.lessonId).toBe(lessonId);
+    });
+  });
+
+  test("updateRowLesson moves the pointer to the new lesson and stamps updatedAt", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const plan = await createTestPlan(tx);
+      const lessonA = await createTestLesson(tx, plan.id);
+      const lessonB = await createTestLesson(tx, plan.id);
+      const pointerId = await insertPointerRow(tx, studentId, lessonA.id);
+      const before = await ProgressRepository.findRowForStudentPlan(studentId, plan.id, tx);
+      expect(before?.lessonId).toBe(lessonA.id);
+
+      const updated = await ProgressRepository.updateRowLesson(pointerId, lessonB.id, tx);
+
+      expect(updated).not.toBeNull();
+      expect(updated?.id).toBe(pointerId);
+      expect(updated?.lessonId).toBe(lessonB.id);
+      expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual((before?.updatedAt ?? new Date(0)).getTime());
+      // The read-back reflects the moved pointer.
+      expect((await ProgressRepository.findRowForStudentPlan(studentId, plan.id, tx))?.lessonId).toBe(lessonB.id);
+    });
+  });
+
+  // ─── Tier 2: boundaries — no-row miss, plan partitioning, determinism ─
+
+  test("findRowForStudentPlan returns null for a student with no progress rows", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { planId } = await setupPlanWithLesson(tx);
+      expect(await ProgressRepository.findRowForStudentPlan(studentId, planId, tx)).toBeNull();
+    });
+  });
+
+  test("a row whose lesson belongs to a DIFFERENT plan reads as no-row (the join scopes by the plan)", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const home = await setupPlanWithLesson(tx);
+      const foreign = await setupPlanWithLesson(tx);
+      await insertPointerRow(tx, studentId, home.lessonId);
+
+      // The foreign plan's probe misses even though the student holds a row.
+      expect(await ProgressRepository.findRowForStudentPlan(studentId, foreign.planId, tx)).toBeNull();
+      // The home plan's probe still resolves it.
+      expect((await ProgressRepository.findRowForStudentPlan(studentId, home.planId, tx))?.lessonId).toBe(
+        home.lessonId
+      );
+    });
+  });
+
+  test("a row whose lesson was deleted (lesson_id NULL) reads as no-row for every plan", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { planId } = await setupPlanWithLesson(tx);
+      // A lesson-less row — the shape an admin lesson delete leaves behind
+      // (the FK's ON DELETE SET NULL contract).
+      await insertProgressRows(tx, studentId, 1);
+      expect(await ProgressRepository.findRowForStudentPlan(studentId, planId, tx)).toBeNull();
+    });
+  });
+
+  test("findRowForStudentPlan deterministically returns the NEWEST matching row (id DESC)", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const plan = await createTestPlan(tx);
+      const lessonA = await createTestLesson(tx, plan.id);
+      const lessonB = await createTestLesson(tx, plan.id);
+      const olderId = await insertPointerRow(tx, studentId, lessonA.id);
+      const newerId = await insertPointerRow(tx, studentId, lessonB.id);
+      expect(newerId).toBeGreaterThan(olderId);
+
+      const found = await ProgressRepository.findRowForStudentPlan(studentId, plan.id, tx);
+
+      expect(found?.id).toBe(newerId);
+      expect(found?.lessonId).toBe(lessonB.id);
+    });
+  });
+
+  test("updateRowLesson returns null on a zero-row update (unknown id)", async () => {
+    await runInRollback(async tx => {
+      const { lessonId } = await setupPlanWithLesson(tx);
+      const missingId = await absentProgressId(tx);
+      expect(await ProgressRepository.updateRowLesson(missingId, lessonId, tx)).toBeNull();
+    });
+  });
+
+  // ─── Tier 4: hostile ids ────────────────────────────────────────────
+
+  test("hostile numeric ids are equality misses — zero, negative, and far-beyond-sequence match nothing", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { planId, lessonId } = await setupPlanWithLesson(tx);
+      await insertPointerRow(tx, studentId, lessonId);
+
+      expect(await ProgressRepository.findRowForStudentPlan(0, planId, tx)).toBeNull();
+      expect(await ProgressRepository.findRowForStudentPlan(-5, planId, tx)).toBeNull();
+      expect(await ProgressRepository.findRowForStudentPlan(NONEXISTENT_STUDENT_ID, planId, tx)).toBeNull();
+      expect(await ProgressRepository.findRowForStudentPlan(studentId, 0, tx)).toBeNull();
+      expect(await ProgressRepository.findRowForStudentPlan(studentId, -7, tx)).toBeNull();
+      expect(await ProgressRepository.updateRowLesson(0, lessonId, tx)).toBeNull();
+      expect(await ProgressRepository.updateRowLesson(-1, lessonId, tx)).toBeNull();
+    });
+  });
+
+  test("a SQL-shaped id string rides ONE bound parameter — coerced as data, never executed", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { planId, lessonId } = await setupPlanWithLesson(tx);
+      await insertPointerRow(tx, studentId, lessonId);
+
+      // A numeric string is COERCED to its integer value and matches
+      // nothing — a clean miss, no error. The assignment below simulates
+      // the one way such a value could reach this layer: a caller that
+      // bypassed every upstream type guard (no type assertion involved).
+      // @ts-expect-error — a hostile caller hands the number-typed slot a string
+      const coercedId: number = "0";
+      expect(await ProgressRepository.findRowForStudentPlan(coercedId, planId, tx)).toBeNull();
+
+      // An injection-shaped payload cannot parse as an integer: the driver
+      // hands it to PostgreSQL as ONE bound parameter and the statement
+      // fails with the raw integer-parse data exception — nothing executed.
+      // @ts-expect-error — same hostile bypass, injection-shaped payload
+      const injectionShaped: number = "1 OR 1=1; DELETE FROM progress; --";
+      await tx.execute(sql`savepoint progress_sql_shaped_probe`);
+      const error = await expectRepoError(() => ProgressRepository.findRowForStudentPlan(injectionShaped, planId, tx));
+      await tx.execute(sql`rollback to savepoint progress_sql_shaped_probe`);
+
+      expect(hasPostgresErrorCode(error, PG_INTEGER_PARSE_VIOLATION)).toBe(true);
+      // Post-rollback the pointer row is intact — the payload never ran.
+      expect(await readTableCount(tx, studentId)).toBe(1);
+    });
+  });
+});
+
+describe("ProgressRepository.findNullLessonRowForStudent — transactional path (runInRollback)", () => {
+  test("returns the student's NEWEST lesson-less pointer row (the re-anchor probe)", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { lessonId } = await setupPlanWithLesson(tx);
+      // One attributed pointer row plus TWO lesson-less rows (the shape an
+      // admin lesson delete leaves behind): the probe ignores the
+      // attributed row and resolves the newest lesson-less one (id DESC).
+      await insertPointerRow(tx, studentId, lessonId);
+      await insertProgressRows(tx, studentId, 2);
+      const lessonLessIds = await tx
+        .select({ id: progress.id })
+        .from(progress)
+        .where(and(eq(progress.studentId, studentId), isNull(progress.lessonId)))
+        .orderBy(desc(progress.id));
+      expect(lessonLessIds).toHaveLength(2);
+      const newestLessonLessId = lessonLessIds[0]?.id;
+
+      const found = await ProgressRepository.findNullLessonRowForStudent(studentId, tx);
+
+      expect(found).not.toBeNull();
+      expect(found?.id).toBe(newestLessonLessId);
+      expect(found?.studentId).toBe(studentId);
+      expect(found?.lessonId).toBeNull();
+      expect(found?.createdAt).toBeInstanceOf(Date);
+      expect(found?.updatedAt).toBeInstanceOf(Date);
+      expect(Object.keys(found ?? {}).toSorted(byKeyAscending)).toEqual([...PROGRESS_ROW_KEYS]);
+    });
+  });
+
+  test("returns null when the student holds only attributed rows — or none at all", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+      const { lessonId } = await setupPlanWithLesson(tx);
+      await insertPointerRow(tx, studentId, lessonId);
+
+      // A live attributed pointer is NOT lesson-less — the probe misses.
+      expect(await ProgressRepository.findNullLessonRowForStudent(studentId, tx)).toBeNull();
+      // Hostile/unknown ids are equality misses, never errors.
+      expect(await ProgressRepository.findNullLessonRowForStudent(NONEXISTENT_STUDENT_ID, tx)).toBeNull();
+      expect(await ProgressRepository.findNullLessonRowForStudent(0, tx)).toBeNull();
+      expect(await ProgressRepository.findNullLessonRowForStudent(-5, tx)).toBeNull();
+    });
+  });
+});
+
+describe("ProgressRepository — defensive zero-row guard (typed executor stub)", () => {
+  test("insertRow throws ConflictError when the INSERT returns zero rows", async () => {
+    const error = await expectRepoError(() => ProgressRepository.insertRow({ studentId: 1 }, zeroReturningExecutor()));
+
+    expect(error).toBeInstanceOf(ConflictError);
+    expect(error.message).toContain("insertRow");
+    expect(error.message).toContain("insert returned no rows");
+  });
+});
+
+describe("ProgressRepository.findRowForStudentPlan — standalone executor path (committed fixture)", () => {
+  interface PointerFixture {
+    readonly userId: number;
+    readonly studentId: number;
+    readonly planId: number;
+    readonly lessonId: number;
+    readonly progressId: number;
+  }
+
+  let pointerCommitted: PointerFixture | null = null;
+
+  function requirePointerCommitted(): PointerFixture {
+    if (!pointerCommitted) {
+      throw new Error("Committed fixture not initialized — beforeAll failed");
+    }
+    return pointerCommitted;
+  }
+
+  beforeAll(async () => {
+    pointerCommitted = await db.transaction(async tx => {
+      const user = await createTestUser(tx);
+      await createTestStudent(tx, user.id);
+      const plan = await createTestPlan(tx);
+      const lesson = await createTestLesson(tx, plan.id);
+      const [pointer] = await tx.insert(progress).values({ studentId: user.id, lessonId: lesson.id }).returning();
+      if (!pointer) {
+        throw new Error("standalone fixture: pointer insert returned no rows");
+      }
+      return { userId: user.id, studentId: user.id, planId: plan.id, lessonId: lesson.id, progressId: pointer.id };
+    });
+  });
+
+  afterAll(async () => {
+    const fixture = pointerCommitted;
+    pointerCommitted = null;
+    if (!fixture) {
+      return;
+    }
+    // FK-ordered teardown: the users delete cascades the students row and,
+    // through it, the progress rows; the lesson and plan rows go last
+    // (lessons reference plans with SET NULL).
+    await db.delete(users).where(eq(users.id, fixture.userId));
+    await db.delete(lessons).where(eq(lessons.id, fixture.lessonId));
+    await db.delete(plans).where(eq(plans.id, fixture.planId));
+    // Teardown proof: the standalone read misses after the cascade.
+    expect(await ProgressRepository.findRowForStudentPlan(fixture.studentId, fixture.planId)).toBeNull();
+  });
+
+  test("runs on the queryDb read path and returns the committed pointer row", async () => {
+    const fixture = requirePointerCommitted();
+    const found = await ProgressRepository.findRowForStudentPlan(fixture.studentId, fixture.planId);
+    expect(found?.id).toBe(fixture.progressId);
+    expect(found?.lessonId).toBe(fixture.lessonId);
+    expect(found?.studentId).toBe(fixture.studentId);
+  });
+
+  test("returns null on the standalone path for an unknown student", async () => {
+    const fixture = requirePointerCommitted();
+    expect(await ProgressRepository.findRowForStudentPlan(NONEXISTENT_STUDENT_ID, fixture.planId)).toBeNull();
+  });
+});
+
+describe("ProgressRepository.findNullLessonRowForStudent — standalone executor path (committed fixture)", () => {
+  interface LessonLessFixture {
+    readonly userId: number;
+    readonly studentId: number;
+    readonly progressId: number;
+  }
+
+  let lessonLessCommitted: LessonLessFixture | null = null;
+
+  function requireLessonLessCommitted(): LessonLessFixture {
+    if (!lessonLessCommitted) {
+      throw new Error("Committed fixture not initialized — beforeAll failed");
+    }
+    return lessonLessCommitted;
+  }
+
+  beforeAll(async () => {
+    lessonLessCommitted = await db.transaction(async tx => {
+      const user = await createTestUser(tx);
+      await createTestStudent(tx, user.id);
+      // A lesson-less pointer row — the shape an admin lesson delete leaves
+      // behind (the FK's ON DELETE SET NULL contract).
+      const [pointer] = await tx.insert(progress).values({ studentId: user.id }).returning();
+      if (!pointer) {
+        throw new Error("standalone fixture: lesson-less pointer insert returned no rows");
+      }
+      return { userId: user.id, studentId: user.id, progressId: pointer.id };
+    });
+  });
+
+  afterAll(async () => {
+    const fixture = lessonLessCommitted;
+    lessonLessCommitted = null;
+    if (!fixture) {
+      return;
+    }
+    // Hard delete — the users-row delete cascades to the students row,
+    // which cascades to the progress rows (shared-PK FK + student_id ON
+    // DELETE CASCADE).
+    await db.delete(users).where(eq(users.id, fixture.userId));
+    // Teardown proof: the standalone probe misses after the cascade.
+    expect(await ProgressRepository.findNullLessonRowForStudent(fixture.studentId)).toBeNull();
+  });
+
+  test("runs on the queryDb read path and returns the committed lesson-less pointer row", async () => {
+    const fixture = requireLessonLessCommitted();
+    const found = await ProgressRepository.findNullLessonRowForStudent(fixture.studentId);
+    expect(found?.id).toBe(fixture.progressId);
+    expect(found?.lessonId).toBeNull();
+    expect(found?.studentId).toBe(fixture.studentId);
+  });
+
+  test("returns null on the standalone path for an unknown student", async () => {
+    expect(await ProgressRepository.findNullLessonRowForStudent(NONEXISTENT_STUDENT_ID)).toBeNull();
   });
 });

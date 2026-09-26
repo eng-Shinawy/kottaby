@@ -38,6 +38,9 @@ export const errorsEn: ErrorsLabels = {
     lessonPlanNotFound: "The selected plan was not found.",
     lessonPatchEmpty: "At least one field must be provided to update the lesson.",
   },
+  studentProgress: {
+    studentNotFound: "The requested student was not found.",
+  },
   subscriptionPurchase: {
     planNotPurchasable: "This subscription plan is not available for purchase.",
     planLaneUnconfigured: "This plan cannot be purchased yet because its credit lane is not configured.",

@@ -4,6 +4,7 @@
  * `cancelSessionOnce`, `openDisputeOnce`, `resolveDisputeCancelOnce`,
  * `resolveDisputeCompleteOnce`, `findTransitionProbe`,
  * `findRatingEligibilityProbe`, `existsSessionForTeacherStudent`,
+ * `countTeacherStudentSessions`,
  * `sweepExpiredCompletedOnce`, the participant list/count quartet, and the
  * admin disputed pair) against the live `kottaby_test_db` PostgreSQL
  * instance.
@@ -93,6 +94,13 @@
  *    financial outcome per escrow unit; Tier 4 system-scope source pins
  *    (no caller-supplied predicate input, no wildcard/LIKE) plus the
  *    pool-fallback executor branch on committed fixtures.
+ *  - Pair-relationship count (`countTeacherStudentSessions`): Tier 1 hit
+ *    counts the pair's rows on the transactional Drizzle branch; Tier 2
+ *    zero-row boundary (a fresh pair) and any-status semantics (a shared
+ *    row is the relationship, whatever its lifecycle state); Tier 4 pair
+ *    isolation (a foreign teacher's and another student's rows never
+ *    count), hostile ids (0, negative, far-beyond-sequence) count zero,
+ *    and the standalone `queryDb` arm runs on committed fixtures.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -2551,9 +2559,10 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
     // rating-eligibility probe, and the evaluation-loop wrappers delegating
     // to the evaluation helpers module, whose own discipline suite lives in
     // session.repository.evaluation.test.ts); the admin directory reads
-    // (listAdminDisputed, countAdminDisputed, listForAdmin) and the
-    // teacher↔student tenancy probe ride type-exact const re-exports of
-    // their impl functions instead of wrappers. Every signature ends in tx (LAST
+    // (listAdminDisputed, countAdminDisputed, listForAdmin), the
+    // teacher↔student tenancy probe, and the pair-relationship count ride
+    // type-exact const re-exports of their impl functions instead of
+    // wrappers. Every signature ends in tx (LAST
     // param).
     // Exactly FOUR take it REQUIRED — the report-gate lock (a FOR UPDATE
     // read taken outside a transaction releases when the statement ends
@@ -2575,6 +2584,92 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
 
   test("source: comments describe domain behavior only (no plan-artifact references)", () => {
     expect(/REQ-\d|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(repoSource)).toBe(false);
+  });
+});
+
+/**
+ * Pair-relationship count — the teacher↔student read the authorization
+ * gate consumes. Any lifecycle state counts (a shared row IS the
+ * relationship); the pair predicate isolates foreign pairs; hostile ids
+ * are equality misses.
+ */
+describe("SessionRepository.countTeacherStudentSessions — pair count (runInRollback)", () => {
+  // ─── Tier 1 + 2: hit branch and the zero-row boundary ──────────────
+
+  test("returns zero for a pair with no shared session rows", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      expect(await SessionRepository.countTeacherStudentSessions(actors.teacherUserId, actors.studentUserId, tx)).toBe(
+        0
+      );
+    });
+  });
+
+  test("returns one after a single booking and three after three bookings", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await insertSessionRow(tx, actors);
+      expect(await SessionRepository.countTeacherStudentSessions(actors.teacherUserId, actors.studentUserId, tx)).toBe(
+        1
+      );
+      await insertSessionRow(tx, actors);
+      await insertSessionRow(tx, actors);
+      expect(await SessionRepository.countTeacherStudentSessions(actors.teacherUserId, actors.studentUserId, tx)).toBe(
+        3
+      );
+    });
+  });
+
+  test("counts every lifecycle state — a shared row is the relationship, not an outcome claim", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await insertSessionRow(tx, actors, { status: SessionStatus.Scheduled });
+      await insertSessionRow(tx, actors, { status: SessionStatus.Started });
+      await insertSessionRow(tx, actors, { status: SessionStatus.Completed });
+      await insertSessionRow(tx, actors, { status: SessionStatus.Cancelled });
+      expect(await SessionRepository.countTeacherStudentSessions(actors.teacherUserId, actors.studentUserId, tx)).toBe(
+        4
+      );
+    });
+  });
+
+  // ─── Tier 4: pair isolation + hostile ids ──────────────────────────
+
+  test("the pair predicate isolates foreign pairs — other teachers and other students never count", async () => {
+    await runInRollback(async tx => {
+      const actorsA = await createSessionActors(tx);
+      const actorsB = await createSessionActors(tx);
+      await insertSessionRow(tx, actorsA);
+      await insertSessionRow(tx, actorsA);
+      await insertSessionRow(tx, actorsB);
+
+      // Own pairs: A holds two rows, B holds one.
+      expect(
+        await SessionRepository.countTeacherStudentSessions(actorsA.teacherUserId, actorsA.studentUserId, tx)
+      ).toBe(2);
+      expect(
+        await SessionRepository.countTeacherStudentSessions(actorsB.teacherUserId, actorsB.studentUserId, tx)
+      ).toBe(1);
+      // Cross pairs: one side's teacher against the other side's student.
+      expect(
+        await SessionRepository.countTeacherStudentSessions(actorsA.teacherUserId, actorsB.studentUserId, tx)
+      ).toBe(0);
+      expect(
+        await SessionRepository.countTeacherStudentSessions(actorsB.teacherUserId, actorsA.studentUserId, tx)
+      ).toBe(0);
+    });
+  });
+
+  test("unknown and hostile ids count zero — equality misses, never throws", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await insertSessionRow(tx, actors);
+      const missingUserId = await absentUserId(tx);
+
+      expect(await SessionRepository.countTeacherStudentSessions(0, actors.studentUserId, tx)).toBe(0);
+      expect(await SessionRepository.countTeacherStudentSessions(actors.teacherUserId, -1, tx)).toBe(0);
+      expect(await SessionRepository.countTeacherStudentSessions(missingUserId, actors.studentUserId, tx)).toBe(0);
+    });
   });
 });
 
@@ -2883,5 +2978,17 @@ describe("SessionRepository — standalone executor paths (committed fixtures)",
       actors.studentUserId
     );
     expect(foreign).toBe(false);
+  });
+
+  test("countTeacherStudentSessions runs standalone via the queryDb read path", async () => {
+    // The actors pair holds four committed session rows at this point
+    // (three inserted in-transaction plus the pool-fallback insert) —
+    // the same committed state the standalone list/count test asserts.
+    const linked = await SessionRepository.countTeacherStudentSessions(actors.teacherUserId, actors.studentUserId);
+    expect(linked).toBe(4);
+
+    // A foreign teacher against the same student counts zero standalone.
+    const foreign = await SessionRepository.countTeacherStudentSessions(0, actors.studentUserId);
+    expect(foreign).toBe(0);
   });
 });

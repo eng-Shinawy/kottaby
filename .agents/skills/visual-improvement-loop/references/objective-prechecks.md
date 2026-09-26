@@ -83,3 +83,7 @@ JSON.stringify({
 - **Toast/overlay overlap claims**: probe `document.querySelectorAll(".MuiSnackbar-root")` rects
   against the header rect. One such claim survived repeated passes ("toast overlaps the title") while
   zero snackbar nodes existed in the DOM at all.
+- **"Bottom content clipped / no breathing room" on scrollable pages** (static fold-crop): scroll to
+  `document.body.scrollHeight`, then measure the last content card's `getBoundingClientRect().bottom`
+  gap to `window.innerHeight`. A positive gap (≥ token spacing) proves the fold-crop misperception —
+  the page scrolls normally and the finding is dismissed, never "fixed" with extra padding.
