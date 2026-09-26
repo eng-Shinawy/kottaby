@@ -58,7 +58,7 @@ export function UserHeroActions({ labels, user, onEdit, onDelete, onCertify }: U
         color="primary"
         startIcon={<EditIcon />}
         onClick={onEdit}
-        sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 44 }}
+        sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 54 }}
       >
         {labels.detail.editAction}
       </Button>
@@ -68,7 +68,7 @@ export function UserHeroActions({ labels, user, onEdit, onDelete, onCertify }: U
           color="success"
           startIcon={<ReactivateIcon />}
           onClick={onDelete}
-          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 44 }}
+          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 54 }}
         >
           {labels.detail.reactivateAction}
         </Button>
@@ -78,7 +78,7 @@ export function UserHeroActions({ labels, user, onEdit, onDelete, onCertify }: U
           color="error"
           startIcon={<BlockIcon />}
           onClick={onDelete}
-          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 44 }}
+          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 54 }}
         >
           {labels.detail.deleteAction}
         </Button>

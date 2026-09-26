@@ -36,7 +36,7 @@ export function LessonsPlanSelector({ plans, loading, value, onChange }: Lessons
       sx={{ mb: 3 }}
       slotProps={{
         select: {
-          displayEmpty: true,
+          // displayEmpty: true,
           renderValue: (option: unknown) =>
             option === ""
               ? t.planSelectorPlaceholder

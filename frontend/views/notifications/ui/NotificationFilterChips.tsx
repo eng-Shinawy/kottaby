@@ -88,7 +88,7 @@ export function NotificationFilterChips({
           // Collapsed-filter affordance exists ONLY on the mobile breakpoint.
           display: { xs: "inline-flex", sm: "none" },
           alignSelf: "flex-start",
-          minHeight: 44,
+          minHeight: 54,
         }}
       >
         {commonLabels.filters}
@@ -110,7 +110,7 @@ export function NotificationFilterChips({
           color={allSelected ? "primary" : "default"}
           variant={allSelected ? "filled" : "outlined"}
           onClick={() => onReadFilterChange("all")}
-          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+          sx={{ ...focusVisibleRingSx, minHeight: 54 }}
         />
         <Chip
           label={labels.filterUnread}
@@ -120,7 +120,7 @@ export function NotificationFilterChips({
           color={readFilter === "unread" ? "primary" : "default"}
           variant={readFilter === "unread" ? "filled" : "outlined"}
           onClick={() => onReadFilterChange("unread")}
-          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+          sx={{ ...focusVisibleRingSx, minHeight: 54 }}
         />
         <Divider
           orientation="vertical"
@@ -142,7 +142,7 @@ export function NotificationFilterChips({
               variant={selected ? "filled" : "outlined"}
               onClick={() => onTypeFilterChange(selected ? null : type)}
               // Generous height keeps taller Arabic glyphs unclipped.
-              sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+              sx={{ ...focusVisibleRingSx, minHeight: 54 }}
             />
           );
         })}

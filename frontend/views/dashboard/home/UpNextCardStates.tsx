@@ -29,7 +29,7 @@ export function UpNextSkeletonCard({
     <CardShell testId={testId} busy busyLabel={loadingLabel}>
       <Skeleton variant="text" sx={{ fontSize: "1.75rem", maxWidth: 220 }} />
       <Skeleton variant="rounded" sx={{ height: 56, borderRadius: 2 }} />
-      <Skeleton variant="rounded" sx={{ height: 44, borderRadius: 2 }} />
+      <Skeleton variant="rounded" sx={{ minHeight: 54, borderRadius: 2 }} />
     </CardShell>
   );
 }

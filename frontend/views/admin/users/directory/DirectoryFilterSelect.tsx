@@ -40,21 +40,19 @@ export function DirectoryFilterSelect({
 }: DirectoryFilterSelectProps): ReactNode {
   return (
     <FormControl sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" } }}>
-      <InputLabel htmlFor={id} shrink>
-        {label}
-      </InputLabel>
+      <InputLabel htmlFor={id}>{label}</InputLabel>
       <Select
         id={id}
         value={value}
         label={label}
         onChange={event => onChange(event.target.value || "")}
         sx={{
-          height: 44,
+          height: 54,
           // Vertically center the visible value inside the fixed 44px
           // control: the default block padding makes the inner select box
           // taller than the outlined root.
           "&& .MuiSelect-select": {
-            minHeight: 44,
+            minHeight: 54,
             boxSizing: "border-box",
             paddingBlock: 0,
             display: "flex",

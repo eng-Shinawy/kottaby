@@ -41,17 +41,16 @@ export function useAuthRecoveryRegistration(
     return dedupedRefreshToken(async () => {
       const currentRefreshToken = getRefreshMemoryToken();
       if (!currentRefreshToken) {
-        logger.warn(
+        logger.info(
           { caller: "useAuthRecoveryRegistration" },
-          "[AuthRecovery] no refresh token in React memory — skipping refresh"
+          "[AuthRecovery] no refresh token in React memory — rotating from the httpOnly cookie"
         );
-        return null;
       }
 
       try {
         const result = await apolloClient.mutate({
           mutation: refreshTokenMutationDocument,
-          variables: { refreshToken: currentRefreshToken },
+          variables: { refreshToken: currentRefreshToken ?? "" },
         });
         const payload = result.data?.refreshToken;
         if (!payload) {

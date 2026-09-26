@@ -68,7 +68,7 @@ const CERTIFIED_USER_PLACEHOLDER = "{name}";
  * warning buttons.
  */
 const confirmButtonSx = (theme: Theme) => ({
-  minHeight: 44,
+  minHeight: 54,
   minWidth: 140,
   "&:disabled": {
     backgroundColor: theme.palette.action.disabledBackground,
@@ -183,7 +183,7 @@ export function CertifyTeacherDialog({ labels, targetUser, loading, onResolve }:
           onClick={() => onResolve(null)}
           disabled={loading}
           sx={theme => ({
-            minHeight: 44,
+            minHeight: 54,
             color: theme.palette.text.secondary,
             borderColor: theme.palette.border.main,
             "&:hover": { backgroundColor: theme.palette.action.hover },

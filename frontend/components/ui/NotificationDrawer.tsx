@@ -156,7 +156,7 @@ export function NotificationDrawer({
           disabled={markAllPending || unreadCount === 0 || markReadPendingIds.length > 0}
           onClick={handleMarkAll}
           // 44px tap floor (visual QA flagged the small-size default at 36px).
-          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+          sx={{ ...focusVisibleRingSx, minHeight: 54 }}
         >
           {t.markAllRead}
         </Button>
@@ -181,7 +181,7 @@ export function NotificationDrawer({
           onClick={onClose}
           fullWidth
           variant="text"
-          sx={{ ...focusVisibleRingSx, justifyContent: "center", minHeight: 44 }}
+          sx={{ ...focusVisibleRingSx, justifyContent: "center", minHeight: 54 }}
         >
           {t.viewAllNotifications}
         </Button>

@@ -112,7 +112,7 @@ export function ProfileInfoCard({ user, labels, formatDate, onEdit }: ProfileInf
           <IconButton
             aria-label={labels.detail.editAction}
             onClick={onEdit}
-            sx={theme => ({ minWidth: 44, minHeight: 44, color: theme.palette.primary.main })}
+            sx={theme => ({ minWidth: 44, minHeight: 54, color: theme.palette.primary.main })}
           >
             <EditIcon fontSize="small" />
           </IconButton>

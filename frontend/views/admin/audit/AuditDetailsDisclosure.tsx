@@ -50,7 +50,7 @@ export function AuditDetailsDisclosure({
         variant="text"
         aria-expanded={isExpanded}
         onClick={() => onToggleDetails(entryId)}
-        sx={{ ...focusVisibleRingSx, minHeight: 44, ...(alignFlexStart ? { alignSelf: "flex-start" } : {}) }}
+        sx={{ ...focusVisibleRingSx, minHeight: 54, ...(alignFlexStart ? { alignSelf: "flex-start" } : {}) }}
       >
         {isExpanded ? hideLabel : showLabel}
       </Button>

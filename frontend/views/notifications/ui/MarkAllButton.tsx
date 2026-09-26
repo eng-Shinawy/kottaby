@@ -58,7 +58,7 @@ export function MarkAllButton({
           ...focusVisibleRingSx,
           ...darkOutlinedContrastSx(theme),
           flexShrink: 0,
-          minHeight: 44,
+          minHeight: 54,
           width: { xs: "100%", sm: "auto" },
         })}
       >

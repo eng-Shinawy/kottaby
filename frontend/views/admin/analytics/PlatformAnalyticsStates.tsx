@@ -138,7 +138,7 @@ export function PlatformAnalyticsLoadError({
           disabled={retryPending}
           onClick={onRetry}
           startIcon={<RefreshOutlined />}
-          sx={{ ...focusVisibleRingSx, flexShrink: 0, minHeight: 44 }}
+          sx={{ ...focusVisibleRingSx, flexShrink: 0, minHeight: 54 }}
         >
           {labels.retryAction}
         </Button>

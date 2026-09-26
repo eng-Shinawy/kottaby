@@ -101,7 +101,7 @@ export function NotFoundView(): ReactNode {
                   textTransform: "none",
                   fontWeight: 700,
                   px: 3,
-                  minHeight: 44,
+                  minHeight: 54,
                   bgcolor: "var(--mui-palette-secondary-main)",
                   color: "var(--mui-palette-onSecondary)",
                   "&:hover": { bgcolor: "var(--mui-palette-secondary-dark)" },

@@ -128,7 +128,7 @@ export function RegisterForm() {
           component={Link}
           href="/login"
           underline="hover"
-          sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+          sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", minHeight: 54, px: 1 }}
         >
           {t.loginLink}
         </MuiLink>

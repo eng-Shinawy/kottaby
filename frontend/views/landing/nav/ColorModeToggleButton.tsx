@@ -14,7 +14,7 @@ export function ColorModeToggleButton({
       sx={{
         p: 1,
         // Icon-only control — keep the 44px touch-target floor.
-        minHeight: 44,
+        minHeight: 54,
         minWidth: 44,
         color: "var(--mui-palette-secondary-light)",
         borderRadius: 2,

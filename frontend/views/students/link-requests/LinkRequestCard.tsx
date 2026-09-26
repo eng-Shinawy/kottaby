@@ -108,7 +108,7 @@ export function LinkRequestCard({
             variant="contained"
             disabled={respondInFlight}
             onClick={() => onDecide({ requestId: row.id, accept: true, parentName: row.parentFullName })}
-            sx={{ ...focusVisibleRingSx, minHeight: 44, width: { xs: "100%", sm: "auto" } }}
+            sx={{ ...focusVisibleRingSx, minHeight: 54, width: { xs: "100%", sm: "auto" } }}
           >
             {labels.confirmAction}
           </Button>
@@ -117,7 +117,7 @@ export function LinkRequestCard({
             variant="outlined"
             disabled={respondInFlight}
             onClick={() => onDecide({ requestId: row.id, accept: false, parentName: row.parentFullName })}
-            sx={{ ...focusVisibleRingSx, minHeight: 44, width: { xs: "100%", sm: "auto" } }}
+            sx={{ ...focusVisibleRingSx, minHeight: 54, width: { xs: "100%", sm: "auto" } }}
           >
             {labels.rejectAction}
           </Button>

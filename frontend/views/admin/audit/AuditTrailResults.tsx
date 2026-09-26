@@ -31,10 +31,10 @@ const PAGINATION_TOUCH_TARGET_SX = {
   "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": {
     display: "flex",
     alignItems: "center",
-    minHeight: 44,
+    minHeight: 54,
   },
-  "& .MuiTablePagination-select": { minHeight: 44 },
-  "& .MuiIconButton-root": { minHeight: 44, minWidth: 44 },
+  "& .MuiTablePagination-select": { minHeight: 54 },
+  "& .MuiIconButton-root": { minHeight: 54, minWidth: 44 },
 } as const;
 
 /**

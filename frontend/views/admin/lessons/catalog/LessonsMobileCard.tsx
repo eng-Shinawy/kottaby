@@ -58,7 +58,7 @@ export function LessonsMobileCard({
           startIcon={<EditIcon />}
           onClick={() => onEdit(lesson)}
           disabled={isActionPending}
-          sx={{ minHeight: 44 }}
+          sx={{ minHeight: 54 }}
         >
           {t.editLessonButton}
         </Button>
@@ -69,7 +69,7 @@ export function LessonsMobileCard({
           disabled={isActionPending}
           sx={theme => ({
             color: theme.palette.error.main,
-            minHeight: 44,
+            minHeight: 54,
           })}
         >
           {t.deleteLessonButton}

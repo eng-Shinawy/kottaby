@@ -14,14 +14,25 @@
  * Components that call `getServerUserContext()` directly, plus the layout,
  * plus `withPageAuth`, all share one verify+DB-fetch per request.
  *
- * Architecture (per `docs/auth/REDIRECT_LOOP_FIX.md`):
+ * Architecture (per `docs/auth/REDIRECT_LOOP_FIX.md` +
+ * `docs/auth/REDIRECT_LOOP_FIX_OPENCODE2.md`):
  *  - Pre-fix: `access_token` was NEVER set as a cookie (React memory only),
  *    so SSR could not authenticate, and the dashboard layout kept bouncing
  *    the user back to `/login` even though the client had a valid token.
- *  - Fix: `setAuthCookies` now sets `access_token` as a 15-min httpOnly
+ *  - Fix 1: `setAuthCookies` sets `access_token` as a 15-min httpOnly
  *    cookie (SameSite=Strict, Secure in production). SSR reads it via
  *    `next/headers` `cookies()` and verifies it through the same
  *    `verifyAccessToken` helper the GraphQL context factory uses.
+ *  - Fix 2 (redirect-loop fix, session-only fallback): the 15-min
+ *    `access_token` cookie expires long before the 7-day session does. An
+ *    SSR render that sees only the long-lived cookies must NOT bounce the
+ *    user to `/login` — the client still holds an authenticated session
+ *    (`me` restored from React memory) and the `(auth)` layout bounces it
+ *    straight back, producing the /login ↔ page infinite redirect loop.
+ *    When the `access_token` cookie is missing/expired, fall back to the
+ *    `refresh_token` cookie: verify its JWT signature and bind it to the
+ *    `session_id` cookie (both are set together on login/refresh), then
+ *    resolve the user from the DB with the same governance checks.
  *
  * Governance: if the DB row shows the user is `isDeleted` / `isBlocked` /
  * `suspended`, this function returns null — fail-closed at the SSR boundary.
@@ -33,7 +44,7 @@ import { cache } from "react";
 import { UserRepository } from "@/backend/db/repo";
 import { toUserRole, type UserRole } from "@/backend/enum/users/user-role.enum";
 import { AUTH_COOKIE_NAMES } from "@/backend/lib/auth/cookies";
-import { verifyAccessToken } from "@/backend/lib/auth/jwt";
+import { verifyAccessToken, verifyRefreshToken } from "@/backend/lib/auth/jwt";
 import { isSuspensionActive } from "@/backend/lib/auth/suspension-window";
 import { logger } from "@/backend/lib/logger";
 import type { RegistrationReturnType, UserSelectType } from "@/backend/types";
@@ -63,8 +74,41 @@ function stripPasswordHash(user: UserSelectType): RegistrationReturnType {
 }
 
 /**
+ * Session-only fallback — resolves the caller from the long-lived auth
+ * cookies when the 15-min `access_token` cookie is missing or expired.
+ *
+ * Requires the `refresh_token` JWT to verify (signature, issuer,
+ * `type: "refresh"`) AND its `sessionId` claim to match the `session_id`
+ * cookie — the two are always written together by `setAuthCookies`
+ * (login / refreshToken rotation), so a mismatch means tampered or
+ * torn-apart cookies and we fail closed.
+ *
+ * @returns the verified user id, or `null` to treat the caller as
+ *     anonymous (the caller decides whether to redirect).
+ */
+async function resolveUserIdFromSessionCookies(
+  cookieStore: Awaited<ReturnType<typeof cookies>>
+): Promise<number | null> {
+  const refreshToken = cookieStore.get(AUTH_COOKIE_NAMES.refreshToken)?.value;
+  if (!refreshToken) {
+    return null;
+  }
+  const refreshPayload = await verifyRefreshToken(refreshToken);
+  if (!refreshPayload) {
+    return null;
+  }
+  const sessionId = cookieStore.get(AUTH_COOKIE_NAMES.sessionId)?.value;
+  if (!sessionId || sessionId !== refreshPayload.sessionId) {
+    return null;
+  }
+  return refreshPayload.userId;
+}
+
+/**
  * Cached SSR auth — verifies the `access_token` httpOnly cookie and returns
- * the authenticated user context.
+ * the authenticated user context. Falls back to the long-lived
+ * `refresh_token` + `session_id` cookies when the short-lived access-token
+ * cookie has expired (redirect-loop fix — see the architecture note above).
  *
  * Wrapped in `react.cache()` so multiple Server Components + layouts in the
  * same request share a single verify + DB-fetch.
@@ -76,21 +120,27 @@ export const getServerUserContext = cache(async (): Promise<ServerUserContext> =
   try {
     const cookieStore = await cookies();
     const accessToken = cookieStore.get(AUTH_COOKIE_NAMES.accessToken)?.value;
-    if (!accessToken) {
-      return { userId: null, user: null, role: null };
-    }
 
-    const payload = await verifyAccessToken(accessToken);
-    if (!payload) {
-      // Invalid / expired token — treat as anonymous. The caller will
-      // redirect to /login if they need an authenticated user.
+    let userId: number | null = null;
+    let tokenRole: string | null = null;
+    if (accessToken) {
+      const payload = await verifyAccessToken(accessToken);
+      if (payload) {
+        userId = payload.userId;
+        tokenRole = payload.role;
+      }
+    }
+    userId ??= await resolveUserIdFromSessionCookies(cookieStore);
+    if (userId === null) {
+      // Anonymous — the caller decides whether to redirect to /login.
       return { userId: null, user: null, role: null };
     }
 
     // Fetch the latest user row so the SSR boundary picks up governance
     // changes (suspended/blocked flags can change between token issuance
     // and this request).
-    const fetched = await UserRepository.findById(payload.userId);
+    const fetched = await UserRepository.findById(userId);
+
     if (!fetched) {
       return { userId: null, user: null, role: null };
     }
@@ -117,9 +167,10 @@ export const getServerUserContext = cache(async (): Promise<ServerUserContext> =
       return { userId: null, user: null, role: null };
     }
 
-    const role = toUserRole(payload.role);
+    // Role: prefer the access-token claim; on the session-only fallback the
+    // DB row is the authoritative source. Unrecognized → tampered → anonymous.
+    const role = tokenRole !== null ? toUserRole(tokenRole) : toUserRole(fetched.role);
     if (!role) {
-      // Tampered role claim — treat as anonymous.
       return { userId: null, user: null, role: null };
     }
 

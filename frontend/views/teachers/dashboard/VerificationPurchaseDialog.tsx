@@ -170,7 +170,7 @@ export function VerificationPurchaseDialog({
             disabled={purchasing}
             variant="outlined"
             color="inherit"
-            sx={theme => ({ ...focusVisibleRingSx, minHeight: 44, color: theme.palette.text.secondary })}
+            sx={theme => ({ ...focusVisibleRingSx, minHeight: 54, color: theme.palette.text.secondary })}
           >
             {t.purchaseCancelCta}
           </Button>

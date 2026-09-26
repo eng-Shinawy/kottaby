@@ -1,12 +1,12 @@
 "use client";
 
 import { SearchOutlined as SearchIcon } from "@mui/icons-material";
-import { Button, Card, CardContent, Stack, TextField } from "@mui/material";
+import { Box, Button, Card, CardContent, TextField } from "@mui/material";
 import type { ReactNode } from "react";
 import { HandshakeCode, useAppTranslation } from "@/shared/locale";
 
 /** Comfortable ≥44px touch target for the submit affordance. */
-const submitButtonSx = { minHeight: 44, px: 3 } as const;
+const submitButtonSx = { minHeight: 54, px: 3 } as const;
 
 interface HandshakeCodeSearchFormProps {
   /** Raw field value (controlled input — the container owns the state). */
@@ -60,11 +60,12 @@ export function HandshakeCodeSearchForm(props: Readonly<HandshakeCodeSearchFormP
       })}
     >
       <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-        <Stack
-          spacing={2}
+        <Box
           sx={{
+            display: "flex",
             flexDirection: { xs: "column", sm: "row" },
-            alignItems: { xs: "stretch", sm: "center" },
+            alignItems: "center",
+            gap: 2,
           }}
         >
           <TextField
@@ -91,7 +92,7 @@ export function HandshakeCodeSearchForm(props: Readonly<HandshakeCodeSearchFormP
           >
             {t.searchAction}
           </Button>
-        </Stack>
+        </Box>
       </CardContent>
     </Card>
   );

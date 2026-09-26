@@ -116,11 +116,11 @@ function ArmActions({
           color={color}
           startIcon={<CircularProgress size={16} color="inherit" />}
           onClick={onRetry}
-          sx={{ minHeight: 44 }}
+          sx={{ minHeight: 54 }}
         >
           {t.retryButton}
         </Button>
-        <Button variant="text" onClick={onView} sx={{ minHeight: 44 }}>
+        <Button variant="text" onClick={onView} sx={{ minHeight: 54 }}>
           {t.viewSubscriptionsButton}
         </Button>
       </Stack>
@@ -129,17 +129,17 @@ function ArmActions({
   if (arm === "failed") {
     return (
       <Stack sx={{ alignItems: "center", gap: 1.5, width: "100%" }}>
-        <Button variant="contained" color={color} fullWidth sx={{ maxWidth: 480, minHeight: 44 }} onClick={onRetry}>
+        <Button variant="contained" color={color} fullWidth sx={{ maxWidth: 480, minHeight: 54 }} onClick={onRetry}>
           {t.retryButton}
         </Button>
-        <Button variant="outlined" fullWidth sx={{ maxWidth: 480, minHeight: 44 }} onClick={onView}>
+        <Button variant="outlined" fullWidth sx={{ maxWidth: 480, minHeight: 54 }} onClick={onView}>
           {t.viewSubscriptionsButton}
         </Button>
       </Stack>
     );
   }
   return (
-    <Button variant="contained" sx={{ width: "100%", maxWidth: 480, minHeight: 44 }} onClick={onView}>
+    <Button variant="contained" sx={{ width: "100%", maxWidth: 480, minHeight: 54 }} onClick={onView}>
       {t.viewSubscriptionsButton}
     </Button>
   );

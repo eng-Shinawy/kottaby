@@ -217,3 +217,61 @@ never used as a browser navigation target from inside the app.
 Contract tests: `frontend/lib/auth/roleDashboardRoute.test.ts` (mapping,
 lowercase/capitalized parity, bare-`/dashboard` rejection, open-redirect
 guard precedence).
+
+---
+
+## Addendum 2 — Loop 3 (2026-09): 15-min access_token cookie expiry vs. client-side auth state
+
+### Symptom
+
+Reproduced on the dev server (devtools + Playwright): with a valid 7-day
+session, an in-tab (SPA) navigation to any SSR-guarded page ping-ponged
+forever — 174 navigations in ~12 s:
+
+```text
+/admin/dashboard → (SSR guard: access_token cookie expired → redirect)
+/login?redirect=/admin/dashboard → ((auth) layout: client isAuthenticated → bounce)
+/admin/dashboard → … ∞
+```
+
+### Root cause
+
+Two auth surfaces disagree once the 15-min `access_token` cookie expires
+while the client session is still alive:
+
+- **SSR** (`getServerUserContext`) authenticated ONLY via the short-lived
+  `access_token` cookie → every guarded page rendered anonymous → server
+  redirect to `/login?redirect=<path>`.
+- **Client** (React-memory `user` from the `me` query, restored via cookies)
+  still reported `isAuthenticated` → the `(auth)` layout immediately bounced
+  back to the guarded page (`resolvePostAuthTarget`).
+
+Neither side could recover: the client's `refreshToken` mutation required an
+explicit token argument from React memory (empty on cold reload), so the
+cookie-based recovery described in this document was never actually wired.
+
+### Fix (both surfaces)
+
+1. **Session-only SSR fallback** (`backend/lib/auth/server-auth.ts`):
+   when the `access_token` cookie is missing/expired, verify the
+   `refresh_token` cookie JWT (signature + `type: "refresh"`) AND bind it to
+   the `session_id` cookie (the `sessionId` claim must match — both cookies
+   are written together by `setAuthCookies`). Role comes from the
+   authoritative DB row on this path. SSR no longer bounces a valid session.
+2. **Cookie-based refresh rotation** (`backend/graphql/mutation/auth.mutation.ts`):
+   the `refreshToken` mutation argument is now OPTIONAL — an omitted/empty
+   argument makes the resolver rotate from the httpOnly `refresh_token`
+   cookie. The client hooks (`useRefreshSession`, `useAuthRecoveryRegistration`,
+   `useRestoreSession`) no longer skip refresh when the React-memory slot is
+   empty; they pass the empty value and let the server fall back to the
+   cookie, then retry `me` — cold reloads with a valid 7-day session now
+   re-establish auth instead of landing on `/login`.
+
+### Verification
+
+- Anonymous (no cookies): lands on `/login?redirect=…` and stays (no loop).
+- SPA navigation with expired `access_token` cookie: single navigation to the
+  guarded page, stays authenticated.
+- Hard reload with expired `access_token` cookie: page renders
+  authenticated AND the client's cookie-based refresh re-sets a fresh
+  `access_token` cookie.

@@ -54,7 +54,7 @@ export function DirectoryToolbarActions(props: DirectoryToolbarActionsProps): Re
         <Button
           variant="text"
           onClick={props.onClearFilters}
-          sx={theme => ({ minHeight: 44, flexShrink: 0, color: theme.palette.text.secondary })}
+          sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
         >
           {props.labels.filters.clear}
         </Button>
@@ -66,7 +66,7 @@ export function DirectoryToolbarActions(props: DirectoryToolbarActionsProps): Re
         onClick={props.onCreateUser}
         sx={theme => ({
           borderRadius: "8px",
-          height: 44,
+          minHeight: 54,
           flexShrink: 0,
           whiteSpace: "nowrap",
           // Pin the fill/ink pair to the theme's `primary.main`/`onPrimary`

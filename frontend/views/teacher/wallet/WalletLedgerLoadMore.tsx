@@ -32,7 +32,7 @@ export function WalletLedgerLoadMore({
       disabled={loadingMore}
       startIcon={loadingMore ? <CircularProgress size={16} color="inherit" /> : <ExpandMoreOutlined />}
       sx={theme => ({
-        minHeight: 44,
+        minHeight: 54,
         borderRadius: 0,
         py: 1.25,
         color: theme.palette.onSurfaceVariant,

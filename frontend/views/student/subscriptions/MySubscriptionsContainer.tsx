@@ -139,7 +139,7 @@ function SubscriptionsBody({
           variant="outlined"
           color="error"
           onClick={onRefetch}
-          sx={{ width: "100%", maxWidth: 360, minHeight: 44 }}
+          sx={{ width: "100%", maxWidth: 360, minHeight: 54 }}
         >
           {t.retryButton}
         </Button>

@@ -83,7 +83,7 @@ export function DirectoryDetailDrawer({
               sx={theme => ({
                 ...focusVisibleRingSx,
                 minWidth: 44,
-                minHeight: 44,
+                minHeight: 54,
                 color: theme.palette.text.secondary,
               })}
             >

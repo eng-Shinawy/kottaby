@@ -82,6 +82,9 @@ import { resetPaymentGateway } from "@/backend/services/billing/payment-gateway/
 import { VerificationPurchaseService } from "@/backend/services/teachers/verification-purchase.service";
 import type { DBTransaction, PlanSelectType, PurchaseSubscriptionReturnType } from "@/backend/types";
 import {
+  VERIFICATION_PLAN_CURRENCY,
+  VERIFICATION_PLAN_INTERVAL_DAYS,
+  VERIFICATION_PLAN_PRICE,
   VERIFICATION_PLAN_SESSION_COUNT,
   VERIFICATION_PLAN_TITLE,
 } from "@/shared/constants/verification-plan.constants";
@@ -812,6 +815,9 @@ describe("VerificationPurchaseService — purchase (chaos: production tx path, c
         const plan = await createTestPlan(tx, {
           title: VERIFICATION_PLAN_TITLE,
           sessionCount: VERIFICATION_PLAN_SESSION_COUNT,
+          price: VERIFICATION_PLAN_PRICE,
+          currency: VERIFICATION_PLAN_CURRENCY,
+          intervalDays: VERIFICATION_PLAN_INTERVAL_DAYS,
           balanceLane: SubscriptionCreditLane.Reviews,
         });
         chaosPlanId = plan.id;

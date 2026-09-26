@@ -139,7 +139,7 @@ export function PaymentResultContainer(props: Readonly<PaymentResultContainerPro
           variant="outlined"
           color="error"
           onClick={() => void refetch()}
-          sx={{ width: "100%", maxWidth: 360, minHeight: 44 }}
+          sx={{ width: "100%", maxWidth: 360, minHeight: 54 }}
         >
           {t.retryButton}
         </Button>

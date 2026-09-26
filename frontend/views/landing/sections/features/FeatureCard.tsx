@@ -47,7 +47,7 @@ export function FeatureCard({
       <Box
         sx={{
           width: 44,
-          height: 44,
+          minHeight: 54,
           borderRadius: 2,
           display: "flex",
           alignItems: "center",

@@ -237,7 +237,7 @@ import { outlinedInputSx, timeInputOutlinedSx, AppTimePicker } from "@/frontend/
 
 {/* displayEmpty + empty-value placeholder REQUIRES InputLabel shrink, or label overlaps the placeholder */}
 <FormControl fullWidth required sx={outlinedInputSx}>
-  <InputLabel id="class-type-label" shrink>
+  <InputLabel id="class-type-label">
     Class type
   </InputLabel>
   <Select labelId="class-type-label" label="Class type" value={value} displayEmpty onChange={onChange}>

@@ -42,7 +42,7 @@ export function PlanPurchaseSummaryBody({ plan, error }: Readonly<PlanPurchaseSu
             bgcolor: theme.palette.secondaryContainer,
             color: theme.palette.onSecondaryContainer,
             width: 44,
-            height: 44,
+            minHeight: 54,
             borderRadius: 2,
           })}
         >

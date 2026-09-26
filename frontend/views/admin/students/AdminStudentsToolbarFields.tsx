@@ -81,7 +81,7 @@ export function StudentLanguageField({
           }),
         },
       }}
-      sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" }, "& .MuiInputBase-root": { height: 44 } }}
+      sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" }, "& .MuiInputBase-root": { minHeight: 54 } }}
     />
   );
 }

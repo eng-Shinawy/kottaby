@@ -37,14 +37,14 @@ interface AuthProviderProps {
  *    cookie clear is fire-and-forget — even if it fails, the client state
  *    is reset (the cookies will expire on their own TTL).
  *
- * Cold-start limitation: the refresh token is held in React memory only
+ * Cold-start recovery: the refresh token is held in React memory only
  * (per `docs/auth/REDIRECT_LOOP_FIX.md` — never persisted to localStorage
- * to mitigate XSS). On a full page reload, React memory is wiped — but
- * the `access_token` httpOnly cookie (15-min TTL) is set on login, so SSR
- * (`getServerUserContext`) can verify it and authenticate the dashboard
- * layout without any client-side restore round-trip. Within a single tab
- * session (client-side navigation), the access token survives in React
- * memory and the `me` query restores the session on every mount.
+ * to mitigate XSS). On a full page reload React memory is wiped — but the
+ * 7-day httpOnly `refresh_token` cookie survives, and the `refreshToken`
+ * mutation accepts an empty argument to rotate from that cookie
+ * (cold-reload recovery). The mount-time `restoreSession` effect therefore
+ * re-establishes the session (me → cookie-based refresh → me retry) as long
+ * as the cookie is valid, without bouncing the user to `/login`.
  *
  * `me` carries `authScopes: { authenticated: true }` — anonymous
  * callers receive a GraphQL UNAUTHORIZED error instead of `null`. The

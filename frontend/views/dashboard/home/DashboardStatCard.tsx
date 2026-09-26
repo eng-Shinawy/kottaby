@@ -116,7 +116,7 @@ export function DashboardStatCard({ stat, selected = false }: Readonly<Dashboard
           <Box
             sx={theme => ({
               width: 44,
-              height: 44,
+              minHeight: 54,
               borderRadius: 2,
               display: "flex",
               alignItems: "center",

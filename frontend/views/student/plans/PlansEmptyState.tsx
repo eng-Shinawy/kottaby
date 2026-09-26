@@ -75,7 +75,7 @@ export function PlansEmptyState({ onRefresh }: Readonly<PlansEmptyStateProps>): 
           size="small"
           onClick={onRefresh}
           sx={theme => ({
-            minHeight: 44,
+            minHeight: 54,
             px: 2.5,
             border: 1,
             borderColor: alpha(theme.palette.secondary.main, 0.6),

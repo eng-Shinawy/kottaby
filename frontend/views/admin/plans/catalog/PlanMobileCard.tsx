@@ -82,7 +82,7 @@ export function PlanMobileCard({
           startIcon={<EditIcon />}
           onClick={() => onEdit(plan)}
           disabled={isActionPending}
-          sx={{ minHeight: 44 }}
+          sx={{ minHeight: 54 }}
         >
           {t.editPlanButton}
         </Button>
@@ -93,7 +93,7 @@ export function PlanMobileCard({
           disabled={isActionPending}
           sx={theme => ({
             color: plan.isActive ? theme.palette.error.main : theme.palette.primary.main,
-            minHeight: 44,
+            minHeight: 54,
           })}
         >
           {plan.isActive ? t.deactivatePlanButton : t.activatePlanButton}

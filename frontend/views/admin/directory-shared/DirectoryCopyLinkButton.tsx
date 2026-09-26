@@ -40,7 +40,7 @@ export function DirectoryCopyLinkButton({ copyLinkLabel, onCopyLink }: Directory
         }
         onClick={handleCopyLink}
         aria-label={copyLinkLabel}
-        sx={theme => ({ minHeight: 44, flexShrink: 0, color: theme.palette.text.secondary })}
+        sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
       >
         {copyLinkLabel}
       </Button>

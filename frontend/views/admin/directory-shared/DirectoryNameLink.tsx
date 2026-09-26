@@ -55,7 +55,7 @@ export function DirectoryNameLink({
         unicodeBidi: "isolate",
         maxWidth: "100%",
         minWidth: 0,
-        minHeight: 44,
+        minHeight: 54,
         paddingBlock: "10.5px",
         marginBlock: "-10.5px",
         color: deleted ? theme.palette.text.disabled : theme.palette.text.primary,

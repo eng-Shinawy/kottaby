@@ -35,8 +35,8 @@ function HomeworkSkeleton({ loadingLabel }: Readonly<{ loadingLabel: string }>):
       {SKELETON_ROW_KEYS.map(key => (
         <Stack key={key} spacing={1}>
           <Skeleton variant="text" sx={{ fontSize: "0.9rem", maxWidth: 220 }} />
-          <Skeleton variant="rounded" sx={{ height: 44, borderRadius: 1.5 }} />
-          <Skeleton variant="rounded" sx={{ height: 44, borderRadius: 1.5 }} />
+          <Skeleton variant="rounded" sx={{ minHeight: 54, borderRadius: 1.5 }} />
+          <Skeleton variant="rounded" sx={{ minHeight: 54, borderRadius: 1.5 }} />
         </Stack>
       ))}
     </Stack>

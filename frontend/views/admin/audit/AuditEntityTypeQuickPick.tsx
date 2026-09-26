@@ -79,7 +79,7 @@ export function AuditEntityTypeQuickPick({
               aria-label={`${localized} (${wireValue})`}
               sx={theme => ({
                 ...focusVisibleRingSx,
-                minHeight: 44,
+                minHeight: 54,
                 borderRadius: 999,
                 ...(active
                   ? {}

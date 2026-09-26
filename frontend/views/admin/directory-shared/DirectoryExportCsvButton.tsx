@@ -51,7 +51,7 @@ export function DirectoryExportCsvButton({
           onClick={onExportCsv}
           loading={exportLoading}
           disabled={exportDisabled}
-          sx={theme => ({ minHeight: 44, flexShrink: 0, color: theme.palette.text.secondary })}
+          sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
         >
           {exportLabel}
         </Button>

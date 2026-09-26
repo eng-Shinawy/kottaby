@@ -58,7 +58,7 @@ export function SubscriptionsEmptyState(): ReactNode {
         variant="contained"
         color="secondary"
         onClick={() => router.push(STUDENT_PLANS_ROUTE)}
-        sx={{ minHeight: 44, px: 4, borderRadius: 999, width: { xs: "100%", sm: "auto" } }}
+        sx={{ minHeight: 54, px: 4, borderRadius: 999, width: { xs: "100%", sm: "auto" } }}
       >
         {t.browsePlansButton}
       </Button>

@@ -100,7 +100,7 @@ function HistoryTableRow({ entry, onViewDetails, onStopIntent }: Readonly<Histor
             startIcon={<VisibilityOutlined />}
             onClick={() => onViewDetails(entry)}
             data-testid={`broadcast-history-view-${entry.id}`}
-            sx={theme => ({ minHeight: 44, color: theme.palette.primary.main, ...focusVisibleRingSx })}
+            sx={theme => ({ minHeight: 54, color: theme.palette.primary.main, ...focusVisibleRingSx })}
           >
             {t.viewDetails}
           </Button>
@@ -111,7 +111,7 @@ function HistoryTableRow({ entry, onViewDetails, onStopIntent }: Readonly<Histor
               onClick={() => onStopIntent(entry)}
               data-testid={`broadcast-history-stop-${entry.id}`}
               sx={theme => ({
-                minHeight: 44,
+                minHeight: 54,
                 color: theme.palette.error.main,
                 borderColor: theme.palette.error.main,
                 ...focusVisibleRingSx,

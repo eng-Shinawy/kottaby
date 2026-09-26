@@ -321,19 +321,21 @@ describe("AdminAcademicTrackingRepository — Tier 1 (branch/stmt coverage)", ()
   test("countStudentAcademicRows: honest total rides the same seal and filter as the list", async () => {
     await runInRollback(async tx => {
       const tag = cohortTag();
-      const baseline = await AdminAcademicTrackingRepository.countStudentAcademicRows({}, tx);
-
       await setupStudent(tx, tag, 0);
       await setupStudent(tx, tag, 1);
 
       const unfiltered = await AdminAcademicTrackingRepository.countStudentAcademicRows({}, tx);
-      expect(unfiltered).toBe(baseline + 2);
 
       const filtered = await AdminAcademicTrackingRepository.countStudentAcademicRows(
         { searchPattern: cohortPattern(tag) },
         tx
       );
       expect(filtered).toBe(2);
+      // The unfiltered total is racy under the parallel runner (sibling
+      // files commit and hard-delete their own student fixtures), so the
+      // honest-total check rides the cohort-scoped count; the unfiltered
+      // total only needs to include it.
+      expect(unfiltered).toBeGreaterThanOrEqual(filtered);
 
       const noMatch = await AdminAcademicTrackingRepository.countStudentAcademicRows(
         { searchPattern: "%no-such-cohort-zzz%" },
@@ -377,7 +379,17 @@ describe("AdminAcademicTrackingRepository — Tier 1 (branch/stmt coverage)", ()
       ]);
 
       const stats = await AdminAcademicTrackingRepository.getAcademicStats(NOW, tx);
-      expect(stats.trackedStudentCount).toBe(baseline.trackedStudentCount + 4);
+      // The whole-table total is racy under the parallel runner (sibling
+      // files commit and hard-delete their own student fixtures), so the
+      // four-student delta is pinned through the cohort-scoped count and
+      // the total is asserted to include it, never to an exact
+      // whole-table number.
+      const cohortTracked = await AdminAcademicTrackingRepository.countStudentAcademicRows(
+        { searchPattern: cohortPattern(tag) },
+        tx
+      );
+      expect(cohortTracked).toBe(4);
+      expect(stats.trackedStudentCount).toBeGreaterThanOrEqual(cohortTracked);
       expect(stats.studentsWithGradedHomeworkCount).toBe(2);
       expect(stats.averageJadidGrade).toBe(90); // round(avg(85, 95), 2)
       expect(stats.averageMadiGrade).toBe(55); // single graded revision row
@@ -387,11 +399,15 @@ describe("AdminAcademicTrackingRepository — Tier 1 (branch/stmt coverage)", ()
   test("listAttentionSignals: one row per sealed student; zero-row student carries honest empties", async () => {
     await runInRollback(async tx => {
       const tag = cohortTag();
-      const baselineSignals = await AdminAcademicTrackingRepository.listAttentionSignals(NOW, tx);
       const student = await setupStudent(tx, tag, 0);
 
       const signals = await AdminAcademicTrackingRepository.listAttentionSignals(NOW, tx);
-      expect(signals).toHaveLength(baselineSignals.length + 1);
+      // The whole-table row count is racy under the parallel runner
+      // (sibling files commit and hard-delete their own student
+      // fixtures), so the one-row-per-student invariant is pinned on the
+      // created student's cohort row.
+      const cohortSignals = signals.filter(entry => entry.studentId === student.id);
+      expect(cohortSignals).toHaveLength(1);
 
       // A student with no academic rows: empty grade window (absence is
       // not failure — flagging is the service's threshold call), both

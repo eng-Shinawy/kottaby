@@ -16,7 +16,7 @@ import { isolateBidi } from "@/shared/lib/isolate-bidi";
 import { Common, Errors, ParentLink, useAppTranslation } from "@/shared/locale";
 
 /** Review-CTA metrics — comfortable ≥44px touch target, full-width on mobile. */
-const reviewCtaSx = { ...focusVisibleRingSx, minHeight: 44, px: 3, width: { xs: "100%", sm: "auto" } } as const;
+const reviewCtaSx = { ...focusVisibleRingSx, minHeight: 54, px: 3, width: { xs: "100%", sm: "auto" } } as const;
 
 /**
  * `setTimeout` delay ceiling — runtimes clamp longer delays and fire them
@@ -27,7 +27,7 @@ const reviewCtaSx = { ...focusVisibleRingSx, minHeight: 44, px: 3, width: { xs: 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /** Retry affordance metrics — same ≥44px discipline inside the error shell. */
-const retryButtonSx = { ...focusVisibleRingSx, minHeight: 44 } as const;
+const retryButtonSx = { ...focusVisibleRingSx, minHeight: 54 } as const;
 
 /**
  * PendingParentLinkRequestsCard — the student dashboard's discoverability
@@ -177,7 +177,7 @@ export function PendingParentLinkRequestsCard(): ReactNode {
       <CardShell testId="pending-parent-link-requests-card-loading" busy busyLabel={t.dashboardCardLoading}>
         <Skeleton variant="text" sx={{ fontSize: "1.75rem", maxWidth: 260 }} />
         <Skeleton variant="rounded" sx={{ height: 28, width: 220, borderRadius: 1 }} />
-        <Skeleton variant="rectangular" sx={{ height: 44, width: 180, borderRadius: 2 }} />
+        <Skeleton variant="rectangular" sx={{ minHeight: 54, width: 180, borderRadius: 2 }} />
       </CardShell>
     );
   }

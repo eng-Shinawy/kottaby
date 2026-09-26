@@ -135,7 +135,7 @@ export function DashboardAppBar({ onMenuClick, showMenuButton }: Readonly<Dashbo
             display: "inline-flex",
             alignItems: "center",
             gap: 1,
-            minHeight: 44,
+            minHeight: 54,
           })}
         >
           <Box component="span" aria-hidden="true" sx={{ display: { xs: "inline-flex", sm: "none" }, flexShrink: 0 }}>

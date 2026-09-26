@@ -72,7 +72,7 @@ export function PlanDesktopRow({
                 onClick={() => onEdit(plan)}
                 disabled={isActionPending}
                 aria-label={`${t.editPlanButton} ${plan.title}`}
-                sx={{ ...focusVisibleRingSx, width: 44, height: 44 }}
+                sx={{ ...focusVisibleRingSx, width: 44, minHeight: 54 }}
               >
                 <EditIcon fontSize="small" />
               </IconButton>
@@ -90,7 +90,7 @@ export function PlanDesktopRow({
                 sx={theme => ({
                   ...focusVisibleRingSx,
                   width: 44,
-                  height: 44,
+                  minHeight: 54,
                   color: plan.isActive ? theme.palette.error.main : theme.palette.primary.main,
                 })}
               >

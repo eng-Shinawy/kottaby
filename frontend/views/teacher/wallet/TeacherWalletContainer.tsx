@@ -130,7 +130,7 @@ export function TeacherWalletContainer(): ReactNode {
         onClick={withdraw.openDialog}
         disabled={loading || error !== undefined || walletRow === undefined}
         startIcon={<AccountBalanceWalletOutlinedIcon />}
-        sx={{ alignSelf: "flex-start", minHeight: 44, px: 3 }}
+        sx={{ alignSelf: "flex-start", minHeight: 54, px: 3 }}
       >
         {t.requestWithdrawal}
       </Button>

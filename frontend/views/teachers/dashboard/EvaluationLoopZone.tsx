@@ -149,7 +149,7 @@ export function EvaluationLoopZone(): ReactNode {
         onClick={() => {
           setBookingOpen(true);
         }}
-        sx={{ minHeight: 44, px: 3 }}
+        sx={{ minHeight: 54, px: 3 }}
       >
         {t.bookEvaluationCta}
       </Button>

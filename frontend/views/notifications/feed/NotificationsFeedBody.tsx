@@ -164,7 +164,7 @@ function NotificationsFeedPager({
         sx={theme => ({
           ...focusVisibleRingSx,
           ...darkOutlinedContrastSx(theme),
-          minHeight: 44,
+          minHeight: 54,
         })}
       >
         {previousLabel}
@@ -181,7 +181,7 @@ function NotificationsFeedPager({
         sx={theme => ({
           ...focusVisibleRingSx,
           ...darkOutlinedContrastSx(theme),
-          minHeight: 44,
+          minHeight: 54,
         })}
       >
         {nextLabel}

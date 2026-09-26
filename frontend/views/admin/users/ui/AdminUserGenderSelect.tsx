@@ -78,7 +78,7 @@ export function AdminUserGenderSelect({
         // `displayEmpty` + `renderValue`: an empty selection renders the field
         // label text in `text.secondary` as the placeholder instead of a bare
         // empty box; the required-marker semantics stay on the label above.
-        displayEmpty
+        // displayEmpty
         // `selected`'s inferred type excludes the empty string (MUI infers
         // the non-empty option union), so pin it to `AdminUserGenderValue`
         // to keep the legit runtime `""` comparison typeable.

@@ -24,7 +24,7 @@ function settleButtonSx(lane: "approve" | "reject"): SxProps<Theme> {
   return theme =>
     lane === "approve"
       ? {
-          minHeight: 44,
+          minHeight: 54,
           px: 1.5,
           borderRadius: 2,
           whiteSpace: "nowrap",
@@ -35,7 +35,7 @@ function settleButtonSx(lane: "approve" | "reject"): SxProps<Theme> {
           "&:hover": { bgcolor: theme.palette.primary.light },
         }
       : {
-          minHeight: 44,
+          minHeight: 54,
           px: 1.5,
           borderRadius: 2,
           whiteSpace: "nowrap",

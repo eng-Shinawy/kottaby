@@ -35,7 +35,7 @@ export function BackToTopButton(): ReactNode {
             insetInlineEnd: 24,
             // Small Fab is 40px — pad to the 44px touch-target floor.
             width: 44,
-            height: 44,
+            minHeight: 54,
             bgcolor: "var(--mui-palette-secondary-main)",
             color: "var(--mui-palette-onSecondary)",
             zIndex: 50,

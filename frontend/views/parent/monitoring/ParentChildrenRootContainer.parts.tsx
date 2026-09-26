@@ -28,7 +28,7 @@ export function ChildrenListSkeleton(): ReactNode {
             }),
           })}
         >
-          <Skeleton variant="circular" sx={{ width: 44, height: 44 }} />
+          <Skeleton variant="circular" sx={{ width: 44, minHeight: 54 }} />
           <Stack sx={{ gap: 0.5, flex: 1 }}>
             <Skeleton variant="text" sx={{ fontSize: "1rem", maxWidth: 200 }} />
             <Skeleton variant="text" sx={{ fontSize: "0.875rem", maxWidth: 140 }} />
@@ -101,7 +101,7 @@ export function ChildCard({
       <Avatar
         sx={theme => ({
           width: 44,
-          height: 44,
+          minHeight: 54,
           fontSize: "1.25rem",
           fontWeight: 700,
           bgcolor: theme.palette.primary.main,

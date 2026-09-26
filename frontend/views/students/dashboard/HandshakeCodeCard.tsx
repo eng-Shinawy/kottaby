@@ -15,7 +15,7 @@ import { useCopyOutcome } from "@/frontend/views/students/dashboard/useCopyOutco
 import { Errors, HandshakeCode, useAppTranslation } from "@/shared/locale";
 
 /** Copy affordance metrics — comfortable ≥44px touch target. */
-const copyButtonSx = { minHeight: 44, px: 3 } as const;
+const copyButtonSx = { minHeight: 54, px: 3 } as const;
 
 /**
  * HandshakeCodeCard — the student's own "Your Handshake Code" card mounted

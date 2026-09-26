@@ -45,6 +45,16 @@ export function WalletPickerHeader({
         options={[...teacherOptions]}
         value={pickedTeacher}
         getOptionLabel={option => option.name}
+        // MUI keys listbox options by their label by default; two teachers
+        // sharing a name would collide. Key by the unique teacher id instead.
+        renderOption={(props, option) => {
+          const { key, ...liProps } = props;
+          return (
+            <li key={option.id ?? key} {...liProps}>
+              {option.name}
+            </li>
+          );
+        }}
         onChange={(_event, value) => {
           onPick(value);
         }}

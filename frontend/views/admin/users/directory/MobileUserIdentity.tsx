@@ -89,7 +89,7 @@ export function MobileUserName({ user, labels, deleted }: MobileUserNameProps): 
         // ≥44px tap target without shifting the layout below: transparent
         // block padding grows the clickable box while the matching negative
         // margins keep the layout height unchanged.
-        minHeight: 44,
+        minHeight: 54,
         paddingBlock: "10.5px",
         marginBlock: "-10.5px",
         ...(deleted && { textDecoration: "line-through" }),

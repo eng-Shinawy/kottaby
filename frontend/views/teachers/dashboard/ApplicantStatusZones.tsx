@@ -15,7 +15,7 @@ import type { ApplicantLabels } from "@/shared/locale/types/applicant";
 import type { ErrorsLabels } from "@/shared/locale/types/errors";
 
 /** Shared CTA metrics — comfortable ≥44px touch target. */
-const reapplyButtonSx = { minHeight: 44, px: 3 } as const;
+const reapplyButtonSx = { minHeight: 54, px: 3 } as const;
 
 // ----------------------------------------------------------------------------
 // Zone compositions + branch sub-components

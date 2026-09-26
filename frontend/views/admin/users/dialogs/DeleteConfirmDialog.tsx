@@ -96,7 +96,7 @@ export function DeleteConfirmDialog({ labels, user, loading, onClose, onConfirm 
           onClick={onClose}
           disabled={loading}
           sx={theme => ({
-            minHeight: 44,
+            minHeight: 54,
             color: theme.palette.text.secondary,
             "&:hover": { backgroundColor: theme.palette.action.hover },
           })}
@@ -108,7 +108,7 @@ export function DeleteConfirmDialog({ labels, user, loading, onClose, onConfirm 
           color={isReactivate ? "success" : "error"}
           variant="contained"
           disabled={loading}
-          sx={{ minHeight: 44, minWidth: 140 }}
+          sx={{ minHeight: 54, minWidth: 140 }}
         >
           {isReactivate ? labels.reactivateConfirm.confirm : labels.deleteConfirm.confirm}
         </Button>

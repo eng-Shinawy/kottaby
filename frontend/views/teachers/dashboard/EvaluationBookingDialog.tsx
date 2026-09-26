@@ -127,7 +127,7 @@ export function EvaluationBookingDialog({
             disabled={booking}
             variant="outlined"
             color="inherit"
-            sx={theme => ({ ...focusVisibleRingSx, minHeight: 44, color: theme.palette.text.secondary })}
+            sx={theme => ({ ...focusVisibleRingSx, minHeight: 54, color: theme.palette.text.secondary })}
           >
             {t.evaluationBookingCancelCta}
           </Button>
@@ -138,7 +138,7 @@ export function EvaluationBookingDialog({
             loading={booking}
             autoFocus
             startIcon={<BookIcon />}
-            sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+            sx={{ ...focusVisibleRingSx, minHeight: 54 }}
           >
             {t.evaluationBookingConfirmCta}
           </Button>

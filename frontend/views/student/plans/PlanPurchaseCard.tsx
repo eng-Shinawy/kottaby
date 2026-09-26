@@ -116,7 +116,7 @@ export function PlanPurchaseCard({ plan, onBuy, buying }: Readonly<PlanPurchaseC
           fullWidth
           onClick={() => onBuy(plan)}
           disabled={buying}
-          sx={{ minHeight: 44 }}
+          sx={{ minHeight: 54 }}
         >
           {t.buyButton}
         </Button>

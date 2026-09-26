@@ -47,7 +47,7 @@ export function AuthFormHeader({
         <Box
           sx={{
             width: 44,
-            height: 44,
+            minHeight: 54,
             borderRadius: 2,
             bgcolor: "var(--mui-palette-secondary-main)",
             color: "var(--mui-palette-onSecondary)",

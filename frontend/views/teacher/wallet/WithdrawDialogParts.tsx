@@ -70,7 +70,7 @@ export function WithdrawDialogActions({
         disabled={inFlight}
         variant="outlined"
         sx={theme => ({
-          minHeight: 44,
+          minHeight: 54,
           // Neutral outlined cancel: text.primary on the dark paper holds AA
           // (the branded primary lane measured ~3.2:1 here); the border rides
           // the shared outline token so the control reads quiet but solid.
@@ -86,7 +86,7 @@ export function WithdrawDialogActions({
         disabled={submitDisabled}
         variant="contained"
         sx={theme => ({
-          minHeight: 44,
+          minHeight: 54,
           // Full-contrast M3 on-primary label; scoped to the enabled state
           // so MUI's disabled token still owns the in-flight look.
           "&:not(.Mui-disabled)": { color: theme.palette.onPrimary },

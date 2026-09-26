@@ -4,7 +4,6 @@ import type { ApolloClient } from "@apollo/client";
 import { type Dispatch, type SetStateAction, useEffect } from "react";
 import type { AuthContextType } from "@/frontend/context/AuthContext";
 import { meQueryDocument } from "@/frontend/graphql/sharedDocuments/auth/auth.documents";
-import { getRefreshMemoryToken } from "@/frontend/lib/auth/refreshMemoryToken";
 import { logger } from "@/frontend/lib/logger";
 
 /**
@@ -55,12 +54,10 @@ export function useRestoreSession(
         }
       }
 
-      // Step 2: try a manual refresh if we have a refresh token in React
-      // memory (e.g. navigating between routes within a tab session — the
-      // access token may have expired but the refresh token is still valid).
-      if (!getRefreshMemoryToken()) {
-        return;
-      }
+      // Step 2: try a manual refresh. The React-memory token may be empty
+      // (cold reload) — an empty argument makes the server rotate from the
+      // httpOnly `refresh_token` cookie instead, so a valid 7-day session
+      // still restores without bouncing the user to `/login`.
       const newAccessToken = await refreshSession();
       if (cancelled || !newAccessToken) {
         return;

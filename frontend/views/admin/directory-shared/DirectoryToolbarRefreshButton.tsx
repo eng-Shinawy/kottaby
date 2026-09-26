@@ -35,7 +35,7 @@ export function DirectoryToolbarRefreshButton({
       onClick={onClick}
       disabled={loading}
       aria-label={refreshLabel}
-      sx={theme => ({ minHeight: 44, flexShrink: 0, color: theme.palette.text.secondary })}
+      sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
     >
       {refreshLabel}
     </Button>

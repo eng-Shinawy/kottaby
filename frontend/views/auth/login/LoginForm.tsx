@@ -20,7 +20,7 @@ function LoginOptionsRow({
   forgotPasswordLabel,
 }: Readonly<LoginOptionsRowProps>) {
   return (
-    <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", minHeight: 44 }}>
+    <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", minHeight: 54 }}>
       <FormControlLabel
         control={
           <Checkbox
@@ -34,7 +34,7 @@ function LoginOptionsRow({
         label={rememberMeLabel}
         labelPlacement="end"
         sx={{
-          minHeight: 44,
+          minHeight: 54,
           "& .MuiCheckbox-root": { padding: 0.5 },
           "& .MuiFormControlLabel-label": {
             fontSize: 14,
@@ -50,7 +50,7 @@ function LoginOptionsRow({
         sx={{
           fontSize: 13,
           fontWeight: 600,
-          minHeight: 44,
+          minHeight: 54,
           display: "inline-flex",
           alignItems: "center",
           color: "var(--mui-palette-secondary-main)",
@@ -149,7 +149,7 @@ export function LoginForm() {
           component={Link}
           href="/register"
           underline="hover"
-          sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+          sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", minHeight: 54, px: 1 }}
         >
           {t.registerLink}
         </MuiLink>

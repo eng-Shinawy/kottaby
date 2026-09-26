@@ -22,7 +22,7 @@ export const UP_NEXT_WINDOW_SIZE = 2;
 /** Row metrics — comfortable ≥44px touch target + shared focus ring. */
 const upNextRowSx = {
   ...focusVisibleRingSx,
-  minHeight: 44,
+  minHeight: 54,
   width: "100%",
   textAlign: "inherit",
 } as const;

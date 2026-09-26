@@ -22,7 +22,7 @@ export function CookieConsentActions({
           textTransform: "none",
           fontWeight: 600,
           borderRadius: 2,
-          minHeight: 44,
+          minHeight: 54,
           "&:hover": { bgcolor: "color-mix(in srgb, var(--mui-palette-text-secondary) 8%, transparent)" },
         }}
       >
@@ -35,7 +35,7 @@ export function CookieConsentActions({
           textTransform: "none",
           fontWeight: 600,
           borderRadius: 2,
-          minHeight: 44,
+          minHeight: 54,
           "&:hover": { bgcolor: "color-mix(in srgb, var(--mui-palette-secondary-main) 8%, transparent)" },
         }}
       >
@@ -52,7 +52,7 @@ export function CookieConsentActions({
           textTransform: "none",
           fontWeight: 700,
           borderRadius: 2,
-          minHeight: 44,
+          minHeight: 54,
           "&::after": {
             content: '""',
             position: "absolute",

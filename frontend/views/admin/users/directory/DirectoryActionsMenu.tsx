@@ -41,7 +41,7 @@ export function DirectoryActionsMenu({ user, labels, onEdit, onDelete }: Directo
         aria-haspopup="menu"
         aria-expanded={anchorEl ? true : undefined}
         onClick={event => setAnchorEl(event.currentTarget)}
-        sx={{ minWidth: 44, minHeight: 44 }}
+        sx={{ minWidth: 44, minHeight: 54 }}
       >
         <MoreVertIcon />
       </IconButton>

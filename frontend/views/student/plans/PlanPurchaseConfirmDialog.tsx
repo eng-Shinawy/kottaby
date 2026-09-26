@@ -98,7 +98,7 @@ export function PlanPurchaseConfirmDialog({
           onClick={onClose}
           disabled={purchasing}
           sx={theme => ({
-            minHeight: 44,
+            minHeight: 54,
             fontWeight: 600,
             color: theme.palette.text.primary,
             border: 1,
@@ -109,7 +109,7 @@ export function PlanPurchaseConfirmDialog({
         >
           {t.cancelButton}
         </Button>
-        <Button onClick={onConfirm} variant="contained" disabled={purchasing} sx={{ minHeight: 44, flex: { xs: 1 } }}>
+        <Button onClick={onConfirm} variant="contained" disabled={purchasing} sx={{ minHeight: 54, flex: { xs: 1 } }}>
           {purchasing ? t.confirmBusyButton : t.confirmButton}
         </Button>
       </DialogActions>

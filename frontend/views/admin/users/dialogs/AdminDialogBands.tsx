@@ -98,14 +98,14 @@ export function AdminDialogFooterBand({
         onClick={onClose}
         disabled={loading}
         sx={theme => ({
-          minHeight: 44,
+          minHeight: 54,
           color: theme.palette.text.secondary,
           "&:hover": { backgroundColor: theme.palette.action.hover },
         })}
       >
         {cancelLabel}
       </Button>
-      <Button type="submit" variant="contained" disabled={loading} sx={{ minHeight: 44 }}>
+      <Button type="submit" variant="contained" disabled={loading} sx={{ minHeight: 54 }}>
         {submitLabel}
       </Button>
     </DialogActions>

@@ -43,7 +43,7 @@ export function CatalogHeader({
         startIcon={<AddIcon />}
         onClick={onCreateNew}
         disabled={!canCreate}
-        sx={{ minHeight: 44 }}
+        sx={{ minHeight: 54 }}
       >
         {actionLabel}
       </Button>

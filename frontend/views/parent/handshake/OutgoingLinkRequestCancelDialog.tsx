@@ -64,7 +64,7 @@ export function OutgoingLinkRequestCancelDialog({
           <DialogContentText id={DIALOG_BODY_ID}>{labels.cancelDialogBody}</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button type="button" disabled={pending} onClick={onClose} sx={{ ...focusVisibleRingSx, minHeight: 44 }}>
+          <Button type="button" disabled={pending} onClick={onClose} sx={{ ...focusVisibleRingSx, minHeight: 54 }}>
             {commonLabels.cancel}
           </Button>
           <Button
@@ -74,7 +74,7 @@ export function OutgoingLinkRequestCancelDialog({
             autoFocus
             loading={pending}
             disabled={pending}
-            sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+            sx={{ ...focusVisibleRingSx, minHeight: 54 }}
           >
             {labels.cancelAction}
           </Button>

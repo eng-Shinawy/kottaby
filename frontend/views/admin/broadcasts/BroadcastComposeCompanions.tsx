@@ -82,11 +82,11 @@ export function BroadcastComposeCompanions(props: BroadcastComposeCompanionsProp
     if (props.plansLoading) {
       return (
         <Stack component="output" aria-busy sx={{ gap: 1 }}>
-          <Skeleton variant="rounded" sx={{ borderRadius: 1, height: 44 }} />
+          <Skeleton variant="rounded" sx={{ borderRadius: 1, minHeight: 54 }} />
           <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
             {props.labels.planLoading}
           </Typography>
-          <Skeleton variant="rounded" sx={{ borderRadius: 1, height: 44 }} />
+          <Skeleton variant="rounded" sx={{ borderRadius: 1, minHeight: 54 }} />
         </Stack>
       );
     }

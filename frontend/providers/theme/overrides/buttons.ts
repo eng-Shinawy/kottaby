@@ -43,7 +43,7 @@ export const getMuiButtonBase = (): Components<Omit<Theme, "components">>["MuiBu
 export const getMuiIconButton = (): Components<Omit<Theme, "components">>["MuiIconButton"] => ({
   styleOverrides: {
     root: ({ ownerState }) => ({
-      ...(ownerState.size !== "small" && { minWidth: 44, minHeight: 44 }),
+      ...(ownerState.size !== "small" && { minWidth: 44, minHeight: 54 }),
       "&.Mui-disabled:hover": {
         backgroundColor: "transparent",
       },

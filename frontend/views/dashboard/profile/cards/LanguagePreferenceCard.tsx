@@ -125,10 +125,10 @@ export function LanguagePreferenceCard({ t }: Readonly<LanguagePreferenceCardPro
           onChange={handleLocaleChange}
           aria-label={t.language}
         >
-          <ToggleButton value="en" sx={{ ...focusVisibleRingSx, px: 3, minHeight: 44, fontWeight: 600 }}>
+          <ToggleButton value="en" sx={{ ...focusVisibleRingSx, px: 3, minHeight: 54, fontWeight: 600 }}>
             English
           </ToggleButton>
-          <ToggleButton value="ar" sx={{ ...focusVisibleRingSx, px: 3, minHeight: 44, fontWeight: 600 }}>
+          <ToggleButton value="ar" sx={{ ...focusVisibleRingSx, px: 3, minHeight: 54, fontWeight: 600 }}>
             العربية
           </ToggleButton>
         </ToggleButtonGroup>

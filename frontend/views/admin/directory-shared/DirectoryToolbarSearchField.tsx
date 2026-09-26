@@ -24,7 +24,7 @@ import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 const directoryToolbarSearchFieldSx: SxProps<Theme> = {
   flex: { xs: "1 1 100%", sm: "1 1 300px" },
   maxWidth: 400,
-  "& .MuiInputBase-root": { height: 44 },
+  "& .MuiInputBase-root": { minHeight: 54 },
 };
 
 interface DirectoryToolbarSearchFieldProps {

@@ -136,7 +136,7 @@ export function SubscriptionCard({ row, t, locale, onRetry }: Readonly<Subscript
               color="inherit"
               onClick={onRetry}
               sx={theme => ({
-                minHeight: 44,
+                minHeight: 54,
                 color: "inherit",
                 borderColor: alpha(theme.palette.onErrorContainer, 0.5),
               })}

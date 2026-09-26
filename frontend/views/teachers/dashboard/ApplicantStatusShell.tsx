@@ -124,7 +124,7 @@ export function LoadingSkeleton(): ReactNode {
         <Skeleton variant="text" sx={{ fontSize: "1.75rem", maxWidth: 280 }} />
         <Skeleton variant="rounded" sx={{ height: 26, width: 180, borderRadius: 999 }} />
         <Skeleton variant="rounded" sx={{ height: 64, borderRadius: 2 }} />
-        <Skeleton variant="rectangular" sx={{ height: 44, width: 170, borderRadius: 2 }} />
+        <Skeleton variant="rectangular" sx={{ minHeight: 54, width: 170, borderRadius: 2 }} />
       </CardContent>
     </Card>
   );

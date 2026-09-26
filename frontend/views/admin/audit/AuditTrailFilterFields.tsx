@@ -36,7 +36,7 @@ const GRID_SX = {
   alignItems: "end",
 } as const;
 
-const ACTION_BUTTON_SX: CSSObject = { ...focusVisibleRingSx, minHeight: 44 };
+const ACTION_BUTTON_SX: CSSObject = { ...focusVisibleRingSx, minHeight: 54 };
 
 interface AuditTrailFilterFieldsProps {
   readonly drafts: FilterDrafts;
@@ -109,7 +109,7 @@ export function AuditTrailFilterFields({
             label={labels.actionTypeLabel}
             onChange={event => onDraftChange({ actionType: event.target.value || "" })}
             disabled={fieldsDisabled}
-            sx={{ minHeight: 44 }}
+            sx={{ minHeight: 54 }}
           >
             <MenuItem value="">{allActionsOption}</MenuItem>
             {ACTION_VALUES.map(value => (

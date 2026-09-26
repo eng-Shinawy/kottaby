@@ -20,7 +20,7 @@ const directorySearchFieldSx: SxProps<Theme> = {
   width: { xs: "100%", md: 400 },
   maxWidth: 400,
   minWidth: 220,
-  "& .MuiInputBase-root": { height: 44 },
+  "& .MuiInputBase-root": { minHeight: 54 },
 };
 
 interface DirectorySearchFieldProps {

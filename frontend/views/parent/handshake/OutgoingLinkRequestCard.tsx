@@ -91,7 +91,7 @@ export function OutgoingLinkRequestCard({
           onClick={() => onCancel({ requestId: row.id })}
           sx={{
             ...focusVisibleRingSx,
-            minHeight: 44,
+            minHeight: 54,
             width: { xs: "100%", sm: "auto" },
             alignSelf: { sm: "flex-end" },
             marginTop: 0.5,

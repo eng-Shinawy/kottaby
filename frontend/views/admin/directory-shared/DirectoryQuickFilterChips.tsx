@@ -66,7 +66,7 @@ export function DirectoryQuickFilterChips({ chips, ariaLabel, display }: Directo
             chip.selected
               ? {
                   flexShrink: 0,
-                  minHeight: 44,
+                  minHeight: 54,
                   fontWeight: 600,
                   bgcolor: theme.palette.primary.main,
                   color: theme.palette.onPrimary,
@@ -74,7 +74,7 @@ export function DirectoryQuickFilterChips({ chips, ariaLabel, display }: Directo
                 }
               : {
                   flexShrink: 0,
-                  minHeight: 44,
+                  minHeight: 54,
                   borderColor: theme.palette.outlineVariant,
                   color: theme.palette.text.primary,
                 }

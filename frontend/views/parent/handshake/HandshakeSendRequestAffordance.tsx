@@ -81,7 +81,7 @@ export function SendRequestAffordance({
         loading={inFlight}
         startIcon={<SendIcon />}
         onClick={onSend}
-        sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+        sx={{ ...focusVisibleRingSx, minHeight: 54 }}
       >
         {labels.sendRequestAction}
       </Button>

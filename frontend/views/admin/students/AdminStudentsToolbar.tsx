@@ -168,7 +168,7 @@ export function AdminStudentsToolbar({
             directory.setSearchInput("");
             directory.clearLanguageFilter();
           }}
-          sx={theme => ({ minHeight: 44, flexShrink: 0, color: theme.palette.text.secondary })}
+          sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
         >
           {labels.filters.clear}
         </Button>

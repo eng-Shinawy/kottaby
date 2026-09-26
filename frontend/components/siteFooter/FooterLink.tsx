@@ -22,7 +22,7 @@ export function FooterLink({ href, children }: Readonly<{ href: string; children
         // target (WCAG AAA 2.5.5) without changing the visible text size.
         display: "flex",
         alignItems: "center",
-        minHeight: 44,
+        minHeight: 54,
         boxSizing: "border-box",
         "&:hover": {
           opacity: 1,

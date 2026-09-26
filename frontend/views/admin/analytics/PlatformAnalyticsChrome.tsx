@@ -34,7 +34,7 @@ export function PlatformAnalyticsHeader({ labels }: Readonly<PlatformAnalyticsHe
           alignItems: "center",
           justifyContent: "center",
           width: 44,
-          height: 44,
+          minHeight: 54,
           borderRadius: "12px",
           backgroundColor: theme.palette.primaryContainer,
           color: theme.palette.onPrimaryContainer,
@@ -111,7 +111,7 @@ export function PlatformAnalyticsToolbar({
           onClick={onExportCsv}
           disabled={exportDisabled}
           aria-label={labels.exportCsvAction}
-          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+          sx={{ ...focusVisibleRingSx, minHeight: 54 }}
         >
           {labels.exportCsvAction}
         </Button>
@@ -120,7 +120,7 @@ export function PlatformAnalyticsToolbar({
           startIcon={<RefreshOutlined />}
           onClick={onRefresh}
           disabled={refreshDisabled}
-          sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+          sx={{ ...focusVisibleRingSx, minHeight: 54 }}
         >
           {labels.refreshAction}
         </Button>

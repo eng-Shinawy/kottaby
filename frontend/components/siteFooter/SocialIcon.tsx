@@ -15,7 +15,7 @@ export function SocialIcon({ children, label }: Readonly<{ children: ReactNode; 
         alignItems: "center",
         justifyContent: "center",
         width: 44,
-        height: 44,
+        minHeight: 54,
         borderRadius: 1,
         border: "1px solid rgba(255, 255, 255, 0.3)",
         color: "var(--mui-palette-onPrimary)",

@@ -142,13 +142,19 @@ export const updateMyLocaleMutationDocument: TypedDocumentNode<
 /**
  * `refreshToken` mutation — rotates the JWT pair from a valid refresh token.
  *
+ * The argument is OPTIONAL: an empty/omitted value makes the server rotate
+ * from the httpOnly `refresh_token` cookie instead (cold-reload recovery —
+ * the React-memory token slot is empty after a page load, but the 7-day
+ * cookie is still valid; this is the documented recovery design in
+ * `docs/auth/REDIRECT_LOOP_FIX.md`).
+ *
  * Returns `{ accessToken, refreshToken }`. The AuthProvider stores the new
  * `accessToken` in React memory + the new `refreshToken` in the
  * module-level slot. The server ALSO sets the new `refresh_token` +
  * `session_id` as httpOnly cookies (rotation invalidates the prior pair).
  */
 export const refreshTokenMutationDocument: TypedDocumentNode<RefreshTokenMutation, RefreshTokenMutationVariables> = gql`
-  mutation RefreshToken($refreshToken: String!) {
+  mutation RefreshToken($refreshToken: String) {
     refreshToken(refreshToken: $refreshToken) {
       accessToken
       refreshToken

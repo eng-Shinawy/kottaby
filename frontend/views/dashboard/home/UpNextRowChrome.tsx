@@ -123,7 +123,7 @@ export function UpNextEmptyArm({
         size="small"
         href={ctaHref}
         startIcon={<CalendarIcon />}
-        sx={{ ...focusVisibleRingSx, alignSelf: "flex-start", minHeight: 44 }}
+        sx={{ ...focusVisibleRingSx, alignSelf: "flex-start", minHeight: 54 }}
       >
         {ctaLabel}
       </Button>

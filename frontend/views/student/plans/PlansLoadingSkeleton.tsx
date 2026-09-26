@@ -24,7 +24,7 @@ const CHIP_PILL_HEIGHT = 24;
 /** Chip-pill widths — the sessions + validity pair. */
 const CHIP_PILL_WIDTHS: readonly number[] = [112, 88];
 
-/** CTA bar height — the loaded Buy button's `minHeight: 44`. */
+/** CTA bar height — the loaded Buy button's `minHeight: 54`. */
 const CTA_BAR_HEIGHT = 44;
 
 interface SkeletonBarProps {

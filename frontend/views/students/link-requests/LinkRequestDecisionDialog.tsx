@@ -73,7 +73,7 @@ export function LinkRequestDecisionDialog({
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button type="button" disabled={pending} onClick={onClose} sx={{ ...focusVisibleRingSx, minHeight: 44 }}>
+          <Button type="button" disabled={pending} onClick={onClose} sx={{ ...focusVisibleRingSx, minHeight: 54 }}>
             {commonLabels.cancel}
           </Button>
           <Button
@@ -82,7 +82,7 @@ export function LinkRequestDecisionDialog({
             autoFocus
             loading={pending}
             disabled={pending}
-            sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+            sx={{ ...focusVisibleRingSx, minHeight: 54 }}
           >
             {submitLabel}
           </Button>

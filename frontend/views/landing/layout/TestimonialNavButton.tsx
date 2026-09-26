@@ -27,7 +27,7 @@ export function TestimonialNavButton({
         zIndex: 2,
         // 44px touch-target floor (WCAG 2.5.5) for the carousel arrows.
         width: 44,
-        height: 44,
+        minHeight: 54,
         border: "2px solid var(--mui-palette-secondary-main)",
         borderRadius: "50%",
         color: "var(--mui-palette-secondary-main)",

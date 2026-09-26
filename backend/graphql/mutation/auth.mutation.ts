@@ -43,7 +43,7 @@ import {
 import { RegisterUserInput } from "@/backend/graphql/pothos/auth/register-input.pothos";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { UserPothosObject } from "@/backend/graphql/pothos/users/user.pothos";
-import { clearAuthCookies, setAuthCookies } from "@/backend/lib/auth/cookies";
+import { AUTH_COOKIE_NAMES, clearAuthCookies, setAuthCookies } from "@/backend/lib/auth/cookies";
 import { AuthService, RegistrationService } from "@/backend/services/auth";
 
 // Side-effect: register the `registerUser` mutation field.
@@ -104,12 +104,26 @@ gqlSchemaBuilder.mutationField("refreshToken", t =>
   t.field({
     type: RefreshTokenPayloadPothosObject,
     args: {
-      refreshToken: t.arg({ type: "String", required: true }),
+      // Optional — an omitted/empty argument falls back to the
+      // httpOnly `refresh_token` cookie (set by `setAuthCookies` on
+      // login). This is the redirect-loop recovery path: after a cold
+      // reload the client's React-memory refresh token is gone, but the
+      // 7-day cookie is still valid — the client calls the mutation with
+      // no argument and the server rotates from the cookie (the documented
+      // design in `docs/auth/REDIRECT_LOOP_FIX.md`, "Cookie Lifecycle").
+      refreshToken: t.arg({ type: "String" }),
     },
     description:
-      "Rotate the JWT pair from a valid refresh token. Returns fresh access + refresh tokens. The new access_token + refresh_token + session_id are also set as httpOnly cookies (rotation invalidates the prior pair).",
+      "Rotate the JWT pair from a valid refresh token (explicit argument, or the httpOnly refresh_token cookie when omitted). Returns fresh access + refresh tokens. The new access_token + refresh_token + session_id are also set as httpOnly cookies (rotation invalidates the prior pair).",
     resolve: async (_root, args, ctx) => {
-      const result = await AuthService.refreshToken(args.refreshToken, ctx.locale);
+      // Explicit (React-memory) token wins; fall back to the httpOnly
+      // cookie so cold reloads can still rotate (session recovery). NB:
+      // `??` alone is not enough — Apollo always sends the (possibly
+      // empty) variable, and `"".trim()` is `""`, not nullish.
+      const explicitToken = args.refreshToken?.trim() ?? "";
+      const cookieToken = ctx.cookies[AUTH_COOKIE_NAMES.refreshToken] ?? "";
+      const token = explicitToken !== "" ? explicitToken : cookieToken;
+      const result = await AuthService.refreshToken(token, ctx.locale);
       // Push the rotated access_token + refresh_token + session_id as
       // httpOnly cookies.
       setAuthCookies(ctx.authCookieOut, result.accessToken, result.refreshToken, result.sessionId);

@@ -53,7 +53,7 @@ export function WalletBalanceCard({
         variant="rounded"
         sx={theme => ({
           width: 44,
-          height: 44,
+          minHeight: 54,
           borderRadius: 2,
           ...(tone === "primary"
             ? { bgcolor: theme.palette.primaryContainer, color: theme.palette.onPrimaryContainer }

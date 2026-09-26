@@ -11,10 +11,12 @@ import { logger } from "@/frontend/lib/logger";
  * `useRefreshSession` — refresh-token rotation hook.
  *
  * Returns a `refreshSession` callback that calls the `refreshToken` mutation
- * with the refresh token held in React memory, deduped so concurrent callers
- * share a single mutation. On success: pushes the new access token into the
- * authLink state via `updateAuthToken` and stores the new refresh token in
- * the React-memory slot. On failure: clears the stale refresh token so
+ * with the refresh token held in React memory (falling back to the
+ * httpOnly `refresh_token` cookie when the memory slot is empty —
+ * cold-reload recovery), deduped so concurrent callers share a single
+ * mutation. On success: pushes the new access token into the authLink state
+ * via `updateAuthToken` and stores the new refresh token in the
+ * React-memory slot. On failure: clears the stale refresh token so
  * subsequent attempts don't retry with the same dead token. Returns the new
  * access token (or `null` on failure).
  */
@@ -29,14 +31,16 @@ export function useRefreshSession(
   // Returns the new access token (or `null` on failure).
   return useCallback(async (): Promise<string | null> => {
     return dedupedRefreshToken(async () => {
+      // The React-memory token may be empty after a cold reload — pass the
+      // empty value through: the server falls back to the httpOnly
+      // `refresh_token` cookie (cold-reload recovery, per
+      // `docs/auth/REDIRECT_LOOP_FIX.md`). Only an actually-absent cookie
+      // fails the rotation server-side.
       const currentRefreshToken = getRefreshMemoryToken();
-      if (!currentRefreshToken) {
-        return null;
-      }
       try {
         const result = await apolloClient.mutate({
           mutation: refreshTokenMutationDocument,
-          variables: { refreshToken: currentRefreshToken },
+          variables: { refreshToken: currentRefreshToken ?? "" },
         });
         const payload = result.data?.refreshToken;
         if (!payload) {

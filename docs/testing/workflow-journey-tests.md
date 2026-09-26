@@ -138,4 +138,59 @@ Cross-actor journeys are part of the spec workflow — integrated in
   (test-driven), then implement the service surface until the journey passes. The journey file is
   named after the workflow and lives under the domain subdirectory derived from the spec.
 
+## Consolidated chained journeys
+
+A ticket chain (one ticket's full end-to-end story across its actors) gets **one** consolidated
+journey file that walks the whole chain in order. The per-domain journey files remain
+**authoritative** for their individual scenarios — the consolidated file reuses the same real
+services, oracles, and cast helpers, and adds nothing new; it proves the chain composition.
+
+Canonical examples:
+
+- `test/workflows/parents/parent-full-journey.journey.test.ts` — the full parent ticket chain:
+  registration → handshake → link-request contention/expiry → confirm (with sibling expiry) →
+  re-request collapse → session booking/completion → report fan-out deep-link wave → all
+  monitoring surfaces → read-only enforcement for a non-linked parent.
+- `test/workflows/billing/subscription-full-lifecycle.journey.test.ts` — the full subscription
+  ticket chain: purchase → webhook settle → webhook replay → booking on the credited lane →
+  expiry sweep → sweep replay → renew → renew replay → plan change → plan-change replay →
+  downgrade → cancel → admin-gate denials → tenant isolation.
+
+## Backdated time control
+
+When a journey leg needs "the past" (link-request TTL expiry, subscription `end_date` expiry),
+**never fake timers**. Instead, backdate the row: write the `expires_at` / `end_date` column to a
+past timestamp (second-precision) via a direct repository/`db` update, then invoke the real
+service (`ParentLinkRequestService` confirm, `SubscriptionExpiryService.expireDue()`) and assert
+it behaves exactly as if wall-clock time had passed. This keeps authorization, sweep scope, and
+the debit ladder on the real code path while making the time trigger deterministic.
+
+## Replay-leg idempotency matrix
+
+Every state-mutating leg that can be retried gets a paired **replay leg**: invoke the same
+service call a second time and assert the honest replay outcome. The matrix used by the
+subscription lifecycle chain:
+
+| ID | Replay | Expected outcome |
+|---|---|---|
+| C3 | Webhook settle replay | `{ processed: true, replayed: true }`; zero double credit; decided rows byte-identical |
+| C4 | Expiry-sweep replay | `{ expired: 0, lanesZeroed: 0 }`; nothing flips twice |
+| C5 | Renew replay | Same subscription row returns; lane, idempotency claim, and audit rows all frozen |
+| C6 | Plan-change replay | Same row returns; direction is re-derived (`ProrationDirection` asserted); **`carrySessions` is `0` by contract** — the replay path has no remainder to carry (the original change consumed it), so a replay assertion must not expect the original carry value |
+
+## Proration assertions: session units, not money
+
+Journey assertions on plan-change proration are made **in session units only**: compute the
+expected carry with the service's exact formula using integer minor-unit price constants and
+`Math.min(..., MAX_SESSION_COUNT)`, then assert `carrySessions` / `forfeitedSessions` / the
+resulting lane. Never assert wallet/monetary balances in a proration leg — money lives in the
+financial-audit suites.
+
 Specs for single-actor features do not need journey sections.
+
+## Propagation notes
+
+- **Root `AGENTS.md` "five SDL queries" is stale for the parent monitoring portal.** The portal
+  actually exposes **seven** queries (`docs/parents/monitoring-portal.md:7,30`). `AGENTS.md`
+  files are hand-curated and are never edited from plan work; the canonical count lives in
+  `docs/parents/monitoring-portal.md`.

@@ -60,7 +60,7 @@ function NotificationDrawerError({ retryPending, onRetry }: Readonly<Notificatio
         size="small"
         disabled={retryPending}
         onClick={onRetry}
-        sx={{ ...focusVisibleRingSx, minHeight: 44 }}
+        sx={{ ...focusVisibleRingSx, minHeight: 54 }}
       >
         {commonT.retry}
       </Button>

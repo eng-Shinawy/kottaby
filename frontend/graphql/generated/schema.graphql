@@ -1095,9 +1095,9 @@ type Mutation {
   purchaseVerificationPlan: PurchaseSubscriptionPayload!
 
   """
-  Rotate the JWT pair from a valid refresh token. Returns fresh access + refresh tokens. The new access_token + refresh_token + session_id are also set as httpOnly cookies (rotation invalidates the prior pair).
+  Rotate the JWT pair from a valid refresh token (explicit argument, or the httpOnly refresh_token cookie when omitted). Returns fresh access + refresh tokens. The new access_token + refresh_token + session_id are also set as httpOnly cookies (rotation invalidates the prior pair).
   """
-  refreshToken(refreshToken: String!): RefreshTokenPayload!
+  refreshToken(refreshToken: String): RefreshTokenPayload!
   registerUser(input: RegisterUserInput!): User!
   rejectWithdrawal(reason: String!, transactionId: ID!): TeacherTransaction!
 

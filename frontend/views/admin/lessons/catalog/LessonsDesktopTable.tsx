@@ -65,7 +65,7 @@ export function LessonsDesktopTable({
                         sx={theme => ({
                           ...focusVisibleRingSx,
                           width: 44,
-                          height: 44,
+                          minHeight: 54,
                           color: theme.palette.primary.main,
                         })}
                       >
@@ -83,7 +83,7 @@ export function LessonsDesktopTable({
                         sx={theme => ({
                           ...focusVisibleRingSx,
                           width: 44,
-                          height: 44,
+                          minHeight: 54,
                           color: theme.palette.error.main,
                         })}
                       >

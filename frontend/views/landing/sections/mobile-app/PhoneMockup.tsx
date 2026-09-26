@@ -11,7 +11,7 @@ export function PhoneMockup(): ReactNode {
       <Box
         sx={{
           width: 220,
-          height: 440,
+          minHeight: 540,
           borderRadius: 4,
           border: "3px solid var(--mui-palette-divider)",
           bgcolor: "var(--mui-palette-background-default)",

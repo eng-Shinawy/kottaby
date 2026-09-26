@@ -73,12 +73,12 @@ export function DirectoryPagination(props: DirectoryPaginationProps): ReactNode 
           onChange={event => onPageSizeChange(event.target.value)}
           inputProps={{ "aria-label": labels.pagination.pageSize }}
           sx={{
-            height: 44,
+            minHeight: 54,
             // Vertically center the visible value inside the fixed 44px
             // control: the default block padding makes the inner select box
             // taller than the outlined root (or shrink it below the target).
             "&& .MuiSelect-select": {
-              minHeight: 44,
+              minHeight: 54,
               boxSizing: "border-box",
               paddingBlock: 0,
               display: "flex",
@@ -109,7 +109,7 @@ export function DirectoryPagination(props: DirectoryPaginationProps): ReactNode 
             // on narrow cards; nowrap keeps the pager one atomic centered
             // block that the outer flex wraps as a whole instead.
             "& .MuiPagination-ul": { flexWrap: "nowrap", justifyContent: "center" },
-            "& .MuiPaginationItem-root": { minWidth: 44, minHeight: 44 },
+            "& .MuiPaginationItem-root": { minWidth: 44, minHeight: 54 },
             "& .MuiPaginationItem-root.Mui-selected": {
               bgcolor: theme.palette.primary.main,
               color: theme.palette.onPrimary,

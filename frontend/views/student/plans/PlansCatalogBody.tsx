@@ -70,7 +70,7 @@ export function PlansCatalogBody({
           variant="outlined"
           color="error"
           onClick={onRetry}
-          sx={{ minHeight: 44, alignSelf: { sm: "flex-start" }, px: 2 }}
+          sx={{ minHeight: 54, alignSelf: { sm: "flex-start" }, px: 2 }}
         >
           {t.retryButton}
         </Button>

@@ -78,7 +78,7 @@ export function NotificationRowMarkReadAction({
             onClick={onMarkRead}
             sx={{
               ...focusVisibleRingSx,
-              minHeight: 44,
+              minHeight: 54,
               minWidth: 44,
             }}
           >

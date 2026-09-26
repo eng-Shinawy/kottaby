@@ -29,7 +29,7 @@ function roleSegmentSx(selected: boolean): SxProps<Theme> {
   return theme => ({
     flex: 1,
     minWidth: 0,
-    minHeight: 44,
+    minHeight: 54,
     borderRadius: "8px",
     fontWeight: selected ? 600 : 500,
     color: selected ? theme.palette.success.main : theme.palette.text.secondary,

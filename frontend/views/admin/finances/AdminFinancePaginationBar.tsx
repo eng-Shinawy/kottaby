@@ -72,7 +72,7 @@ export function AdminFinancePaginationBar({
           }}
           data-testid="admin-finances-pagination-prev"
           sx={theme => ({
-            minHeight: 44,
+            minHeight: 54,
             px: 2,
             borderRadius: 2,
             border: "1px solid",
@@ -95,7 +95,7 @@ export function AdminFinancePaginationBar({
           }}
           data-testid="admin-finances-pagination-next"
           sx={theme => ({
-            minHeight: 44,
+            minHeight: 54,
             px: 2,
             borderRadius: 2,
             border: "1px solid",

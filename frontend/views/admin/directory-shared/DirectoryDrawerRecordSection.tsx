@@ -76,7 +76,7 @@ function FullProfileLink({ href, label }: FullProfileLinkProps): ReactNode {
       size="small"
       startIcon={<OpenProfileIcon />}
       sx={theme => ({
-        minHeight: 44,
+        minHeight: 54,
         borderRadius: 2,
         textTransform: "none",
         fontWeight: 600,

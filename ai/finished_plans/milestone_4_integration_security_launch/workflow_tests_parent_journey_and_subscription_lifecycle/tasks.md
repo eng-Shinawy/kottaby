@@ -53,16 +53,16 @@ assertion, watch it fail/pass honestly), then runs the mandatory subtask pipelin
 
 ### Task 0: Pre-Implementation Baseline (MANDATORY)
 
-- [ ] 0.1 **Record baseline counts** into `outcome/baseline.md`:
+- [x] 0.1 **Record baseline counts** into `outcome/baseline.md`:
   - `bun tsgo 2>&1 | grep -c "error TS"`
   - `bun run scripts/lint-service.ts --json --id baseline`
   - `bun run biome:check 2>&1 | grep -c "warn"`
   - layer pre-run: `bun run test/scripts/run-test.ts test/workflows` (record pass/fail counts)
-- [ ] 0.2 **Verify `deferred-items.md`** exists (initialized from template; this plan ships it).
-- [ ] 0.3 **Confirm out-of-scope invariants**: no production file under `backend/`, `frontend/`,
+- [x] 0.2 **Verify `deferred-items.md`** exists (initialized from template; this plan ships it).
+- [x] 0.3 **Confirm out-of-scope invariants**: no production file under `backend/`, `frontend/`,
   `app/`, `shared/` is modified by any task in this plan.
 - Write `outcome/0-baseline-outcome.md`.
-- _Requirements: REQ-0_
+- _Requirements: REQ-0_ ✅ (done 2026-09-22: counts in `outcome/baseline.md`, summary above)
 
 ### Phase 1.5: Plan Review Gate
 
@@ -71,7 +71,7 @@ The executing agent MUST read it before Task 1.
 
 ### Task 1: `test/workflows/parents/parent-full-journey.journey.test.ts` (CREATE)
 
-- [ ] 1. **Author the consolidated parent journey** (specs.md Journey 1, steps 1–17):
+- [x] 1. **Author the consolidated parent journey** (specs.md Journey 1, steps 1–17):
   - Provisioning: parent P + student S1 via REAL `RegistrationService.registerUser` (pattern
     `createJourneyCast`, `test/workflows/helpers/journey-fixtures.ts:251`); remaining cast (S2,
     foreign parent P2, certified teacher) in one committing `db.transaction(...)` via
@@ -94,30 +94,30 @@ The executing agent MUST read it before Task 1.
     `getServerTranslations("en").errorsTranslations` for expected substrings;
     `jrn_parentfull_${randomUUID().slice(0, 8)}` prefix; `spyOn(logger, "logDomainError")` where
     services log domain denials.
-- [ ] 1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts test/workflows/parents/parent-full-journey.journey.test.ts --lifecycle duplicates` → exit 0.
-- [ ] 1.TE **Test Engineering**:
+- [x] 1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts test/workflows/parents/parent-full-journey.journey.test.ts --lifecycle duplicates` → exit 0.
+- [x] 1.TE **Test Engineering**:
   - Run via `bun run test/scripts/run-test.ts test/workflows/parents/parent-full-journey.journey.test.ts`.
   - Tier coverage: happy chain (T1); expiry boundary via backdating (T2); suite re-run for
     teardown idempotency + replay/duplicate-request legs (T3); BOLA/write-denial probes (T4).
   - NO `runInRollback` (layer exception); committed fixtures + tracked cleanup only.
-- [ ] 1.SEC **Security & Tenancy Audit**:
+- [x] 1.SEC **Security & Tenancy Audit**:
   - BOLA: P2 probes every per-child read on S1; assert constant-shape ForbiddenError + zero data.
   - Write-denial: P attempts all four child-data mutations; assert zero new sessions/reports/
     notifications AND byte-identical snapshots of S1's rows.
   - No authorization monkey-patching anywhere in the file (honest auth, rule 4).
-- [ ] 1.SR **Semantic Review**:
+- [x] 1.SR **Semantic Review**:
   - No hardcoded English error text; no `import type` on enums used as values; no `console.*`.
   - No dead steps/assertions; every tracked id re-probed absent in `afterAll`.
   - Comments/JSDoc describe domain behavior only — zero references to plan artifacts.
   - No modifications outside the single new file; report (never fix) any cross-file need.
-- [ ] 1.IV **Instruction Verification**: apply `test/workflows/AGENTS.md` rules 1–12 and
+- [x] 1.IV **Instruction Verification**: apply `test/workflows/AGENTS.md` rules 1–12 and
   `.agents/instructions/tests.instructions.md` (both auto-printed by sub-loop.ts).
 - Write `outcome/1-parent-full-journey-outcome.md` (gaps closed, oracles reused, deviations).
 - _Requirements: REQ-1, REQ-2, REQ-3, REQ-0.5, REQ-6_
 
 ### Task 2: `test/workflows/billing/subscription-full-lifecycle.journey.test.ts` (CREATE)
 
-- [ ] 2. **Author the consolidated subscription lifecycle journey** (specs.md Journey 2, steps
+- [x] 2. **Author the consolidated subscription lifecycle journey** (specs.md Journey 2, steps
   1–11):
   - Cast via `buildSessionJourneyCast` (`test/workflows/helpers/session-cast.ts:280`) or
     actor-context provisioning (student S, control student S2 with own untouched subscription,
@@ -139,35 +139,35 @@ The executing agent MUST read it before Task 1.
     ops (denied via `assertActorAdmin`, zero side effects) → final tenancy sweep + tracked
     teardown with re-probe.
   - Same framework rules as Task 1 (`jrn_subfull_…` prefix).
-- [ ] 2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts test/workflows/billing/subscription-full-lifecycle.journey.test.ts --lifecycle duplicates` → exit 0.
-- [ ] 2.TE **Test Engineering**:
+- [x] 2.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts test/workflows/billing/subscription-full-lifecycle.journey.test.ts --lifecycle duplicates` → exit 0.
+- [x] 2.TE **Test Engineering**:
   - Run via `bun run test/scripts/run-test.ts test/workflows/billing/subscription-full-lifecycle.journey.test.ts`.
   - Tier coverage: full monetary-lifecycle happy chain (T1); expiry boundary + zero-count replay
     (T2); all four replay legs C3–C6 + suite re-run (T3); BFLA + cross-tenant probes (T4).
-- [ ] 2.SEC **Security & Tenancy Audit**:
+- [x] 2.SEC **Security & Tenancy Audit**:
   - BFLA: student attempts `renewSubscription`, `cancelSubscription`, `changeSubscriptionPlan` —
     each denied by `assertActorAdmin`; assert zero new rows + zero lane deltas.
   - Tenancy: S2's subscription status, window, and all four lane columns byte-identical after
     every mutation leg (snapshot compare).
-- [ ] 2.SR **Semantic Review**:
+- [x] 2.SR **Semantic Review**:
   - Proration asserted in session units only — no wallet/monetary assertions anywhere.
   - Enum members used as value imports (`ProrationDirection*`); no string literals for direction.
   - Time control strictly via row backdating; no fake timers, no module mocks of the clock.
   - Comments/JSDoc describe domain behavior only; no plan-artifact references; no `console.*`.
-- [ ] 2.IV **Instruction Verification**: apply `test/workflows/AGENTS.md` rules 1–12 and
+- [x] 2.IV **Instruction Verification**: apply `test/workflows/AGENTS.md` rules 1–12 and
   `.agents/instructions/tests.instructions.md` (auto-printed by sub-loop.ts).
 - Write `outcome/2-subscription-full-lifecycle-outcome.md`.
 - _Requirements: REQ-4, REQ-5, REQ-0.5, REQ-6_
 
 ### Task 3: Layer-Wide Verification & Traceability
 
-- [ ] 3.1 **Full layer run**: `bun run test/scripts/run-test.ts test/workflows` — green, and both
+- [x] 3.1 **Full layer run**: `bun run test/scripts/run-test.ts test/workflows` — green, and both
   new files pass twice consecutively (idempotent teardown proof).
-- [ ] 3.2 **Baseline diff**: quality-gate counts ≤ Task-0 baseline; investigate any regression.
-- [ ] 3.3 **Traceability re-check**:
+- [x] 3.2 **Baseline diff**: quality-gate counts ≤ Task-0 baseline; investigate any regression.
+- [x] 3.3 **Traceability re-check**:
   `for r in $(grep -oE 'REQ-[0-9.]+' ai/plans/milestone_4/workflow_tests_parent_journey_and_subscription_lifecycle/specs.md | sort -u); do grep -q "$r" ai/plans/milestone_4/workflow_tests_parent_journey_and_subscription_lifecycle/tasks.md || echo MISSING: $r; done`
   — zero misses.
-- [ ] 3.4 **Oracle stability**: confirm the cited per-domain suites (parents ×5, billing ×7 incl.
+- [x] 3.4 **Oracle stability**: confirm the cited per-domain suites (parents ×5, billing ×7 incl.
   the financial-audit/paymob files) were NOT modified by this plan: run
   `git status --porcelain -- test/workflows/ docs/testing/` and verify the only additions are
   the two new test files plus the doc change (unrelated pre-existing tree changes are out of
@@ -177,14 +177,14 @@ The executing agent MUST read it before Task 1.
 
 ### Task 4: Knowledge Propagation & Documentation
 
-- [ ] 4.1 Read all files in this plan's `outcome/` directory.
-- [ ] 4.2 Extend `docs/testing/workflow-journey-tests.md` (UPDATE, do not create) with:
+- [x] 4.1 Read all files in this plan's `outcome/` directory.
+- [x] 4.2 Extend `docs/testing/workflow-journey-tests.md` (UPDATE, do not create) with:
   - the "consolidated chained journey" pattern (one file per ticket chain, per-domain files stay
     authoritative), citing the two new files as the canonical examples;
   - the backdated-time-control pattern (link-request expiry + subscription expiry legs);
   - the replay-leg idempotency matrix C3–C6;
   - the session-units-not-money proration assertion rule.
-- [ ] 4.3 Quality loop on the doc-adjacent change: `bun run scripts/health/sub-loop.ts` per
+- [x] 4.3 Quality loop on the doc-adjacent change: `bun run scripts/health/sub-loop.ts` per
   modified file if any code-adjacent file changed (docs-only: state the exemption).
 - Write `outcome/4-knowledge-propagation-outcome.md`.
 - _Requirements: REQ-6_
