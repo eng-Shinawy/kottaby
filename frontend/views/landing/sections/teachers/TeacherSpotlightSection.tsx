@@ -43,7 +43,19 @@ export function TeacherSpotlightSection(): ReactNode {
   ];
   return (
     <SectionWrapper badge={t.teachersBadge} title={t.teachersTitle} subtitle={t.teachersSubtitle} bg="paper">
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr 1fr" }, gap: 3 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr 1fr" },
+          gap: 3,
+          // Emitted once here so the per-index TeacherCard classes don't
+          // each carry their own copy of the keyframes.
+          "@keyframes staggerFadeIn": {
+            "0%": { opacity: 0, transform: "translateY(16px)" },
+            "100%": { opacity: 1, transform: "translateY(0)" },
+          },
+        }}
+      >
         {teachers.map((teacher, idx) => (
           <TeacherCard key={teacher.name} teacher={teacher} index={idx} />
         ))}

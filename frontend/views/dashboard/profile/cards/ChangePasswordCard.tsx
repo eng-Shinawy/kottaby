@@ -5,7 +5,7 @@ import {
   VisibilityOutlined as VisibilityIcon,
   VisibilityOffOutlined as VisibilityOffIcon,
 } from "@mui/icons-material";
-import { Alert, Button, IconButton, InputAdornment, Stack, TextField } from "@mui/material";
+import { Alert, Button, IconButton, InputAdornment, Stack, TextField, Tooltip } from "@mui/material";
 import { type ReactNode, useState } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { ProfileCardSection } from "@/frontend/views/dashboard/profile/ui";
@@ -111,23 +111,27 @@ function PasswordField({
           startAdornment: <LockIcon fontSize="small" sx={theme => ({ mr: 1, color: theme.palette.action.active })} />,
           endAdornment: (
             <InputAdornment position="end">
-              <IconButton
-                aria-label={showValue ? hiddenLabel : visibleLabel}
-                onClick={onToggleVisibility}
-                size="small"
-                disabled={disabled}
-                sx={{
-                  ...focusVisibleRingSx,
-                  // Same 44px hit target as the auth forms' eye toggle:
-                  // 12px padding around the 20px glyph pulled back with
-                  // matching negative margins so the input row keeps its
-                  // natural height (invisible-padding trick).
-                  p: 1.5,
-                  m: -1.5,
-                }}
-              >
-                {showValue ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-              </IconButton>
+              <Tooltip title={showValue ? hiddenLabel : visibleLabel}>
+                <span>
+                  <IconButton
+                    aria-label={showValue ? hiddenLabel : visibleLabel}
+                    onClick={onToggleVisibility}
+                    size="small"
+                    disabled={disabled}
+                    sx={{
+                      ...focusVisibleRingSx,
+                      // Same 44px hit target as the auth forms' eye toggle:
+                      // 12px padding around the 20px glyph pulled back with
+                      // matching negative margins so the input row keeps its
+                      // natural height (invisible-padding trick).
+                      p: 1.5,
+                      m: -1.5,
+                    }}
+                  >
+                    {showValue ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                  </IconButton>
+                </span>
+              </Tooltip>
             </InputAdornment>
           ),
         },

@@ -444,15 +444,20 @@ export function toSubscriptionAdminDomainError(error: unknown, tErrors: ErrorsLa
 }
 
 /**
- * The closed vocabularies as enum-member arrays: the stored row's
- * status/payment columns are raw pg-enum string unions, so the mappers
- * resolve the member by the enum objects' own values — the vocabulary
- * flows from the enums, never from bare literals (the documented
- * widening-cast lookup idiom).
+ * Pre-allocated lookup maps for fail-closed O(1) vocabulary resolution:
+ * the stored row's status/payment columns are raw pg-enum string unions,
+ * so the mappers resolve the member by the enum objects' own values — the
+ * vocabulary still flows from the enums, never from bare literals.
  */
-const SUBSCRIPTION_STATUS_MEMBERS = Object.values(SubscriptionStatus);
-const PAYMENT_GATEWAY_MEMBERS = Object.values(PaymentGateway);
-const SUBSCRIPTION_CREDIT_LANE_MEMBERS = Object.values(SubscriptionCreditLane);
+const SUBSCRIPTION_STATUS_MAP: ReadonlyMap<string, SubscriptionStatus> = new Map(
+  Object.values(SubscriptionStatus).map(value => [value, value])
+);
+const PAYMENT_GATEWAY_MAP: ReadonlyMap<string, PaymentGateway> = new Map(
+  Object.values(PaymentGateway).map(value => [value, value])
+);
+const SUBSCRIPTION_CREDIT_LANE_MAP: ReadonlyMap<string, SubscriptionCreditLane> = new Map(
+  Object.values(SubscriptionCreditLane).map(value => [value, value])
+);
 
 /**
  * Fail-closed abort for a stored value outside a closed vocabulary — an
@@ -469,7 +474,7 @@ function subscriptionStatusMemberOf(
   status: SubscriptionSelectType["status"],
   tErrors: ErrorsLabels
 ): SubscriptionStatus {
-  const member = SUBSCRIPTION_STATUS_MEMBERS.find(value => (value as string) === status);
+  const member = SUBSCRIPTION_STATUS_MAP.get(status);
   if (member === undefined) {
     abortRowMapping(
       "stored subscription status is not a member of the closed status vocabulary",
@@ -492,7 +497,7 @@ export function subscriptionCreditLaneMemberOf(
   lane: PlanSelectType["balanceLane"] & string,
   tErrors: ErrorsLabels
 ): SubscriptionCreditLane {
-  const member = SUBSCRIPTION_CREDIT_LANE_MEMBERS.find(value => (value as string) === lane);
+  const member = SUBSCRIPTION_CREDIT_LANE_MAP.get(lane);
   if (member === undefined) {
     abortRowMapping(
       "stored plan balance lane is not a member of the closed credit-lane vocabulary",
@@ -507,7 +512,7 @@ function paymentGatewayMemberOf(
   gateway: SubscriptionSelectType["paymentMethod"] & string,
   tErrors: ErrorsLabels
 ): PaymentGateway {
-  const member = PAYMENT_GATEWAY_MEMBERS.find(value => (value as string) === gateway);
+  const member = PAYMENT_GATEWAY_MAP.get(gateway);
   if (member === undefined) {
     abortRowMapping(
       "stored payment gateway is not a member of the closed gateway vocabulary",

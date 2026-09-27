@@ -28,11 +28,10 @@ export function ResourceCard({
           transform: "translateY(-4px)",
         },
         "&:active": { transform: "translateY(-2px) scale(0.98)" },
+        // Keyframes live on the section container: the index-interpolated
+        // delay makes every card's sx distinct, so a local @keyframes would
+        // be duplicated once per card in the emitted CSS.
         animation: `staggerFadeIn 0.5s ease ${index * 0.12}s both`,
-        "@keyframes staggerFadeIn": {
-          "0%": { opacity: 0, transform: "translateY(16px)" },
-          "100%": { opacity: 1, transform: "translateY(0)" },
-        },
       }}
     >
       <Stack direction="row" spacing={1} sx={{ alignItems: "center", justifyContent: "space-between" }}>

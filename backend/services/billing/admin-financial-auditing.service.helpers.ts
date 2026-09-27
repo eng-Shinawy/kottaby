@@ -123,8 +123,9 @@ export function composeDebitDescription(reason: string): string {
  * can possibly fit — it is the audit trail's decision vocabulary.
  */
 function serializeAuditDetails(details: Record<string, unknown>): string {
-  if (JSON.stringify(details).length <= AUDIT_DETAILS_MAX_LENGTH) {
-    return JSON.stringify(details);
+  const serializedFirst = JSON.stringify(details);
+  if (serializedFirst.length <= AUDIT_DETAILS_MAX_LENGTH) {
+    return serializedFirst;
   }
   const keys = Object.keys(details)
     .filter(key => key !== "action")

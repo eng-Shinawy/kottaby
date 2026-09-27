@@ -16,8 +16,9 @@ import {
   VisibilityOffOutlined as HideIcon,
   VisibilityOutlined as ShowIcon,
 } from "@mui/icons-material";
-import { Box, IconButton, InputAdornment, TextField } from "@mui/material";
+import { Box, IconButton, InputAdornment, TextField, Tooltip } from "@mui/material";
 import { type ReactNode, useState } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { generateStrongCredential } from "@/frontend/views/admin/students/onboarding/credentialStrength";
 import { OnboardStudentCredentialStrength } from "@/frontend/views/admin/students/onboarding/OnboardStudentCredentialStrength";
 import { AdminDialogFieldLabel } from "@/frontend/views/admin/users/dialogs";
@@ -66,24 +67,35 @@ export function OnboardStudentCredentialField({
           input: {
             endAdornment: (
               <InputAdornment position="end">
-                <IconButton
-                  size="small"
-                  aria-label={generateLabel}
-                  title={generateLabel}
-                  disabled={submitting}
-                  onClick={() => onChange(generateStrongCredential())}
-                  sx={theme => ({ color: theme.palette.primary.main })}
-                >
-                  <GenerateIcon sx={{ fontSize: 20 }} />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  aria-label={visible ? labels.hidePassword : labels.showPassword}
-                  onClick={() => setVisible(prev => !prev)}
-                  sx={theme => ({ color: theme.palette.action.active })}
-                >
-                  {visible ? <HideIcon sx={{ fontSize: 20 }} /> : <ShowIcon sx={{ fontSize: 20 }} />}
-                </IconButton>
+                <Tooltip title={generateLabel}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label={generateLabel}
+                      disabled={submitting}
+                      onClick={() => onChange(generateStrongCredential())}
+                      sx={theme => ({
+                        ...focusVisibleRingSx,
+                        color: theme.palette.primary.main,
+                      })}
+                    >
+                      <GenerateIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title={visible ? labels.hidePassword : labels.showPassword}>
+                  <IconButton
+                    size="small"
+                    aria-label={visible ? labels.hidePassword : labels.showPassword}
+                    onClick={() => setVisible(prev => !prev)}
+                    sx={theme => ({
+                      ...focusVisibleRingSx,
+                      color: theme.palette.action.active,
+                    })}
+                  >
+                    {visible ? <HideIcon sx={{ fontSize: 20 }} /> : <ShowIcon sx={{ fontSize: 20 }} />}
+                  </IconButton>
+                </Tooltip>
               </InputAdornment>
             ),
           },

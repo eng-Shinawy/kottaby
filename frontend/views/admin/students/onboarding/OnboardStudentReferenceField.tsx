@@ -14,8 +14,9 @@
  */
 
 import { AutoFixHighOutlined as GenerateIcon } from "@mui/icons-material";
-import { IconButton, InputAdornment, TextField } from "@mui/material";
+import { IconButton, InputAdornment, TextField, Tooltip } from "@mui/material";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { PaymentGateway } from "@/frontend/graphql/generated/gql/graphql";
 import { useReferencePasteNormalization } from "@/frontend/views/admin/students/onboarding/hooks";
 import type {
@@ -105,16 +106,22 @@ export function OnboardStudentReferenceField({
             // longer invents the unique reference by hand; the token is
             // the documented `SCH-` shape, server uniqueness still holds.
             <InputAdornment position="end">
-              <IconButton
-                size="small"
-                aria-label={t.paymentSection.generateReference}
-                title={t.paymentSection.generateReference}
-                disabled={submitting}
-                onClick={() => setForm(prev => ({ ...prev, paymentReference: generateScholarshipReference() }))}
-                sx={theme => ({ color: theme.palette.primary.main })}
-              >
-                <GenerateIcon sx={{ fontSize: 20 }} />
-              </IconButton>
+              <Tooltip title={t.paymentSection.generateReference}>
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label={t.paymentSection.generateReference}
+                    disabled={submitting}
+                    onClick={() => setForm(prev => ({ ...prev, paymentReference: generateScholarshipReference() }))}
+                    sx={theme => ({
+                      ...focusVisibleRingSx,
+                      color: theme.palette.primary.main,
+                    })}
+                  >
+                    <GenerateIcon sx={{ fontSize: 20 }} />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </InputAdornment>
           ) : undefined,
         },

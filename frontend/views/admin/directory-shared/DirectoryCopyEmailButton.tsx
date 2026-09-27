@@ -4,15 +4,16 @@
  * DirectoryCopyEmailButton — the copy-email quick action shared by the
  * admin directory identity surfaces (desktop identity cells, drawer
  * identity heroes, mobile email rows): it writes the email to the
- * clipboard, tints the icon to the success color while the copy has
- * resolved, and keeps the click from bubbling (`stopPropagation`) so a
- * card/row-level click handler never fires alongside the copy.
+ * clipboard, and while the copy has resolved it tints the icon to the
+ * success color and swaps the copy glyph for a check glyph; it keeps the
+ * click from bubbling (`stopPropagation`) so a card/row-level click
+ * handler never fires alongside the copy.
  *
  * ≥44px touch target via transparent padding; opt-in `noShrink` pins the
  * button's width where the row layout must not squeeze it narrower.
  */
 
-import { ContentCopyOutlined as CopyIcon } from "@mui/icons-material";
+import { CheckOutlined as CopiedIcon, ContentCopyOutlined as CopyIcon } from "@mui/icons-material";
 import { IconButton, Tooltip } from "@mui/material";
 import type { ReactNode } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
@@ -42,7 +43,7 @@ export function DirectoryCopyEmailButton({
     <Tooltip title={copied ? copiedLabel : copyLabel} placement="top">
       <IconButton
         size="small"
-        aria-label={`${copyLabel}: ${email}`}
+        aria-label={`${copied ? copiedLabel : copyLabel}: ${email}`}
         onClick={event => {
           // Copy only — the click must not also trigger the card/row.
           event.stopPropagation();
@@ -59,7 +60,7 @@ export function DirectoryCopyEmailButton({
           color: copied ? theme.palette.success.main : theme.palette.text.secondary,
         })}
       >
-        <CopyIcon fontSize="small" />
+        {copied ? <CopiedIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
       </IconButton>
     </Tooltip>
   );

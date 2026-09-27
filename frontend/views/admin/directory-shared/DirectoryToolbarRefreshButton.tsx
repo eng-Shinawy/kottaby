@@ -3,8 +3,8 @@
 /**
  * DirectoryToolbarRefreshButton — the admin directory toolbars' refresh
  * action: a text button that re-fetches the current page (the promise is
- * handed to Apollo) and shows a disabled state while the query is in
- * flight. Recipe shared by every directory toolbar — 44px touch floor,
+ * handed to Apollo) and shows a loading state (spinner) while the query is
+ * in flight. Recipe shared by every directory toolbar — 44px touch floor,
  * `text.secondary` ink, `flexShrink: 0` so the wrapping control row never
  * squeezes it. The label flows in via a plain string (the caller's
  * `filters` label slice) — nothing is hardcoded.
@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 interface DirectoryToolbarRefreshButtonProps {
   /** Visible and accessible label (e.g. `labels.filters.refresh`). */
   readonly refreshLabel: string;
-  /** `true` while the query is in flight (the button shows a disabled state). */
+  /** `true` while the query is in flight (the button shows a loading state). */
   readonly loading: boolean;
   /** Re-fetches the current page (the promise is handed to Apollo). */
   readonly onClick: () => void;
@@ -33,6 +33,7 @@ export function DirectoryToolbarRefreshButton({
       variant="text"
       startIcon={<RefreshIcon />}
       onClick={onClick}
+      loading={loading}
       disabled={loading}
       aria-label={refreshLabel}
       sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}

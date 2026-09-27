@@ -49,11 +49,10 @@ export function TeacherCard({ teacher, index }: Readonly<{ teacher: TeacherCardD
           transition: "opacity 0.3s ease",
           pointerEvents: "none",
         },
+        // Keyframes live on the section container: the index-interpolated
+        // delay makes every card's sx distinct, so a local @keyframes would
+        // be duplicated once per card in the emitted CSS.
         animation: `staggerFadeIn 0.5s ease ${index * 0.1}s both`,
-        "@keyframes staggerFadeIn": {
-          "0%": { opacity: 0, transform: "translateY(16px)" },
-          "100%": { opacity: 1, transform: "translateY(0)" },
-        },
       }}
     >
       <TeacherCardHead teacher={teacher} />

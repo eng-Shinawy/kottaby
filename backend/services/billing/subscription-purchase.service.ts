@@ -148,10 +148,15 @@ function subscriptionStatusOf(status: SubscriptionSelectType["status"]): Subscri
   throw new ConflictError(PAYMENT_PROCESSING_CONFLICT_MESSAGE);
 }
 
+/** Pre-allocated O(1) lookup map for the payment-gateway vocabulary. */
+const PAYMENT_GATEWAY_MAP: ReadonlyMap<string, PaymentGateway> = new Map(
+  Object.values(PaymentGateway).map(value => [value, value])
+);
+
 /**
  * Maps a stored payment-gateway value onto the strongly-typed enum — an
- * identity projection over the closed pg-enum vocabulary, resolved as the
- * documented widening-cast lookup. FAIL-CLOSED: a stored value outside the
+ * identity projection over the closed pg-enum vocabulary, resolved by the
+ * pre-allocated O(1) lookup map. FAIL-CLOSED: a stored value outside the
  * vocabulary is an internal invariant breach (the DB enum constrains every
  * writable value); it aborts with ONE correlated diagnostic log plus the
  * client-safe conflict copy (the activation service's `abortActivation`
@@ -159,7 +164,7 @@ function subscriptionStatusOf(status: SubscriptionSelectType["status"]): Subscri
  * silently degrading to a different gateway than the ledger recorded.
  */
 function paymentGatewayOf(gateway: SubscriptionSelectType["paymentMethod"] & string): PaymentGateway {
-  const member = Object.values(PaymentGateway).find(value => (value as string) === gateway);
+  const member = PAYMENT_GATEWAY_MAP.get(gateway);
   if (member === undefined) {
     logger.error(
       "Subscription purchase row mapping aborted: stored payment gateway is not a member of the closed gateway vocabulary",
