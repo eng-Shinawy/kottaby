@@ -1,6 +1,10 @@
 {
-  "manifestHash": "eeed035baa7e4396ea5c756db28ffb92ba6b92f5452ae9f20a6eae691b54d725",
+  "manifestHash": "56960f8102ec2f2800593422df9f7c2877ea7a5debfdb8d6ab5fae67900b0613",
   "manifest": [
+    {
+      "file": "10-applicant-outcome-notification.sql",
+      "sha256": "5254ef2506b2ee8d355ecc5913bc247d7764f340ea3b834a68d459bf4b95dc59"
+    },
     {
       "file": "2-functions.sql",
       "sha256": "4aa3869c64856ad4e8b7e996fc67360bf3d3f440abc182bb6b0f5f422b546aef"
@@ -62,6 +66,7 @@
     "20260919100332_custom_8-broadcast-history-backfill",
     "20260919222143_custom_8-broadcast-history-backfill",
     "20260919222508_custom_8-broadcast-history-backfill",
-    "20260923154213_custom_9-rubric-weakness-area"
+    "20260923154213_custom_9-rubric-weakness-area",
+    "20260928172738_custom_10-applicant-outcome-notification"
   ]
 }

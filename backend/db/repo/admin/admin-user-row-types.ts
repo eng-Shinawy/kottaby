@@ -8,6 +8,8 @@
  * (not in `backend/types/`) because they are repo-internal projections —
  * one canonical escape/binding contract per the repository header.
  */
+import type { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
+import type { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import type { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
 import type { UserSelectType } from "@/backend/types";
 
@@ -36,6 +38,13 @@ type RawGender = UserSelectType["gender"];
  *  - `role` / `governance` / `country` are passed through unchanged (the
  *    service has already rejected malformed enum members at the input
  *    boundary; absent members drop out per the forgiving read rule).
+ *  - `applicantStatus` / `cooldownState` are passed through unchanged
+ *    (enum members already validated at the GraphQL input boundary);
+ *    absent members drop out per the forgiving read rule. The cooldown
+ *    arm's predicates mirror the wire derivation EXACTLY — one captured
+ *    `now` per chain build, strict `>` for the active arm — so a filtered
+ *    result set can never disagree with the per-row chip the same query
+ *    renders.
  *  - `searchPattern` is the search substring AFTER `escapeLikeWildcards`
  *    has been applied AND after the result has been wrapped as `%…%`.
  *    The repo binds this directly to its `ilike(column, pattern)`
@@ -51,6 +60,52 @@ export interface NormalizedAdminUserFilters {
   readonly governance?: AdminUserGovernanceFilter | null;
   readonly country?: string | null;
   readonly searchPattern?: string | null;
+  readonly applicantStatus?: ApplicantStatus | null;
+  readonly cooldownState?: ApplicantCooldownState | null;
+  /**
+   * Time-window narrow for the cooldown lifecycle: `true` restricts the
+   * result to applicants whose stamped cooldown expires WITHIN the
+   * canonical "expiring soon" window (`COOLDOWN_EXPIRING_SOON_DAYS` —
+   * strictly in the future AND at most 7 days out). Absent/`null`/`false`
+   * drops out per the forgiving read rule. The window bounds reuse the
+   * ONE captured `now` per chain build and the SAME constant the
+   * lifecycle-stats aggregate counts with, so the dashboard KPI and the
+   * filtered directory can never disagree about what "expiring soon"
+   * means.
+   */
+  readonly cooldownExpiringSoon?: boolean | null;
+}
+
+/**
+ * `AdminCooldownLifecycleRow` — raw aggregate row shape returned by
+ * `getCooldownLifecycleStats`. Every member is a filtered count produced by
+ * ONE aggregate query over `applicants INNER JOIN users` (shared-PK, 1:1 —
+ * the join only carries the deleted-flag half of the directory's base
+ * predicate). Rows with NO stamped cooldown (`cooldown_until IS NULL`) can
+ * never match any arm — all three predicates are NULL-rejecting — so the
+ * counts partition the cooling-applicant population exactly:
+ *  - `activeCount`       — a stamped instant strictly in the future
+ *                          (the shared strict-`>` boundary).
+ *  - `expiringSoonCount` — the SLICE of `activeCount` that expires within
+ *                          the canonical 7-day window (inclusive upper
+ *                          bound, `lte`).
+ *  - `expiredCount`      — a stamped instant at or before `now`.
+ *
+ * The service maps this row to `AdminCooldownLifecycleStatsReturnType`
+ * verbatim (plain numbers; null-coalescing to `0` guards the impossible
+ * empty-aggregate case).
+ */
+export interface AdminCooldownLifecycleRow {
+  readonly activeCount: number;
+  readonly expiringSoonCount: number;
+  readonly expiredCount: number;
+  /**
+   * The canonical window length (in days) `expiringSoonCount` was measured
+   * with — echoed verbatim from the SAME constant the window predicate
+   * used, so the wire carries the window the count was measured with (no
+   * shared-constant drift across the boundary).
+   */
+  readonly expiringSoonWindowDays: number;
 }
 
 /**
@@ -84,6 +139,8 @@ export interface AdminUserDirectoryRow {
   readonly lastActiveAt: Date | null;
   readonly createdAt: Date;
   readonly applicantStatus: string | null;
+  /** Raw stored cooldown instant from the row's `applicants` child (null when absent). */
+  readonly applicantCooldownUntil: Date | null;
   readonly teacherIsApproved: boolean | null;
   readonly teacherIsEvaluator: boolean | null;
   readonly studentHasParentLink: boolean | null;
@@ -175,11 +232,14 @@ export interface AdminUserStatsRow {
  * via the INNER JOIN on `users.id = audit_logs.actor_id` (NOT NULL FK —
  * never null in practice; typed nullable for Drizzle inference parity).
  * `details` is the raw `varchar(2000)` JSON string, parsed defensively by
- * the service.
+ * the service. `entityType` is the raw recorded entity discriminator
+ * (`"user"` for account rows, `"applicant"` for the user's teacher-
+ * applicant lifecycle rows — the two arms the timeline widens over).
  */
 export interface AdminUserActivityRow {
   readonly id: number;
   readonly actionType: string;
+  readonly entityType: string;
   readonly actorName: string | null;
   readonly details: string | null;
   readonly createdAt: Date;

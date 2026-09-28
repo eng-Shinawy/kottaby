@@ -292,6 +292,24 @@ export const ADMIN_ACTION_CENSUS: readonly AdminActionCensusEntry[] = [
     kind: "wired",
   },
 
+  // ── Applicant cooldown governance (ApplicantLifecycleService) ──────────────
+  {
+    mutationField: "adminExtendApplicantCooldown",
+    serviceEntry: "ApplicantLifecycleService.extendApplicantCooldown",
+    expectedActionTypes: [AuditActionType.Adjust],
+    expectedEntityType: "applicant",
+    kind: "wired",
+  },
+
+  // ── Applicant evaluation override (ApplicantLifecycleService) ──────────────
+  {
+    mutationField: "adminOverrideApplicantEvaluation",
+    serviceEntry: "ApplicantLifecycleService.overrideApplicantEvaluation",
+    expectedActionTypes: [AuditActionType.Override],
+    expectedEntityType: "applicant",
+    kind: "wired",
+  },
+
   // ── Deferred producers (ledger-backed future surfaces) ─────────────────────
   {
     mutationField: "(future) adminResetUserPassword",

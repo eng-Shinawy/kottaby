@@ -48,7 +48,7 @@ import { namespaces } from "@/shared/locale/namespaces/index";
 // ─── Mandated inventory of the audit-trail read surface ──────────────────────
 
 /**
- * Every leaf key the `auditTrail` block must carry (47 slots) — dotted paths
+ * Every leaf key the `auditTrail` block must carry (48 slots) — dotted paths
  * RELATIVE to the block root, grouped by sub-block.
  */
 const AUDIT_TRAIL_LEAF_PATHS = [
@@ -82,6 +82,7 @@ const AUDIT_TRAIL_LEAF_PATHS = [
   "table.userEntityLinkLabel",
   "entityTypeLabels.user",
   "entityTypeLabels.teacher",
+  "entityTypeLabels.applicant",
   "entityTypeLabels.session",
   "entityTypeLabels.subscription",
   "entityTypeLabels.plan",
@@ -123,6 +124,43 @@ const NULL_PLACEHOLDER = "—";
 const ARABIC_SCRIPT = /[\u0600-\u06FF]/;
 
 /**
+ * The function-valued caption slots of the activity block — count-aware
+ * leaves (`(days: number) => string`) rather than plain strings. They join
+ * the key-set parity sweep like any leaf; their OUTPUT is pinned by the
+ * dedicated function-slot block below (the parentMonitoring pattern).
+ */
+const FUNCTION_SLOT_PATHS = ["activity.captionCooldownDays", "activity.captionCooldownExtended"] as const;
+
+/** Sample day count exercising the pluralizer leaves. */
+const CAPTION_SAMPLE_DAYS = 7;
+
+const isFunctionSlotPath = (path: string): boolean => (FUNCTION_SLOT_PATHS as readonly string[]).includes(path);
+
+/**
+ * Type guard for the count-aware caption slots — narrows a traversed node
+ * to the `(days: number) => string` pluralizer signature (the
+ * `no-unsafe-type-assertion`-compliant alternative to an `as` cast).
+ */
+function isDayCountCaption(value: unknown): value is (days: number) => string {
+  return typeof value === "function";
+}
+
+/** Resolves + invokes one function-valued slot by dotted path. */
+function functionSlotOutputOf(localeMap: object, path: string): string {
+  let node: unknown = localeMap;
+  for (const segment of path.split(".")) {
+    if (node === null || typeof node !== "object") {
+      throw new Error(`adminUsers.${path} traverses a non-block node`);
+    }
+    node = Reflect.get(node, segment);
+  }
+  if (!isDayCountCaption(node)) {
+    throw new Error(`adminUsers.${path} must be a function-valued caption slot`);
+  }
+  return node(CAPTION_SAMPLE_DAYS);
+}
+
+/**
  * Depth-first leaf paths of a locale map — grouped sub-blocks are flattened
  * into dotted paths so nested blocks keep the same zero-dead-key discipline
  * as top-level string slots. Throws on any node that is neither a string nor
@@ -134,6 +172,12 @@ function leafPathsOf(localeMap: object, prefix = ""): string[] {
     const value: unknown = Reflect.get(localeMap, key);
     const path = prefix.length === 0 ? key : `${prefix}.${key}`;
     if (typeof value === "string") {
+      paths.push(path);
+      continue;
+    }
+    if (typeof value === "function") {
+      // Count-aware caption slots are function leaves — the parity set
+      // includes them; their output is pinned by the function-slot block.
       paths.push(path);
       continue;
     }
@@ -180,6 +224,16 @@ function icuPlaceholdersOf(template: string): string[] {
   return [...seen].toSorted((a, b) => a.localeCompare(b));
 }
 
+/** Invokes the ar `activity.captionCooldownDays` pluralizer slot for one day count. */
+function arDays(days: number): string {
+  return adminUsersAr.activity.captionCooldownDays(days);
+}
+
+/** Invokes the en `activity.captionCooldownDays` pluralizer slot for one day count. */
+function enDays(days: number): string {
+  return adminUsersEn.activity.captionCooldownDays(days);
+}
+
 // ===========================================================================
 describe("compile-time parity mirror — ar/en adminUsers key sets agree", () => {
   test("identical sorted leaf-path sets across BOTH locale sources (depth-first)", () => {
@@ -192,11 +246,17 @@ describe("compile-time parity mirror — ar/en adminUsers key sets agree", () =>
 
   test("every leaf value on BOTH maps is a non-empty localized string (zero dead keys)", () => {
     for (const path of sortedLeafPathsOf(adminUsersAr)) {
-      expect(leafValueOf(adminUsersAr, path, "ar").length).toBeGreaterThan(0);
+      const value = isFunctionSlotPath(path)
+        ? functionSlotOutputOf(adminUsersAr, path)
+        : leafValueOf(adminUsersAr, path, "ar");
+      expect(value.length).toBeGreaterThan(0);
     }
     // Symmetric sweep — guards an en-only leaf that ar lost via future drift.
     for (const path of sortedLeafPathsOf(adminUsersEn)) {
-      expect(leafValueOf(adminUsersEn, path, "en").length).toBeGreaterThan(0);
+      const value = isFunctionSlotPath(path)
+        ? functionSlotOutputOf(adminUsersEn, path)
+        : leafValueOf(adminUsersEn, path, "en");
+      expect(value.length).toBeGreaterThan(0);
     }
   });
 });
@@ -227,10 +287,39 @@ describe("auditTrail block — pinned under BOTH locales", () => {
 describe("no English fallthrough — ar map carries Arabic copy for every prose slot", () => {
   test("every ar leaf contains Arabic script (locale-neutral em-dash placeholder tolerated)", () => {
     const fallthroughs = sortedLeafPathsOf(adminUsersAr).filter(path => {
-      const value = leafValueOf(adminUsersAr, path, "ar");
+      const value = isFunctionSlotPath(path)
+        ? functionSlotOutputOf(adminUsersAr, path)
+        : leafValueOf(adminUsersAr, path, "ar");
       return !ARABIC_SCRIPT.test(value) && value !== NULL_PLACEHOLDER;
     });
     expect(fallthroughs).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+describe("activity caption function slots — count-aware leaves pinned on BOTH locales", () => {
+  test.each([...FUNCTION_SLOT_PATHS])(
+    "%s resolves to a non-empty string on BOTH locales for the sample count",
+    path => {
+      expect(functionSlotOutputOf(adminUsersAr, path).length).toBeGreaterThan(0);
+      expect(functionSlotOutputOf(adminUsersEn, path).length).toBeGreaterThan(0);
+    }
+  );
+
+  test("ar plural classes stay distinct across the count grammar (1 / 2 / 3–10 / 11+)", () => {
+    const outputs = [arDays(1), arDays(2), arDays(7), arDays(30)];
+    // Every class output is non-empty, Arabic-scripted, and pairwise distinct.
+    for (const output of outputs) {
+      expect(output.length).toBeGreaterThan(0);
+      expect(ARABIC_SCRIPT.test(output)).toBe(true);
+    }
+    expect(new Set(outputs).size).toBe(outputs.length);
+  });
+
+  test("en plural classes stay distinct across the count grammar (1 vs many)", () => {
+    expect(enDays(1)).toContain("1 day");
+    expect(enDays(1)).not.toContain("days");
+    expect(enDays(30)).toContain("30 days");
   });
 });
 

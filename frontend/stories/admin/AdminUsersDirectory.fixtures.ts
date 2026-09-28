@@ -24,7 +24,15 @@ export type DirectoryUserFixture = AdminUsersQuery_adminUsers_items & {
 
 /** Variables the hook sends on first render (empty filters, page 1, size 10). */
 export const DIRECTORY_VARIABLES: AdminUsersQueryVariables = {
-  filters: { role: null, governance: null, country: null, search: null },
+  filters: {
+    role: null,
+    governance: null,
+    applicantStatus: null,
+    cooldownState: null,
+    cooldownExpiringSoon: null,
+    country: null,
+    search: null,
+  },
   page: 1,
   pageSize: 10,
 };
@@ -47,6 +55,8 @@ function directoryRow(overrides?: Partial<DirectoryUserFixture>): DirectoryUserF
     lastActiveAt: "2026-09-01T18:30:00.000Z",
     createdAt: "2025-11-02T09:15:00.000Z",
     applicantStatus: null,
+    cooldownState: null,
+    cooldownUntil: null,
     teacherIsApproved: null,
     teacherIsEvaluator: null,
     studentHasParentLink: null,

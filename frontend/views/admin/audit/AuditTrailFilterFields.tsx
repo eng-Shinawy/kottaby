@@ -13,7 +13,7 @@
  */
 
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, TextField } from "@mui/material";
-import type { CSSObject } from "@mui/material/styles";
+import type { CSSObject, Theme } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import type { AuditActionType } from "@/frontend/graphql/generated/gql/graphql";
@@ -33,10 +33,32 @@ const GRID_SX = {
   display: "grid",
   gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
   gap: 2,
-  alignItems: "end",
+  // Top-align the cells: the entity-type hint can wrap to two lines (locale-
+  // dependent), so bottom alignment would lift that field's input off the
+  // shared baseline — aligning the tops keeps every input row on one line.
+  alignItems: "start",
 } as const;
 
 const ACTION_BUTTON_SX: CSSObject = { ...focusVisibleRingSx, minHeight: 54 };
+
+/**
+ * The outlined Clear action's neutral contrast lane: MUI's outlined variant
+ * paints `primary.main` text, which dips below AA on the dark audit canvas.
+ * `text.secondary` keeps the button visibly secondary to the contained Apply
+ * while clearing AA in both modes, and the border steps to the M3 `outline`
+ * token so the chrome matches the neutral content. The sx declarations
+ * out-rank MUI's `.Mui-disabled` rule, so the disabled tokens are restored
+ * explicitly (the focus ring rides along via `ACTION_BUTTON_SX`).
+ */
+const CLEAR_BUTTON_SX = (theme: Theme): CSSObject => ({
+  ...ACTION_BUTTON_SX,
+  color: theme.palette.text.secondary,
+  borderColor: theme.palette.outline,
+  "&.Mui-disabled": {
+    color: theme.palette.action.disabled,
+    borderColor: theme.palette.action.disabledBackground,
+  },
+});
 
 interface AuditTrailFilterFieldsProps {
   readonly drafts: FilterDrafts;
@@ -89,6 +111,15 @@ export function AuditTrailFilterFields({
           // chips are localized display labels, so the hint names canonical
           // values the admin can paste into the field or a deep link.
           helperText={labels.entityTypeHint}
+          // Anchor the hint's inline start to the input's text (MUI's
+          // OutlinedInput text inset) instead of the border box; logical
+          // margins keep the RTL mirror exact.
+          sx={{
+            "& .MuiFormHelperText-root": {
+              marginInlineStart: "14px",
+              marginInlineEnd: "14px",
+            },
+          }}
         />
         <TextField
           id={ENTITY_ID_INPUT_ID}
@@ -135,7 +166,7 @@ export function AuditTrailFilterFields({
         >
           {labels.applyAction}
         </Button>
-        <Button type="button" variant="outlined" onClick={onClear} disabled={fieldsDisabled} sx={ACTION_BUTTON_SX}>
+        <Button type="button" variant="outlined" onClick={onClear} disabled={fieldsDisabled} sx={CLEAR_BUTTON_SX}>
           {labels.clearAction}
         </Button>
       </Box>

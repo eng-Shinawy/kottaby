@@ -5,7 +5,7 @@
  * `docs/admin/user-management.md`.
  */
 import type { NormalizedAdminUserFilters } from "@/backend/db/repo/admin/admin-user.repository";
-import type { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { Gender } from "@/backend/enum/users/gender.enum";
 import { toUserRole, UserRole } from "@/backend/enum/users/user-role.enum";
 import { escapeLikeWildcards } from "@/backend/lib/db/escape-like-wildcards";
@@ -21,6 +21,7 @@ import type {
   UserInsertType,
 } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
+import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 /** Short lowercase entity label used on `audit_logs.entity_type`. */
 const AUDIT_ENTITY_TYPE = "user";
@@ -65,6 +66,74 @@ export function projectChangedFields(details: string | null): readonly string[] 
   } catch {
     return null;
   }
+}
+
+/** Positive-integer day-count guard for caption payload members (null otherwise). */
+function captionDaysOf(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) return null;
+  return value;
+}
+
+/** Per-action override caption; a rejecting override appends its stamped cooldown length. */
+function overrideCaptionOf(record: Record<string, unknown>, labels: AdminUsersLabels["activity"]): string | null {
+  if (record.action === "certify") return labels.captionCertify;
+  if (record.action === "grant_re_evaluation") return labels.captionGrantReEvaluation;
+  if (record.action !== "reject") return null;
+  const days = captionDaysOf(record.cooldownDays);
+  return days === null ? labels.captionReject : `${labels.captionReject} · ${labels.captionCooldownDays(days)}`;
+}
+
+/**
+ * Narrows an unknown parsed member to a plain object (arrays excluded).
+ * The `no-unsafe-type-assertion`-compliant escape hatch (same `value is Type`
+ * predicate pattern as `backend/db/client.ts`): the JSON.parse result is
+ * runtime-validated here instead of trusted via an `as Record<string, unknown>`
+ * cast, preserving the exact checks the previous assertion implicitly relied on.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Composes the human-readable caption for one recent-activity timeline
+ * entry from its raw audit `details` JSON — the localized rendering of the
+ * teacher-applicant lifecycle payloads (cooldown extension, evaluation
+ * override) that carry no `changedFields` key.
+ *
+ * Recognized shapes (the audit writers' own contracts):
+ *  - an Override row whose `action` is `certify` / `reject` /
+ *    `grant_re_evaluation` → the per-action caption; a rejecting override
+ *    additionally appends the stamped cooldown length when its
+ *    `cooldownDays` is a positive integer.
+ *  - an Adjust row whose `additionalDays` is a positive integer → the
+ *    cooldown-extension caption.
+ * Any other action type, malformed / truncated / non-object JSON, unknown
+ * action values, or non-numeric day members degrade to `null` — the
+ * timeline renders the action label + actor + timestamp regardless (BOPLA
+ * on read-back: never echo unvalidated payload shapes). The `user`-entity
+ * Update rows already surface their `changedFields` list, so they stay
+ * captionless here.
+ */
+export function composeActivityCaption(
+  details: string | null,
+  actionType: AuditActionType,
+  labels: AdminUsersLabels["activity"]
+): string | null {
+  if (!details) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(details);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) return null;
+  const record = parsed;
+  if (actionType === AuditActionType.Override) return overrideCaptionOf(record, labels);
+  if (actionType === AuditActionType.Adjust) {
+    const days = captionDaysOf(record.additionalDays);
+    return days === null ? null : labels.captionCooldownExtended(days);
+  }
+  return null;
 }
 
 /**
@@ -354,12 +423,22 @@ export function buildAuditContract(
  * than erroring). The `search` substring is escaped via
  * `escapeLikeWildcards` and wrapped as `%…%` BEFORE being passed to the
  * repo — the repo receives the final escaped + wrapped pattern and
- * binds it directly to its `ilike(column, pattern)` predicate.
+ * binds it directly to its `ilike(column, pattern)` predicate. The two
+ * applicant-lifecycle members are enum members already validated at the
+ * GraphQL input boundary, so they pass through unchanged (absent →
+ * undefined → dropped by the WHERE-chain builder per the forgiving
+ * read rule).
  */
 export function normalizeFilters(filters: AdminUserFiltersSubmitInput): NormalizedAdminUserFilters {
   const role = filters.role ?? undefined;
   const governance = filters.governance ?? undefined;
   const country = filters.country ?? undefined;
+  const applicantStatus = filters.applicantStatus ?? undefined;
+  const cooldownState = filters.cooldownState ?? undefined;
+  // Boolean narrow: only an EXPLICIT `true` survives (null/false/undefined
+  // all drop out per the forgiving read rule — a tampered `false` can never
+  // accidentally express "absent" semantics; both read the same).
+  const cooldownExpiringSoon = filters.cooldownExpiringSoon === true ? true : undefined;
   let searchPattern: string | undefined;
   if (filters.search && filters.search.trim().length > 0) {
     const escaped = escapeLikeWildcards(filters.search.trim());
@@ -370,5 +449,8 @@ export function normalizeFilters(filters: AdminUserFiltersSubmitInput): Normaliz
     governance,
     country,
     searchPattern,
+    applicantStatus,
+    cooldownState,
+    cooldownExpiringSoon,
   };
 }

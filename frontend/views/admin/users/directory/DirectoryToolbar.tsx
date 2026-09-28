@@ -12,10 +12,9 @@
  * line — the three action buttons plus four filter controls exceed the
  * md–lg band once the shareable-view Copy link joined the row):
  *  1. search field (magnifier leading adornment, ~400px max width),
- *  2. role select,
- *  3. status (governance) select,
- *  4. country field,
- *  5. flex spacer, then a "clear filters" text button (rendered only while
+ *  2. role select + the lifecycle filter selects and the country field
+ *     (extracted to `DirectoryToolbarFilters`),
+ *  3. flex spacer, then a "clear filters" text button (rendered only while
  *     at least one filter is set), the shareable-view **Copy link** action,
  *     and the primary **Create User** button (44px tall, `flexShrink: 0`,
  *     never wraps its label).
@@ -26,15 +25,25 @@
  * inputs hold a uniform 44px height.
  */
 
-import { Box, Card, TextField } from "@mui/material";
+import { Box, Card } from "@mui/material";
 import type { ReactNode } from "react";
 import {
-  DirectoryFilterSelect,
   DirectoryRoleFilter,
   DirectorySearchField,
   DirectoryToolbarActions,
 } from "@/frontend/views/admin/users/directory";
-import type { DirectoryGovernance, DirectoryRole } from "@/frontend/views/admin/users/utils";
+import {
+  DirectoryApplicantStatusFilterSelect,
+  DirectoryCooldownStateFilterSelect,
+  DirectoryCountryFilter,
+  DirectoryGovernanceFilter,
+} from "@/frontend/views/admin/users/directory/DirectoryToolbarFilters";
+import type {
+  DirectoryApplicantStatus,
+  DirectoryCooldownState,
+  DirectoryGovernance,
+  DirectoryRole,
+} from "@/frontend/views/admin/users/utils";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 type ToolbarLabels = Pick<
@@ -48,6 +57,10 @@ interface DirectoryToolbarProps {
   readonly setRoleFilter: (value: DirectoryRole | "") => void;
   readonly governanceFilter: DirectoryGovernance | "";
   readonly setGovernanceFilter: (value: DirectoryGovernance | "") => void;
+  readonly applicantStatusFilter: DirectoryApplicantStatus | "";
+  readonly setApplicantStatusFilter: (value: DirectoryApplicantStatus | "") => void;
+  readonly cooldownStateFilter: DirectoryCooldownState | "";
+  readonly setCooldownStateFilter: (value: DirectoryCooldownState | "") => void;
   readonly countryFilter: string;
   readonly setCountryFilter: (value: string) => void;
   readonly searchInput: string;
@@ -57,56 +70,31 @@ interface DirectoryToolbarProps {
   readonly onCopyLink: () => void;
 }
 
-interface DirectoryGovernanceFilterProps {
-  readonly id: string;
-  readonly labels: ToolbarLabels;
-  readonly governanceFilter: DirectoryGovernance | "";
-  readonly setGovernanceFilter: (value: DirectoryGovernance | "") => void;
-}
-
-function asGovernanceFilterValue(value: string): DirectoryGovernance | "" {
-  if (value === "Active" || value === "Suspended" || value === "Blocked" || value === "Deleted") {
-    return value;
-  }
-  return "";
-}
-
-function DirectoryGovernanceFilter(props: DirectoryGovernanceFilterProps): ReactNode {
-  const { labels } = props;
-  return (
-    <DirectoryFilterSelect
-      id={props.id}
-      label={labels.filters.governance}
-      value={props.governanceFilter}
-      onChange={value => props.setGovernanceFilter(asGovernanceFilterValue(value))}
-      emptyOptionLabel={labels.genderOptions.unspecified}
-      options={[
-        { value: "Active", label: labels.statusBadges.active },
-        { value: "Suspended", label: labels.statusBadges.suspended },
-        { value: "Blocked", label: labels.statusBadges.blocked },
-        { value: "Deleted", label: labels.statusBadges.deleted },
-      ]}
-    />
-  );
-}
-
 export function DirectoryToolbar(props: DirectoryToolbarProps): ReactNode {
-  const { labels } = props;
   // Stable element ids — wire `InputLabel htmlFor` ↔ control `id` so screen
   // readers announce the label when focus lands on the control (axe-core
   // `aria-input-field-name` rule). Prefixed with the component name to avoid
   // collisions with other admin surfaces.
   const ROLE_ID = "admin-users-toolbar-role";
   const GOVERNANCE_ID = "admin-users-toolbar-governance";
+  const APPLICANT_STATUS_ID = "admin-users-toolbar-applicant-status";
+  const COOLDOWN_STATE_ID = "admin-users-toolbar-cooldown-state";
   const COUNTRY_ID = "admin-users-toolbar-country";
   const SEARCH_ID = "admin-users-toolbar-search";
   const hasFilters =
-    props.roleFilter !== "" || props.governanceFilter !== "" || props.countryFilter !== "" || props.searchInput !== "";
+    props.roleFilter !== "" ||
+    props.governanceFilter !== "" ||
+    props.applicantStatusFilter !== "" ||
+    props.cooldownStateFilter !== "" ||
+    props.countryFilter !== "" ||
+    props.searchInput !== "";
   // Clearing resets every filter draft (each hook setter also restarts the
   // result set at page 1 — the same invariant as picking a single filter).
   const handleClearFilters = () => {
     props.setRoleFilter("");
     props.setGovernanceFilter("");
+    props.setApplicantStatusFilter("");
+    props.setCooldownStateFilter("");
     props.setCountryFilter("");
     props.setSearchInput("");
   };
@@ -133,12 +121,16 @@ export function DirectoryToolbar(props: DirectoryToolbarProps): ReactNode {
           // clipping the Create button off the card edge.
           flexWrap: { xs: "wrap", xl: "nowrap" },
           rowGap: 2,
+          // 16px column rhythm between the fields: without it the 150px
+          // selects sit butt-joined (shared 1px seams) and fuse with the
+          // search field — pass-2 inspector MEDIUM.
+          columnGap: 2,
           alignItems: "center",
         }}
       >
         <DirectorySearchField
           id={SEARCH_ID}
-          labels={labels}
+          labels={props.labels}
           value={props.searchInput}
           onChange={props.setSearchInput}
         />
@@ -146,27 +138,34 @@ export function DirectoryToolbar(props: DirectoryToolbarProps): ReactNode {
           id={ROLE_ID}
           roleFilter={props.roleFilter}
           setRoleFilter={props.setRoleFilter}
-          labels={labels}
+          labels={props.labels}
         />
         <DirectoryGovernanceFilter
           id={GOVERNANCE_ID}
-          labels={labels}
+          labels={props.labels}
           governanceFilter={props.governanceFilter}
           setGovernanceFilter={props.setGovernanceFilter}
         />
-        <TextField
+        <DirectoryApplicantStatusFilterSelect
+          id={APPLICANT_STATUS_ID}
+          labels={props.labels}
+          applicantStatusFilter={props.applicantStatusFilter}
+          setApplicantStatusFilter={props.setApplicantStatusFilter}
+        />
+        <DirectoryCooldownStateFilterSelect
+          id={COOLDOWN_STATE_ID}
+          labels={props.labels}
+          cooldownStateFilter={props.cooldownStateFilter}
+          setCooldownStateFilter={props.setCooldownStateFilter}
+        />
+        <DirectoryCountryFilter
           id={COUNTRY_ID}
-          label={labels.filters.country}
-          value={props.countryFilter}
-          onChange={event => props.setCountryFilter(event.target.value)}
-          // Keep the label pinned to the notch at all times so the field
-          // never renders without a visible label (matches the Role/Status
-          // selects, whose labels shrink once a value is shown).
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" }, "& .MuiInputBase-root": { minHeight: 54 } }}
+          labels={props.labels}
+          countryFilter={props.countryFilter}
+          setCountryFilter={props.setCountryFilter}
         />
         <DirectoryToolbarActions
-          labels={labels}
+          labels={props.labels}
           hasFilters={hasFilters}
           onClearFilters={handleClearFilters}
           onCopyLink={props.onCopyLink}

@@ -4,8 +4,9 @@
  * useAdminUsersDirectory — state, query, and mutation wiring for
  * `AdminUsersDirectoryContainer` (the admin user directory surface).
  *
- * Owns:
- *  - the filter/search/pagination draft state (search debounced at 300ms),
+ * Composes `useDirectoryFilters` (the filter/search draft state, search
+ * debounced at 300ms — the raw setters are shadowed by the page-resetting
+ * wrappers from `createPageResettingFilterSetters`) and owns:
  *  - the `adminUsers` query (variables narrowed from the local filter unions
  *    to the GraphQL enums via `directoryConversions` — no `as` cast),
  *  - the create / update / soft-delete mutations, each refetching the
@@ -19,7 +20,6 @@
 
 import { useMutation, useQuery } from "@apollo/client/react";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
 import type { AdminUsersQueryVariables } from "@/frontend/graphql/generated/gql/graphql";
 import {
   adminCreateUserMutationDocument,
@@ -29,49 +29,13 @@ import {
 } from "@/frontend/graphql/sharedDocuments/admin";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { parseUsersUrlState, serializeUsersUrlState } from "@/frontend/views/admin/directory-url-state";
+import {
+  createPageResettingFilterSetters,
+  useDirectoryFilters,
+} from "@/frontend/views/admin/users/hooks/useDirectoryFilters";
 import { useDirectoryPageAndDialogs } from "@/frontend/views/admin/users/hooks/useDirectoryPageAndDialogs";
 import { useUsersUrlSync } from "@/frontend/views/admin/users/hooks/useUsersUrlSync";
-import {
-  type DirectoryGovernance,
-  type DirectoryRole,
-  toGovernanceFilter,
-  toUserRole,
-} from "@/frontend/views/admin/users/utils";
-
-type Role = DirectoryRole;
-type Governance = DirectoryGovernance;
-
-/**
- * Role / governance / country / search filter draft state (search debounced
- * at 300ms). Every value seeds from the URL contract (`/users` shareable
- * link); the applied search seeds BOTH the draft and the debounced value so
- * the FIRST query is already filtered — no unfiltered first fetch.
- */
-function useDirectoryFilters() {
-  const urlSeed = parseUsersUrlState(useSearchParams());
-  const [roleFilter, setRoleFilter] = useState<Role | "">(urlSeed.role);
-  const [governanceFilter, setGovernanceFilter] = useState<Governance | "">(urlSeed.governance);
-  const [countryFilter, setCountryFilter] = useState(urlSeed.country);
-  const [searchInput, setSearchInput] = useState(urlSeed.q);
-  const [searchDebounced, setSearchDebounced] = useState(urlSeed.q);
-
-  // Debounce search input (300ms).
-  if (searchInput !== searchDebounced) {
-    setTimeout(() => setSearchDebounced(searchInput), 300);
-  }
-
-  return {
-    roleFilter,
-    setRoleFilter,
-    governanceFilter,
-    setGovernanceFilter,
-    countryFilter,
-    setCountryFilter,
-    searchInput,
-    setSearchInput,
-    searchDebounced,
-  };
-}
+import { toApplicantStatus, toCooldownState, toGovernanceFilter, toUserRole } from "@/frontend/views/admin/users/utils";
 
 /** The three directory write mutations, all refetching the current page after success. */
 function useDirectoryMutations(variables: AdminUsersQueryVariables) {
@@ -97,26 +61,30 @@ function useDirectoryMutations(variables: AdminUsersQueryVariables) {
 
 export function useAdminUsersDirectory() {
   const filters = useDirectoryFilters();
-  const { roleFilter, governanceFilter, countryFilter, searchDebounced } = filters;
+  const {
+    roleFilter,
+    governanceFilter,
+    applicantStatusFilter,
+    cooldownStateFilter,
+    cooldownExpiringSoon,
+    countryFilter,
+    searchDebounced,
+  } = filters;
   // The URL is read ONCE for pagination seeding (same params ref the filters
   // hook read — `parseUsersUrlState` is pure so re-parsing is free).
   const urlSeed = parseUsersUrlState(useSearchParams());
   const pageAndDialogs = useDirectoryPageAndDialogs(urlSeed.page, urlSeed.pageSize);
   const { page, pageSize } = pageAndDialogs;
 
-  // Every filter setter resets to the first page — a new result set starts
-  // at page 1, never on a stale (possibly out-of-range) page index (the
-  // same invariant the students directory hook documents; the raw setters
-  // stay available for the URL-seeded initial state, which must NOT reset).
-
   const variables: AdminUsersQueryVariables = {
     filters: {
-      // Narrow the local `Role` / `Governance` string-literal unions to the
-      // GraphQL-codegen `UserRole` / `AdminUserGovernanceFilter` enums via
-      // the runtime-validated `toUserRole` / `toGovernanceFilter` helpers
-      // (no `as unknown as ...` cast).
+      // Narrow the local draft unions to the GraphQL-codegen enums via the
+      // runtime-validated converters (no `as unknown as ...` cast).
       role: roleFilter ? toUserRole(roleFilter) : null,
       governance: governanceFilter ? toGovernanceFilter(governanceFilter) : null,
+      applicantStatus: applicantStatusFilter ? toApplicantStatus(applicantStatusFilter) : null,
+      cooldownState: cooldownStateFilter ? toCooldownState(cooldownStateFilter) : null,
+      cooldownExpiringSoon: cooldownExpiringSoon || null,
       country: countryFilter || null,
       search: searchDebounced || null,
     },
@@ -142,7 +110,14 @@ export function useAdminUsersDirectory() {
   // the error branch unreachable and let the empty state render instead.
   const hasError = Boolean(error);
   const firstErrorCode = error ? extractErrorCode(error) : null;
-  const hasFilters = roleFilter !== "" || governanceFilter !== "" || countryFilter !== "" || searchDebounced !== "";
+  const hasFilters =
+    roleFilter !== "" ||
+    governanceFilter !== "" ||
+    applicantStatusFilter !== "" ||
+    cooldownStateFilter !== "" ||
+    cooldownExpiringSoon ||
+    countryFilter !== "" ||
+    searchDebounced !== "";
 
   // ── Shareable-URL write-back (the URL mirrors the APPLIED state) ──────
   // The applied (post-debounce) query string is written back through
@@ -153,6 +128,9 @@ export function useAdminUsersDirectory() {
     q: searchDebounced,
     role: roleFilter,
     governance: governanceFilter,
+    applicantStatus: applicantStatusFilter,
+    cooldownState: cooldownStateFilter,
+    cooldownExpiringSoon,
     country: countryFilter,
     page,
     pageSize,
@@ -164,22 +142,7 @@ export function useAdminUsersDirectory() {
     // Page-resetting filter setters shadow the raw ones (the students
     // directory's invariant): picking a role/status/country or typing a
     // search always restarts the result set at page 1.
-    setRoleFilter: (value: Role | "") => {
-      filters.setRoleFilter(value);
-      pageAndDialogs.setPage(0);
-    },
-    setGovernanceFilter: (value: Governance | "") => {
-      filters.setGovernanceFilter(value);
-      pageAndDialogs.setPage(0);
-    },
-    setCountryFilter: (value: string) => {
-      filters.setCountryFilter(value);
-      pageAndDialogs.setPage(0);
-    },
-    setSearchInput: (value: string) => {
-      filters.setSearchInput(value);
-      pageAndDialogs.setPage(0);
-    },
+    ...createPageResettingFilterSetters(filters, pageAndDialogs.setPage),
     ...pageAndDialogs,
     ...mutations,
     items,

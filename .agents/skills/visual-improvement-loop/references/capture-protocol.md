@@ -118,6 +118,11 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
   Run every quality loop with `PGLITE_DATA_DIR=/tmp/<unique-dir>`, serialize multi-agent fix-wave
   gates, and never let two processes initialize the same data dir. A corrupt dir is rebuilt:
   stop server → fresh dir → `bunx drizzle-kit push --force` with a pglite-driver config → re-seed.
+- Double-start corruption (observed 2026-09-28): in supervisor/reaper sandboxes an orphaned
+  `next-server` can survive a pkill round and race the respawned server onto the same PGlite dir —
+  every GraphQL mutation then fails with `Aborted(). Build with -sASSERTIONS for more info.`
+  After ANY server restart assert exactly ONE `next-server` process (`ps aux | grep next-server`);
+  if aborts appear despite that, rebuild the data dir (bootstrap + seed) before debugging code.
 - Locale pinning must be re-applied after EVERY re-login/cookie re-injection: fresh sessions drop
   NEXT_LOCALE and the stored user locale (fresh DBs default to the app locale), silently turning
   EN capture batches into AR. The `--expect-title` guard is LOCALE-DEPENDENT — pin locale and
@@ -150,7 +155,7 @@ The orchestrator NEVER calls ReadMediaFile on screenshots in its own loop. Image
   gates (`pkill -f next-server`), run the gates with `LINT_QUEUE_CONCURRENCY=1
   LINT_MAX_OLD_SPACE_MB=1536`, then restart the dev server for recapture.
 
-## Inspector fallback (added 2026-09-23)
+## Inspector fallback (added 2026-09-23; CDP viewport drop 2026-09-28)
 
 When task-subagents cannot render images (sandbox harness: `Read` in a subagent returns
 "[1 image(s) omitted: images are not available in sub-agent context]"), inspect via the
@@ -158,6 +163,10 @@ When task-subagents cannot render images (sandbox harness: `Read` in a subagent 
 golden rule. Always pass an ABSOLUTE output path (`-o /abs/dir/verdict.json`): relative
 `-o` paths silently produce no file. Keep verdicts idempotent (skip images that already
 have a verdict file) so recapture batches can reuse the same runner.
+`agent-browser set viewport` can also CLOSE the CDP channel and silently reset the
+viewport (observed 500px) after long sessions — after any CDP hiccup ("CDP response
+channel closed"), re-set the viewport AND re-verify the title guard before the next
+capture.
 
 ## Real-form capture drives (added 2026-09-23)
 

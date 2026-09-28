@@ -276,13 +276,20 @@ describe("notification documents — codegen binding + barrel parity", () => {
     // snake_case runtime values — server-side only, never imported here.)
     // Widening the spread into a Record<string, string> keeps the matcher
     // arguments plain strings without unsafe casts or conversions.
+    // TEN members: the seven session/link/broadcast/payment/evaluation kinds
+    // + the two dispute kinds + the applicant-outcome kind (round-9 wire
+    // addition). Member count changes MUST re-anchor this pin — the
+    // schema-surface suite enforces the same inventory server-side.
     const wireNames: Record<string, string> = { ...NotificationType };
     expect(wireNames).toEqual({
+      ApplicantOutcome: "ApplicantOutcome",
       EvaluationResult: "EvaluationResult",
       ParentLinkRequest: "ParentLinkRequest",
       PaymentConfirmation: "PaymentConfirmation",
       SessionCancellation: "SessionCancellation",
       SessionCompletion: "SessionCompletion",
+      SessionDisputeOpened: "SessionDisputeOpened",
+      SessionDisputeResolved: "SessionDisputeResolved",
       SessionRequest: "SessionRequest",
       SystemBroadcast: "SystemBroadcast",
     });

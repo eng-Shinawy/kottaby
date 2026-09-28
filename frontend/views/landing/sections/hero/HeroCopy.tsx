@@ -32,11 +32,20 @@ export function HeroCopy(): ReactNode {
         </Box>
       </Typography>
 
-      {/* Subtitle */}
+      {/* Subtitle — an extra mobile-only beat before the CTA row keeps the
+          paragraph-to-action gap from reading compressed under the tight
+          mobile headline stack. */}
       <Typography
         variant="h6"
         component="p"
-        sx={{ maxWidth: 580, lineHeight: 1.6, opacity: 0.85, fontWeight: 400, fontSize: { xs: 16, md: 18 } }}
+        sx={{
+          maxWidth: 580,
+          lineHeight: 1.6,
+          opacity: 0.85,
+          fontWeight: 400,
+          fontSize: { xs: 16, md: 18 },
+          mb: { xs: 1.5, md: 0 },
+        }}
       >
         {t.heroSubtitle}
       </Typography>

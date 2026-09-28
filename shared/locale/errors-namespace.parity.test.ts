@@ -231,17 +231,22 @@ describe("teacher-evaluation service keys — pinned in BOTH locales", () => {
 
 /**
  * The `errors` keys minted for the applicant-lifecycle service surface
- * (profile + purchase-guard + re-application denials). Like the
- * session-report inventory above, these are consumed by the domain service
- * through `getServerTranslations(locale).errorsTranslations`, so the
- * route-source discovery cannot see them — they are pinned here in BOTH
- * locales (removing a key from both maps simultaneously still fails).
+ * (profile + purchase-guard + re-application + admin-cooldown-extension +
+ * admin evaluation-override denials). Like the session-report inventory
+ * above, these are consumed by the domain service through
+ * `getServerTranslations(locale).errorsTranslations`, so the route-source
+ * discovery cannot see them — they are pinned here in BOTH locales
+ * (removing a key from both maps simultaneously still fails).
  */
 const APPLICANT_LIFECYCLE_KEYS = [
   "applicantNotFound",
   "applicantCooldownActive",
   "applicantStatusCorrupt",
   "applicantAlreadyCertified",
+  "applicantCooldownExtensionInvalid",
+  "applicantOverrideCooldownInvalid",
+  "applicantOverrideNotPassed",
+  "applicantNoActiveCooldown",
 ] as const;
 
 // ===========================================================================
@@ -273,6 +278,27 @@ describe("applicant-lifecycle service keys — pinned in BOTH locales", () => {
     // caller — no interpolation slot may ever slip into either locale.
     expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, "applicantAlreadyCertified", "ar"))).toEqual([]);
     expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, "applicantAlreadyCertified", "en"))).toEqual([]);
+  });
+
+  test("applicantCooldownExtensionInvalid carries ZERO ICU placeholders in BOTH locales", () => {
+    // The extension bounds are stated inside the copy itself — a static
+    // leaf, so no interpolation slot may ever slip into either locale.
+    expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, "applicantCooldownExtensionInvalid", "ar"))).toEqual([]);
+    expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, "applicantCooldownExtensionInvalid", "en"))).toEqual([]);
+  });
+
+  test("the three override leaves carry ZERO ICU placeholders in BOTH locales", () => {
+    // Every override denial is flat copy consumed verbatim by the mutation's
+    // error boundary — the bounds are stated inside the sentence itself and
+    // no identifier may ever slip into either locale.
+    for (const key of [
+      "applicantOverrideCooldownInvalid",
+      "applicantOverrideNotPassed",
+      "applicantNoActiveCooldown",
+    ] as const) {
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, key, "ar"))).toEqual([]);
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, key, "en"))).toEqual([]);
+    }
   });
 });
 

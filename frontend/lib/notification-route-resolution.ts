@@ -51,6 +51,21 @@ export const TEACHER_SESSIONS_ROUTE = "/teacher/sessions";
  */
 export const PARENT_PORTAL_ROOT_ROUTE = "/parent/children";
 
+/**
+ * The teacher dashboard route — the landing surface of the applicant-outcome
+ * deep link (the dashboard mounts the verification-lifecycle
+ * `ApplicantStatusCard` above the fold, whose render branches already cover
+ * every outcome the override emitter can announce). ONE definition site for
+ * THIS module's consumers; the canonical role→dashboard mapping lives in
+ * `frontend/lib/auth/roleDashboardRoute.ts` and the conformance is pinned
+ * in the deep-link suite (this leaf cannot import that module without
+ * dragging the backend UserRole enum into a leaf that stays import-light).
+ *
+ * Same leaf-module discipline as the sibling route constants above:
+ * directive-free and framework-free, safe for nav/card/test consumers.
+ */
+export const TEACHER_DASHBOARD_ROUTE = "/teacher/dashboard";
+
 /** Fallback row target — the notifications feed page (the unchanged default). */
 const NOTIFICATIONS_FEED_ROUTE = "/notifications";
 
@@ -65,6 +80,16 @@ const NOTIFICATIONS_FEED_ROUTE = "/notifications";
 const SESSION_ENTITY_TYPE = "session";
 
 /**
+ * The applicant-entity pointer the applicant-outcome emitter persists
+ * (backend `applicant-lifecycle.service.ts`
+ * `APPLICANT_OUTCOME_RELATED_ENTITY_TYPE` — pinned here because no shared
+ * backend constant exists for it). The pointer names the `applicants` table,
+ * whose id IS the applicant's user id; only the applicant themselves ever
+ * receives such a row, so the route is a static surface, not a builder.
+ */
+const APPLICANT_ENTITY_TYPE = "applicants";
+
+/**
  * The wire role vocabulary — EXACTLY the codegen `UserRole` values. Declared
  * as a string union so this leaf stays import-light; the conformance against
  * the generated enum is pinned in the deep-link suite (every member listed).
@@ -77,6 +102,7 @@ type WireRole = "Admin" | "Parent" | "Student" | "Teacher";
  * leaf-import discipline; conformance pinned in the deep-link suite.
  */
 const WIRE_NOTIFICATION_TYPES = [
+  "ApplicantOutcome",
   "EvaluationResult",
   "ParentLinkRequest",
   "PaymentConfirmation",
@@ -94,6 +120,7 @@ function isWireNotificationType(value: string): value is WireNotificationType {
 }
 
 type WireNotificationType =
+  | "ApplicantOutcome"
   | "EvaluationResult"
   | "ParentLinkRequest"
   | "PaymentConfirmation"
@@ -197,6 +224,13 @@ const NOTIFICATION_ROUTE_BY_TYPE: Readonly<Record<string, string | undefined>> =
  * model the runtime miss for an unknown entity type (the realtime payload-map
  * precedent in `use-notification-realtime.helpers.ts`).
  *
+ * The APPLICANT-outcome rows (backend `applicant-lifecycle.service.ts`)
+ * persist the plain table pointer `"applicants"` and reach ONLY the
+ * applicant themselves — their own verification outcome. The map routes that
+ * pointer to the teacher dashboard, where the verification-lifecycle
+ * status card renders the outcome (the same role-independent discipline as
+ * the student link-requests entry: single-audience entity → single surface).
+ *
  * PARENT-targeted parent-link rows (issue #99) deliberately carry
  * audience-scoped refinement values (`parent_link_request_decision` /
  * `parent_link_request_expiry`, backend `parent-link-request.helpers.ts`)
@@ -208,6 +242,7 @@ const NOTIFICATION_ROUTE_BY_TYPE: Readonly<Record<string, string | undefined>> =
  */
 const NOTIFICATION_ROUTE_BY_ENTITY_TYPE: Readonly<Record<string, string | undefined>> = {
   [BackendNotificationType.ParentLinkRequest]: STUDENT_LINK_REQUESTS_ROUTE,
+  [APPLICANT_ENTITY_TYPE]: TEACHER_DASHBOARD_ROUTE,
 };
 
 /**
@@ -230,8 +265,10 @@ function relatedEntityIdStringOf(relatedEntityId: string | number | null | undef
  * related-entity id.
  *
  * Resolution order (first hit wins):
- *  1. the parent-link entity map (`parent_link_request` → the student
- *     decision route — role-independent, only students receive those rows);
+ *  1. the entity maps (`parent_link_request` → the student decision route;
+ *     `applicants` → the teacher dashboard where the applicant's own status
+ *     card renders the outcome — both role-independent, each reaching only
+ *     its single audience);
  *  2. the session matrix (session entity + known type + known role → the
  *     role's route; a builder cell composes the route from the row's
  *     related-entity id and is applied ONLY for a non-empty string id —
@@ -243,7 +280,8 @@ function relatedEntityIdStringOf(relatedEntityId: string | number | null | undef
  *     type the matrix and this stage do not route NEVER reaches the
  *     sessions list);
  *  4. the feed-page fall-through — UNKNOWN or absent pointers, unknown
- *     types, unknown roles, and matrix misses ALL land here. Never throws,
+ *     types, unknown roles, and matrix misses ALL land here (including the
+ *     parent-targeted parent-link refinement pointers). Never throws,
  *     never mis-routes.
  *
  * The optional `notificationType` / `role` / `relatedEntityId` keep the

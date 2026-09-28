@@ -31,6 +31,7 @@
 import {
   EmailOutlined as EmailIcon,
   LocationOnOutlined as LocationIcon,
+  EventOutlined as MemberSinceIcon,
   PhoneOutlined as PhoneIcon,
 } from "@mui/icons-material";
 import { Box, Stack, Typography } from "@mui/material";
@@ -131,9 +132,12 @@ export function UserHeroIdentity({
         {user.country && <ContactItem icon={<LocationIcon />} value={user.country} ltr={false} truncate={false} />}
       </Stack>
       <Stack direction="row" sx={{ mt: 1, gap: 3, flexWrap: "wrap", alignItems: "center" }}>
-        <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
-          {labels.detail.memberSince}: {formatDate(user.createdAt)}
-        </Typography>
+        <ContactItem
+          icon={<MemberSinceIcon />}
+          value={`${labels.detail.memberSince}: ${formatDate(user.createdAt)}`}
+          ltr={false}
+          truncate={false}
+        />
         <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
           {labels.detail.lastActiveLabel}:{" "}
           <Box component="span" sx={theme => ({ color: theme.palette.onSuccessContainer, fontWeight: 600 })}>

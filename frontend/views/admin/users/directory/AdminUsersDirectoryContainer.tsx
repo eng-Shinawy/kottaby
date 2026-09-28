@@ -68,6 +68,18 @@ export function AdminUsersDirectoryContainer(): ReactNode {
   const retryDirectory = () => {
     void directory.refetch();
   };
+  // One-click recovery from over-filtering — resets EVERY filter draft
+  // (the same page-resetting setters the toolbar's clear button routes
+  // through) and is surfaced inside the empty state's CTA slot.
+  const clearAllFilters = () => {
+    directory.setRoleFilter("");
+    directory.setGovernanceFilter("");
+    directory.setApplicantStatusFilter("");
+    directory.setCooldownStateFilter("");
+    directory.setCooldownExpiringSoon(false);
+    directory.setCountryFilter("");
+    directory.setSearchInput("");
+  };
   return (
     // Bottom padding clears the fixed mobile FAB (bottom 24 + 56 height) so
     // the last stacked card never slides under it when scrolled to the end.
@@ -82,6 +94,10 @@ export function AdminUsersDirectoryContainer(): ReactNode {
         setRoleFilter={directory.setRoleFilter}
         governanceFilter={directory.governanceFilter}
         setGovernanceFilter={directory.setGovernanceFilter}
+        applicantStatusFilter={directory.applicantStatusFilter}
+        setApplicantStatusFilter={directory.setApplicantStatusFilter}
+        cooldownStateFilter={directory.cooldownStateFilter}
+        setCooldownStateFilter={directory.setCooldownStateFilter}
         countryFilter={directory.countryFilter}
         setCountryFilter={directory.setCountryFilter}
         searchInput={directory.searchInput}
@@ -94,18 +110,26 @@ export function AdminUsersDirectoryContainer(): ReactNode {
         labels={labels}
         roleFilter={directory.roleFilter}
         governanceFilter={directory.governanceFilter}
+        cooldownStateFilter={directory.cooldownStateFilter}
         setRoleFilter={directory.setRoleFilter}
         setGovernanceFilter={directory.setGovernanceFilter}
+        setCooldownStateFilter={directory.setCooldownStateFilter}
       />
 
       <ActiveFiltersRow
         labels={labels}
         roleFilter={directory.roleFilter}
         governanceFilter={directory.governanceFilter}
+        applicantStatusFilter={directory.applicantStatusFilter}
+        cooldownStateFilter={directory.cooldownStateFilter}
+        cooldownExpiringSoon={directory.cooldownExpiringSoon}
         countryFilter={directory.countryFilter}
         searchApplied={directory.searchDebounced}
         setRoleFilter={directory.setRoleFilter}
         setGovernanceFilter={directory.setGovernanceFilter}
+        setApplicantStatusFilter={directory.setApplicantStatusFilter}
+        setCooldownStateFilter={directory.setCooldownStateFilter}
+        setCooldownExpiringSoon={directory.setCooldownExpiringSoon}
         setCountryFilter={directory.setCountryFilter}
         setSearchInput={directory.setSearchInput}
       />
@@ -114,7 +138,12 @@ export function AdminUsersDirectoryContainer(): ReactNode {
         <DirectoryErrorAlert labels={labels.errorState} onRetry={retryDirectory} errorCode={directory.firstErrorCode} />
       )}
 
-      <DirectoryResults labels={labels} directory={directory} onCopyEmail={handleCopyEmail} />
+      <DirectoryResults
+        labels={labels}
+        directory={directory}
+        onCopyEmail={handleCopyEmail}
+        onClearFilters={clearAllFilters}
+      />
 
       {/* Mobile-only create affordance — the desktop one lives in the
           toolbar. Fixed at the standard 24px bottom offset (there is no

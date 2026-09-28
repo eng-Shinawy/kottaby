@@ -12,10 +12,18 @@
 
 import { NotificationsOutlined } from "@mui/icons-material";
 import { Box, Chip, Stack, Typography } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import type { MyNotificationsQuery_myNotifications_items } from "@/frontend/graphql/generated/gql/graphql";
 import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
-import { NOTIFICATION_TYPE_ICONS, NOTIFICATION_TYPE_LABEL_ACCESSORS } from "@/frontend/views/notifications/utils";
+import { formatRelativeAuditStamp } from "@/frontend/lib/i18n/relative-time";
+import { toneContainerColor, toneOnContainerColor } from "@/frontend/views/notifications/ui/notification-tone-colors";
+import {
+  NOTIFICATION_TYPE_ICONS,
+  NOTIFICATION_TYPE_LABEL_ACCESSORS,
+  NOTIFICATION_TYPE_TONES,
+  type NotificationTypeTone,
+} from "@/frontend/views/notifications/utils";
 import type { NotificationsLabels } from "@/shared/locale/types/notifications";
 
 /**
@@ -44,6 +52,27 @@ const VISUALLY_HIDDEN_TEXT_SX = {
   border: 0,
 } as const;
 
+/**
+ * The unread dot's attention pulse — a soft halo radiating from the dot and
+ * fading to transparent, slow enough (2.4s cycle) to read as ambient
+ * "here" rather than an alarm. Disabled outright under
+ * `prefers-reduced-motion: reduce` — the static dot carries the state.
+ * The keyframe name is module-scoped (rendered once per stylesheet by MUI's
+ * sx engine); the halo alpha is baked from the runtime theme's primary.
+ */
+const UNREAD_PULSE_SX = (primaryMain: string) =>
+  ({
+    "@keyframes unread-halo-pulse": {
+      "0%": { boxShadow: `0 0 0 0 ${alpha(primaryMain, 0.45)}` },
+      "70%": { boxShadow: `0 0 0 7px ${alpha(primaryMain, 0)}` },
+      "100%": { boxShadow: `0 0 0 0 ${alpha(primaryMain, 0)}` },
+    },
+    animation: "unread-halo-pulse 2.4s ease-out infinite",
+    "@media (prefers-reduced-motion: reduce)": {
+      animation: "none",
+    },
+  }) as const;
+
 /** The row's text content column: unread dot, title, body, type chip + locale timestamp. */
 export function NotificationRowContent({
   notification,
@@ -57,9 +86,21 @@ export function NotificationRowContent({
   const unread = !notification.isRead;
   // Schema-drift guard: a newer server enum member can reach an older client
   // (the generated enum misses the runtime value) — fall back to a neutral
-  // icon instead of rendering an undefined component type.
+  // icon, the fallback label accessor, and the brand-neutral tone instead of
+  // rendering an undefined component type / keying an unknown kind.
   const TypeIcon = NOTIFICATION_TYPE_ICONS[notification.type] ?? NotificationsOutlined;
   const typeLabelAccessor = NOTIFICATION_TYPE_LABEL_ACCESSORS[notification.type] ?? (() => notification.title);
+  const typeTone: NotificationTypeTone = NOTIFICATION_TYPE_TONES[notification.type] ?? "primary";
+
+  // Scanning-friendly caption: the relative time inside the shared 7-day
+  // window ("3 hours ago" / "قبل 3 ساعات" — Intl-native, zero localized
+  // copy), the byte-stable ASCII ledger stamp beyond it. The locale-aware
+  // full absolute stamp rides the native `title` tooltip either way.
+  // Direction: the relative caption is directional text (dir="auto" lets
+  // each caption pick its own flow inside the isolate); the ASCII stamp
+  // keeps the forced-LTR box the round-4 bidi QA established.
+  const relativeStamp = formatRelativeAuditStamp(notification.createdAt, locale);
+  const stampDirection = relativeStamp !== null ? "auto" : "ltr";
 
   return (
     <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
@@ -72,6 +113,7 @@ export function NotificationRowContent({
               height: 8,
               borderRadius: "50%",
               bgcolor: theme.palette.primary.main,
+              ...UNREAD_PULSE_SX(theme.palette.primary.main),
             })}
           >
             <Box component="span" sx={VISUALLY_HIDDEN_TEXT_SX}>
@@ -104,37 +146,48 @@ export function NotificationRowContent({
           label={typeLabelAccessor(labels)}
           size="small"
           variant="outlined"
-          sx={theme => ({ minHeight: 28, color: theme.palette.text.secondary })}
+          sx={theme => ({
+            minHeight: 28,
+            // Category echo: a SOFT fill of the row's tone-container pair —
+            // the same pair the leading disc carries — with a hairline
+            // on-container border, so chip and disc read as one category
+            // system while the label stays in the readable secondary text
+            // color (never the on-container ink, which is tuned for the
+            // container, not the page).
+            bgcolor: alpha(toneContainerColor(theme, typeTone), 0.55),
+            border: `1px solid ${alpha(toneOnContainerColor(theme, typeTone), 0.16)}`,
+            color: theme.palette.text.secondary,
+            "& .MuiChip-icon": { color: toneOnContainerColor(theme, typeTone) },
+          })}
         />
         <Typography
           variant="caption"
-          dir="ltr"
+          dir={stampDirection}
           title={formatApplicantDate(notification.createdAt, locale)}
           sx={theme => ({
             color: theme.palette.text.secondary,
-            // ASCII stamp in an isolated LTR box — the ICU `ar` stamp embeds
-            // RLM controls that visually reorder the stamp against the row's
-            // RTL base direction (round-4 feed QA finding, same class as the
-            // round-1 wallet stamps). The locale-aware full stamp rides the
-            // native `title` tooltip.
+            // Isolated stamp box — the ASCII ledger stamp renders byte-stable
+            // in both document directions (round-4 feed QA finding), and the
+            // relative caption picks its own direction via dir="auto" inside
+            // the same isolate. The locale-aware full absolute stamp rides
+            // the native `title` tooltip.
             unicodeBidi: "isolate",
             fontVariantNumeric: "tabular-nums",
           })}
         >
-          <time dateTime={notification.createdAt}>{formatLedgerStamp(notification.createdAt)}</time>
+          <time dateTime={notification.createdAt}>{relativeStamp ?? formatLedgerStamp(notification.createdAt)}</time>
         </Typography>
       </Stack>
     </Stack>
   );
 }
 
-/**` and statically scanned).
- *
+/*
  * Unread posture (plan §5.5 visual matrix): the row tints through the
  * `theme.palette.action.selected` token (read rows keep the default
  * transparent element background — no explicit fallback branch), a dot chip
  * whose visually-hidden text content (`filterUnread`) flags the unread
- * state to assistive tech, the title carries the bold weight, and the
- * mark-read action is offered; read rows render un-tinted with no dot and
- * no action.
+ * state to assistive tech (ambiently pulsing, reduced-motion aware), the
+ * title carries the bold weight, and the mark-read action is offered; read
+ * rows render un-tinted with no dot and no action.
  */

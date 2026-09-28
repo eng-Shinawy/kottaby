@@ -21,11 +21,18 @@ import {
   PARENT_PORTAL_ROOT_ROUTE,
   resolveNotificationRoute,
   STUDENT_LINK_REQUESTS_ROUTE,
+  TEACHER_DASHBOARD_ROUTE,
 } from "@/frontend/lib/notification-route-resolution";
 
 describe("STUDENT_LINK_REQUESTS_ROUTE constant", () => {
   test("exports canonical route string for student link requests", () => {
     expect(STUDENT_LINK_REQUESTS_ROUTE).toBe("/student/link-requests");
+  });
+});
+
+describe("TEACHER_DASHBOARD_ROUTE constant", () => {
+  test("exports the canonical teacher dashboard route string", () => {
+    expect(TEACHER_DASHBOARD_ROUTE).toBe("/teacher/dashboard");
   });
 });
 
@@ -106,6 +113,50 @@ describe("resolveNotificationRoute — staged resolution", () => {
 describe("PARENT_PORTAL_ROOT_ROUTE constant", () => {
   test("exports the canonical parent portal root route string", () => {
     expect(PARENT_PORTAL_ROOT_ROUTE).toBe("/parent/children");
+  });
+});
+
+describe("resolveNotificationRoute — applicant-outcome deep link", () => {
+  test("applicants pointer routes the applicant's own outcome row to the teacher dashboard", () => {
+    // The QA probe applicant (users.id == applicants.id) receiving their own
+    // override outcome — the wire row shape the emitter persists.
+    expect(resolveNotificationRoute("applicants", NotificationType.ApplicantOutcome, UserRole.Teacher, 7023)).toBe(
+      "/teacher/dashboard"
+    );
+    expect(resolveNotificationRoute("applicants", NotificationType.ApplicantOutcome, UserRole.Teacher, "7023")).toBe(
+      "/teacher/dashboard"
+    );
+  });
+
+  test("the entity map is role-independent — even a fabricated role still lands on the dashboard", () => {
+    expect(resolveNotificationRoute("applicants", NotificationType.ApplicantOutcome, "Grandparent", 7023)).toBe(
+      "/teacher/dashboard"
+    );
+  });
+
+  test("type-less and unknown-type rows on the applicants pointer still route (entity-map discipline)", () => {
+    expect(resolveNotificationRoute("applicants", null)).toBe("/teacher/dashboard");
+    expect(resolveNotificationRoute("applicants", "FabricatedWireType", UserRole.Teacher)).toBe("/teacher/dashboard");
+  });
+
+  test("the static route ignores the id entirely — absent/empty ids never fabricate a URL", () => {
+    expect(resolveNotificationRoute("applicants", NotificationType.ApplicantOutcome, UserRole.Teacher)).toBe(
+      "/teacher/dashboard"
+    );
+    expect(resolveNotificationRoute("applicants", NotificationType.ApplicantOutcome, UserRole.Teacher, "")).toBe(
+      "/teacher/dashboard"
+    );
+    expect(resolveNotificationRoute("applicants", NotificationType.ApplicantOutcome, UserRole.Teacher, null)).toBe(
+      "/teacher/dashboard"
+    );
+  });
+
+  test("near-miss applicant-ish pointers fall through to the feed — the map keys on the exact table pointer", () => {
+    for (const pointer of ["applicant", "APPLICANTS", "applications", "applicant_outcome"]) {
+      expect(resolveNotificationRoute(pointer, NotificationType.ApplicantOutcome, UserRole.Teacher)).toBe(
+        "/notifications"
+      );
+    }
   });
 });
 

@@ -118,17 +118,24 @@ export type AuditEntityIdContent =
 
 /**
  * Resolves the entity-id cell's rendering decision: absent ids render the
- * em-dash placeholder, `user`-entity rows render the account deep link,
- * and every other entity renders the plain fixed-pitch id atom. Both
- * renderers (desktop row, mobile card) share this ONE decision so the two
- * can never disagree about which entries navigate.
+ * em-dash placeholder, the two ACCOUNT arms (`user` and `applicant`) render
+ * the account deep link, and every other entity renders the plain
+ * fixed-pitch id atom. Both renderers (desktop row, mobile card) share this
+ * ONE decision so the two can never disagree about which entries navigate.
+ *
+ * Why the applicant arm navigates too: `applicants` is a shared-PK child of
+ * `users`, so an applicant row's `entity_id` IS the affected account's id —
+ * the same two arms the user-detail "Recent activity" timeline widens over
+ * (one concept: rows ABOUT an account navigate to that account).
  */
 export function auditEntityIdContentOf(entry: {
   readonly entityType: string;
   readonly entityId: number | null;
 }): AuditEntityIdContent {
   if (entry.entityId === null) return { kind: "null" };
-  if (entry.entityType === "user") return { kind: "accountLink", userId: entry.entityId };
+  if (entry.entityType === "user" || entry.entityType === "applicant") {
+    return { kind: "accountLink", userId: entry.entityId };
+  }
   return { kind: "plainId", entityId: entry.entityId };
 }
 

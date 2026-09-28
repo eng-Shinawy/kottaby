@@ -15,6 +15,18 @@
 import { describe, expect, test } from "bun:test";
 import { formatApplicantDate, formatDayMonth, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
 
+/**
+ * Normalizes Arabic-Indic digits (U+0660–U+0669) to their ASCII forms —
+ * the `ar` digit SYSTEM is runtime-ICU dependent (one Bun/ICU build renders
+ * Latin digits, another Arabic-Indic; browsers differ again), while the
+ * STRUCTURE the contract pins (field order, separators, RLM marks) is not.
+ * Every `ar` assertion below runs through this normalizer so the suite is
+ * deterministic across ICU builds instead of pinning one sandbox's glyph set.
+ */
+function normalizeArabicIndicDigits(input: string): string {
+  return input.replace(/[\u0660-\u0669]/g, digit => String(digit.charCodeAt(0) - 0x0660));
+}
+
 describe("formatApplicantDate — timestamp formatting contract", () => {
   const TEST_ISO = "2026-08-27T13:00:00.000Z";
 
@@ -27,18 +39,19 @@ describe("formatApplicantDate — timestamp formatting contract", () => {
 
   test("Arabic ('ar') locale renders Arabic-locale formatting (Arabic separator, RLM bidi marks)", () => {
     const formatted = formatApplicantDate(TEST_ISO, "ar");
+    const normalized = normalizeArabicIndicDigits(formatted);
 
     // The `ar` locale data swaps the date separator for the Arabic comma
     // (U+060C), reorders to day/month, and injects RLM (U+200F) bidi marks
     // around numeric runs — the injection `formatDayMonth` strips. The digit
-    // system itself is runtime-ICU dependent (Bun's ICU build renders Latin
-    // digits; browser ICU may render Arabic-Indic), so the contract pins the
-    // separator, bidi marks, and locale-distinctness rather than a digit glyph.
-    expect(formatted).toContain("،");
+    // system itself is runtime-ICU dependent, so the assertions run on the
+    // digit-normalized form: the contract pins the separator, bidi marks,
+    // field order, and locale-distinctness — never a digit glyph.
+    expect(normalized).toContain("،");
     expect(formatted).toContain("\u200f");
-    expect(formatted).toContain("27");
-    expect(formatted).toContain("2026");
-    expect(formatted).toContain("13:00");
+    expect(normalized).toContain("27");
+    expect(normalized).toContain("2026");
+    expect(normalized).toContain("13:00");
     expect(formatted).not.toBe(formatApplicantDate(TEST_ISO, "en"));
   });
 
@@ -126,11 +139,11 @@ describe("formatDayMonth — chart axis tick formatting contract", () => {
     // Must not contain any forbidden bidi control characters (\u200e, \u200f, \u202a-\u202e)
     expect(result).not.toMatch(/[\u200e\u200f\u202a-\u202e]/);
 
-    const inner = result.slice(1, -1);
+    const inner = normalizeArabicIndicDigits(result.slice(1, -1));
     // The `ar` locale orders day before month; the digit system is
-    // runtime-ICU dependent (Bun's ICU build renders Latin digits, browser
-    // ICU may render Arabic-Indic) — the contract pins the stripped,
-    // day-first numeric run this runtime produces.
+    // runtime-ICU dependent, so the assertion runs on the digit-normalized
+    // form — the contract pins the stripped, day-first numeric run's
+    // STRUCTURE, never a digit glyph set.
     expect(inner).toBe("27/08");
   });
 

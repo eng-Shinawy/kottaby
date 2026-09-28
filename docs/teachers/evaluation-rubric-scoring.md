@@ -135,7 +135,9 @@ a write-time concern of THIS flow; the re-purchase reader documented in
 `docs/teachers/applicant-lifecycle.md` (§2) implements a pure strict-`>` read of
 `cooldown_until` at `backend/services/teachers/applicant-lifecycle.service.ts` — a
 cooldown that expires exactly NOW no longer blocks. That deliberate two-source split is
-recorded there and is not re-litigated here.
+recorded there and is not re-litigated here. The cooldown state machine that consumes this
+stamp — the derived `cooldownState` read-model, the admin extension primitive, and the
+account-governance boundary — is specified in `docs/teachers/applicant-cooldown.md`.
 
 ## Finalization paths (count = 5, in the SAME transaction)
 

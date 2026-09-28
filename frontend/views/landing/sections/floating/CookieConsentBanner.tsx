@@ -45,7 +45,7 @@ export function CookieConsentBanner({
             </Typography>
             <Typography
               variant="body2"
-              sx={{ color: "var(--mui-palette-text-secondary)", lineHeight: 1.5, fontSize: 13 }}
+              sx={{ color: "var(--mui-palette-text-secondary)", lineHeight: 1.55, fontSize: 13 }}
             >
               {t.cookieBody}
             </Typography>

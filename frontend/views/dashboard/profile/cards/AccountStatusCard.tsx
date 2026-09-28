@@ -68,10 +68,11 @@ function StatusBadge({ active, label, Icon, tone }: Readonly<StatusBadgeProps>):
         variant="outlined"
         aria-disabled="true"
         sx={theme => ({
-          // border.main (not outlineVariant) so the inert badge keeps a
-          // visible outline against the muted disabled background.
+          // Outlined + dimmed content (no fill): the inert badge must read as
+          // an unselected state — a flat disabled fill read as ambiguous
+          // against the solid active chip. border.main (not outlineVariant)
+          // keeps the outline legible on the card canvas at that dim lane.
           borderColor: theme.palette.border.main,
-          bgcolor: theme.palette.action.disabledBackground,
           color: theme.palette.text.secondary,
           fontWeight: 600,
           cursor: "default",

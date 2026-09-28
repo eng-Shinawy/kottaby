@@ -79,8 +79,41 @@ describe("extractLocale fast-path cookie extraction", () => {
     const reqWithLegacyCookie = requestWithHeaders({ cookie: "next-locale=en" });
     expect(extractLocale(reqWithLegacyCookie, { "next-locale": "en" })).toBe("en");
 
+    // No signal at all ⇒ the API tier's historical default ("en") — this
+    // fallback only serves headerless non-browser API clients now, since
+    // every BROWSER request carries the explicit x-app-locale header stamped
+    // with the SSR shell's rendered locale (mixed-language drift fix).
     const reqDefault = requestWithHeaders({});
     expect(extractLocale(reqDefault, {})).toBe("en");
+  });
+});
+
+describe("extractLocale — explicit x-app-locale header (shell-locale statement)", () => {
+  test("a supported x-app-locale header outranks BOTH the cookie and Accept-Language", () => {
+    const req = requestWithHeaders({
+      "x-app-locale": "ar",
+      cookie: "NEXT_LOCALE=en",
+      "accept-language": "en-US,en;q=0.9",
+    });
+    expect(extractLocale(req)).toBe("ar");
+    expect(extractLocale(req, { NEXT_LOCALE: "en" })).toBe("ar");
+  });
+
+  test("an UNSUPPORTED x-app-locale value falls through to the cookie negotiation", () => {
+    const req = requestWithHeaders({
+      "x-app-locale": "fr",
+      cookie: "NEXT_LOCALE=en",
+      "accept-language": "ar",
+    });
+    expect(extractLocale(req)).toBe("en");
+  });
+
+  test("header lookup is case-insensitive at the transport level (fetch Headers)", () => {
+    const req = requestWithHeaders({
+      "X-App-Locale": "en",
+      cookie: "NEXT_LOCALE=ar",
+    });
+    expect(extractLocale(req)).toBe("en");
   });
 });
 

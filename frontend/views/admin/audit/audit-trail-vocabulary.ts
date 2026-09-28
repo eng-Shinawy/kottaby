@@ -49,6 +49,7 @@ export function actionLabelsOf(activity: AdminUsersLabels["activity"]): Record<A
 const ENTITY_TYPE_KEY_BY_WIRE: Record<string, keyof AdminUsersLabels["auditTrail"]["entityTypeLabels"] | undefined> = {
   user: "user",
   teacher: "teacher",
+  applicant: "applicant",
   session: "session",
   subscription: "subscription",
   plan: "plan",

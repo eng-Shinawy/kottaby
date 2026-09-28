@@ -64,6 +64,7 @@ import {
   buildAuditContract,
   buildCreateUserInsert,
   buildUpdatePatch,
+  composeActivityCaption,
   isPositiveSafeInteger,
   normalizeFilters,
   resolveActivityLimit,
@@ -79,6 +80,7 @@ import {
 } from "@/backend/services/admin/user-management.mappers";
 import { createRoleChild, createStudentWithHandshakeRetry } from "@/backend/services/shared";
 import type {
+  AdminCooldownLifecycleStatsReturnType,
   AdminCreateUserSubmitInput,
   AdminUpdateUserPatchInput,
   AdminUserActivityEntryReturnType,
@@ -156,6 +158,29 @@ export namespace AdminUserManagementService {
   }
 
   /**
+   * Resolves the applicant-cooldown LIFECYCLE counters for the admin
+   * dashboard's lifecycle panel (`AdminApplicantCooldownStats`). Pure read:
+   * ZERO audit rows (reads never audit — matches `getStats`), zero writes,
+   * one aggregate round-trip via `AdminUserRepository.getCooldownLifecycleStats`.
+   * Defense-in-depth BFLA applies as everywhere else (anonymous →
+   * `UnauthorizedError`, authenticated non-admin → `ForbiddenError`, both
+   * BEFORE any DB read beyond the actor probe).
+   *
+   * The three returned counters partition the cooling-applicant population
+   * exactly and share the canonical `COOLDOWN_EXPIRING_SOON_DAYS` window
+   * with the directory's `cooldownExpiringSoon` filter arm — the KPI and
+   * its deep-linked listing are the same vocabulary at the same boundary.
+   */
+  export async function getCooldownLifecycleStats(
+    locale: string,
+    actorId: number,
+    outerTx?: DBTransaction
+  ): Promise<AdminCooldownLifecycleStatsReturnType> {
+    await assertActorAdmin(actorId, locale, outerTx);
+    return AdminUserRepository.getCooldownLifecycleStats(outerTx);
+  }
+
+  /**
    * Resolves the per-user "recent activity" timeline: the newest-first
    * `audit_logs` rows recorded ABOUT the target user
    * (`entity_type = 'user' AND entity_id = :userId`), with the acting
@@ -209,7 +234,19 @@ export namespace AdminUserManagementService {
     }
 
     const rows = await AdminUserRepository.getActivity(userId, resolvedLimit, outerTx);
-    return rows.map(row => mapActivityRow(row));
+    // Locale-bound caption composition runs over the RAW details (the wire
+    // never carries them — BOPLA): applicant lifecycle rows surface a human
+    // caption, everything else stays captionless.
+    const activityLabels = getServerTranslations(locale).adminUsersTranslations.activity;
+    return rows.map(row => {
+      const entry = mapActivityRow(row);
+      // `Object.assign` builds the captioned entry (the no-map-spread-
+      // compliant form of `{ ...entry, caption }` — identical keys/values,
+      // one fresh object per row, the uncaptioned mapper output discarded).
+      return Object.assign({}, entry, {
+        caption: composeActivityCaption(row.details, entry.actionType, activityLabels),
+      });
+    });
   }
 
   /**

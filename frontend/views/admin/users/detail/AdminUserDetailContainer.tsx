@@ -17,7 +17,9 @@
  *    `GovernanceActionsSection` carrying the suspend / unsuspend / block /
  *    unblock affordances + their confirm dialogs;
  *  - inline-end column (7/12): the role card (`TeacherApplicationCard`,
- *    `StudentStatusCard`, or the slim parent card) + `RecentActivityCard`.
+ *    `StudentStatusCard`, or the slim parent card) + the
+ *    `CooldownExtensionSection` + `ApplicantOverrideSection` (applicant
+ *    snapshot only) + `RecentActivityCard`.
  *
  * The hero and cards carry INLINE mutations: Edit opens the shared
  * `EditUserDialog` (adminUpdateUser) and Deactivate/Reactivate opens the
@@ -54,6 +56,8 @@ import {
   UserDetailLoading,
   UserDetailNotFound,
 } from "@/frontend/views/admin/users/detail";
+import { ApplicantOverrideSection } from "@/frontend/views/admin/users/detail/ApplicantOverrideSection";
+import { CooldownExtensionSection } from "@/frontend/views/admin/users/detail/CooldownExtensionSection";
 import { GovernanceActionsSection } from "@/frontend/views/admin/users/detail/GovernanceActionsSection";
 import { AdminUserSuccessSnackbar } from "@/frontend/views/admin/users/dialogs";
 import { useAdminUserDetail } from "@/frontend/views/admin/users/hooks";
@@ -85,7 +89,9 @@ export function AdminUserDetailContainer({ userId }: AdminUserDetailContainerPro
   const governance = directoryGovernanceOf(user);
 
   return (
-    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 } }}>
+    // Wide viewports: the measure stays digestible — the content caps at
+    // 840px and centers via LOGICAL margins (mirrors in RTL automatically).
+    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, width: "100%", maxWidth: 840, marginInline: "auto" }}>
       {/* Back link — the direction-flipped arrow keeps the chevron pointing
           "back" in RTL (logical-direction UI affordance, not text). */}
       <Box>
@@ -131,6 +137,21 @@ export function AdminUserDetailContainer({ userId }: AdminUserDetailContainerPro
           {(user.applicant ?? user.teacher) && (
             <TeacherApplicationCard user={user} labels={labels} formatDate={detail.fmtDate} />
           )}
+          {user.applicant && (
+            <>
+              <CooldownExtensionSection
+                applicantId={user.applicant.id}
+                status={user.applicant.status}
+                onToast={detail.setSnackbarMessage}
+              />
+              <ApplicantOverrideSection
+                applicantId={user.applicant.id}
+                status={user.applicant.status}
+                cooldownState={user.applicant.cooldownState}
+                onToast={detail.setSnackbarMessage}
+              />
+            </>
+          )}
           {user.student && <StudentStatusCard student={user.student} labels={labels} />}
           {user.parent && (
             <DetailCard>
@@ -144,6 +165,7 @@ export function AdminUserDetailContainer({ userId }: AdminUserDetailContainerPro
             </DetailCard>
           )}
           <RecentActivityCard
+            userId={user.id}
             labels={labels}
             activityLoading={detail.activityLoading}
             activityData={detail.activityData}

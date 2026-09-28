@@ -65,6 +65,13 @@ export function DirectoryPagination(props: DirectoryPaginationProps): ReactNode 
           gap: 1.5,
           flexWrap: "wrap",
           justifyContent: "space-between",
+          // Grow ONLY below `md`, where the rows-per-page select + page pills
+          // wrap onto their own line inside the mobile pagination card: the
+          // grown box spreads them across the full card width instead of
+          // leaving a trailing dead zone (pass-2 inspector LOW at 390). On
+          // md+ the bar is single-line — growth would relocate the select
+          // and is left untouched.
+          flexGrow: { xs: 1, md: 0 },
         }}
       >
         <Select<number>

@@ -24,7 +24,12 @@
 
 import { Chip, Stack } from "@mui/material";
 import type { ReactNode } from "react";
-import type { DirectoryGovernance, DirectoryRole } from "@/frontend/views/admin/users/utils";
+import type {
+  DirectoryApplicantStatus,
+  DirectoryCooldownState,
+  DirectoryGovernance,
+  DirectoryRole,
+} from "@/frontend/views/admin/users/utils";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 interface ActiveFilterChip {
@@ -40,16 +45,29 @@ interface ActiveFiltersRowProps {
   readonly labels: Pick<AdminUsersLabels, "filters" | "roleLabels" | "statusBadges">;
   readonly roleFilter: DirectoryRole | "";
   readonly governanceFilter: DirectoryGovernance | "";
+  readonly applicantStatusFilter: DirectoryApplicantStatus | "";
+  readonly cooldownStateFilter: DirectoryCooldownState | "";
   readonly countryFilter: string;
   /** The APPLIED (debounced) search — mirrors what the URL and results show. */
   readonly searchApplied: string;
   readonly setRoleFilter: (value: DirectoryRole | "") => void;
   readonly setGovernanceFilter: (value: DirectoryGovernance | "") => void;
+  readonly setApplicantStatusFilter: (value: DirectoryApplicantStatus | "") => void;
+  readonly setCooldownStateFilter: (value: DirectoryCooldownState | "") => void;
+  readonly cooldownExpiringSoon: boolean;
+  readonly setCooldownExpiringSoon: (value: boolean) => void;
   readonly setCountryFilter: (value: string) => void;
   readonly setSearchInput: (value: string) => void;
 }
 
-export function ActiveFiltersRow(props: ActiveFiltersRowProps): ReactNode {
+/**
+ * One chip per applied filter, in stable display order (search, role,
+ * governance, applicant status, cooldown state, expiring-soon flag,
+ * country), labeled `filterLabel: value` in the active locale. Each
+ * `onDelete` closes over the row's setter props, so removal routes through
+ * the same page-resetting setters the toolbar uses.
+ */
+function buildActiveFilterChips(props: ActiveFiltersRowProps): ActiveFilterChip[] {
   const { labels } = props;
   const roleValueLabels: Record<DirectoryRole, string> = {
     Admin: labels.roleLabels.admin,
@@ -62,6 +80,17 @@ export function ActiveFiltersRow(props: ActiveFiltersRowProps): ReactNode {
     Suspended: labels.statusBadges.suspended,
     Blocked: labels.statusBadges.blocked,
     Deleted: labels.statusBadges.deleted,
+  };
+  const applicantStatusValueLabels: Record<DirectoryApplicantStatus, string> = {
+    Pending: labels.filters.applicantStatusOptions.pending,
+    InEvaluation: labels.filters.applicantStatusOptions.inEvaluation,
+    Failed: labels.filters.applicantStatusOptions.failed,
+    Passed: labels.filters.applicantStatusOptions.passed,
+  };
+  const cooldownStateValueLabels: Record<DirectoryCooldownState, string> = {
+    None: labels.filters.cooldownStateOptions.none,
+    Active: labels.filters.cooldownStateOptions.active,
+    Expired: labels.filters.cooldownStateOptions.expired,
   };
 
   const chips: ActiveFilterChip[] = [];
@@ -86,6 +115,27 @@ export function ActiveFiltersRow(props: ActiveFiltersRowProps): ReactNode {
       onDelete: () => props.setGovernanceFilter(""),
     });
   }
+  if (props.applicantStatusFilter !== "") {
+    chips.push({
+      key: "active-applicant-status",
+      label: `${labels.filters.applicantStatus}: ${applicantStatusValueLabels[props.applicantStatusFilter]}`,
+      onDelete: () => props.setApplicantStatusFilter(""),
+    });
+  }
+  if (props.cooldownStateFilter !== "") {
+    chips.push({
+      key: "active-cooldown-state",
+      label: `${labels.filters.cooldownState}: ${cooldownStateValueLabels[props.cooldownStateFilter]}`,
+      onDelete: () => props.setCooldownStateFilter(""),
+    });
+  }
+  if (props.cooldownExpiringSoon) {
+    chips.push({
+      key: "active-cooldown-expiring-soon",
+      label: labels.filters.cooldownExpiringSoon,
+      onDelete: () => props.setCooldownExpiringSoon(false),
+    });
+  }
   if (props.countryFilter.trim() !== "") {
     chips.push({
       key: "active-country",
@@ -93,6 +143,12 @@ export function ActiveFiltersRow(props: ActiveFiltersRowProps): ReactNode {
       onDelete: () => props.setCountryFilter(""),
     });
   }
+
+  return chips;
+}
+
+export function ActiveFiltersRow(props: ActiveFiltersRowProps): ReactNode {
+  const chips = buildActiveFilterChips(props);
 
   if (chips.length === 0) {
     return null;

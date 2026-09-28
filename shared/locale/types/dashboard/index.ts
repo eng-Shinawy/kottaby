@@ -182,6 +182,16 @@ export interface DashboardLabels {
     readonly admin: DashboardGettingStartedTips;
     readonly parent: DashboardGettingStartedTips;
   };
+  /**
+   * Applicant-cooldown lifecycle panel (admin dashboard) — the three
+   * tappable lifecycle buckets deep-link into the user directory
+   * pre-filtered. The `active`/`expired` labels mirror the directory chip
+   * vocabulary (`adminUsers.directoryChips.cooldownActive`/`cooldownExpired`)
+   * VERBATIM so the dashboard and the directory read as one system;
+   * `expiringSoon` is count-aware (the canonical 7-day window length arrives
+   * as the argument) and pluralizes through the shared day-count grammar.
+   */
+  readonly cooldownLifecycle: DashboardCooldownLifecycleLabels;
 }
 
 /**
@@ -195,4 +205,26 @@ interface DashboardGettingStartedTips {
   readonly subscriptions: string;
   /** Bullet next to the notifications icon */
   readonly notifications: string;
+}
+
+/**
+ * Applicant-cooldown lifecycle panel copy (admin dashboard).
+ */
+interface DashboardCooldownLifecycleLabels {
+  /** Panel headline (the applicant-cooldown lifecycle). */
+  readonly title: string;
+  /** One-line instruction under the headline. */
+  readonly subtitle: string;
+  /** Bucket 1 — cooldowns still in force (mirrors the directory chip verbatim). */
+  readonly active: string;
+  /** Bucket 2 — the slice expiring within the canonical window; `days` is the window length. */
+  readonly expiringSoon: (days: number) => string;
+  /** Bucket 3 — cooldowns already past (mirrors the directory chip verbatim). */
+  readonly expired: string;
+  /** Trailing action — opens the (unfiltered) user directory. */
+  readonly viewAll: string;
+  /** Accessible per-bucket announcement: "<bucket label>: <count> applicants". */
+  readonly bucketAria: (label: string, count: number) => string;
+  /** Live-region announcement while the lifecycle query resolves. */
+  readonly loadingLabel: string;
 }

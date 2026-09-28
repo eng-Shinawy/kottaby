@@ -17,7 +17,8 @@
  *      that would bypass the variable contract).
  *   3. Self-scoped surface — the pinned variable sets are the WHOLE variable
  *      surface; the mutations declare ONLY the sanctioned scalar args
- *      (`id`, `suspended`, `periodDays`, `blocked`, `deleted`, `input`).
+ *      (`id`, `suspended`, `periodDays`, `blocked`, `deleted`, `input`,
+ *      `applicantId`, `additionalDays`, `action`, `cooldownDays`).
  *      No caller-identity argument exists anywhere in the documents — the
  *      actor is always derived server-side from the authenticated caller.
  *   4. `id` field requirement — the shared `AdminUserDetailFields` and
@@ -54,7 +55,12 @@ import type {
   OperationDefinitionNode,
 } from "graphql";
 import type {
+  AdminApplicantCooldownStatsQuery,
   AdminCreateUserMutation,
+  AdminExtendApplicantCooldownMutation,
+  AdminExtendApplicantCooldownMutationVariables,
+  AdminOverrideApplicantEvaluationMutation,
+  AdminOverrideApplicantEvaluationMutationVariables,
   AdminSetUserBlockedMutation,
   AdminSetUserBlockedMutationVariables,
   AdminSetUserDeletedMutation,
@@ -71,12 +77,17 @@ import {
   adminSetUserBlockedMutationDocument as adminBlockViaBarrel,
   adminCreateUserMutationDocument as adminCreateUserViaBarrel,
   adminSetUserDeletedMutationDocument as adminDeleteViaBarrel,
+  adminExtendApplicantCooldownMutationDocument as adminExtendCooldownViaBarrel,
+  adminOverrideApplicantEvaluationMutationDocument as adminOverrideViaBarrel,
   adminSetUserSuspendedMutationDocument as adminSuspendViaBarrel,
   adminUpdateUserMutationDocument as adminUpdateUserViaBarrel,
   adminUserDetailQueryDocument as adminUserDetailViaBarrel,
 } from "@/frontend/graphql/sharedDocuments";
 import {
+  adminApplicantCooldownStatsQueryDocument,
   adminCreateUserMutationDocument,
+  adminExtendApplicantCooldownMutationDocument,
+  adminOverrideApplicantEvaluationMutationDocument,
   adminSetUserBlockedMutationDocument,
   adminSetUserDeletedMutationDocument,
   adminSetUserSuspendedMutationDocument,
@@ -217,6 +228,16 @@ const ADMIN_USER_DOCUMENT_TABLE: readonly AdminUserDocumentRow[] = [
     idFirstSelections: [],
   },
   {
+    document: adminApplicantCooldownStatsQueryDocument,
+    operationName: "AdminApplicantCooldownStats",
+    channel: "query",
+    variables: [],
+    rootField: "adminApplicantCooldownStats",
+    detailFragmentSpreads: [],
+    listItemFragmentSpreads: [],
+    idFirstSelections: [],
+  },
+  {
     document: adminUserDetailQueryDocument,
     operationName: "AdminUserDetail",
     channel: "query",
@@ -286,6 +307,26 @@ const ADMIN_USER_DOCUMENT_TABLE: readonly AdminUserDocumentRow[] = [
     listItemFragmentSpreads: [],
     idFirstSelections: [],
   },
+  {
+    document: adminExtendApplicantCooldownMutationDocument,
+    operationName: "AdminExtendApplicantCooldown",
+    channel: "mutation",
+    variables: ["applicantId", "additionalDays"],
+    rootField: "adminExtendApplicantCooldown",
+    detailFragmentSpreads: [],
+    listItemFragmentSpreads: [],
+    idFirstSelections: [],
+  },
+  {
+    document: adminOverrideApplicantEvaluationMutationDocument,
+    operationName: "AdminOverrideApplicantEvaluation",
+    channel: "mutation",
+    variables: ["applicantId", "action", "cooldownDays"],
+    rootField: "adminOverrideApplicantEvaluation",
+    detailFragmentSpreads: [],
+    listItemFragmentSpreads: [],
+    idFirstSelections: [],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -314,16 +355,27 @@ describe("admin-user documents — named operations + channel + variables", () =
     // Sorted-unique union across all admin-user documents. Any new doc that
     // smuggles a caller-identity argument (e.g. `actorId`, `userId`) breaks
     // this pin — actor identity is ALWAYS derived server-side from the
-    // authenticated caller, never threaded from the client.
+    // authenticated caller, never threaded from the client. NOTE:
+    // `applicantId`/`additionalDays`/`cooldownDays` target the APPLICANT
+    // entity + day counts, and `action` is the override-direction wire enum
+    // — none carries caller identity.
     const declared = ADMIN_USER_DOCUMENT_TABLE.flatMap(row => variableNames(operationOrThrow(row.document))).toSorted(
       (a, b) => a.localeCompare(b)
     );
-    // Five `id` variables: adminUserDetail, adminUserActivity, adminUpdateUser,
-    // adminSetUserDeleted, adminSetUserSuspended, adminSetUserBlocked (six
-    // documents declare `$id: Int!`); adminCreateUser + adminUpdateUser each
-    // declare `$input`; the directory query declares `filters`/`page`/`pageSize`.
+    // Six documents declare `$id: Int!` (adminUserDetail, adminUserActivity,
+    // adminUpdateUser, adminSetUserDeleted, adminSetUserSuspended,
+    // adminSetUserBlocked); adminCreateUser + adminUpdateUser each declare
+    // `$input`; the cooldown-extension mutation declares `$applicantId` +
+    // `$additionalDays`; the override mutation declares `$applicantId` +
+    // `$action` + `$cooldownDays`; the directory query declares
+    // `filters`/`page`/`pageSize`.
     expect(declared).toEqual([
+      "action",
+      "additionalDays",
+      "applicantId",
+      "applicantId",
       "blocked",
+      "cooldownDays",
       "deleted",
       "filters",
       "id",
@@ -373,6 +425,39 @@ describe("admin-user documents — id + fragment-reuse shapes", () => {
   test("AdminUserListItemFields fragment selects id FIRST (directory row normalization)", () => {
     const fragment = fragmentDefinition(adminUsersQueryDocument, "AdminUserListItemFields");
     expect(fieldNames(fragment)[0]).toBe("id");
+  });
+
+  test("AdminUserListItemFields fragment field set (directory row wire contract)", () => {
+    // Full field-set pin: the directory row carries the safe `users` columns,
+    // the role-child status headlines, and (since the directory cooldown chip)
+    // the read-time applicant cooldown observables (`cooldownState` +
+    // `cooldownUntil`). `passwordHash` must stay structurally absent; the
+    // cooldown observables ride the SAME shared fragment the directory
+    // mutations cache-merge into (id-first discipline).
+    const fragment = fragmentDefinition(adminUsersQueryDocument, "AdminUserListItemFields");
+    expect(fieldNames(fragment)).toEqual([
+      "id",
+      "fullName",
+      "email",
+      "phone",
+      "role",
+      "gender",
+      "dateOfBirth",
+      "country",
+      "isDeleted",
+      "suspended",
+      "isBlocked",
+      "lastActiveAt",
+      "createdAt",
+      "applicantStatus",
+      "cooldownState",
+      "cooldownUntil",
+      "teacherIsApproved",
+      "teacherIsEvaluator",
+      "studentHasParentLink",
+      "studentHasActiveSubscription",
+      "parentLinkedChildrenCount",
+    ]);
   });
 
   test("detail-returning reads + writes spread the EXISTING AdminUserDetailFields fragment (no bespoke inline selection)", () => {
@@ -427,6 +512,35 @@ describe("admin-user documents — id + fragment-reuse shapes", () => {
       expect(field.selectionSet).toBeUndefined();
     }
   });
+
+  test("AdminApplicantProfileFields fragment selects id FIRST (post-write cache merge)", () => {
+    // The applicant-returning mutations (cooldown extension + evaluation
+    // override) return the post-write `ApplicantProfile` — a DIFFERENT
+    // entity than `AdminUserDetail`, so each spreads the SHARED
+    // `AdminApplicantProfileFields` fragment (no bespoke inline selection,
+    // no AdminUserDetail spread). The fragment must select `id` FIRST so
+    // Apollo writes the response into the SAME `ApplicantProfile:<id>`
+    // entry the detail query's `applicant` field links to (the snapshot
+    // card re-renders WITHOUT a refetch).
+    const extendOperation = operationOrThrow(adminExtendApplicantCooldownMutationDocument);
+    const extendRoot = selectionPath(extendOperation, "adminExtendApplicantCooldown");
+    expect(fragmentSpreads(extendRoot)).toEqual(["AdminApplicantProfileFields"]);
+    const overrideOperation = operationOrThrow(adminOverrideApplicantEvaluationMutationDocument);
+    const overrideRoot = selectionPath(overrideOperation, "adminOverrideApplicantEvaluation");
+    expect(fragmentSpreads(overrideRoot)).toEqual(["AdminApplicantProfileFields"]);
+    const fragment = fragmentDefinition(adminExtendApplicantCooldownMutationDocument, "AdminApplicantProfileFields");
+    expect(fieldNames(fragment)[0]).toBe("id");
+    expect(fieldNames(fragment)).toEqual([
+      "id",
+      "status",
+      "verificationAttempts",
+      "lastAttemptAt",
+      "cooldownUntil",
+      "cooldownState",
+      "cooldownActive",
+      "canPurchaseVerification",
+    ]);
+  });
 });
 
 describe("admin-user documents — codegen binding + barrel parity", () => {
@@ -436,6 +550,8 @@ describe("admin-user documents — codegen binding + barrel parity", () => {
     expect(adminDeleteViaBarrel).toBe(adminSetUserDeletedMutationDocument);
     expect(adminSuspendViaBarrel).toBe(adminSetUserSuspendedMutationDocument);
     expect(adminBlockViaBarrel).toBe(adminSetUserBlockedMutationDocument);
+    expect(adminExtendCooldownViaBarrel).toBe(adminExtendApplicantCooldownMutationDocument);
+    expect(adminOverrideViaBarrel).toBe(adminOverrideApplicantEvaluationMutationDocument);
     expect(adminUserDetailViaBarrel).toBe(adminUserDetailQueryDocument);
   });
 
@@ -444,6 +560,8 @@ describe("admin-user documents — codegen binding + barrel parity", () => {
     // loses its codegen typing or picks up an inline type literal.
     const typedAdminUsers: TypedDocumentNode<AdminUsersQuery> = adminUsersQueryDocument;
     const typedAdminUserStats: TypedDocumentNode<AdminUserStatsQuery> = adminUserStatsQueryDocument;
+    const typedAdminCooldownStats: TypedDocumentNode<AdminApplicantCooldownStatsQuery> =
+      adminApplicantCooldownStatsQueryDocument;
     const typedAdminUserDetail: TypedDocumentNode<AdminUserDetailQuery> = adminUserDetailQueryDocument;
     const typedAdminUserActivity: TypedDocumentNode<AdminUserActivityQuery, AdminUserActivityQueryVariables> =
       adminUserActivityQueryDocument;
@@ -459,10 +577,19 @@ describe("admin-user documents — codegen binding + barrel parity", () => {
       AdminSetUserBlockedMutation,
       AdminSetUserBlockedMutationVariables
     > = adminSetUserBlockedMutationDocument;
+    const typedAdminExtendCooldown: TypedDocumentNode<
+      AdminExtendApplicantCooldownMutation,
+      AdminExtendApplicantCooldownMutationVariables
+    > = adminExtendApplicantCooldownMutationDocument;
+    const typedAdminOverride: TypedDocumentNode<
+      AdminOverrideApplicantEvaluationMutation,
+      AdminOverrideApplicantEvaluationMutationVariables
+    > = adminOverrideApplicantEvaluationMutationDocument;
 
     // Runtime uses keep the bindings from being flagged as unused.
     expect(typedAdminUsers.loc).toBeDefined();
     expect(typedAdminUserStats.loc).toBeDefined();
+    expect(typedAdminCooldownStats.loc).toBeDefined();
     expect(typedAdminUserDetail.loc).toBeDefined();
     expect(typedAdminUserActivity.loc).toBeDefined();
     expect(typedAdminCreateUser.loc).toBeDefined();
@@ -470,5 +597,7 @@ describe("admin-user documents — codegen binding + barrel parity", () => {
     expect(typedAdminSetUserDeleted.loc).toBeDefined();
     expect(typedAdminSetUserSuspended.loc).toBeDefined();
     expect(typedAdminSetUserBlocked.loc).toBeDefined();
+    expect(typedAdminExtendCooldown.loc).toBeDefined();
+    expect(typedAdminOverride.loc).toBeDefined();
   });
 });

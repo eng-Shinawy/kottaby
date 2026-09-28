@@ -112,12 +112,15 @@ import {
 // ─── .test.ts — the single sanctioned growth history) ────────────────────────
 
 /**
- * Root mutation fields — the refreshed 52-op baseline: the prior 51-op
- * baseline + the admin direct-onboarding write
- * (`adminOnboardStudentWithOfflinePayment` — shipped with the merged
- * direct-onboarding surface but never enumerated here; re-anchored to the
- * live schema as a documented one-time reconciliation, NOT a silent baseline
- * flip). The baseline itself is: the reconciled admin-user-management trio
+ * Root mutation fields — the refreshed 54-op baseline: the prior 53-op
+ * baseline + the admin evaluation-override write
+ * (`adminOverrideApplicantEvaluation` — shipped with the admin-override
+ * child-ticket surface; re-anchored to the live schema as a documented
+ * one-time reconciliation, NOT a silent baseline flip). The prior 53-op
+ * baseline was itself the prior 52-op baseline + the applicant-cooldown
+ * extension write (`adminExtendApplicantCooldown` — shipped with the
+ * applicant-cooldown surface but never enumerated here; re-anchored the
+ * same way). The baseline itself is: the reconciled admin-user-management trio
  * (3 mutations) + the
  * session quartet + dispute pair + post-confirmation dispute entry + confirm
  * + payout, the sanctioned admin-governance pair + the
@@ -145,9 +148,11 @@ const FROZEN_MUTATION_FIELDS = [
   "adminCertifyTeacherColdStart",
   "adminChangeSubscriptionPlan",
   "adminCreateUser",
+  "adminExtendApplicantCooldown",
   "adminExtendSubscription",
   "adminJoinSession",
   "adminOnboardStudentWithOfflinePayment",
+  "adminOverrideApplicantEvaluation",
   "adminReassignTeacher",
   "adminRenewSubscription",
   "adminRescheduleSession",
@@ -193,10 +198,11 @@ const FROZEN_MUTATION_FIELDS = [
 ] as const;
 
 /**
- * Root query fields — the refreshed 65-op baseline: the prior frozen
- * 64-op baseline + the sanctioned curriculum-progress read
- * (`studentProgress(studentId: Int!): StudentProgress!` — the gated
- * read registering ZERO mutations; the pointer's writer is internal-only).
+ * Root query fields — the refreshed 66-op baseline: the prior frozen
+ * 65-op baseline + the sanctioned applicant-cooldown lifecycle read
+ * (`adminApplicantCooldownStats: AdminApplicantCooldownStats!` — the
+ * admin-gated dashboard KPI read registering ZERO mutations; the pointer's
+ * writer is internal-only).
  * The prior baseline had already grown by: the `_health`
  * probe + the session-report read pair (`sessionHomework` /
  * `sessionReport`) + the reconciled admin-user query quartet + the
@@ -232,6 +238,7 @@ const FROZEN_MUTATION_FIELDS = [
 const FROZEN_QUERY_FIELDS = [
   "_health",
   "adminAcademicDashboard",
+  "adminApplicantCooldownStats",
   "adminAuditLogs",
   "adminBroadcastDetail",
   "adminBroadcasts",
@@ -450,12 +457,12 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     }
   });
 
-  test("Mutation root is EXACTLY the refreshed frozen 52-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
+  test("Mutation root is EXACTLY the refreshed frozen 54-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 65-op baseline (the prior 64-op baseline + the sanctioned curriculum-progress read — `studentProgress(studentId: Int!): StudentProgress!`, a role-gated read that registers ZERO mutations; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 66-op baseline (the prior 65-op baseline + the sanctioned applicant-cooldown lifecycle read — `adminApplicantCooldownStats: AdminApplicantCooldownStats!`, a role-gated read that registers ZERO mutations; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -489,6 +496,35 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
     ]);
   });
 
+  test("`adminOverrideApplicantEvaluation(action: AdminApplicantOverrideAction!, applicantId: Int!, cooldownDays: Int): ApplicantProfile!`", () => {
+    // The live sorted SDL emits args alphabetically — `action`,
+    // `applicantId`, `cooldownDays`. `cooldownDays` is the ONLY nullable arg
+    // (the reject-direction cooldown length — the `adminSetUserSuspended`
+    // periodDays precedent: validated on the reject direction, ignored on
+    // the others); `action` and `applicantId` are NonNull. The override
+    // enum carries EXACTLY the three wire members (the enum KEYS — the
+    // lowercase runtime strings never surface on the wire).
+    const surface = fieldSurface("Mutation", "adminOverrideApplicantEvaluation");
+    expect(surface.type).toBe("ApplicantProfile!");
+    expect(surface.args).toEqual([
+      { name: "action", type: "AdminApplicantOverrideAction!" },
+      { name: "applicantId", type: "Int!" },
+      { name: "cooldownDays", type: "Int" },
+    ]);
+    const overrideEnum = sdlDocument.definitions.find(
+      (definition): definition is EnumTypeDefinitionNode =>
+        definition.kind === Kind.ENUM_TYPE_DEFINITION && definition.name.value === "AdminApplicantOverrideAction"
+    );
+    if (!overrideEnum) {
+      throw new Error("expected the `AdminApplicantOverrideAction` enum in the artifact");
+    }
+    expect((overrideEnum.values ?? []).map(value => value.name.value).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "Certify",
+      "GrantReEvaluation",
+      "Reject",
+    ]);
+  });
+
   test("both governance mutations sit at their SORTED positions in the Mutation root inventory", () => {
     // The live schema emits root fields alphabetically, so the admin
     // operations read as one sorted band: the admin session-governance
@@ -497,10 +533,15 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
     // contiguous run of the sorted Mutation inventory — opening at
     // `adminCancelSession` (alphabetically first of the union) and
     // closing at `adminUpdateUser`. The teacher cold-start certification
-    // mutation and the admin broadcast stop write also sort inside that
-    // band — the certification between `adminCancelSession` and
-    // `adminCreateUser`, the stop write between `adminSetUserSuspended`
-    // and `adminUpdateUser`.
+    // mutation, the admin broadcast stop write, the applicant-cooldown
+    // extension write, and the admin evaluation-override write also sort
+    // inside that band — the certification between
+    // `adminCancelSession` and `adminCreateUser`, the stop write between
+    // `adminSetUserSuspended` and `adminUpdateUser`, the cooldown
+    // extension between `adminCreateUser` and `adminExtendSubscription`
+    // (it shares the `adminExtend` prefix; the applicant vocabulary sorts
+    // before the subscription one), and the override write between
+    // `adminOnboardStudentWithOfflinePayment` and `adminReassignTeacher`.
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     const sorted = names.toSorted((a, b) => a.localeCompare(b));
     const adminUserMutationNames = [
@@ -549,15 +590,21 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
       // `adminCreateUser`; extend between `adminCreateUser` and
       // `adminJoinSession`; renew between `adminReassignTeacher` and
       // `adminRescheduleSession`), the direct-onboarding write lands between
-      // `adminJoinSession` and `adminReassignTeacher`, and the broadcast
-      // stop write between `adminSetUserSuspended` and `adminUpdateUser`.
+      // `adminJoinSession` and `adminReassignTeacher`, the broadcast
+      // stop write between `adminSetUserSuspended` and `adminUpdateUser`,
+      // the applicant-cooldown extension write between
+      // `adminCreateUser` and `adminExtendSubscription`, and the
+      // evaluation-override write between
+      // `adminOnboardStudentWithOfflinePayment` and `adminReassignTeacher`.
       "adminCancelSubscription",
       "adminChangeSubscriptionPlan",
+      "adminExtendApplicantCooldown",
       "adminExtendSubscription",
       "adminRenewSubscription",
       "adminCertifyTeacherColdStart",
       "adminStopBroadcast",
       "adminOnboardStudentWithOfflinePayment",
+      "adminOverrideApplicantEvaluation",
     ].toSorted((a, b) => a.localeCompare(b));
     expect(sorted.slice(bandStart, bandEnd + 1)).toEqual(expectedBandWindow);
   });

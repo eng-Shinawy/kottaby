@@ -8,7 +8,7 @@ import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import type { MyNotificationsQuery_myNotifications_items } from "@/frontend/graphql/generated/gql/graphql";
 import { NotificationRowContent } from "@/frontend/views/notifications/feed/NotificationRowContent";
 import { NotificationRowMarkReadAction, NotificationRowTypeAvatar } from "@/frontend/views/notifications/ui";
-import { NOTIFICATION_TYPE_ICONS } from "@/frontend/views/notifications/utils";
+import { NOTIFICATION_TYPE_ICONS, NOTIFICATION_TYPE_TONES } from "@/frontend/views/notifications/utils";
 import type { NotificationsLabels } from "@/shared/locale/types/notifications";
 
 interface NotificationRowProps {
@@ -53,8 +53,10 @@ export const NotificationRow = memo(function NotificationRow({
 }: Readonly<NotificationRowProps>): ReactNode {
   // Schema-drift guard: a newer server enum member can reach an older
   // client (the generated enum misses the runtime value) — fall back to a
-  // neutral icon instead of rendering an undefined component type.
+  // neutral icon + brand-neutral disc instead of rendering an undefined
+  // component type.
   const TypeIcon = NOTIFICATION_TYPE_ICONS[notification.type] ?? NotificationsOutlined;
+  const typeTone = NOTIFICATION_TYPE_TONES[notification.type] ?? "primary";
   const unread = !notification.isRead;
   const markReadLabel = labels.markReadAriaLabel(notification.title);
 
@@ -88,7 +90,7 @@ export const NotificationRow = memo(function NotificationRow({
         border: unread ? undefined : `1px solid ${theme.palette.divider}`,
       })}
     >
-      <NotificationRowTypeAvatar icon={TypeIcon} />
+      <NotificationRowTypeAvatar icon={TypeIcon} tone={typeTone} />
       {deepLinkHref !== null ? (
         <Box
           component={Link}

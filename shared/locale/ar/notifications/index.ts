@@ -1,3 +1,4 @@
+import { formatArabicCooldownDays } from "@/shared/locale/arabic-cooldown-days";
 import { isolateBidiRun as iso, RLM } from "@/shared/locale/bidi";
 import type { NotificationsLabels } from "@/shared/locale/types/notifications";
 
@@ -18,6 +19,7 @@ export const notificationsAr: NotificationsLabels = {
   typeSystemBroadcast: "إعلان النظام",
   typePaymentConfirmation: "تأكيد الدفع",
   typeEvaluationResult: "نتيجة التقييم",
+  typeApplicantOutcome: "نتيجة طلب الانتساب",
   markRead: "تحديد كمقروء",
   markReadAriaLabel: (notificationTitle: string) => `تحديد كمقروء: ${notificationTitle}`,
   markAllRead: "تحديد الكل كمقروء",
@@ -101,4 +103,12 @@ export const notificationsAr: NotificationsLabels = {
     "تم حسم التحكيم الخاص بجلستك: تمت استعادة جزء من قيمة الجلسة. افتح الجلسة للاطلاع على القرار المسجّل.",
   eventSessionDisputeResolvedUpholdBody:
     "تم حسم التحكيم الخاص بجلستك: تم تأكيد اكتمال الجلسة كما هو. افتح الجلسة للاطلاع على القرار المسجّل.",
+  eventApplicantOverrideCertifiedTitle: "تم اعتماد طلبك",
+  eventApplicantOverrideCertifiedBody: "قام أحد مشرفي المنصة باعتماد طلبك — أصبحت الآن معلمًا معتمدًا. أهلًا بك!",
+  eventApplicantOverrideRejectedTitle: "تم رفض طلبك",
+  eventApplicantOverrideRejectedBody: (days: number) =>
+    `قام أحد مشرفي المنصة برفض طلبك — يمكنك إعادة التقديم بعد ${formatArabicCooldownDays(days)}.`,
+  eventApplicantOverrideReEvaluationTitle: "تم منحك إعادة تقييم",
+  eventApplicantOverrideReEvaluationBody:
+    "قام أحد مشرفي المنصة بمنحك إعادة تقييم — تم إلغاء فترة الانتظار، ويمكنك حجز جلسة تقييم جديدة الآن.",
 };

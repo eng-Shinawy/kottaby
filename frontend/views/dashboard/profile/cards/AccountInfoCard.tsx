@@ -61,7 +61,11 @@ function InfoRow({ icon: Icon, label, value, t }: Readonly<InfoRowProps>): React
   const displayValue = value && value.trim().length > 0 ? value : t.notProvided;
   const isPlaceholder = !value || value.trim().length === 0;
   return (
-    <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+    // Top-anchored rows: when a long value wraps (mobile email/names), center
+    // alignment shifts the icon+label mid-cell and the uniform `spacing={2}`
+    // gaps read as uneven rhythm — anchoring every row's start keeps the
+    // inter-row gap the file's single consistent beat.
+    <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
       <Box sx={theme => ({ color: theme.palette.text.secondary, display: "flex" })}>
         <Icon fontSize="small" />
       </Box>

@@ -782,12 +782,20 @@ describe("wire matrix — anonymous tier (credential-less caller × 5 ops)", () 
 
   test("the anonymous denial shape is CONSTANT across all five operations", async () => {
     // Each op rides its own raw-wire request — the single-error envelope per op.
+    // The probes negotiate en EXPLICITLY: the canonical no-signal fallback is
+    // the app default (ar), matching the RSC shell; asserting the en copy
+    // requires the documented Accept-Language negotiation header.
+    const enNegotiation = { "accept-language": "en" };
     const bodies = [
-      await postAnonymous("{ myOutgoingParentLinkRequests { id } }"),
-      await postAnonymous("{ myIncomingParentLinkRequests { id } }"),
-      await postAnonymous('mutation { requestParentChildLink(code: "KSB-00000000") { id } }'),
-      await postAnonymous('mutation { respondToParentLinkRequest(requestId: "1", accept: true) { id } }'),
-      await postAnonymous('mutation { cancelParentLinkRequest(requestId: "1") { id } }'),
+      await postAnonymous("{ myOutgoingParentLinkRequests { id } }", undefined, enNegotiation),
+      await postAnonymous("{ myIncomingParentLinkRequests { id } }", undefined, enNegotiation),
+      await postAnonymous('mutation { requestParentChildLink(code: "KSB-00000000") { id } }', undefined, enNegotiation),
+      await postAnonymous(
+        'mutation { respondToParentLinkRequest(requestId: "1", accept: true) { id } }',
+        undefined,
+        enNegotiation
+      ),
+      await postAnonymous('mutation { cancelParentLinkRequest(requestId: "1") { id } }', undefined, enNegotiation),
     ];
 
     const items = [
@@ -875,7 +883,12 @@ describe("wire matrix — wrong-role tier (parent↔student cross-probes, teache
         if (!document) {
           throw new Error(`expected an op document for ${cell.op}`);
         }
-        return { op: cell.op, body: await postDocument(document.query, cell.caller.accessToken, document.variables) };
+        return {
+          op: cell.op,
+          body: await postDocument(document.query, cell.caller.accessToken, document.variables, {
+            "accept-language": "en",
+          }),
+        };
       })
     );
 
@@ -1103,7 +1116,9 @@ describe("wire matrix — validation tier (pre-DB requestId parser)", () => {
   test("respondToParentLinkRequest fuzz — every hostile id dies as VALIDATION pre-DB (never 403, never a service error)", async () => {
     const studentS = actorByLabel("studentS");
     const bodies = await Promise.all(
-      FUZZ_IDS.map(requestId => postDocument(RESPOND_DOCUMENT, studentS.accessToken, { requestId, accept: true }))
+      FUZZ_IDS.map(requestId =>
+        postDocument(RESPOND_DOCUMENT, studentS.accessToken, { requestId, accept: true }, { "accept-language": "en" })
+      )
     );
     for (const body of bodies) {
       const item = expectDenialCode(body, "VALIDATION");
@@ -1118,7 +1133,9 @@ describe("wire matrix — validation tier (pre-DB requestId parser)", () => {
   test("cancelParentLinkRequest fuzz — every hostile id dies as VALIDATION pre-DB", async () => {
     const parentP = actorByLabel("parentP");
     const bodies = await Promise.all(
-      FUZZ_IDS.map(requestId => postDocument(CANCEL_DOCUMENT, parentP.accessToken, { requestId }))
+      FUZZ_IDS.map(requestId =>
+        postDocument(CANCEL_DOCUMENT, parentP.accessToken, { requestId }, { "accept-language": "en" })
+      )
     );
     for (const body of bodies) {
       const item = expectDenialCode(body, "VALIDATION");
@@ -1244,7 +1261,7 @@ describe("wire matrix — decision-leg denials (no-oracle id channel + expiry fo
     // A pinned correlation header makes the two denial bodies comparable
     // BYTE-FOR-BYTE (extensions.requestId is otherwise minted per request —
     // the same inbound-header idiom as error-contract-matrix).
-    const pinnedCorrelation = { "x-request-id": "plwire-bola-foreign-absent" };
+    const pinnedCorrelation = { "x-request-id": "plwire-bola-foreign-absent", "accept-language": "en" };
 
     // Arm 1 — FOREIGN: a REAL row the caller does not own (studentG's
     // resolved request; the caller here is studentS).
@@ -1285,10 +1302,12 @@ describe("wire matrix — decision-leg denials (no-oracle id channel + expiry fo
     // The expired-claim denial: the row's expiresAt is far in the past.
     // (The expired seeded row is parentP → studentG, so its owning student
     // responds here.)
-    const expiredBody = await postDocument(RESPOND_DOCUMENT, studentG.accessToken, {
-      requestId: String(expiredRequestId),
-      accept: true,
-    });
+    const expiredBody = await postDocument(
+      RESPOND_DOCUMENT,
+      studentG.accessToken,
+      { requestId: String(expiredRequestId), accept: true },
+      { "accept-language": "en" }
+    );
     const expiredItem = expectDenialCode(expiredBody, "PARENT_LINK_REQUEST_EXPIRED");
     expect(expiredItem.path).toEqual(["respondToParentLinkRequest"]);
     expect(errorMessageOf(expiredItem)).toBe(tEn.parentLinkRequestExpired);
@@ -1308,14 +1327,18 @@ describe("wire matrix — decision-leg denials (no-oracle id channel + expiry fo
 
     // The sibling domain denials on the SAME op through the SAME resolver:
     // not-found (foreign id) and already-resolved (own rejected row).
-    const notFoundBody = await postDocument(RESPOND_DOCUMENT, studentS.accessToken, {
-      requestId: String(rejectedRequestId),
-      accept: true,
-    });
-    const alreadyResolvedBody = await postDocument(RESPOND_DOCUMENT, studentG.accessToken, {
-      requestId: String(rejectedRequestId),
-      accept: true,
-    });
+    const notFoundBody = await postDocument(
+      RESPOND_DOCUMENT,
+      studentS.accessToken,
+      { requestId: String(rejectedRequestId), accept: true },
+      { "accept-language": "en" }
+    );
+    const alreadyResolvedBody = await postDocument(
+      RESPOND_DOCUMENT,
+      studentG.accessToken,
+      { requestId: String(rejectedRequestId), accept: true },
+      { "accept-language": "en" }
+    );
     const notFoundItem = expectDenialCode(notFoundBody, "PARENT_LINK_REQUEST_NOT_FOUND");
     const alreadyResolvedItem = expectDenialCode(alreadyResolvedBody, "PARENT_LINK_REQUEST_ALREADY_RESOLVED");
     expect(errorMessageOf(notFoundItem)).toBe(tEn.parentLinkRequestNotFound);
@@ -1353,7 +1376,14 @@ describe("wire matrix — governed caller tier (service-layer re-check)", () => 
 
       // The scope tier passes on the still-valid JWT (authenticated + Parent
       // role) — the denial comes from the service's fresh-read re-check.
-      const body = await postDocument(REQUEST_LINK_DOCUMENT, governedP.accessToken, { code: "KSB-00000000" });
+      const body = await postDocument(
+        REQUEST_LINK_DOCUMENT,
+        governedP.accessToken,
+        { code: "KSB-00000000" },
+        {
+          "accept-language": "en",
+        }
+      );
       const item = expectDenialCode(body, "FORBIDDEN", "fieldNull");
       expect(item.path).toEqual(["requestParentChildLink"]);
       // NOT the anonymous class — the governed denial rides the SAME
@@ -1378,10 +1408,15 @@ describe("wire matrix — governed caller tier (service-layer re-check)", () => 
     try {
       // The id is well-formed and the row is the caller's OWN live pending —
       // scope-auth and the parser both pass; the governance arm denies.
-      const body = await postDocument(RESPOND_DOCUMENT, studentS.accessToken, {
-        requestId: String(seededRequestId),
-        accept: true,
-      });
+      const body = await postDocument(
+        RESPOND_DOCUMENT,
+        studentS.accessToken,
+        {
+          requestId: String(seededRequestId),
+          accept: true,
+        },
+        { "accept-language": "en" }
+      );
       const item = expectDenialCode(body, "FORBIDDEN");
       expect(item.path).toEqual(["respondToParentLinkRequest"]);
       expect(errorMessageOf(item)).toBe(tEn.forbidden);

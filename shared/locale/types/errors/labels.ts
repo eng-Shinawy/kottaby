@@ -151,6 +151,37 @@ export interface ErrorsLabels {
    */
   readonly applicantAlreadyCertified: string;
   /**
+   * Admin cooldown-extension bounds reject for
+   * `ValidationError("APPLICANT_COOLDOWN_EXTENSION_INVALID", …)`. Static copy
+   * only — the whole-day 1..3650 bounds are stated inside the sentence
+   * itself, so no ICU placeholder may ever enter this message; identifiers
+   * (applicant id, actor id) MUST NOT appear either.
+   */
+  readonly applicantCooldownExtensionInvalid: string;
+  /**
+   * Admin override bounds reject for
+   * `ValidationError("APPLICANT_OVERRIDE_COOLDOWN_INVALID", …)` — the
+   * reject-direction cooldown length is not an integer in [1, 3650]. Static
+   * copy only — the whole-day 1..3650 bounds are stated inside the sentence
+   * itself, so no ICU placeholder may ever enter this message; identifiers
+   * (applicant id, actor id) MUST NOT appear either.
+   */
+  readonly applicantOverrideCooldownInvalid: string;
+  /**
+   * Admin override pre-state reject for
+   * `ValidationError("APPLICANT_OVERRIDE_NOT_PASSED", …)` — only a certified
+   * (`passed`) applicant can be manually rejected. Static copy only; no ICU
+   * placeholder, no identifiers.
+   */
+  readonly applicantOverrideNotPassed: string;
+  /**
+   * Admin override pre-state reject for
+   * `ValidationError("APPLICANT_NO_ACTIVE_COOLDOWN", …)` — a re-evaluation
+   * grant targeted an applicant with no stamped cooldown to clear. Static
+   * copy only; no ICU placeholder, no identifiers.
+   */
+  readonly applicantNoActiveCooldown: string;
+  /**
    * Admin-user-management domain failures surfaced to operators through the
    * `errors` namespace. Each leaf is a self-contained sentence (no key echo)
    * consumed by admin services via property access on the localized bundle:

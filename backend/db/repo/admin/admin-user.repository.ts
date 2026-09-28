@@ -35,9 +35,15 @@
  *  - `./admin-user-row-types` — raw DB row shapes + normalized filter type.
  *  - `./admin-user-query-helpers` — safe-column projection shape, WHERE-chain
  *    builder, and the two scalar subselects.
+ *  - `./admin-user.repository.helpers` — the two single-round-trip KPI
+ *    aggregate implementations (`getStats`, `getCooldownLifecycleStats`).
  */
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
+import {
+  getCooldownLifecycleStatsAggregate,
+  getStatsAggregate,
+} from "@/backend/db/repo/admin/admin-user.repository.helpers";
 import {
   buildFilterChain,
   parentLinkedChildrenCountSubquery,
@@ -45,6 +51,7 @@ import {
   studentHasActiveSubscriptionSubquery,
 } from "@/backend/db/repo/admin/admin-user-query-helpers";
 import type {
+  AdminCooldownLifecycleRow,
   AdminUserActivityRow,
   AdminUserDetailRow,
   AdminUserDirectoryRow,
@@ -138,6 +145,7 @@ export namespace AdminUserRepository {
       lastActiveAt: users.lastActiveAt,
       createdAt: users.createdAt,
       applicantStatus: applicants.status,
+      applicantCooldownUntil: applicants.cooldownUntil,
       teacherIsApproved: teacher.isApproved,
       teacherIsEvaluator: teacher.isEvaluator,
       studentHasParentLink: sql<boolean>`${students.parentId} IS NOT NULL`.as("student_has_parent_link"),
@@ -158,17 +166,25 @@ export namespace AdminUserRepository {
   }
 
   /**
-   * Counts directory rows by the same filter chain (no joins, no scalar
+   * Counts directory rows by the same filter chain (no scalar
    * subselects). The service layer pairs this with `listDirectory` to
    * surface an honest `totalCount` — out-of-range pages return an empty
    * `items` array with the unchanged count (never an error, never
    * clamped results).
+   *
+   * The `applicants` LEFT JOIN mirrors `listDirectory` because the shared
+   * WHERE-chain builder may reference applicants columns (the
+   * applicant-lifecycle filters). The join is fan-out-free: `applicants`
+   * is a shared-PK 1:1 child of `users`, so the row count is identical
+   * to the pre-join count for every input — the join only makes the
+   * lifecycle predicates addressable.
    */
   export async function countDirectory(filters: NormalizedAdminUserFilters, tx?: DBTransaction): Promise<number> {
     const where = buildFilterChain(filters);
     const rows = await (tx ?? db)
       .select({ count: sql<number>`count(*)::int`.as("count") })
       .from(users)
+      .leftJoin(applicants, eq(applicants.id, users.id))
       .where(where);
     return rows[0]?.count ?? 0;
   }
@@ -196,46 +212,52 @@ export namespace AdminUserRepository {
    *          bare aggregates always return exactly one row).
    */
   export async function getStats(tx?: DBTransaction): Promise<AdminUserStatsRow> {
-    const newThisWeekCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const rows = await (tx ?? db)
-      .select({
-        totalCount: sql<number>`count(*)::int`.as("total_count"),
-        activeCount: sql<number>`count(*) filter (
-          where coalesce(${users.isDeleted}, false) = false
-            and coalesce(${users.suspended}, false) = false
-            and coalesce(${users.isBlocked}, false) = false
-        )::int`.as("active_count"),
-        suspendedCount: sql<number>`count(*) filter (where ${users.suspended} = true)::int`.as("suspended_count"),
-        blockedCount: sql<number>`count(*) filter (where ${users.isBlocked} = true)::int`.as("blocked_count"),
-        deletedCount: sql<number>`count(*) filter (where ${users.isDeleted} = true)::int`.as("deleted_count"),
-        adminsCount: sql<number>`count(*) filter (where ${users.role} = 'admin')::int`.as("admins_count"),
-        teachersCount: sql<number>`count(*) filter (where ${users.role} = 'teacher')::int`.as("teachers_count"),
-        studentsCount: sql<number>`count(*) filter (where ${users.role} = 'student')::int`.as("students_count"),
-        parentsCount: sql<number>`count(*) filter (where ${users.role} = 'parent')::int`.as("parents_count"),
-        newThisWeekCount: sql<number>`count(*) filter (where ${users.createdAt} > ${newThisWeekCutoff})::int`.as(
-          "new_this_week_count"
-        ),
-      })
-      .from(users);
-    const row = rows[0];
-    return {
-      totalCount: row?.totalCount ?? 0,
-      activeCount: row?.activeCount ?? 0,
-      suspendedCount: row?.suspendedCount ?? 0,
-      blockedCount: row?.blockedCount ?? 0,
-      deletedCount: row?.deletedCount ?? 0,
-      adminsCount: row?.adminsCount ?? 0,
-      teachersCount: row?.teachersCount ?? 0,
-      studentsCount: row?.studentsCount ?? 0,
-      parentsCount: row?.parentsCount ?? 0,
-      newThisWeekCount: row?.newThisWeekCount ?? 0,
-    };
+    return getStatsAggregate(tx);
+  }
+
+  /**
+   * Resolves the applicant-cooldown LIFECYCLE counters for the admin
+   * dashboard panel in a SINGLE round-trip — one filtered-count aggregate
+   * over `applicants INNER JOIN users` (shared-PK 1:1; the join carries
+   * ONLY the directory's deleted-flag base predicate —
+   * `coalesce(is_deleted, false) = false` — so a soft-deleted account's
+   * applicant row can never inflate a bucket the deep-linked directory
+   * would not list).
+   *
+   * The three arms partition the COOLING-applicant population exactly
+   * (every predicate is NULL-rejecting, so an applicant with no stamped
+   * cooldown matches nothing):
+   *  - `activeCount`       — a stamped instant strictly in the future
+   *                          (the shared strict-`>` boundary of
+   *                          `deriveCooldownState`).
+   *  - `expiringSoonCount` — the slice of `activeCount` landing within
+   *                          the canonical window (`COOLDOWN_EXPIRING_SOON_DAYS`,
+   *                          inclusive upper bound) — the SAME constant
+   *                          the `cooldownExpiringSoon` filter arm
+   *                          narrows with, so the KPI and its deep-linked
+   *                          listing cannot disagree.
+   *  - `expiredCount`      — a stamped instant at or before `now` (the
+   *                          boundary instant itself is already expired).
+   *
+   * All instants (now + the window cutoff) are computed in JS and bound
+   * as Drizzle parameters — never SQL `now()` / `interval` — so the
+   * statement stays engine-portable per the repository header. ONE
+   * captured `now` feeds every arm; the three buckets stay mutually
+   * exclusive within the snapshot.
+   *
+   * @returns The aggregate row (members are `::int`-cast counts; the
+   *          empty-table edge case still yields one row of zeros because
+   *          bare aggregates always return exactly one row).
+   */
+  export async function getCooldownLifecycleStats(tx?: DBTransaction): Promise<AdminCooldownLifecycleRow> {
+    return getCooldownLifecycleStatsAggregate(tx);
   }
 
   /**
    * Resolves the per-user "recent activity" timeline: `audit_logs` rows
-   * WHERE `entity_type = 'user' AND entity_id = :userId` (actions
-   * performed ON the account), newest-first, capped at `limit`.
+   * WHERE `entity_id = :userId` over the `user` + `applicant` entity arms
+   * (actions performed ON the account and on its teacher-applicant
+   * profile), newest-first, capped at `limit`.
    *
    * Single-round-trip INNER JOIN over `users` resolves the acting admin's
    * display name (the `actor_id` FK is NOT NULL RESTRICT, so the join
@@ -243,10 +265,14 @@ export namespace AdminUserRepository {
    * tiebreak on `id DESC` keeps same-timestamp entries (batch mutations
    * share a transaction timestamp) in a stable insertion-latest order.
    *
-   * The `entity_type = 'user'` literal is the canonical audit entity label
-   * written by this feature's mutations (`AUDIT_ENTITY_TYPE` in the
-   * service layer); the read-back binds the same literal so the timeline
-   * and the writer can never drift apart.
+   * The entity arms mirror the two audit writers that record actions ABOUT
+   * this account: `entity_type = 'user'` (account CRUD/governance rows,
+   * `AUDIT_ENTITY_TYPE` in the service layer) and `entity_type =
+   * 'applicant'` (the teacher-applicant lifecycle rows — override,
+   * cooldown extension). `applicants` is a shared-PK child of `users`, so
+   * its audit rows carry `entity_id = users.id` and the id predicate is
+   * shared verbatim across both arms; rows about OTHER entities never
+   * leak in.
    *
    * @param userId  The target user's id (activity ABOUT this account).
    * @param limit   Maximum entries to return (1..50; the resolver clamps).
@@ -264,13 +290,16 @@ export namespace AdminUserRepository {
       .select({
         id: auditLogs.id,
         actionType: auditLogs.actionType,
+        entityType: auditLogs.entityType,
         actorName: users.fullName,
         details: auditLogs.details,
         createdAt: auditLogs.createdAt,
       })
       .from(auditLogs)
       .innerJoin(users, eq(users.id, auditLogs.actorId))
-      .where(and(eq(auditLogs.entityType, "user"), eq(auditLogs.entityId, userId)))
+      .where(
+        and(eq(auditLogs.entityId, userId), or(eq(auditLogs.entityType, "user"), eq(auditLogs.entityType, "applicant")))
+      )
       .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
       .limit(limit);
   }

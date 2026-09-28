@@ -2,6 +2,7 @@ import { Stack } from "@mui/material";
 import type { Metadata } from "next";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { withPageAuth } from "@/frontend/lib/auth/withPageAuth";
+import { AdminCooldownLifecyclePanel } from "@/frontend/views/admin/dashboard/AdminCooldownLifecyclePanel";
 import { DashboardView } from "@/frontend/views/dashboard";
 import { ParentUpNextCard } from "@/frontend/views/parent/dashboard";
 import {
@@ -86,6 +87,14 @@ function resolveStatusSlot(role: UserRole): React.ReactNode {
       );
     case UserRole.Parent:
       return <ParentUpNextCard />;
+    case UserRole.Admin:
+      // The applicant-cooldown lifecycle panel: three tappable lifecycle
+      // buckets deep-linking into the directory pre-filtered (active →
+      // expiring-soon → expired). Same additive pattern as the role cards
+      // above — zero-prop client component whose admin-scoped query answers
+      // the aggregates server-side; the page guard stays the only
+      // authorization boundary.
+      return <AdminCooldownLifecyclePanel />;
     default:
       return undefined;
   }

@@ -105,4 +105,17 @@ export const dashboardEn: DashboardLabels = {
       notifications: "Check your notifications for session updates about your children.",
     },
   },
+  cooldownLifecycle: {
+    title: "Applicant cooldown lifecycle",
+    subtitle: "Tap a bucket to open the user directory pre-filtered.",
+    // Mirrors adminUsers.directoryChips.cooldownActive verbatim — one vocabulary.
+    active: "Active cooldown",
+    // `days` arrives from the wire (the server-echoed window length the count used).
+    expiringSoon: days => `Expiring within ${days} day${days === 1 ? "" : "s"}`,
+    // Mirrors adminUsers.directoryChips.cooldownExpired verbatim — one vocabulary.
+    expired: "Cooldown expired",
+    viewAll: "Open user directory",
+    bucketAria: (label, count) => `${label}: ${count} applicants`,
+    loadingLabel: "Loading cooldown lifecycle…",
+  },
 };

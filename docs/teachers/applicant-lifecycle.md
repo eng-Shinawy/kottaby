@@ -66,6 +66,8 @@ Service wrapper: `ApplicantLifecycleService.recordReapplication(userId, locale, 
 
 The lifecycle guard **writes neither source**: the failed-evaluation writer owns the cooldown write; this document defines only the read semantics. Governance fields live on the base `users` table, and the `applicants` table is the lifecycle home — both per the recorded decisions in `docs/specs/open-decisions-and-gaps.md`.
 
+The cooldown machinery on the writer side of this split — the failure stamp, the admin extension primitive (`adminExtendApplicantCooldown`), and the derived `cooldownState` read-model — is specified in `docs/teachers/applicant-cooldown.md`.
+
 ### 2.4 Duration-agnostic guard
 
 The guard is deliberately **duration-agnostic**: whatever instant the failure/cooldown writer wrote into `cooldown_until` is honored verbatim. The 30-day (Tajweed) / 90-day (Hifz) minimums are a **write-time concern** of that writer — the reader documented here implements no duration knowledge at all. This is the deliberate two-source-of-truth split: durations are *set* by the failure writer; the guard is a pure `cooldown_until` read. It is recorded here so the cooldown writer does not re-litigate it.

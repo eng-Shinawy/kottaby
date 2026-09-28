@@ -5,7 +5,7 @@
  *
  * WHAT THIS LOCKS
  *  1. `entityTypeLabelOf` resolves every canonical entity-type wire value the
- *     backend mints (user, teacher, session, subscription, plan,
+ *     backend mints (user, teacher, applicant, session, subscription, plan,
  *     teacher_transaction, parent_link_request*, notification_broadcast) to
  *     the localized `entityTypeLabels` copy in BOTH locales.
  *  2. FAIL-OPEN DISPLAY: a value outside the vocabulary renders verbatim —
@@ -21,7 +21,7 @@ import {
   AuditActionType,
 } from "@/frontend/graphql/generated/gql/graphql";
 import { auditTrailCsvFilename, buildAuditTrailCsv } from "@/frontend/views/admin/audit/audit-trail-csv";
-import { entityTypeLabelOf } from "@/frontend/views/admin/audit/audit-trail-filters";
+import { auditEntityIdContentOf, entityTypeLabelOf } from "@/frontend/views/admin/audit/audit-trail-filters";
 import { adminUsersAr } from "@/shared/locale/ar/adminUsers";
 import { adminUsersEn } from "@/shared/locale/en/adminUsers";
 
@@ -29,6 +29,7 @@ import { adminUsersEn } from "@/shared/locale/en/adminUsers";
 const ALL_WIRE_TYPES = [
   "user",
   "teacher",
+  "applicant",
   "session",
   "subscription",
   "plan",
@@ -69,9 +70,46 @@ describe("entityTypeLabelOf — localized display labels for the trail's entity 
     expect(entityTypeLabelOf(adminUsersAr.auditTrail, "subscription")).toBe("اشتراك");
   });
 
+  test("the cooldown-governance mint: applicant resolves to the established applicant vocabulary in BOTH locales", () => {
+    expect(entityTypeLabelOf(adminUsersEn.auditTrail, "applicant")).toBe("Teacher Applicant");
+    expect(entityTypeLabelOf(adminUsersAr.auditTrail, "applicant")).toBe("متقدم للتدريس");
+  });
+
   test("an unknown wire value renders VERBATIM (fail-open display, never blank)", () => {
     expect(entityTypeLabelOf(adminUsersEn.auditTrail, "future_thing")).toBe("future_thing");
     expect(entityTypeLabelOf(adminUsersAr.auditTrail, "future_thing")).toBe("future_thing");
+  });
+});
+
+describe("auditEntityIdContentOf — which trail rows navigate to the account", () => {
+  test("both ACCOUNT arms navigate: user AND applicant resolve to the account deep link", () => {
+    // `applicants` is a shared-PK child of `users` — the applicant row's
+    // entity_id IS the affected account's id, so the deep link is honest by
+    // the same construction as the user arm.
+    expect(auditEntityIdContentOf({ entityType: "user", entityId: 1478 })).toEqual({
+      kind: "accountLink",
+      userId: 1478,
+    });
+    expect(auditEntityIdContentOf({ entityType: "applicant", entityId: 1478 })).toEqual({
+      kind: "accountLink",
+      userId: 1478,
+    });
+  });
+
+  test("every non-account entity keeps the plain id atom (no false navigation)", () => {
+    for (const wireType of ALL_WIRE_TYPES) {
+      if (wireType === "user" || wireType === "applicant") continue;
+      expect(auditEntityIdContentOf({ entityType: wireType, entityId: 3821 })).toEqual({
+        kind: "plainId",
+        entityId: 3821,
+      });
+    }
+  });
+
+  test("absent entity ids render the em-dash decision regardless of the entity arm", () => {
+    expect(auditEntityIdContentOf({ entityType: "user", entityId: null })).toEqual({ kind: "null" });
+    expect(auditEntityIdContentOf({ entityType: "applicant", entityId: null })).toEqual({ kind: "null" });
+    expect(auditEntityIdContentOf({ entityType: "plan", entityId: null })).toEqual({ kind: "null" });
   });
 });
 

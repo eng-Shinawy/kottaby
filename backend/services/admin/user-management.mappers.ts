@@ -11,6 +11,7 @@ import type {
   AdminUserDirectoryRow,
   AdminUserStatsRow,
 } from "@/backend/db/repo/admin/admin-user.repository";
+import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
 import { ApplicantStatus, isApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { toGender } from "@/backend/enum/users/gender.enum";
 import { toUserRole } from "@/backend/enum/users/user-role.enum";
@@ -18,6 +19,7 @@ import { ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { toAuditActionType } from "@/backend/services/admin/admin-gate.helpers";
 import { normalizeDateOnly, projectChangedFields } from "@/backend/services/admin/user-management.helpers";
+import { deriveCooldownState } from "@/backend/services/teachers/applicant-lifecycle.service";
 import type {
   AdminUserActivityEntryReturnType,
   AdminUserDetailReturnType,
@@ -50,6 +52,14 @@ export function mapStatsRow(row: AdminUserStatsRow): AdminUserStatsReturnType {
  * Null-coalesces governance booleans (`?? false`) and guard-validates the
  * stored applicant status (`isApplicantStatus`) — corrupt stored values
  * fail-closed with `APPLICANT_STATUS_CORRUPT`.
+ *
+ * Cooldown observables are derived ONLY for rows carrying an `applicants`
+ * child (guard-validated status above): the state flows through the shared
+ * strict-`>` derivation (`deriveCooldownState`) against ONE captured `now`
+ * per row — the same captured-now discipline `buildApplicantSnapshot` uses
+ * on the detail surface — so the directory chip and the detail snapshot can
+ * never disagree about a row at the same read instant. Non-applicant rows
+ * carry `null` for both observables (the chip slot stays empty for them).
  */
 export function mapDirectoryRow(row: AdminUserDirectoryRow, locale: string): AdminUserListItemReturnType {
   const tErrors = getServerTranslations(locale).errorsTranslations;
@@ -92,6 +102,8 @@ export function mapDirectoryRow(row: AdminUserDirectoryRow, locale: string): Adm
     lastActiveAt: row.lastActiveAt,
     createdAt: row.createdAt,
     applicantStatus,
+    cooldownState: applicantStatus === null ? null : deriveCooldownState(row.applicantCooldownUntil, new Date()),
+    cooldownUntil: row.applicantCooldownUntil,
     teacherIsApproved: row.teacherIsApproved,
     teacherIsEvaluator: row.teacherIsEvaluator,
     studentHasParentLink: row.studentHasParentLink,
@@ -102,7 +114,14 @@ export function mapDirectoryRow(row: AdminUserDirectoryRow, locale: string): Adm
 
 /**
  * Builds the applicant role-child snapshot. Guard-validated via
- * `isApplicantStatus` (fail-closed on corrupt stored values).
+ * `isApplicantStatus` (fail-closed on corrupt stored values). The cooldown
+ * observables are derived TOGETHER from the row's cooldown instant against
+ * ONE captured `now`: the explicit state flows through the lifecycle
+ * service's shared strict-`>` derivation, and both booleans mirror the
+ * applicant-facing profile's semantics (an active cooldown blocks purchase;
+ * certification is terminal). The two surfaces share one derivation boundary
+ * and one rule set — each evaluated at its own read instant, so semantic
+ * drift between them is impossible while ordinary time passage is not.
  */
 function buildApplicantSnapshot(row: AdminUserDetailRow, locale: string): AdminUserDetailReturnType["applicant"] {
   if (row.applicantStatus === null) {
@@ -117,14 +136,23 @@ function buildApplicantSnapshot(row: AdminUserDetailRow, locale: string): AdminU
     });
     throw new ValidationError("APPLICANT_STATUS_CORRUPT", tErrors.applicantStatusCorrupt);
   }
+  // Captured-now discipline — one instant governs every cooldown observable
+  // below, exactly as the applicant-facing profile does. The boolean is
+  // READ OFF the shared derivation (Active ⇔ active) rather than re-stating
+  // the comparison, so it cannot drift from the enumeration it mirrors.
+  const now = new Date();
+  const cooldownState = deriveCooldownState(row.applicantCooldownUntil, now);
+  const cooldownActive = cooldownState === ApplicantCooldownState.Active;
+  const canPurchaseVerification = !cooldownActive && row.applicantStatus !== ApplicantStatus.Passed;
   return {
     id: row.id,
     status: row.applicantStatus,
     verificationAttempts: row.applicantVerificationAttempts ?? 0,
     lastAttemptAt: row.applicantLastAttemptAt,
     cooldownUntil: row.applicantCooldownUntil,
-    cooldownActive: false,
-    canPurchaseVerification: row.applicantStatus !== ApplicantStatus.Passed,
+    cooldownActive,
+    canPurchaseVerification,
+    cooldownState,
   };
 }
 
@@ -240,8 +268,13 @@ export function mapActivityRow(row: AdminUserActivityRow): AdminUserActivityEntr
   return {
     id: row.id,
     actionType,
+    entityType: row.entityType,
     actorName: row.actorName ?? "",
     changedFields: projectChangedFields(row.details),
+    // Base entries start captionless — the service composes the localized
+    // caption over the RAW details ({ ...entry, caption }) so the mapper
+    // stays locale-free (translations never enter the mapper layer).
+    caption: null,
     createdAt: row.createdAt,
   };
 }

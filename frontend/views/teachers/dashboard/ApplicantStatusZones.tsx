@@ -73,7 +73,21 @@ export function CooldownZone({ expiryText, reapplyLabel }: Readonly<CooldownZone
       </Box>
       {/* Disabled affordance mirrors the prototype's locked button: same
           label, unavailable while the cooldown runs. */}
-      <Button variant="outlined" startIcon={<LockIcon />} disabled sx={{ ...reapplyButtonSx }}>
+      <Button
+        variant="outlined"
+        startIcon={<LockIcon />}
+        disabled
+        sx={theme => ({
+          ...reapplyButtonSx,
+          "&.Mui-disabled": {
+            cursor: "not-allowed",
+            borderStyle: "dashed",
+            color: theme.palette.action.disabled,
+            bgcolor: theme.palette.action.disabledBackground,
+            opacity: 0.72,
+          },
+        })}
+      >
         {reapplyLabel}
       </Button>
     </Stack>

@@ -53,7 +53,7 @@ function toneColors(theme: Theme, tone: DetailTone): ToneColors {
     case "warning":
       return { bg: theme.palette.warningContainer, fg: theme.palette.onWarningContainer };
     case "error":
-      return { bg: theme.palette.errorContainer, fg: theme.palette.onErrorContainer };
+      return { bg: theme.palette.error.main, fg: theme.palette.onError };
     case "info":
       return { bg: theme.palette.infoContainer, fg: theme.palette.onInfoContainer };
     default:
@@ -120,7 +120,8 @@ export function DetailInfoStrip({ note, tone = "surface" }: DetailInfoStripProps
         alignItems: "flex-start",
         gap: 1,
         mt: 1,
-        p: 1.5,
+        px: { xs: 2, md: 3 },
+        py: 1.5,
         borderRadius: "8px",
         bgcolor: tone === "info" ? theme.palette.surfaceContainerHigh : theme.palette.surfaceContainerLow,
         ...(tone === "info" && { borderInlineStart: `4px solid ${theme.palette.info.main}` }),

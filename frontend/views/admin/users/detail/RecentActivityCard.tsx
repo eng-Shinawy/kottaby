@@ -12,7 +12,9 @@
  *
  * Composition:
  *  - Title row: HistoryOutlined (primary) + title + trailing "View All"
- *    text button linking to the `/audit` route.
+ *    text button deep-linking to `/audit?entityId=<user.id>` — the trail
+ *    opens pre-filtered to every row ABOUT this account (both the account
+ *    and the applicant entity arms share the one id).
  *  - Timeline: per-entry 10px dot (latest filled `primary`, older
  *    `surfaceContainerHighest`) joined by 1px `divider` segments; entry =
  *    600-weight action label + `byActor actorName · relativeTime` sub-line +
@@ -37,6 +39,9 @@ import { ActivityAuditButton, ActivityBody, DetailCard, DetailCardTitle } from "
 import type { ActivityLabels } from "@/frontend/views/admin/users/utils";
 
 interface RecentActivityCardProps {
+  /** The detail user's id — seeds the trailing "View All" deep link so the
+   * audit trail opens pre-filtered to every row ABOUT this account. */
+  readonly userId: number;
   readonly labels: ActivityLabels;
   readonly activityLoading: boolean;
   readonly activityData: AdminUserActivityQuery | undefined;
@@ -45,6 +50,7 @@ interface RecentActivityCardProps {
 }
 
 export function RecentActivityCard({
+  userId,
   labels,
   activityLoading,
   activityData,
@@ -79,7 +85,7 @@ export function RecentActivityCard({
           title={labels.activity.title}
           trailing={
             hasEntries ? (
-              <Button component={Link} href="/audit" size="small" sx={{ whiteSpace: "nowrap" }}>
+              <Button component={Link} href={`/audit?entityId=${userId}`} size="small" sx={{ whiteSpace: "nowrap" }}>
                 {labels.activity.viewAll}
               </Button>
             ) : undefined

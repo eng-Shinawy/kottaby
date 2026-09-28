@@ -64,6 +64,10 @@ export const errorsAr: ErrorsLabels = {
   applicantCooldownActive: "يمكنك إعادة التقديم للتحقق كمعلم قرآن بعد {cooldownUntil}.",
   applicantStatusCorrupt: "تعذر قراءة حالة طلبك. يرجى التواصل مع فريق الدعم.",
   applicantAlreadyCertified: "أنت معتمد بالفعل كمعلم قرآن. لم تعد عمليات شراء التوثيق متاحة لهذا الحساب.",
+  applicantCooldownExtensionInvalid: "يجب أن تكون أيام تمديد فترة التهدئة بين 1 و3650 يوماً.",
+  applicantOverrideCooldownInvalid: "يجب أن تكون أيام فترة التهدئة للتجاوز بين 1 و3650 يوماً.",
+  applicantOverrideNotPassed: "يمكن رفض المتقدمين المعتمدين (الناجحين) فقط يدوياً.",
+  applicantNoActiveCooldown: "لا توجد فترة انتظار نشطة لهذا المتقدم لإلغائها.",
   adminUsers: {
     userNotFound: "لم يتم العثور على المستخدم.",
     userAlreadyDeleted: "تم حذف هذا المستخدم بالفعل.",

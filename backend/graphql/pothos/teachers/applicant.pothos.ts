@@ -6,13 +6,14 @@
  *  - Backed EXCLUSIVELY by the canonical {@link ApplicantProfileReturnType}
  *    from `@/backend/types` — no local type definitions here. The service
  *    (`ApplicantLifecycleService.getMyApplicantProfile`) is the only
- *    producer of that closed 7-field shape (BOPLA: read-only, no
+ *    producer of that closed 8-field shape (BOPLA: read-only, no
  *    governance fields, no client-writable surface).
- *  - Exactly seven fields, mapped structurally:
+ *  - Exactly eight fields, mapped structurally:
  *      id / verificationAttempts                  → exposed Ints (non-nullable)
  *      status                                     → `ApplicantStatus` registered enum
  *      lastAttemptAt / cooldownUntil              → nullable `DateTime` scalars
  *      cooldownActive / canPurchaseVerification   → exposed Booleans (non-nullable)
+ *      cooldownState                              → `ApplicantCooldownState` registered enum
  *  - Timestamp exposure: nullable timestamps use the `DateTime` scalar
  *    (registered in `shared/scalar.pothos.ts`, backed by `DateTimeResolver`
  *    from `graphql-scalars`) — it serializes `Date` to the same ISO-8601 UTC
@@ -27,7 +28,10 @@
  * `gqlSchema.ts` side-effect chain.
  */
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
-import { ApplicantStatusPothosEnum } from "@/backend/graphql/pothos/shared/enum.pothos";
+import {
+  ApplicantCooldownStatePothosEnum,
+  ApplicantStatusPothosEnum,
+} from "@/backend/graphql/pothos/shared/enum.pothos";
 import type { ApplicantProfileReturnType } from "@/backend/types";
 
 export const ApplicantProfilePothosObject = gqlSchemaBuilder
@@ -51,5 +55,12 @@ export const ApplicantProfilePothosObject = gqlSchemaBuilder
       cooldownUntil: t.expose("cooldownUntil", { type: "DateTime", nullable: true }),
       cooldownActive: t.exposeBoolean("cooldownActive"),
       canPurchaseVerification: t.exposeBoolean("canPurchaseVerification"),
+      // Derived cooldown read-model vocabulary from the same captured `now`
+      // that drives `cooldownActive` — computed server-side, direct
+      // passthrough onto the enum registered in shared/enum.pothos.
+      cooldownState: t.field({
+        type: ApplicantCooldownStatePothosEnum,
+        resolve: parent => parent.cooldownState,
+      }),
     }),
   });

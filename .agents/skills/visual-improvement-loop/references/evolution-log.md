@@ -368,3 +368,17 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   markers must be localized tab-panel copy (e.g. the progress-record count sentence), never the
   title. → landed: `references/capture-protocol.md` (document.title page-local gotcha, updated in
   this change).
+
+## 2026-09-28 — cooldown plan visual run (trace 1a0e7a0e9b9cfe91)
+- Sandbox survival: Storybook dies silently after "ready" (reaper + Chromatic watcher ENOSPC storms). Fallback rig: dev server + `browser-login.ts --inject`; sessions invalidate on every server restart — re-inject per batch. (captured in this log; capture-protocol already documents the reaper pattern)
+- PGlite double-start: an orphaned `next-server` surviving pkill + supervisor respawn opens TWO WASM instances on one data dir → `Aborted()` GraphQL 500s on login. Rule: after ANY restart assert `servers=1`; on aborts rebuild the dir (bootstrap+seed). → promoted into capture-protocol "DB-provider gotcha".
+- Inspector contradiction closure: a surface that flips the SAME element between "make active"/"dim it"/"make it float less" across passes with DOM-verified affordances is closed at 3 passes; record arbitrations, accept the plateau per rubric. → already codified in rubric (2026-09-23 note); this run adds the 4-pass data point.
+- Verdict-file caching: score verdicts keyed by image filename must be cleared between recapture rounds or stale verdicts alias in. → promoted into capture-protocol (batch discipline).
+
+## 2026-09-28 — cooldown plan pass 2 (`ai/plans/milestone_1_core_domain_mvp/cooldown_state_machine_1_month_tajweed_3_month_hifz/outcome/12-visual-pass2-ci-hardening-outcome.md`)
+
+1. **Inspector fallback**: the single-image subagent channel can degrade mid-run ("images are not available in sub-agent context", persistent across retries). The `z-ai vision` CLI with the same rubric prompt is a reliable fallback inspector — promoted to `capture-protocol.md`.
+2. **CDP viewport drop**: `agent-browser set viewport` can close the CDP channel and silently reset the viewport (observed 500px) after long sessions; re-set the viewport AND re-verify the title guard after any hiccup — promoted to `capture-protocol.md`.
+3. **CI gate composition**: a branch passing every per-file sub-loop can still fail CI's whole-repo gates (knip unused exports, cross-file jscpd `-t 0`, eslint full incl. `import-x/no-duplicates`, oxlint `--deny-warnings`). Pre-push battery: `bun run check:unused`, repo-wide `bun run check:duplicates`, `bunx tsgo -b --noEmit`, `bun run biome:check` (a WRITER — commit its diff) — promoted to this file; fix-wave protocol note (rule 4 composes with CI, not replaces it).
+4. **pgEnum VALUES need committed SQL migrations**: drizzle schema arrays cover only the push path; fresh migrate-path CI DBs miss new enum values. Drop an idempotent `backend/db/migration/*.sql` (guard-then-ALTER pattern of migration 7) and verify with a direct enum-space query on a rebuilt dir.
+5. **Verify-clean-dir step**: CI's trailing "Working directory modified by checks" failure means a check writes (biome `--write`) — run every writing check locally and commit its diff before pushing.

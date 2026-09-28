@@ -168,6 +168,8 @@ import {
   validate,
 } from "graphql";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
+import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
+import { AdminApplicantOverrideAction } from "@/backend/enum/teachers/applicant-override-action.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { graphQLSchema } from "@/backend/graphql/gqlSchema";
 import { PUBLIC_OPERATION_NAMES, PUBLIC_OPERATIONS } from "@/backend/lib/gateway";
@@ -274,7 +276,13 @@ const SESSION_LIFECYCLE_ENUMS = ["SessionIntent", "SessionStatus", "SessionType"
  * documented one-time reconciliation ahead of pinning the
  * admin-governance pair.
  */
-const ADMIN_USER_USER_QUERY_FIELDS = ["adminUserActivity", "adminUserDetail", "adminUserStats", "adminUsers"] as const;
+const ADMIN_USER_USER_QUERY_FIELDS = [
+  "adminApplicantCooldownStats",
+  "adminUserActivity",
+  "adminUserDetail",
+  "adminUserStats",
+  "adminUsers",
+] as const;
 /**
  * admin-user-management mutation trio — RECONCILED baseline drift
  * (the prior `PRE_3_1_MUTATION_FIELDS` inventory listed plan-catalog CRUD
@@ -355,6 +363,7 @@ const ADMIN_USER_TYPE_NAMES = [
   "AdminUserListItem",
   "AdminUserPage",
   "AdminUserStats",
+  "AdminApplicantCooldownStats",
 ] as const;
 // ─── Whole-platform analytics read — ONE admin root query (zero arguments, ──
 // ─── `$all`-gated; no anonymous surface, the allowlist stays byte-unchanged)─
@@ -842,6 +851,45 @@ const ADMIN_ACADEMIC_TYPE_NAMES = [
   "AdminStudentAcademicDetail",
 ] as const;
 
+/**
+ * Applicant cooldown surface — the derived cooldown-state read model. The
+ * ONE new GraphQL enum of the surface is the cooldown-state vocabulary (a
+ * transient service derivation with NO pgEnum column behind it; the wire
+ * members are the TS enum member names `None` / `Active` / `Expired`, the
+ * same member-name convention `ApplicantStatus` exposes). The state rides
+ * the canonical `ApplicantProfile` object as ONE non-nullable read field,
+ * and the admin-gated cooldown-extension write extends the active window —
+ * the target applicant and the extension length are its only arguments;
+ * the acting identity is session-sourced server-side. Auth-gated with the
+ * `authScopes: { $all: { authenticated: true, role: [UserRole.Admin] } }`
+ * conjunction — declared as the INLINED literal (the same shape
+ * `adminOnlyAuthScopes` shares; mutations inline it so the audit census
+ * drift scanner can classify the gate statically).
+ */
+const APPLICANT_COOLDOWN_MUTATION_FIELDS = ["adminExtendApplicantCooldown"] as const;
+const APPLICANT_COOLDOWN_ENUMS = ["ApplicantCooldownState"] as const;
+
+/**
+ * Applicant override surface — the admin manual override of an applicant's
+ * automated evaluation result (docs/planning/TICKETS.md "Admin Override of
+ * Evaluation Results"): certify / reject / grant_re_evaluation. The ONE new
+ * GraphQL enum of the surface is the override-direction vocabulary (a pure
+ * transport/service selector with NO pgEnum behind it; the wire members are
+ * the TS enum member names `Certify` / `GrantReEvaluation` / `Reject`, the
+ * same member-name convention `ApplicantCooldownState` exposes). The write
+ * returns the canonical `ApplicantProfile` — the target applicant and the
+ * direction are required; the reject-direction `cooldownDays` is the ONLY
+ * nullable arg (the `adminSetUserSuspended`-period precedent: validated on
+ * the reject direction, ignored on the others); the acting identity is
+ * session-sourced server-side. Auth-gated with the
+ * `authScopes: { $all: { authenticated: true, role: [UserRole.Admin] } }`
+ * conjunction — declared as the INLINED literal (the same shape
+ * `adminOnlyAuthScopes` shares; mutations inline it so the audit census
+ * drift scanner can classify the gate statically).
+ */
+const APPLICANT_OVERRIDE_MUTATION_FIELDS = ["adminOverrideApplicantEvaluation"] as const;
+const APPLICANT_OVERRIDE_ENUMS = ["AdminApplicantOverrideAction"] as const;
+
 // ─── Schema walk helpers ─────────────────────────────────────────────────────
 
 /** All named SDL type names, introspection builtins + spec scalars excluded, sorted deterministically. */
@@ -1065,7 +1113,7 @@ describe("HealthCheck object shape — four scalar fields, no id", () => {
 });
 
 describe("Surface freeze — pinned additions vs the baseline inventory", () => {
-  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user trio + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write)", () => {
+  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user trio + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write)", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
@@ -1091,7 +1139,10 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // and the student-evaluation rating write (`submitTeacherEvaluation`),
     // and the evaluation-rubric submission write (`submitRubricEvaluation`),
     // and the admin direct-onboarding write
-    // (`adminOnboardStudentWithOfflinePayment`).
+    // (`adminOnboardStudentWithOfflinePayment`), and the admin
+    // applicant-cooldown extension write (`adminExtendApplicantCooldown`),
+    // and the admin evaluation-override write
+    // (`adminOverrideApplicantEvaluation`).
     // All authScopes-gated — none is allowlist material; the
     // public-operation registry stays byte-unchanged.
     expect(names).toEqual(
@@ -1105,6 +1156,8 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...WALLET_MUTATION_FIELDS,
         ...ADMIN_USER_USER_MUTATION_FIELDS,
         ...ADMIN_GOVERNANCE_MUTATION_FIELDS,
+        ...APPLICANT_COOLDOWN_MUTATION_FIELDS,
+        ...APPLICANT_OVERRIDE_MUTATION_FIELDS,
         ...ADMIN_SESSION_GOVERNANCE_MUTATION_FIELDS,
         ...SUBSCRIPTION_PURCHASE_MUTATION_FIELDS,
         ...VERIFICATION_PLAN_MUTATION_FIELDS,
@@ -1127,14 +1180,16 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
   });
 
   test("admin mutations sit at their SORTED positions as ONE contiguous block in the Mutation root inventory", () => {
-    // The seventeen admin-root mutations must appear in this exact
+    // The nineteen admin-root mutations must appear in this exact
     // lexicographic order as ONE contiguous slice in the sorted Mutation
     // root inventory:
     //   adminBroadcastNotification < adminCancelSession <
     //   adminCancelSubscription < adminCertifyTeacherColdStart <
     //   adminChangeSubscriptionPlan < adminCreateUser <
-    //   adminExtendSubscription < adminJoinSession <
-    //   adminOnboardStudentWithOfflinePayment < adminReassignTeacher <
+    //   adminExtendApplicantCooldown < adminExtendSubscription <
+    //   adminJoinSession <
+    //   adminOnboardStudentWithOfflinePayment <
+    //   adminOverrideApplicantEvaluation < adminReassignTeacher <
     //   adminRenewSubscription < adminRescheduleSession <
     //   adminSetUserBlocked < adminSetUserDeleted < adminSetUserSuspended <
     //   adminStopBroadcast < adminUpdateUser
@@ -1146,10 +1201,15 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // interleaves the whole band (cancel/change-plan before
     // adminCertifyTeacherColdStart, extend between adminCreateUser and
     // adminJoinSession, renew between adminReassignTeacher and
-    // adminRescheduleSession), and the direct-onboarding write lands
-    // between adminJoinSession and adminReassignTeacher, so the
-    // contiguity pin stays anchored to the whole admin block, exactly as
-    // the sorted live schema emits them.
+    // adminRescheduleSession), the direct-onboarding write lands
+    // between adminJoinSession and adminReassignTeacher, the
+    // applicant-cooldown extension write shares the `adminExtend` prefix
+    // with the subscription window-extend (the applicant vocabulary sorts
+    // before the subscription one), landing directly after
+    // adminCreateUser, and the evaluation-override write lands directly
+    // after adminOnboardStudentWithOfflinePayment (the `adminO` vocabulary:
+    // nboard < verride), so the contiguity pin stays anchored to the whole
+    // admin block, exactly as the sorted live schema emits them.
     const names = Object.keys(graphQLSchema.getMutationType()?.getFields() ?? {}).toSorted((a, b) =>
       a.localeCompare(b)
     );
@@ -1160,9 +1220,11 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
       "adminCertifyTeacherColdStart",
       "adminChangeSubscriptionPlan",
       "adminCreateUser",
+      "adminExtendApplicantCooldown",
       "adminExtendSubscription",
       "adminJoinSession",
       "adminOnboardStudentWithOfflinePayment",
+      "adminOverrideApplicantEvaluation",
       "adminReassignTeacher",
       "adminRenewSubscription",
       "adminRescheduleSession",
@@ -1172,7 +1234,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
       "adminStopBroadcast",
       "adminUpdateUser",
     ];
-    // Contiguous slice: the seventeen admin mutations MUST be adjacent in
+    // Contiguous slice: the nineteen admin mutations MUST be adjacent in
     // the sorted Mutation root inventory (no non-admin field interleaves
     // between them).
     const firstIndex = names.indexOf(adminMutationNames[0] ?? "");
@@ -1181,7 +1243,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     expect(slice).toEqual(adminMutationNames);
   });
 
-  test("enum set is pinned (every new enum named explicitly; LinkStatus + BroadcastAudienceType re-anchored as documented drift; BroadcastStatus is the sanctioned broadcast-lifecycle vocabulary; RubricWeaknessArea is the sanctioned rubric-evaluation vocabulary)", () => {
+  test("enum set is pinned (every new enum named explicitly; LinkStatus + BroadcastAudienceType re-anchored as documented drift; BroadcastStatus is the sanctioned broadcast-lifecycle vocabulary; RubricWeaknessArea is the sanctioned rubric-evaluation vocabulary; ApplicantCooldownState is the sanctioned applicant-cooldown vocabulary; AdminApplicantOverrideAction is the sanctioned evaluation-override vocabulary)", () => {
     const enumNames = Object.values(graphQLSchema.getTypeMap())
       .filter(type => type instanceof GraphQLEnumType && !type.name.startsWith("__"))
       .map(type => type.name)
@@ -1201,8 +1263,11 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // `ProrationDirection` plan-change settlement vocabulary is the
     // sanctioned admin subscription-management addition (merged from
     // main); the `AdminAcademicAttentionReason` attention vocabulary is
-    // the sanctioned academic-tracking addition (the ONE new enum of
-    // that surface).
+    // the sanctioned academic-tracking addition; the
+    // `ApplicantCooldownState` derived read-model vocabulary (no pgEnum
+    // behind it) is the sanctioned applicant-cooldown addition; the
+    // `AdminApplicantOverrideAction` override-direction vocabulary (no
+    // pgEnum behind it) is the sanctioned evaluation-override addition.
     expect(enumNames).toEqual(
       [
         ...PRE_3_1_ENUMS,
@@ -1217,6 +1282,8 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...SUBSCRIPTION_ADMIN_ENUMS,
         ...ADMIN_ACADEMIC_ENUMS,
         ...EVALUATION_RUBRIC_ENUMS,
+        ...APPLICANT_COOLDOWN_ENUMS,
+        ...APPLICANT_OVERRIDE_ENUMS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -1273,7 +1340,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1321,6 +1388,8 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...ADMIN_ACADEMIC_TYPE_NAMES,
         ...ADMIN_ACADEMIC_ENUMS,
         ...ADMIN_STUDENT_ONBOARDING_TYPE_NAMES,
+        ...APPLICANT_COOLDOWN_ENUMS,
+        ...APPLICANT_OVERRIDE_ENUMS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -1558,7 +1627,7 @@ describe("Notification surface — enum + canonical objects", () => {
     "createdAt",
   ] as const;
 
-  test("NotificationType enum carries EXACTLY the 9 canonical values (keys on the wire, snake_case runtime values)", () => {
+  test("NotificationType enum carries EXACTLY the 10 canonical values (keys on the wire, snake_case runtime values)", () => {
     const enumType = graphQLSchema.getType("NotificationType");
 
     if (!(enumType instanceof GraphQLEnumType)) {
@@ -1566,7 +1635,7 @@ describe("Notification surface — enum + canonical objects", () => {
     }
 
     const values = enumType.getValues();
-    expect(values).toHaveLength(9);
+    expect(values).toHaveLength(10);
     // The built schema is lexicographically sorted (enum-value order carries
     // no GraphQL semantics), so the pins compare as sorted sets:
     expect(values.map(value => value.name).toSorted((a, b) => a.localeCompare(b))).toEqual(
@@ -1580,6 +1649,7 @@ describe("Notification surface — enum + canonical objects", () => {
         "EvaluationResult",
         "SessionDisputeOpened",
         "SessionDisputeResolved",
+        "ApplicantOutcome",
       ].toSorted((a, b) => a.localeCompare(b))
     );
     // Runtime values stay the canonical snake_case strings — byte-identical
@@ -1595,6 +1665,7 @@ describe("Notification surface — enum + canonical objects", () => {
         "evaluation_result",
         "session_dispute_opened",
         "session_dispute_resolved",
+        "applicant_outcome",
       ].toSorted((a, b) => a.localeCompare(b))
     );
     // Single-source agreement with the canonical TS enum itself.
@@ -2073,6 +2144,144 @@ describe("admin-governance mutations — exact arg shapes + `$all` scope pins", 
       expect(errors[0]?.extensions?.code).toBe("UNAUTHORIZED");
       expect(errors[0]?.path).toEqual([documents[index]?.path]);
     }
+  });
+});
+
+describe("applicant cooldown surface — enum vocabulary + read field + admin extension write", () => {
+  test("`ApplicantCooldownState` carries EXACTLY the 3 canonical values (member names on the wire, lowercase runtime values)", () => {
+    const enumType = graphQLSchema.getType("ApplicantCooldownState");
+
+    if (!(enumType instanceof GraphQLEnumType)) {
+      throw new Error("ApplicantCooldownState must be registered as a GraphQL enum type");
+    }
+
+    const values = enumType.getValues();
+    expect(values).toHaveLength(3);
+    // The built schema is lexicographically sorted (enum-value order carries
+    // no GraphQL semantics), so the pins compare as sorted sets. The wire
+    // names are the TS enum member names — the same member-name convention
+    // `ApplicantStatus` exposes.
+    expect(values.map(value => value.name).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      ["Active", "Expired", "None"].toSorted((a, b) => a.localeCompare(b))
+    );
+    // Runtime values stay the canonical lowercase strings — byte-identical
+    // to the TS enum single source of truth (no pgEnum backs this
+    // vocabulary; the state is a server-side read-time derivation).
+    expect(values.map(value => value.value).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      ["active", "expired", "none"].toSorted((a, b) => a.localeCompare(b))
+    );
+    // Single-source agreement with the canonical TS enum itself.
+    expect(values.map(value => value.name).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      Object.keys(ApplicantCooldownState).toSorted((a, b) => a.localeCompare(b))
+    );
+    expect(values.map(value => value.value).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      Object.values(ApplicantCooldownState).toSorted((a, b) => a.localeCompare(b))
+    );
+  });
+
+  test("`ApplicantProfile.cooldownState` is the NON-NULLABLE enum field on the canonical applicant object", () => {
+    const applicantType = graphQLSchema.getType("ApplicantProfile");
+
+    if (!(applicantType instanceof GraphQLObjectType)) {
+      throw new Error("ApplicantProfile must be registered as a GraphQL object type");
+    }
+    const field = applicantType.getFields().cooldownState;
+    if (!field) {
+      throw new Error("`ApplicantProfile` must expose the `cooldownState` read field");
+    }
+    expect(field.type.toString()).toBe("ApplicantCooldownState!");
+  });
+
+  test("`adminExtendApplicantCooldown` returns ApplicantProfile! with EXACTLY the two required args (additionalDays: Int!, applicantId: Int!)", () => {
+    const field = mutationField("adminExtendApplicantCooldown");
+    expect(field.type.toString()).toBe("ApplicantProfile!");
+    // The live sorted SDL emits args alphabetically — `additionalDays`
+    // precedes `applicantId`. Both are required (NonNull) — a NULL day
+    // count or target id is a GRAPHQL_VALIDATION_FAILED before the
+    // resolver body runs.
+    const argsByName = new Map(field.args.map(arg => [arg.name, arg.type.toString()]));
+    expect(argsByName.get("additionalDays")).toBe("Int!");
+    expect(argsByName.get("applicantId")).toBe("Int!");
+    // No third arg smuggled in — the acting identity is session-sourced
+    // server-side, never a declared argument (BOPLA defense: the schema
+    // layer rejects any undeclared field argument before the resolver runs).
+    expect(field.args).toHaveLength(2);
+  });
+
+  test("`adminExtendApplicantCooldown` carries the EXACT `$all` conjunction — `{ authenticated: true, role: [UserRole.Admin] }`", () => {
+    // The `$all` key is load-bearing (AND semantics): a plain key-map would
+    // combine `authenticated` + `role` with ANY semantics and silently let
+    // a non-admin authenticated caller through. The role set is EXACTLY
+    // `[UserRole.Admin]` — no sibling-role override smuggled in. The live
+    // FORBIDDEN / UNAUTHORIZED verdicts over real HTTP are pinned by the
+    // cooldown wire-tier matrix.
+    const scopes = authScopesSnapshot(mutationField("adminExtendApplicantCooldown"));
+    expect(scopes).toEqual({
+      $all: { authenticated: true, role: [UserRole.Admin] },
+    });
+    expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+    const allScope: unknown = Reflect.get(scopes, "$all");
+    if (!isRecord(allScope)) throw new Error("expected record-shaped $all scope conjunction");
+    expect(Object.keys(allScope).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated", "role"]);
+    const roleSet: unknown = Reflect.get(allScope, "role");
+    expect(Array.isArray(roleSet)).toBe(true);
+    expect(roleSet).toEqual([UserRole.Admin]);
+  });
+
+  test("`adminOverrideApplicantEvaluation` returns ApplicantProfile! with the required action/applicantId args and the OPTIONAL nullable cooldownDays", () => {
+    const field = mutationField("adminOverrideApplicantEvaluation");
+    expect(field.type.toString()).toBe("ApplicantProfile!");
+    // The live sorted SDL emits args alphabetically — `action` <
+    // `applicantId` < `cooldownDays`. `action` rides the override enum (the
+    // member-KEY names are the wire values); `cooldownDays` is the ONLY
+    // nullable arg (the adminSetUserSuspended-period precedent — validated
+    // on the reject direction, ignored on the others).
+    const argsByName = new Map(field.args.map(arg => [arg.name, arg.type.toString()]));
+    expect(argsByName.get("action")).toBe("AdminApplicantOverrideAction!");
+    expect(argsByName.get("applicantId")).toBe("Int!");
+    expect(argsByName.get("cooldownDays")).toBe("Int");
+    // No fourth arg smuggled in — the acting identity is session-sourced
+    // server-side, never a declared argument (BOPLA defense: the schema
+    // layer rejects any undeclared field argument before the resolver runs).
+    expect(field.args).toHaveLength(3);
+  });
+
+  test("`AdminApplicantOverrideAction` enum carries EXACTLY the three wire members, mapped 1:1 to the canonical TS enum", () => {
+    const overrideEnum = graphQLSchema.getType("AdminApplicantOverrideAction");
+    if (!(overrideEnum instanceof GraphQLEnumType)) {
+      throw new Error("`AdminApplicantOverrideAction` must be registered as a GraphQL enum type");
+    }
+    const values = overrideEnum.getValues();
+    expect(values.map(value => value.name).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "Certify",
+      "GrantReEvaluation",
+      "Reject",
+    ]);
+    // Single-source agreement with the canonical TS enum itself (wire names
+    // = member KEYS; runtime values = the lowercase strings).
+    expect(values.map(value => value.name).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      Object.keys(AdminApplicantOverrideAction).toSorted((a, b) => a.localeCompare(b))
+    );
+    expect(values.map(value => value.value).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      Object.values(AdminApplicantOverrideAction).toSorted((a, b) => a.localeCompare(b))
+    );
+  });
+
+  test("`adminOverrideApplicantEvaluation` carries the EXACT `$all` conjunction — `{ authenticated: true, role: [UserRole.Admin] }`", () => {
+    // Same load-bearing `$all` conjunction as the sibling extension write
+    // (see above); the live FORBIDDEN / UNAUTHORIZED verdicts over real
+    // HTTP are pinned by the override wire-tier matrix.
+    const scopes = authScopesSnapshot(mutationField("adminOverrideApplicantEvaluation"));
+    expect(scopes).toEqual({
+      $all: { authenticated: true, role: [UserRole.Admin] },
+    });
+    expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+    const allScope: unknown = Reflect.get(scopes, "$all");
+    if (!isRecord(allScope)) throw new Error("expected record-shaped $all scope conjunction");
+    expect(Object.keys(allScope).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated", "role"]);
+    const roleSet: unknown = Reflect.get(allScope, "role");
+    expect(Array.isArray(roleSet)).toBe(true);
+    expect(roleSet).toEqual([UserRole.Admin]);
   });
 });
 
@@ -2910,11 +3119,13 @@ describe("Codegen sync — committed SDL is byte-identical to the built schema",
     expect(committedSdl).toContain("adminUserActivity(id: Int!, limit: Int): [AdminUserActivityEntry!]!");
     expect(committedSdl).toContain("adminUserDetail(id: Int!): AdminUserDetail!");
     expect(committedSdl).toContain("adminUserStats: AdminUserStats!");
+    expect(committedSdl).toContain("adminApplicantCooldownStats: AdminApplicantCooldownStats!");
     expect(committedSdl).toContain(
       "adminUsers(filters: AdminUserFiltersInput, page: Int, pageSize: Int): AdminUserPage!"
     );
     expect(committedSdl).toContain("type AdminUserDetail {");
     expect(committedSdl).toContain("type AdminUserStats {");
+    expect(committedSdl).toContain("type AdminApplicantCooldownStats {");
     expect(committedSdl).toContain("enum AdminUserGovernanceFilter {");
     expect(committedSdl).toContain("enum AuditActionType {");
     // …and the session-report surface (1 mutation + 2 queries +

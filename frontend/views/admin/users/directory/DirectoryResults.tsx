@@ -31,9 +31,11 @@ interface DirectoryResultsProps {
   readonly directory: DirectoryState;
   /** Invoked after any row's copy-email action resolves (drives the snackbar). */
   readonly onCopyEmail?: () => void;
+  /** Forwarded into both empty states — the clear-filters recovery CTA. */
+  readonly onClearFilters?: () => void;
 }
 
-export function DirectoryResults({ labels, directory, onCopyEmail }: DirectoryResultsProps): ReactNode {
+export function DirectoryResults({ labels, directory, onCopyEmail, onClearFilters }: DirectoryResultsProps): ReactNode {
   // When the query (or a refetch with no cached rows) failed, the error
   // alert in `AdminUsersDirectoryContainer` is the sole surface — rendering
   // the skeleton/empty state and pagination beside it reads as a second,
@@ -49,6 +51,7 @@ export function DirectoryResults({ labels, directory, onCopyEmail }: DirectoryRe
         onEdit={directory.setEditTarget}
         onDelete={directory.setDeleteTarget}
         onCopyEmail={onCopyEmail}
+        onClearFilters={onClearFilters}
         pagination={
           <DirectoryPagination
             labels={labels}
@@ -69,6 +72,7 @@ export function DirectoryResults({ labels, directory, onCopyEmail }: DirectoryRe
         onEdit={directory.setEditTarget}
         onDelete={directory.setDeleteTarget}
         onCopyEmail={onCopyEmail}
+        onClearFilters={onClearFilters}
       />
 
       <MobilePaginationCard

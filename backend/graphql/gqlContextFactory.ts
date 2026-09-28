@@ -91,8 +91,42 @@ export interface Context {
   readonly authCookieOut: AuthCookieOut;
 }
 
-/** Default locale used when no cookie/header is present. */
+/**
+ * Locale used when NO signal is present (no `x-app-locale` header, no cookie,
+ * no Accept-Language).
+ *
+ * Deliberately kept at the API tier's historical "en" — with the
+ * `x-app-locale` arm above, every BROWSER request is locale-explicit (our
+ * frontend stamps the locale the SSR shell rendered with), so this fallback
+ * can only ever serve headerless non-browser API clients, whose contract has
+ * always been English (pinned across the wire suites). The RSC shell's
+ * canonical default ("ar" — `AppLocale.defaultLocale`) never conflicts with
+ * it: the two boundaries agree on every browser request through the explicit
+ * header, which structurally closes the mixed-language drift this factory
+ * once produced for cookieless visitors (Arabic shell + English
+ * server-composed strings).
+ */
 const DEFAULT_LOCALE = "en";
+
+/**
+ * Explicit app-locale header stamped by OUR OWN frontend on every browser
+ * GraphQL request (`createLocaleLink` — see
+ * `frontend/providers/apollo/utils/link-factories.ts`), carrying the locale
+ * the SSR shell actually rendered with (`useAppLocale()` — the cookie-backed
+ * LocaleContext value).
+ *
+ * Why this outranks the cookie: it is the FRESHEST statement of the shell's
+ * locale (module-scope init reads the same cookie, then effects track the
+ * live LocaleContext), and it closes the cookieless-visitor drift — before
+ * this header existed, a cookieless browser negotiated GraphQL via
+ * `Accept-Language: en-US` while the shell rendered the Arabic default,
+ * producing mixed-language pages. Non-browser API clients don't send it and
+ * keep the cookie → Accept-Language → canonical-default negotiation.
+ *
+ * Security posture: the header only SELECTS the response language (i18n
+ * copy) — it never feeds auth, authorization, or any security decision.
+ */
+const APP_LOCALE_HEADER = "x-app-locale";
 
 /** Recognized locale codes (must match `AppLocale`). */
 const SUPPORTED_LOCALES = new Set(["en", "ar"]);
@@ -110,8 +144,10 @@ const SUPPORTED_LOCALES = new Set(["en", "ar"]);
 const LOCALE_COOKIE_RE = new RegExp(`(?:${LOCALE_COOKIE_NAME}|next-locale)=(en|ar)`);
 
 /**
- * Extracts the locale from the request — checks the `next-locale` cookie
- * first, then the `Accept-Language` header, falling back to `DEFAULT_LOCALE`.
+ * Extracts the locale from the request — checks the explicit `x-app-locale`
+ * header first (stamped by our own frontend with the locale the SSR shell
+ * rendered), then the `NEXT_LOCALE` cookie, then the `Accept-Language`
+ * header, falling back to the API tier's historical default ("en").
  *
  * Exported ONLY for the route's transport-tier preflight: the
  * malformed-JSON/oversize responses must localize their error text WITHOUT
@@ -119,6 +155,14 @@ const LOCALE_COOKIE_RE = new RegExp(`(?:${LOCALE_COOKIE_NAME}|next-locale)=(en|a
  * function, so both layers agree on the active locale.
  */
 export function extractLocale(request: NextRequest | Request, parsedCookies?: Record<string, string>): string {
+  // 0. Explicit app-locale header (our frontend's shell-locale statement —
+  //    freshest signal; validated against the supported set so a forged or
+  //    stale value falls through to the cookie negotiation, never errors).
+  const appLocaleHeader = request.headers.get(APP_LOCALE_HEADER);
+  if (appLocaleHeader && SUPPORTED_LOCALES.has(appLocaleHeader)) {
+    return appLocaleHeader;
+  }
+
   // 1. Cookie (client-side routing sets this on locale switch).
   if (parsedCookies) {
     const cookieVal = parsedCookies[LOCALE_COOKIE_NAME] ?? parsedCookies["next-locale"];

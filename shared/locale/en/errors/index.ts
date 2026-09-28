@@ -65,6 +65,10 @@ export const errorsEn: ErrorsLabels = {
   applicantStatusCorrupt: "Your application status could not be read. Please contact support.",
   applicantAlreadyCertified:
     "You are already certified. Verification purchases are no longer available for this account.",
+  applicantCooldownExtensionInvalid: "Cooldown extension days must be between 1 and 3650.",
+  applicantOverrideCooldownInvalid: "Override cooldown days must be between 1 and 3650.",
+  applicantOverrideNotPassed: "Only a certified (passed) applicant can be manually rejected.",
+  applicantNoActiveCooldown: "This applicant has no active cooldown to clear.",
   adminUsers: {
     userNotFound: "User not found.",
     userAlreadyDeleted: "This user has already been deleted.",

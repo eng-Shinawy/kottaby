@@ -57,6 +57,8 @@ import {
   createTestUser,
 } from "@/backend/db/test/entity-setup";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
+import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
+import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
 import { escapeLikeWildcards } from "@/backend/lib/db/escape-like-wildcards";
 import type { DBTransaction } from "@/backend/types";
@@ -118,6 +120,53 @@ async function seedActiveSubscription(tx: DBTransaction, userId: number): Promis
     startDate: new Date(Date.now() - 60_000),
     endDate: null,
   });
+}
+
+/**
+ * Seeds the shared five-user lifecycle world for the Tier 1b filter matrix
+ * (see the describe block below for the closed-world contract): one plain
+ * user (NO applicants row), one pending applicant, and three failed
+ * applicants with an active / expired / absent cooldown. `worldTag` keeps
+ * every seeded fullName unique per test so `searchPattern` isolates the
+ * world from committed seed rows.
+ */
+async function seedLifecycleWorld(
+  tx: DBTransaction,
+  worldTag: string
+): Promise<{
+  tag: string;
+  plainUserId: number;
+  pendingId: number;
+  activeCooldownId: number;
+  expiredCooldownId: number;
+  noCooldownId: number;
+}> {
+  const plain = await createTestUser(tx, { fullName: `Plain Non-Applicant ${worldTag}` });
+  const pendingUser = await createTestUser(tx, {
+    fullName: `Pending Applicant ${worldTag}`,
+    role: "teacher",
+  });
+  await createTestApplicant(tx, pendingUser.id, { status: "pending" });
+  const activeUser = await createTestUser(tx, { fullName: `Active Cooldown ${worldTag}` });
+  await createTestApplicant(tx, activeUser.id, {
+    status: "failed",
+    cooldownUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  });
+  const expiredUser = await createTestUser(tx, { fullName: `Expired Cooldown ${worldTag}` });
+  await createTestApplicant(tx, expiredUser.id, {
+    status: "failed",
+    cooldownUntil: new Date(Date.now() - 24 * 60 * 60 * 1000),
+  });
+  const noCooldownUser = await createTestUser(tx, { fullName: `No Cooldown ${worldTag}` });
+  await createTestApplicant(tx, noCooldownUser.id, { status: "failed", cooldownUntil: null });
+  return {
+    tag: worldTag,
+    plainUserId: plain.id,
+    pendingId: pendingUser.id,
+    activeCooldownId: activeUser.id,
+    expiredCooldownId: expiredUser.id,
+    noCooldownId: noCooldownUser.id,
+  };
 }
 
 /**
@@ -755,6 +804,293 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
       const missingUserId = await absentUserId(tx);
       const err = await expectRepoError(() => createTestApplicant(tx, missingUserId));
       expect(err).toBeInstanceOf(Error);
+    });
+  });
+});
+
+describe("AdminUserRepository — Tier 1b: applicant-lifecycle filter matrix", () => {
+  // Shared seeding shape: one plain user (NO applicants row), one pending
+  // applicant (teacher registrant), one failed applicant with a FUTURE
+  // cooldown, one failed applicant with a PAST cooldown, and one failed
+  // applicant with NO cooldown. Every seeded fullName carries a UNIQUE
+  // per-test tag and every query composes the lifecycle filter with a
+  // `searchPattern` over that tag — the closed world is isolated from any
+  // committed seed rows sharing a lifecycle state, so the assertions stay
+  // exact regardless of what the app seed committed. Every filter test
+  // also pairs `listDirectory` with `countDirectory` (the repo contract
+  // keeps the two queries honest against each other).
+
+  test("applicantStatus=failed narrows to failed applicant rows; non-applicants and other statuses drop out", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      const filters = {
+        applicantStatus: ApplicantStatus.Failed,
+        searchPattern: serviceEscapedSearchPattern(world.tag),
+      };
+
+      const rows = await AdminUserRepository.listDirectory(filters, 100, 0, tx);
+      const ids = rows.map(r => r.id);
+      expect(ids).toContain(world.activeCooldownId);
+      expect(ids).toContain(world.expiredCooldownId);
+      expect(ids).toContain(world.noCooldownId);
+      expect(ids).not.toContain(world.pendingId);
+      // The wire-mirror core: a plain user with NO applicants row never
+      // matches an applicant-status filter.
+      expect(ids).not.toContain(world.plainUserId);
+
+      const count = await AdminUserRepository.countDirectory(filters, tx);
+      expect(count).toBe(rows.length);
+    });
+  });
+
+  test("applicantStatus=pending narrows to the pending applicant only", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+
+      const rows = await AdminUserRepository.listDirectory(
+        { applicantStatus: ApplicantStatus.Pending, searchPattern: serviceEscapedSearchPattern(world.tag) },
+        100,
+        0,
+        tx
+      );
+      const ids = rows.map(r => r.id);
+      expect(ids).toEqual([world.pendingId]);
+    });
+  });
+
+  test("cooldownState=Active narrows to future-instant rows; count parity holds", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      const filters = {
+        cooldownState: ApplicantCooldownState.Active,
+        searchPattern: serviceEscapedSearchPattern(world.tag),
+      };
+
+      const rows = await AdminUserRepository.listDirectory(filters, 100, 0, tx);
+      const ids = rows.map(r => r.id);
+      expect(ids).toEqual([world.activeCooldownId]);
+
+      const count = await AdminUserRepository.countDirectory(filters, tx);
+      expect(count).toBe(1);
+    });
+  });
+
+  test("cooldownState=Expired narrows to past-instant rows; the boundary instant itself is expired (strict >)", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      // Boundary probe: a cooldown stamped at exactly the captured instant
+      // reads as EXPIRED per the shared strict-`>` derivation — the active
+      // arm must never re-admit it.
+      const boundaryUser = await createTestUser(tx, { fullName: `Boundary Cooldown ${world.tag}` });
+      const boundaryInstant = new Date();
+      await createTestApplicant(tx, boundaryUser.id, {
+        status: "failed",
+        cooldownUntil: boundaryInstant,
+      });
+      const filters = {
+        cooldownState: ApplicantCooldownState.Expired,
+        searchPattern: serviceEscapedSearchPattern(world.tag),
+      };
+
+      const rows = await AdminUserRepository.listDirectory(filters, 100, 0, tx);
+      const ids = rows.map(r => r.id);
+      expect(ids).toContain(world.expiredCooldownId);
+      expect(ids).toContain(boundaryUser.id);
+      expect(ids).not.toContain(world.activeCooldownId);
+      expect(ids).not.toContain(world.noCooldownId);
+      expect(ids).not.toContain(world.plainUserId);
+
+      const count = await AdminUserRepository.countDirectory(filters, tx);
+      expect(count).toBe(rows.length);
+    });
+  });
+
+  test("cooldownState=None narrows to applicants with no cooldown; plain users are EXCLUDED (wire null ≠ none)", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      const filters = {
+        cooldownState: ApplicantCooldownState.None,
+        searchPattern: serviceEscapedSearchPattern(world.tag),
+      };
+
+      const rows = await AdminUserRepository.listDirectory(filters, 100, 0, tx);
+      const ids = rows.map(r => r.id);
+      expect(ids).toContain(world.noCooldownId);
+      expect(ids).toContain(world.pendingId);
+      // The deliberate closed-world semantic: the filter is an
+      // applicant-lifecycle surface — a non-applicant row carries a null
+      // wire state, not `none`, so it never matches this arm.
+      expect(ids).not.toContain(world.plainUserId);
+      expect(ids).not.toContain(world.activeCooldownId);
+      expect(ids).not.toContain(world.expiredCooldownId);
+
+      const count = await AdminUserRepository.countDirectory(filters, tx);
+      expect(count).toBe(rows.length);
+    });
+  });
+
+  test("AND composition — applicantStatus=failed AND cooldownState=active intersects both predicates", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+
+      const rows = await AdminUserRepository.listDirectory(
+        {
+          applicantStatus: ApplicantStatus.Failed,
+          cooldownState: ApplicantCooldownState.Active,
+          searchPattern: serviceEscapedSearchPattern(world.tag),
+        },
+        100,
+        0,
+        tx
+      );
+      const ids = rows.map(r => r.id);
+      expect(ids).toEqual([world.activeCooldownId]);
+    });
+  });
+
+  test("composed with role filter — applicantStatus=pending AND role=teacher narrows correctly", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      // A student-role applicant: the status predicate matches but the
+      // role predicate must exclude them (the pending fixture user is a
+      // teacher registrant and stays IN).
+      const studentApplicant = await createTestUser(tx, {
+        fullName: `Student Applicant ${world.tag}`,
+        role: "student",
+      });
+      await createTestApplicant(tx, studentApplicant.id, { status: "pending" });
+
+      const rows = await AdminUserRepository.listDirectory(
+        {
+          applicantStatus: ApplicantStatus.Pending,
+          role: "teacher",
+          searchPattern: serviceEscapedSearchPattern(world.tag),
+        },
+        100,
+        0,
+        tx
+      );
+      const ids = rows.map(r => r.id);
+      expect(ids).toEqual([world.pendingId]);
+    });
+  });
+
+  test("cooldownExpiringSoon narrows to cooldowns within the canonical 7-day window; far-future/past/absent all drop out", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      // The expiring fixture: a cooldown stamped +3 days out — strictly
+      // future (active boundary) AND inside the 7-day window.
+      const soonUser = await createTestUser(tx, { fullName: `Expiring Soon ${world.tag}` });
+      await createTestApplicant(tx, soonUser.id, {
+        status: "failed",
+        cooldownUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+      });
+
+      const rows = await AdminUserRepository.listDirectory(
+        { cooldownExpiringSoon: true, searchPattern: serviceEscapedSearchPattern(world.tag) },
+        100,
+        0,
+        tx
+      );
+      const ids = rows.map(r => r.id);
+      expect(ids).toEqual([soonUser.id]);
+
+      const count = await AdminUserRepository.countDirectory(
+        { cooldownExpiringSoon: true, searchPattern: serviceEscapedSearchPattern(world.tag) },
+        tx
+      );
+      expect(count).toBe(1);
+    });
+  });
+
+  test("expiring-soon boundary — a cooldown stamped exactly at now+7d matches (inclusive lte); one instant later does not", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      const boundaryUser = await createTestUser(tx, { fullName: `Boundary In-Window ${world.tag}` });
+      await createTestApplicant(tx, boundaryUser.id, {
+        status: "failed",
+        cooldownUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+      const outsideUser = await createTestUser(tx, { fullName: `Boundary Out-Window ${world.tag}` });
+      await createTestApplicant(tx, outsideUser.id, {
+        status: "failed",
+        cooldownUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 60_000),
+      });
+
+      const rows = await AdminUserRepository.listDirectory(
+        { cooldownExpiringSoon: true, searchPattern: serviceEscapedSearchPattern(world.tag) },
+        100,
+        0,
+        tx
+      );
+      const ids = rows.map(r => r.id);
+      expect(ids).toContain(boundaryUser.id);
+      expect(ids).not.toContain(outsideUser.id);
+    });
+  });
+
+  test("expiring-soon composes with cooldownState=active (the panel deep-link pair) — same result set", async () => {
+    await runInRollback(async tx => {
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      const soonUser = await createTestUser(tx, { fullName: `Expiring Composed ${world.tag}` });
+      await createTestApplicant(tx, soonUser.id, {
+        status: "failed",
+        cooldownUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+      });
+
+      const rows = await AdminUserRepository.listDirectory(
+        {
+          cooldownState: ApplicantCooldownState.Active,
+          cooldownExpiringSoon: true,
+          searchPattern: serviceEscapedSearchPattern(world.tag),
+        },
+        100,
+        0,
+        tx
+      );
+      expect(rows.map(r => r.id)).toEqual([soonUser.id]);
+    });
+  });
+
+  test("getCooldownLifecycleStats partitions the cooling population; deleted accounts and no-cooldown rows never count; the window length echoes", async () => {
+    await runInRollback(async tx => {
+      // BASELINE first — the aggregate has no filter input, so the honest
+      // oracle is the SNAPSHOT DELTA around this test's fixtures: committed
+      // seed rows cancel out arithmetically and the assertions stay exact
+      // regardless of what the app seed committed.
+      const before = await AdminUserRepository.getCooldownLifecycleStats(tx);
+
+      const world = await seedLifecycleWorld(tx, randomUUID().slice(0, 8));
+      const soonUser = await createTestUser(tx, { fullName: `Stats Soon ${world.tag}` });
+      await createTestApplicant(tx, soonUser.id, {
+        status: "failed",
+        cooldownUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+      });
+      // A soft-deleted account with an ACTIVE cooldown — the deleted-flag
+      // base predicate must keep it out of every bucket (the deep-linked
+      // directory would never list it).
+      const deletedUser = await createTestUser(tx, {
+        fullName: `Stats Deleted ${world.tag}`,
+        isDeleted: true,
+      });
+      await createTestApplicant(tx, deletedUser.id, {
+        status: "failed",
+        cooldownUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+      });
+
+      const after = await AdminUserRepository.getCooldownLifecycleStats(tx);
+
+      // The world seeds exactly: +2 ACTIVE (the +30d fixture AND the +3d
+      // fixture — active is the strictly-future arm) of which exactly +1
+      // lands in the expiring-soon slice (+3d), and +1 expired. The
+      // DELETED account's +3d cooldown counts NOWHERE — if it leaked into
+      // any arm, active would read 3 and expiringSoon 2.
+      expect(after.activeCount - before.activeCount).toBe(2);
+      expect(after.expiringSoonCount - before.expiringSoonCount).toBe(1);
+      expect(after.expiredCount - before.expiredCount).toBe(1);
+      // Window echo: the wire carries the canonical window (7) so label
+      // copy can never drift from the count.
+      expect(after.expiringSoonWindowDays).toBe(7);
     });
   });
 });

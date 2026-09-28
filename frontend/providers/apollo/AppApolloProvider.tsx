@@ -16,9 +16,29 @@ import {
   createAuthLink,
   createConnectivityLink,
   createErrorLinkHandler,
+  createLocaleLink,
   sha256,
 } from "@/frontend/providers/apollo/utils";
-import { Common, useAppTranslation } from "@/shared/locale";
+import { Common, useAppLocale, useAppTranslation } from "@/shared/locale";
+import { defaultLocale, isAppLocale, LOCALE_COOKIE_NAME } from "@/shared/locale/AppLocale";
+
+/**
+ * Reads the locale the SSR shell rendered with, for the module-scope Apollo
+ * link state initialization. Parses the SAME cookie the RSC boundary reads
+ * (`NEXT_LOCALE` — see `shared/locale/server-cookies.ts`), validating it with
+ * the same `isAppLocale` guard and falling back to the canonical
+ * `defaultLocale` when absent — exactly mirroring `getLocaleFromCookie()` so
+ * the very first client GraphQL requests (which can fire before the
+ * provider's sync effect runs) already carry the shell's locale. Guarded for
+ * SSR (client modules still evaluate during SSR, where `document` is
+ * undefined → canonical default, same as the RSC fallback).
+ */
+function readInitialShellLocale(): string {
+  if (typeof document === "undefined") return defaultLocale;
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${LOCALE_COOKIE_NAME}=([a-z-]+)`));
+  const value = match?.[1];
+  return value && isAppLocale(value) ? value : defaultLocale;
+}
 
 /**
  * Module-level mutable state object shared between the Apollo links and the
@@ -30,6 +50,14 @@ import { Common, useAppTranslation } from "@/shared/locale";
  */
 const apolloLinkState = {
   authToken: null as string | null,
+  /**
+   * The locale the SSR shell rendered with — stamped onto every outgoing
+   * request as `x-app-locale` by `createLocaleLink` so the GraphQL boundary
+   * resolves the SAME locale as the visible page (mixed-language drift fix).
+   * Initialized from the cookie (RSC-aligned), then kept in sync with the
+   * live `LocaleContext` by the provider effect below.
+   */
+  locale: readInitialShellLocale(),
   isConnected: false,
   checkConnectivity: (): Promise<boolean> => Promise.resolve(true),
   notifyIfDisconnected: (): void => undefined,
@@ -56,6 +84,7 @@ const apolloClient = new ApolloClient({
       () => apolloLinkState.serverNotAvailableMessage
     ),
     createAuthLink(() => apolloLinkState.authToken),
+    createLocaleLink(() => apolloLinkState.locale),
     new PersistedQueryLink({ sha256 }),
     // Use split to send mutations individually (non-batched) while batching
     // queries. Mutations must NOT be batched because:
@@ -80,6 +109,7 @@ const apolloClient = new ApolloClient({
 
 export function AppApolloProvider({ children }: { readonly children: React.ReactNode }) {
   const t = useAppTranslation(Common);
+  const activeLocale = useAppLocale();
   const {
     isConnected,
     isChecking,
@@ -91,6 +121,13 @@ export function AppApolloProvider({ children }: { readonly children: React.React
   } = useApolloConnectivity();
 
   const [authToken, setAuthToken] = useState<string | null>(null);
+
+  // Keep the locale link's source of truth aligned with the live LocaleContext
+  // (cookie-backed; updates on in-app locale switches). The link reads this at
+  // request time, so every request carries the shell's rendered locale.
+  useEffect(() => {
+    apolloLinkState.locale = activeLocale;
+  }, [activeLocale]);
 
   // Sync component state into the module-level link state (in effects, not during render)
   useEffect(() => {

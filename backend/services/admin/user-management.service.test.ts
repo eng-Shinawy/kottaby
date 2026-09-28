@@ -45,6 +45,7 @@ import {
 } from "@/backend/db/test/entity-setup";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { Gender } from "@/backend/enum/users/gender.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
@@ -298,6 +299,71 @@ describe("AdminUserManagementService.listDirectory", () => {
       expect(found?.studentHasActiveSubscription).toBe(false);
       expect(found?.applicantStatus).toBeNull();
       expect(found?.teacherIsApproved).toBeNull();
+      // Non-applicant rows carry NULL cooldown observables — the directory
+      // chip slot stays empty for them.
+      expect(found?.cooldownState).toBeNull();
+      expect(found?.cooldownUntil).toBeNull();
+    });
+  });
+
+  test("teacher-applicant rows carry the read-time cooldown observables", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const cooldownUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const applicant = await createTestUser(tx, { role: "teacher", fullName: "Unique Cooldown Applicant" });
+      await createTestApplicant(tx, applicant.id, {
+        status: ApplicantStatus.Failed,
+        cooldownUntil,
+      });
+
+      const page = await AdminUserManagementService.listDirectory(
+        { role: UserRole.Teacher, search: "Unique Cooldown Applicant" },
+        1,
+        25,
+        LOCALE,
+        admin.id,
+        tx
+      );
+      const found = page.items.find(item => item.id === applicant.id);
+      expect(found).not.toBeUndefined();
+      expect(found?.applicantStatus).toBe(ApplicantStatus.Failed);
+      // Future instant → Active (strict-> derivation, ONE captured now per
+      // row — the same rule set the detail snapshot uses).
+      expect(found?.cooldownState).toBe(ApplicantCooldownState.Active);
+      expect(found?.cooldownUntil).toEqual(cooldownUntil);
+    });
+  });
+
+  test("expired cooldown instants derive to Expired; applicants without cooldown derive to None", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const expiredApplicant = await createTestUser(tx, {
+        role: "teacher",
+        fullName: "Unique Expired Cooldown Applicant",
+      });
+      await createTestApplicant(tx, expiredApplicant.id, {
+        status: ApplicantStatus.Failed,
+        cooldownUntil: new Date(Date.now() - 1000),
+      });
+      const plainApplicant = await createTestUser(tx, {
+        role: "teacher",
+        fullName: "Unique Plain Applicant",
+      });
+      await createTestApplicant(tx, plainApplicant.id, { status: ApplicantStatus.Pending });
+
+      const page = await AdminUserManagementService.listDirectory(
+        { role: UserRole.Teacher, search: "Unique " },
+        1,
+        25,
+        LOCALE,
+        admin.id,
+        tx
+      );
+      const expired = page.items.find(item => item.id === expiredApplicant.id);
+      expect(expired?.cooldownState).toBe(ApplicantCooldownState.Expired);
+      const plain = page.items.find(item => item.id === plainApplicant.id);
+      expect(plain?.cooldownState).toBe(ApplicantCooldownState.None);
+      expect(plain?.cooldownUntil).toBeNull();
     });
   });
 
@@ -550,6 +616,95 @@ describe("AdminUserManagementService.getUserActivity", () => {
       // Highest id first — the mixed-type payload row was inserted last.
       expect(entries[0].changedFields).toEqual(["phone", "country"]);
       expect(entries[1].changedFields).toBeNull();
+    });
+  });
+
+  test("applicant-entity rows join the timeline — the user's applicant lifecycle actions surface with entityType + captions", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const target = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, target.id, { status: ApplicantStatus.Failed });
+
+      // Rows about the SAME user across both entity arms, plus a stranger's
+      // applicant row and an unrelated-entity row that must never leak in.
+      const stranger = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, stranger.id, { status: ApplicantStatus.Failed });
+      await tx.insert(auditLogs).values([
+        {
+          actorId: admin.id,
+          actionType: AuditActionType.Adjust,
+          entityType: "user",
+          entityId: target.id,
+          details: JSON.stringify({ changedFields: ["cooldownUntil"] }),
+        },
+        {
+          actorId: admin.id,
+          actionType: AuditActionType.Override,
+          entityType: "applicant",
+          entityId: target.id,
+          details: JSON.stringify({
+            action: "reject",
+            field: "status",
+            from: "passed",
+            to: "failed",
+            cooldownUntil: "2026-10-27T16:49:21.478Z",
+            cooldownDays: 30,
+          }),
+        },
+        {
+          actorId: admin.id,
+          actionType: AuditActionType.Adjust,
+          entityType: "applicant",
+          entityId: target.id,
+          details: JSON.stringify({
+            field: "cooldown_until",
+            from: null,
+            to: "2026-12-26T16:49:21.478Z",
+            additionalDays: 7,
+          }),
+        },
+        {
+          actorId: admin.id,
+          actionType: AuditActionType.Override,
+          entityType: "applicant",
+          entityId: target.id,
+          details: JSON.stringify({ action: "certify", field: "status", from: "failed", to: "passed" }),
+        },
+        {
+          actorId: admin.id,
+          actionType: AuditActionType.Override,
+          entityType: "applicant",
+          entityId: stranger.id,
+          details: null,
+        },
+        {
+          actorId: admin.id,
+          actionType: AuditActionType.Delete,
+          entityType: "lesson",
+          entityId: target.id,
+          details: null,
+        },
+      ]);
+
+      const entries = await AdminUserManagementService.getUserActivity(target.id, LOCALE, admin.id, null, tx);
+      // Exactly the four rows ABOUT this user (account + applicant arms).
+      expect(entries).toHaveLength(4);
+      // Newest-first: the certify Override row was inserted last.
+      expect(entries.map(entry => entry.entityType)).toEqual(["applicant", "applicant", "applicant", "user"]);
+      // The applicant lifecycle rows surface their localized captions
+      // (composed from the details payload, never the raw JSON).
+      expect(entries[0].actionType).toBe(AuditActionType.Override);
+      expect(entries[0].caption).toBe("Applicant certified");
+      expect(entries[1].actionType).toBe(AuditActionType.Adjust);
+      expect(entries[1].caption).toBe("Cooldown extended by 7 days");
+      expect(entries[1].changedFields).toBeNull();
+      expect(entries[2].actionType).toBe(AuditActionType.Override);
+      expect(entries[2].caption).toBe("Applicant rejected · cooldown 30 days");
+      // The account Update row stays captionless — its changedFields list
+      // remains the changed-field caption path.
+      expect(entries[3].actionType).toBe(AuditActionType.Adjust);
+      expect(entries[3].caption).toBeNull();
+      expect(entries[3].changedFields).toEqual(["cooldownUntil"]);
     });
   });
 

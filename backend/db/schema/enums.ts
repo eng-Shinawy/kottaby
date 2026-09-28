@@ -108,6 +108,7 @@ export const notificationType = pgEnum("notification_type", [
   "evaluation_result",
   "session_dispute_opened",
   "session_dispute_resolved",
+  "applicant_outcome",
 ]);
 
 export const auditActionType = pgEnum("audit_action_type", [

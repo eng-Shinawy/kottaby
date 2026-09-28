@@ -43,6 +43,8 @@ interface DirectoryTableProps {
   readonly onDelete: (user: DirectoryUserItem) => void;
   /** Invoked after any row's copy-email action resolves (drives the snackbar). */
   readonly onCopyEmail?: () => void;
+  /** When supplied, a filtered zero-match state gains a clear-filters CTA. */
+  readonly onClearFilters?: () => void;
   /** Footer slot rendered inside the card (the `DirectoryPagination` bar). */
   readonly pagination?: ReactNode;
 }
@@ -50,7 +52,7 @@ interface DirectoryTableProps {
 const COLUMN_COUNT = 7;
 
 export function DirectoryTable(props: DirectoryTableProps): ReactNode {
-  const { labels, items, loading, hasFilters, onEdit, onDelete, onCopyEmail } = props;
+  const { labels, items, loading, hasFilters, onEdit, onDelete, onCopyEmail, onClearFilters } = props;
   const locale = useAppLocale();
   return (
     <Card
@@ -95,7 +97,7 @@ export function DirectoryTable(props: DirectoryTableProps): ReactNode {
           {!loading && items.length === 0 && (
             <TableRow>
               <TableCell colSpan={COLUMN_COUNT} sx={{ borderBottom: 0 }}>
-                <DirectoryEmptyState labels={labels} hasFilters={hasFilters} />
+                <DirectoryEmptyState labels={labels} hasFilters={hasFilters} onClearFilters={onClearFilters} />
               </TableCell>
             </TableRow>
           )}

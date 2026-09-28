@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import type { MyNotificationsQuery_myNotifications_items } from "@/frontend/graphql/generated/gql/graphql";
 import { formatApplicantDate, formatLedgerStamp } from "@/frontend/lib/i18n/format-date";
+import { formatRelativeAuditStamp } from "@/frontend/lib/i18n/relative-time";
 import { resolveNotificationRoute } from "@/frontend/lib/notification-route-resolution";
 import { Common, Notifications, useAppLocale, useAppTranslation } from "@/shared/locale";
 
@@ -113,81 +114,91 @@ function NotificationDrawerList({
 }: Readonly<NotificationDrawerListProps>): ReactNode {
   const t = useAppTranslation(Notifications);
   const locale = useAppLocale();
+  // Scanning-friendly caption — the SAME 7-day relative-window contract as
+  // the feed rows (`formatRelativeAuditStamp`): relative caption inside the
+  // window, byte-stable ASCII ledger stamp beyond it, the locale-aware full
+  // absolute stamp on the `title` tooltip. Direction follows the caption:
+  // relative text picks its own flow (dir="auto"), the ASCII stamp keeps
+  // the forced-LTR box the round-4 drawer bidi QA established.
+  const relativeStampOf = (createdAt: string): string | null => formatRelativeAuditStamp(createdAt, locale);
   return (
     <List disablePadding data-testid="notification-drawer-list" aria-label={t.title}>
-      {items.map((item, index) => (
-        <ListItemButton
-          key={item.id}
-          component={Link}
-          href={resolveNotificationRoute(item.relatedEntityType, item.type, userRole, item.relatedEntityId)}
-          divider={index < items.length - 1}
-          onClick={() => onOpenNotification(item)}
-          sx={{ ...focusVisibleRingSx, alignItems: "flex-start", gap: 1.5, px: 2, py: 1.5 }}
-        >
-          <Box aria-hidden sx={{ width: 8, flexShrink: 0, paddingTop: "7px" }}>
-            {item.isRead ? null : (
-              <Box
-                data-testid="notification-drawer-unread-dot"
-                sx={theme => ({ width: 8, height: 8, borderRadius: "50%", bgcolor: theme.palette.primary.main })}
-              />
-            )}
-          </Box>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", justifyContent: "space-between" }}>
-              <Typography
-                variant="body2"
-                // Emitter copy can be either script regardless of UI locale —
-                // `dir="auto"` isolates it from the surrounding direction so
-                // trailing punctuation never wraps to the wrong edge.
-                dir="auto"
-                sx={theme => ({
-                  fontWeight: item.isRead ? 400 : 700,
-                  color: theme.palette.text.primary,
-                  minWidth: 0,
-                })}
-              >
-                {item.title}
-              </Typography>
-              <Typography
-                variant="caption"
-                dir="ltr"
-                title={formatApplicantDate(item.createdAt, locale)}
-                sx={theme => ({
-                  color: theme.palette.text.secondary,
-                  flexShrink: 0,
-                  // ASCII stamp in an isolated LTR box — the ICU `ar` stamp
-                  // embeds RLM controls that visually reorder the stamp
-                  // against the row's RTL base direction ("19/09/2026، 16:52"
-                  // renders as "16:52 2026/09/19"); the byte-stable ASCII
-                  // stamp + isolate detaches it (round-4 drawer QA finding,
-                  // same class as the round-1 wallet stamps). The locale-aware
-                  // full stamp rides the native `title` tooltip.
-                  unicodeBidi: "isolate",
-                  fontVariantNumeric: "tabular-nums",
-                })}
-              >
-                <time dateTime={item.createdAt}>{formatLedgerStamp(item.createdAt)}</time>
-              </Typography>
-            </Stack>
-            {item.body === null ? null : (
-              <Typography
-                variant="body2"
-                // Same bidi isolation as the title (see above).
-                dir="auto"
-                sx={theme => ({
-                  color: theme.palette.text.secondary,
-                  display: "-webkit-box",
-                  WebkitBoxOrient: "vertical",
-                  WebkitLineClamp: 2,
-                  overflow: "hidden",
-                })}
-              >
-                {item.body}
-              </Typography>
-            )}
-          </Box>
-        </ListItemButton>
-      ))}
+      {items.map((item, index) => {
+        const relativeStamp = relativeStampOf(item.createdAt);
+        return (
+          <ListItemButton
+            key={item.id}
+            component={Link}
+            href={resolveNotificationRoute(item.relatedEntityType, item.type, userRole, item.relatedEntityId)}
+            divider={index < items.length - 1}
+            onClick={() => onOpenNotification(item)}
+            sx={{ ...focusVisibleRingSx, alignItems: "flex-start", gap: 1.5, px: 2, py: 1.5 }}
+          >
+            <Box aria-hidden sx={{ width: 8, flexShrink: 0, paddingTop: "7px" }}>
+              {item.isRead ? null : (
+                <Box
+                  data-testid="notification-drawer-unread-dot"
+                  sx={theme => ({ width: 8, height: 8, borderRadius: "50%", bgcolor: theme.palette.primary.main })}
+                />
+              )}
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", justifyContent: "space-between" }}>
+                <Typography
+                  variant="body2"
+                  // Emitter copy can be either script regardless of UI locale —
+                  // `dir="auto"` isolates it from the surrounding direction so
+                  // trailing punctuation never wraps to the wrong edge.
+                  dir="auto"
+                  sx={theme => ({
+                    fontWeight: item.isRead ? 400 : 700,
+                    color: theme.palette.text.primary,
+                    minWidth: 0,
+                  })}
+                >
+                  {item.title}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  dir={relativeStamp !== null ? "auto" : "ltr"}
+                  title={formatApplicantDate(item.createdAt, locale)}
+                  sx={theme => ({
+                    color: theme.palette.text.secondary,
+                    flexShrink: 0,
+                    // Isolated stamp box — the ASCII ledger stamp renders
+                    // byte-stable in both document directions (round-4 drawer
+                    // QA finding: the ICU `ar` stamp's embedded RLM controls
+                    // reordered the stamp fragments); the relative caption
+                    // picks its own direction via dir="auto" inside the same
+                    // isolate. The locale-aware full absolute stamp rides the
+                    // native `title` tooltip.
+                    unicodeBidi: "isolate",
+                    fontVariantNumeric: "tabular-nums",
+                  })}
+                >
+                  <time dateTime={item.createdAt}>{relativeStamp ?? formatLedgerStamp(item.createdAt)}</time>
+                </Typography>
+              </Stack>
+              {item.body === null ? null : (
+                <Typography
+                  variant="body2"
+                  // Same bidi isolation as the title (see above).
+                  dir="auto"
+                  sx={theme => ({
+                    color: theme.palette.text.secondary,
+                    display: "-webkit-box",
+                    WebkitBoxOrient: "vertical",
+                    WebkitLineClamp: 2,
+                    overflow: "hidden",
+                  })}
+                >
+                  {item.body}
+                </Typography>
+              )}
+            </Box>
+          </ListItemButton>
+        );
+      })}
     </List>
   );
 }

@@ -14,11 +14,11 @@
  *  - The notifications server page shell (`getTranslations(locale)` →
  *    `notificationsTranslations` slice).
  *
- * The per-type display labels cover exactly the nine notification-type
+ * The per-type display labels cover exactly the ten notification-type
  * values (`session_request`, `session_completion`, `session_cancellation`,
  * `session_dispute_opened`, `session_dispute_resolved`,
  * `parent_link_request`, `system_broadcast`, `payment_confirmation`,
- * `evaluation_result`) — one label key per value.
+ * `evaluation_result`, `applicant_outcome`) — one label key per value.
  *
  * All keys MUST have both `en` and `ar` implementations with EXACT key-set
  * parity (compile-typed on both leaves + `notifications-namespace.parity.test.ts`
@@ -57,6 +57,8 @@ export interface NotificationsLabels {
   readonly typePaymentConfirmation: string;
   /** Type display label — evaluation_result (an evaluation decision arrived). */
   readonly typeEvaluationResult: string;
+  /** Type display label — applicant_outcome (an admin override decision about an application arrived). */
+  readonly typeApplicantOutcome: string;
   /** Per-row "mark this notification as read" action label. */
   readonly markRead: string;
   /**
@@ -245,4 +247,29 @@ export interface NotificationsLabels {
   readonly eventSessionDisputeResolvedPartialRefundBody: string;
   /** Participant body — the uphold arbitration outcome. */
   readonly eventSessionDisputeResolvedUpholdBody: string;
+  // ─── Admin applicant-override event copy ──────────────────────────────────
+  /** Applicant title — an administrator certified the application (terminal pass). */
+  readonly eventApplicantOverrideCertifiedTitle: string;
+  /**
+   * Applicant body for the certification outcome — plain factual copy (no
+   * admin identity, no evaluation scores; the application surface owns any
+   * detailed review path).
+   */
+  readonly eventApplicantOverrideCertifiedBody: string;
+  /** Applicant title — an administrator rejected the application (a re-apply window applies). */
+  readonly eventApplicantOverrideRejectedTitle: string;
+  /**
+   * Applicant body for the rejected outcome — interpolates ONLY the
+   * re-apply window length in whole days (the locale's day-count grammar).
+   * No admin identity and no reason content (the body is an invite to the
+   * application surface, not a verdict mirror).
+   */
+  readonly eventApplicantOverrideRejectedBody: (days: number) => string;
+  /** Applicant title — an administrator granted a re-evaluation (the waiting period was cleared). */
+  readonly eventApplicantOverrideReEvaluationTitle: string;
+  /**
+   * Applicant body for the granted re-evaluation — plain factual copy (no
+   * admin identity; the booking surface owns the actionable next step).
+   */
+  readonly eventApplicantOverrideReEvaluationBody: string;
 }

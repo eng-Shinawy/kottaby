@@ -140,6 +140,15 @@ export interface AdminUsersLabels {
     };
     /** Chip shown when a teacher application is awaiting review. */
     readonly pendingReview: string;
+    /**
+     * Teacher-applicant cooldown chips — ACTIVE renders in the warning lane
+     * (re-purchase is blocked), EXPIRED renders in the neutral lane (the
+     * applicant may re-purchase verification). Vocabulary mirrors the detail
+     * page's `detail.applicantCooldownState` block verbatim so one concept
+     * reads identically on both surfaces.
+     */
+    readonly cooldownActive: string;
+    readonly cooldownExpired: string;
   };
 
   /** Role labels rendered as chips inside the role column. */
@@ -160,6 +169,25 @@ export interface AdminUsersLabels {
     readonly role: string;
     /** Label for the governance filter select. */
     readonly governance: string;
+    /** Label for the applicant-lifecycle status filter select. */
+    readonly applicantStatus: string;
+    /** Label for the applicant cooldown-state filter select. */
+    readonly cooldownState: string;
+    /** Removal-chip label for the applied expiring-soon window narrow (compact wording — no window length; the panel bucket carries the precise wire-echoed number). */
+    readonly cooldownExpiringSoon: string;
+    /** Localized option labels for the applicant-status filter — mirrors the `detail.applicantStatus` vocabulary verbatim so one concept reads identically on both surfaces. */
+    readonly applicantStatusOptions: {
+      readonly pending: string;
+      readonly inEvaluation: string;
+      readonly passed: string;
+      readonly failed: string;
+    };
+    /** Localized option labels for the cooldown-state filter — mirrors the `detail.applicantCooldownState` vocabulary verbatim. */
+    readonly cooldownStateOptions: {
+      readonly none: string;
+      readonly active: string;
+      readonly expired: string;
+    };
     /** Label for the country filter select. */
     readonly country: string;
     /** Accessible label for the search input. */
@@ -170,7 +198,7 @@ export interface AdminUsersLabels {
     readonly searchClearLabel: string;
     /** "Clear filters" button — restores the directory to its unfiltered state. */
     readonly clear: string;
-    /** First quick-filter chip on mobile — clears the role filter to show every role. */
+    /** First quick-filter chip on mobile — clears every chip-toggled filter (role, governance, cooldown) to show everything. */
     readonly chipsAll: string;
   };
 
@@ -331,6 +359,8 @@ export interface AdminUsersLabels {
    * handle from task 4.3's `GovernanceActionsSection` component.
    */
   readonly governanceActions: {
+    /** Card title above the inline governance action buttons. */
+    readonly title: string;
     /** Inline action button label — suspend the user. */
     readonly suspendAction: string;
     /** Inline action button label — lift an existing suspension. */
@@ -371,6 +401,95 @@ export interface AdminUsersLabels {
     readonly blockSuccessToast: string;
     /** Snackbar copy rendered after a successful unblock. */
     readonly unblockSuccessToast: string;
+  };
+
+  /**
+   * Applicant-cooldown extension copy on the admin user detail page — the
+   * inline "extend cooldown" affordance under the applicant snapshot card,
+   * its confirm dialog (title, explanatory message, additional-days field
+   * label + helper, shared confirm/cancel labels), the mutation-success
+   * toast, and the note shown when the affordance is disabled for an
+   * already-certified applicant. Composes the server-side extension
+   * primitive; the expiry is lengthen-only server-side.
+   */
+  readonly applicantCooldownExtension: {
+    /** Inline action button label — opens the extension confirm dialog. */
+    readonly extendAction: string;
+    /** Dialog title for the cooldown-extension confirm dialog. */
+    readonly dialogTitle: string;
+    /** Dialog body copy explaining what extending the cooldown does. */
+    readonly dialogMessage: string;
+    /** Field label for the additional-days input inside the dialog. */
+    readonly daysLabel: string;
+    /** Helper text under the additional-days input describing the valid range. */
+    readonly daysHelper: string;
+    /** Confirm button label for the extension dialog. */
+    readonly confirm: string;
+    /** Cancel button label for the extension dialog. */
+    readonly cancel: string;
+    /** Snackbar copy rendered after a successful cooldown extension. */
+    readonly successToast: string;
+    /** Disabled-state note shown when the applicant is already certified. */
+    readonly certifiedNote: string;
+  };
+
+  /**
+   * Applicant-evaluation override copy on the admin user detail page — the
+   * three-direction manual override affordance (certify / grant
+   * re-evaluation / reject) under the cooldown-extension row, its per-action
+   * confirm dialogs (titles, explanatory bodies, confirm labels, the
+   * reject-only cooldown-days field label + helper, shared cancel), the
+   * per-direction success toasts, and the disabled-state notes mirroring the
+   * server-side eligibility gates. Composes the server-side override
+   * primitive; the server re-validates every rule.
+   */
+  readonly applicantOverride: {
+    /** Section card title for the override affordance. */
+    readonly label: string;
+    /** One-line caption under the section title. */
+    readonly caption: string;
+    /** Action button label — opens the certify confirm dialog. */
+    readonly certifyTitle: string;
+    /** Dialog body copy explaining what certification does. */
+    readonly certifyDesc: string;
+    /** Confirm button label for the certify dialog. */
+    readonly certifyConfirm: string;
+    /** Action button label — opens the grant-re-evaluation confirm dialog. */
+    readonly grantTitle: string;
+    /** Dialog body copy explaining what granting re-evaluation does. */
+    readonly grantDesc: string;
+    /** Confirm button label for the grant-re-evaluation dialog. */
+    readonly grantConfirm: string;
+    /** Action button label — opens the reject confirm dialog. */
+    readonly rejectTitle: string;
+    /** Dialog body copy explaining what rejection does. */
+    readonly rejectDesc: string;
+    /** Confirm button label for the reject dialog. */
+    readonly rejectConfirm: string;
+    /** Dialog title for the certify confirm dialog. */
+    readonly dialogTitleCertify: string;
+    /** Dialog title for the grant-re-evaluation confirm dialog. */
+    readonly dialogTitleGrant: string;
+    /** Dialog title for the reject confirm dialog. */
+    readonly dialogTitleReject: string;
+    /** Field label for the reject-only cooldown-days input. */
+    readonly daysLabel: string;
+    /** Helper text under the cooldown-days input describing the valid range. */
+    readonly daysHelper: string;
+    /** Shared cancel button label for the three override dialogs. */
+    readonly cancel: string;
+    /** Snackbar copy rendered after a successful certification. */
+    readonly successToastCertify: string;
+    /** Snackbar copy rendered after a successful re-evaluation grant. */
+    readonly successToastGrant: string;
+    /** Snackbar copy rendered after a successful rejection. */
+    readonly successToastReject: string;
+    /** Disabled-state tooltip shown when the applicant is already certified. */
+    readonly certifyDisabledNote: string;
+    /** Disabled-state tooltip shown when no cooldown exists to clear. */
+    readonly grantDisabledNote: string;
+    /** Disabled-state tooltip shown when the applicant is not in the passed state. */
+    readonly rejectDisabledNote: string;
   };
 
   /** Detail page section headings and navigation affordances. */
@@ -450,6 +569,7 @@ export interface AdminUsersLabels {
       readonly verificationAttempts: string;
       readonly lastAttempt: string;
       readonly cooldownUntil: string;
+      readonly cooldownState: string;
       readonly cooldownActive: string;
       readonly canPurchaseVerification: string;
     };
@@ -459,6 +579,12 @@ export interface AdminUsersLabels {
       readonly inEvaluation: string;
       readonly passed: string;
       readonly failed: string;
+    };
+    /** Localized display values for the derived applicant cooldown state. */
+    readonly applicantCooldownState: {
+      readonly none: string;
+      readonly active: string;
+      readonly expired: string;
     };
     /** Field labels for the teacher role-child snapshot card. */
     readonly teacherFields: {
@@ -533,6 +659,18 @@ export interface AdminUsersLabels {
     readonly viewFullAuditLog: string;
     /** Caption prefix before the changed-field names list. */
     readonly changedFields: string;
+    /** Entity tag rendered on timeline entries recorded against the user's applicant profile. */
+    readonly entityApplicantTag: string;
+    /** Timeline caption — an override certified the applicant. */
+    readonly captionCertify: string;
+    /** Timeline caption — an override rejected the applicant. */
+    readonly captionReject: string;
+    /** Timeline caption — an override cleared the cooldown for re-evaluation. */
+    readonly captionGrantReEvaluation: string;
+    /** Timeline caption — a cooldown extension of the given day count. */
+    readonly captionCooldownExtended: (days: number) => string;
+    /** Timeline caption suffix — the cooldown length stamped by a rejecting override. */
+    readonly captionCooldownDays: (days: number) => string;
     /** sr-only suffix identifying the acting admin on each entry. */
     readonly byActor: string;
     /** Action chip label — account created. */
@@ -676,6 +814,8 @@ export interface AdminUsersLabels {
       readonly user: string;
       /** `teacher` — teacher lifecycle actions. */
       readonly teacher: string;
+      /** `applicant` — teacher-applicant lifecycle actions (cooldown governance). */
+      readonly applicant: string;
       /** `session` — class/session actions. */
       readonly session: string;
       /** `subscription` — subscription lifecycle actions. */

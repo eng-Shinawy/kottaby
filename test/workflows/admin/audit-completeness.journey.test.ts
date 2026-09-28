@@ -57,7 +57,13 @@ import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
-import { createTestPlan, createTestSubscription, createTestWallet } from "@/backend/db/test/entity-setup";
+import {
+  createTestApplicant,
+  createTestPlan,
+  createTestSubscription,
+  createTestUser,
+  createTestWallet,
+} from "@/backend/db/test/entity-setup";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { PaymentGateway } from "@/backend/enum/billing/payment-gateway.enum";
 import { ProrationDirection } from "@/backend/enum/billing/proration-direction.enum";
@@ -70,6 +76,9 @@ import { BroadcastAudienceType } from "@/backend/enum/notifications/broadcast-au
 import { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolution.enum";
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
+import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
+import { AdminApplicantOverrideAction } from "@/backend/enum/teachers/applicant-override-action.enum";
+import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { ConflictError, DomainError, ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
 import {
   AdminUserManagementService,
@@ -85,6 +94,7 @@ import { LessonService } from "@/backend/services/classes/lesson.service";
 import { SessionAdminGovernanceService } from "@/backend/services/classes/session-admin-governance";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
 import { AdminBroadcastService } from "@/backend/services/notifications/admin-broadcast.service";
+import { ApplicantLifecycleService } from "@/backend/services/teachers/applicant-lifecycle.service";
 import type {
   AdminAuditLogEntryReturnType,
   AdminAuditTrailFiltersSubmitInput,
@@ -249,6 +259,20 @@ const SUBSCRIPTION_ADMIN_LEG = [
   "adminRenewSubscription",
   "adminChangeSubscriptionPlan",
 ] as const;
+/** Applicant cooldown governance — the extension mints one Adjust row over the applicant anchor. */
+const APPLICANT_COOLDOWN_LEG = ["adminExtendApplicantCooldown"] as const;
+/** Applicant evaluation override — the grant direction mints one Override row over the applicant anchor. */
+const APPLICANT_OVERRIDE_LEG = ["adminOverrideApplicantEvaluation"] as const;
+
+/**
+ * The cooldown-governance leg's deterministic base: a FUTURE stored cooldown
+ * is honored VERBATIM by the extension (max(stored, now) = stored while the
+ * window is in force), so the minted audit `from`/`to` instants — and the
+ * execution log's expected details — are exact rather than clock-dependent.
+ */
+const COOLDOWN_PRESET_FROM = new Date("2030-02-01T00:00:00.000Z");
+/** The extension length the census runner requests (days). */
+const COOLDOWN_EXTENSION_DAYS = 7;
 
 /**
  * Try/catch rejection helper (journey-layer pattern —
@@ -440,6 +464,10 @@ let extendSubscriptionId = 0;
 let renewSourceId = 0;
 let renewedSubscriptionId = 0;
 let planChangedSubscriptionId = 0;
+/** The applicant-cooldown governance leg's anchor: a failed applicant carrying the preset in-force cooldown. */
+let cooldownApplicantId = 0;
+/** The applicant-override leg's anchor: a failed applicant carrying the preset in-force cooldown. */
+let overrideApplicantId = 0;
 
 /** Row-count oracles — captured after the cast commit, restored by teardown. */
 let auditBaseline = 0;
@@ -1057,6 +1085,53 @@ const censusRunners: Record<string, CensusRunner> = {
       forfeitedExcess: SUBSCRIPTION_LANE_SEED + SOURCE_PLAN_SESSION_COUNT,
     });
   },
+
+  adminExtendApplicantCooldown: async (entry, executed) => {
+    // One service execution mints ONE Adjust row over the applicant anchor.
+    // The stored base is still in force, so the extension starts from the
+    // preset instant verbatim — the audit details contract is deterministic.
+    const extended = await ApplicantLifecycleService.extendApplicantCooldown(
+      cooldownApplicantId,
+      COOLDOWN_EXTENSION_DAYS,
+      adminA.userId,
+      LOCALE
+    );
+    const expectedTo = new Date(COOLDOWN_PRESET_FROM.getTime() + COOLDOWN_EXTENSION_DAYS * MS_PER_DAY);
+    expect(extended.cooldownUntil?.toISOString()).toBe(expectedTo.toISOString());
+    expect(extended.cooldownState).toBe(ApplicantCooldownState.Active);
+    record(executed, entry, AuditActionType.Adjust, cooldownApplicantId, {
+      field: "cooldown_until",
+      from: COOLDOWN_PRESET_FROM.toISOString(),
+      to: expectedTo.toISOString(),
+      additionalDays: COOLDOWN_EXTENSION_DAYS,
+    });
+  },
+
+  adminOverrideApplicantEvaluation: async (entry, executed) => {
+    // One service execution mints ONE Override row over the applicant anchor.
+    // The grant direction reads the preset in-force instant as the audit
+    // `from` and NULLs it — the details contract is deterministic (the
+    // certify/reject directions would carry the same verb + anchor, but the
+    // reject's stamped `cooldownUntil` is captured-now derived, so the grant
+    // is the byte-exact leg execution).
+    const profile = await ApplicantLifecycleService.overrideApplicantEvaluation(
+      overrideApplicantId,
+      AdminApplicantOverrideAction.GrantReEvaluation,
+      null,
+      adminA.userId,
+      LOCALE
+    );
+    expect(profile.status).toBe(ApplicantStatus.Failed);
+    expect(profile.cooldownUntil).toBeNull();
+    expect(profile.cooldownState).toBe(ApplicantCooldownState.None);
+    expect(profile.canPurchaseVerification).toBe(true);
+    record(executed, entry, AuditActionType.Override, overrideApplicantId, {
+      action: "grant_re_evaluation",
+      field: "cooldown_until",
+      from: COOLDOWN_PRESET_FROM.toISOString(),
+      to: null,
+    });
+  },
 };
 
 /**
@@ -1296,6 +1371,34 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       });
       renewSourceId = renewSource.id;
       tracked.register(subscriptions, renewSourceId);
+
+      // The applicant-cooldown governance leg's fixture: a failed applicant
+      // carrying the preset FUTURE cooldown instant (directly inserted real
+      // rows — the sanctioned fixture-level pattern; the applicant's lifecycle
+      // intake is not under test here). The in-force base makes the extension
+      // leg's audit details exact. Zero audit rows are minted here, so the
+      // runner's service execution stays the leg's only producer footprint.
+      const cooldownApplicantUser = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, cooldownApplicantUser.id, {
+        status: "failed",
+        cooldownUntil: COOLDOWN_PRESET_FROM,
+      });
+      cooldownApplicantId = cooldownApplicantUser.id;
+      tracked.register(users, cooldownApplicantId);
+      tracked.register(applicants, cooldownApplicantId);
+
+      // The applicant-override leg's fixture: the SAME pre-state shape (a
+      // failed applicant carrying the preset FUTURE cooldown) on a DEDICATED
+      // anchor — the grant runner NULLs the preset instant, so the audit
+      // details stay byte-exact. Zero audit rows are minted here.
+      const overrideApplicantUser = await createTestUser(tx, { role: "teacher" });
+      await createTestApplicant(tx, overrideApplicantUser.id, {
+        status: "failed",
+        cooldownUntil: COOLDOWN_PRESET_FROM,
+      });
+      overrideApplicantId = overrideApplicantUser.id;
+      tracked.register(users, overrideApplicantId);
+      tracked.register(applicants, overrideApplicantId);
     });
 
     // Row-count oracles: whole-table baselines the legs assert deltas against.
@@ -1384,8 +1487,10 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     // (dispute + reschedule + cancel + reassign + join) + the finance
     // teacher's funded wallet fixture + the subscription-admin leg's two
     // same-lane plans and two subscription rows + the direct-onboarding
-    // leg's lane-bearing plan.
-    expect(tracked.size).toBe(23);
+    // leg's lane-bearing plan + the applicant-cooldown leg's failed
+    // applicant (its users row + its applicants row) + the applicant-override
+    // leg's failed applicant (its users row + its applicants row).
+    expect(tracked.size).toBe(27);
 
     // The dispatch map covers every wired census row — a census row without
     // a runner would silently skip execution and fake completeness.
@@ -1400,6 +1505,8 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       ...SESSION_GOVERNANCE_LEG,
       ...FINANCE_LEG,
       ...SUBSCRIPTION_ADMIN_LEG,
+      ...APPLICANT_COOLDOWN_LEG,
+      ...APPLICANT_OVERRIDE_LEG,
     ];
     expect(legFields).toHaveLength(wiredFields.length);
     expect(legFields.toSorted((a, b) => a.localeCompare(b))).toEqual(
@@ -1554,6 +1661,54 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       reviews: 0,
       trial: 0,
     });
+  });
+
+  test("producer executes the applicant-cooldown census rows through the real service path", async () => {
+    const auditBefore = await countAllAuditRows();
+    const legActions = await executeCensusRows(APPLICANT_COOLDOWN_LEG);
+    executedActions.push(...legActions);
+
+    // One Adjust row over the applicant anchor — the extension honored the
+    // stored in-force base verbatim (max(stored, now) = stored), so the
+    // window lengthened by exactly the requested days.
+    expect(legActions).toHaveLength(1);
+    expect(legActions.map(action => action.actionType)).toEqual([AuditActionType.Adjust]);
+    expect(legActions.map(action => action.entityType)).toEqual(["applicant"]);
+    expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
+    expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+
+    // The extension committed its own side effect with the trail row: the
+    // stored cooldown now carries the preset base + the requested days, and
+    // the derived read-model observes Active.
+    const profile = await ApplicantLifecycleService.getMyApplicantProfile(cooldownApplicantId, LOCALE);
+    expect(profile?.cooldownUntil?.toISOString()).toBe(
+      new Date(COOLDOWN_PRESET_FROM.getTime() + COOLDOWN_EXTENSION_DAYS * MS_PER_DAY).toISOString()
+    );
+    expect(profile?.cooldownState).toBe(ApplicantCooldownState.Active);
+  });
+
+  test("producer executes the applicant-override census rows through the real service path", async () => {
+    const auditBefore = await countAllAuditRows();
+    const legActions = await executeCensusRows(APPLICANT_OVERRIDE_LEG);
+    executedActions.push(...legActions);
+
+    // One Override row over the applicant anchor — the grant direction
+    // lifted the in-force preset window (the read-back oracle below pins
+    // the byte-exact details in the mapping-oracle test).
+    expect(legActions).toHaveLength(1);
+    expect(legActions.map(action => action.actionType)).toEqual([AuditActionType.Override]);
+    expect(legActions.map(action => action.entityType)).toEqual(["applicant"]);
+    expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
+    expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+
+    // The grant committed its own side effect with the trail row: the
+    // waiting period is gone while the lifecycle status is untouched —
+    // the applicant may re-purchase verification immediately.
+    const profile = await ApplicantLifecycleService.getMyApplicantProfile(overrideApplicantId, LOCALE);
+    expect(profile?.status).toBe(ApplicantStatus.Failed);
+    expect(profile?.cooldownUntil).toBeNull();
+    expect(profile?.cooldownState).toBe(ApplicantCooldownState.None);
+    expect(profile?.canPurchaseVerification).toBe(true);
   });
 
   test("producer executes the lesson-catalog census rows through the real service path", async () => {
@@ -2164,6 +2319,27 @@ describe("Audit-trail completeness journey — execute every admin action, prove
         call: actorId =>
           SubscriptionAdminService.changeSubscriptionPlan(
             { subscriptionId: extendSubscriptionId, newPlanId: downgradePlanId },
+            actorId,
+            LOCALE
+          ),
+      },
+      {
+        field: "adminExtendApplicantCooldown",
+        call: actorId =>
+          ApplicantLifecycleService.extendApplicantCooldown(
+            cooldownApplicantId,
+            COOLDOWN_EXTENSION_DAYS,
+            actorId,
+            LOCALE
+          ),
+      },
+      {
+        field: "adminOverrideApplicantEvaluation",
+        call: actorId =>
+          ApplicantLifecycleService.overrideApplicantEvaluation(
+            overrideApplicantId,
+            AdminApplicantOverrideAction.GrantReEvaluation,
+            null,
             actorId,
             LOCALE
           ),

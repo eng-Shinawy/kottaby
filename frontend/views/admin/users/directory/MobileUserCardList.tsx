@@ -2,11 +2,11 @@
 
 /**
  * MobileUserCardList — the mobile (< md) rendering of the admin user
- * directory: a vertical stack of per-user cards (16px gap) separated from
- * the pagination card by a single 24px gap. The scroll clearance that keeps
- * the fixed create `Fab` off the final content at the bottom of the page
- * lives on the page container's bottom padding
- * (`AdminUsersDirectoryContainer`).
+ * directory: a vertical stack of per-user cards (16px gap). FAB clearance
+ * lives BELOW the pagination card (the page container's mobile bottom
+ * padding, `AdminUsersDirectoryContainer`) — a mid-list inset between the
+ * last card and the pagination card read as a dead band that broke the
+ * 16px card rhythm (pass-2 inspector MEDIUM at 834/390).
  *
  * Each card is rendered by `MobileUserCard` (header grid with avatar +
  * identity + time/kebab column; divider; two-column body rows for Status
@@ -35,15 +35,19 @@ interface MobileUserCardListProps {
   readonly onDelete: (user: DirectoryUserItem) => void;
   /** Invoked after any card's copy-email action resolves (drives the snackbar). */
   readonly onCopyEmail?: () => void;
+  /** When supplied, a filtered zero-match state gains a clear-filters CTA. */
+  readonly onClearFilters?: () => void;
 }
 
 export function MobileUserCardList(props: MobileUserCardListProps): ReactNode {
-  const { labels, items, loading, hasFilters, onEdit, onDelete, onCopyEmail } = props;
+  const { labels, items, loading, hasFilters, onEdit, onDelete, onCopyEmail, onClearFilters } = props;
   const locale = useAppLocale();
   return (
     <Stack
       spacing={2}
-      sx={{ display: { xs: "flex", md: "none" }, paddingBlockEnd: 3 /* one 24px gap before the pagination card */ }}
+      sx={{
+        display: { xs: "flex", md: "none" },
+      }}
     >
       {loading &&
         items.length === 0 &&
@@ -67,7 +71,7 @@ export function MobileUserCardList(props: MobileUserCardListProps): ReactNode {
             boxShadow: theme.palette.shadow.card,
           })}
         >
-          <DirectoryEmptyState labels={labels} hasFilters={hasFilters} />
+          <DirectoryEmptyState labels={labels} hasFilters={hasFilters} onClearFilters={onClearFilters} />
         </Card>
       )}
       {items.map(user => (

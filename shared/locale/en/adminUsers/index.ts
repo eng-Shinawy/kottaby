@@ -1,5 +1,10 @@
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
+/** English counted-day phrase for the cooldown caption leaves (inline pluralizer). */
+function formatEnglishCooldownDays(count: number): string {
+  return `${count} day${count === 1 ? "" : "s"}`;
+}
+
 export const adminUsersEn: AdminUsersLabels = {
   title: "Users",
   detailTitle: "User details",
@@ -36,6 +41,8 @@ export const adminUsersEn: AdminUsersLabels = {
       other: "{count} children",
     },
     pendingReview: "Pending Review",
+    cooldownActive: "Active cooldown",
+    cooldownExpired: "Cooldown expired",
   },
   stats: {
     total: "Total users",
@@ -62,12 +69,26 @@ export const adminUsersEn: AdminUsersLabels = {
   filters: {
     role: "Role",
     governance: "Status",
+    applicantStatus: "Applicant status",
+    cooldownState: "Cooldown",
+    cooldownExpiringSoon: "Expiring soon",
+    applicantStatusOptions: {
+      pending: "Pending",
+      inEvaluation: "In evaluation",
+      passed: "Passed",
+      failed: "Failed",
+    },
+    cooldownStateOptions: {
+      none: "No cooldown",
+      active: "Active cooldown",
+      expired: "Cooldown expired",
+    },
     country: "Country",
     search: "Search",
     searchPlaceholder: "Search by name or email",
     searchClearLabel: "Clear search",
     clear: "Clear filters",
-    chipsAll: "All Roles",
+    chipsAll: "All",
   },
   emptyState: {
     title: "No users yet",
@@ -141,6 +162,7 @@ export const adminUsersEn: AdminUsersLabels = {
     cancel: "Cancel",
   },
   governanceActions: {
+    title: "Governance actions",
     suspendAction: "Suspend",
     unsuspendAction: "Unsuspend",
     blockAction: "Block",
@@ -161,6 +183,46 @@ export const adminUsersEn: AdminUsersLabels = {
     unsuspendSuccessToast: "User unsuspended successfully",
     blockSuccessToast: "User blocked successfully",
     unblockSuccessToast: "User unblocked successfully",
+  },
+  applicantCooldownExtension: {
+    extendAction: "Extend cooldown",
+    dialogTitle: "Extend applicant cooldown",
+    dialogMessage:
+      "Adds extra days to this applicant's cooldown window. The expiry can only be lengthened, never shortened.",
+    daysLabel: "Additional days",
+    daysHelper: "Enter a whole number between 1 and 3650.",
+    confirm: "Extend",
+    cancel: "Cancel",
+    successToast: "Cooldown extended successfully",
+    certifiedNote: "Certified applicants have no cooldown left to extend.",
+  },
+  applicantOverride: {
+    label: "Evaluation override",
+    caption:
+      "Manually override this applicant's evaluation outcome — certification, a fresh re-evaluation window, or rejection with a cooldown.",
+    certifyTitle: "Certify applicant",
+    certifyDesc:
+      "Certifies this applicant and elevates them to a certified teacher. Certification is terminal and cannot be undone.",
+    certifyConfirm: "Certify",
+    grantTitle: "Grant re-evaluation",
+    grantDesc: "Clears this applicant's cooldown window so they can book a fresh evaluation immediately.",
+    grantConfirm: "Grant",
+    rejectTitle: "Reject applicant",
+    rejectDesc:
+      "Rejects this passed applicant, removes any certified teacher role, and stamps a fresh cooldown window.",
+    rejectConfirm: "Reject",
+    dialogTitleCertify: "Certify applicant",
+    dialogTitleGrant: "Grant re-evaluation",
+    dialogTitleReject: "Reject applicant",
+    daysLabel: "Cooldown days",
+    daysHelper: "Enter a whole number between 1 and 3650.",
+    cancel: "Cancel",
+    successToastCertify: "Applicant certified successfully",
+    successToastGrant: "Re-evaluation granted successfully",
+    successToastReject: "Applicant rejected successfully",
+    certifyDisabledNote: "This applicant is already certified — certification is terminal.",
+    grantDisabledNote: "There is no cooldown to clear for this applicant.",
+    rejectDisabledNote: "Only passed applicants can be rejected.",
   },
   detail: {
     profile: "Profile",
@@ -203,6 +265,7 @@ export const adminUsersEn: AdminUsersLabels = {
       verificationAttempts: "Verification attempts",
       lastAttempt: "Last attempt",
       cooldownUntil: "Cooldown until",
+      cooldownState: "Cooldown state",
       cooldownActive: "Cooldown active",
       canPurchaseVerification: "Can purchase verification",
     },
@@ -211,6 +274,11 @@ export const adminUsersEn: AdminUsersLabels = {
       inEvaluation: "In evaluation",
       passed: "Passed",
       failed: "Failed",
+    },
+    applicantCooldownState: {
+      none: "No cooldown",
+      active: "Active cooldown",
+      expired: "Cooldown expired",
     },
     teacherFields: {
       approved: "Approved",
@@ -254,6 +322,12 @@ export const adminUsersEn: AdminUsersLabels = {
     viewAll: "View All",
     viewFullAuditLog: "View Full Audit Log",
     changedFields: "Changed:",
+    entityApplicantTag: "Applicant",
+    captionCertify: "Applicant certified",
+    captionReject: "Applicant rejected",
+    captionGrantReEvaluation: "Re-evaluation granted — cooldown cleared",
+    captionCooldownExtended: days => `Cooldown extended by ${formatEnglishCooldownDays(days)}`,
+    captionCooldownDays: days => `cooldown ${formatEnglishCooldownDays(days)}`,
     byActor: "by",
     actionCreate: "Created",
     actionUpdate: "Updated",
@@ -308,6 +382,7 @@ export const adminUsersEn: AdminUsersLabels = {
     entityTypeLabels: {
       user: "User",
       teacher: "Teacher",
+      applicant: "Teacher Applicant",
       session: "Session",
       subscription: "Subscription",
       plan: "Plan",

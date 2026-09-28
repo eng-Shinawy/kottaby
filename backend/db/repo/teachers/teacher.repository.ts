@@ -334,6 +334,45 @@ export namespace TeacherRepository {
   }
 
   /**
+   * Demotes an EXISTING certified teacher row in a single guarded UPDATE:
+   * the `is_approved = true` precondition is folded into the WHERE clause,
+   * so the predicate and the mutation are one statement and a concurrent
+   * elevation of the same row cannot be overwritten blindly. The evaluator
+   * flag is deliberately NOT rewritten — demotion withdraws the
+   * certification only; a pre-existing evaluator keeps their evaluator
+   * status (no role flips happen anywhere in the override flow).
+   *
+   * The intended caller is the admin-override REJECTION direction (the
+   * manual rejection of a certified applicant): best-effort by contract —
+   * a `null` return (row absent or already unapproved) is a legitimate
+   * no-op signal (the applicant may never have carried a `teacher` row),
+   * never an error; the service tier treats it as such.
+   *
+   * `tx` is REQUIRED (no standalone branch): the write exists solely inside
+   * the caller's admin-override transaction — the demotion commits with
+   * that transaction or not at all.
+   *
+   * Parameterized always; the id and the flag member are bound values, never
+   * concatenated; no prepared statement (writes are excluded —
+   * `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns The updated teacher row, or `null` when zero rows matched (no
+   *          certified row exists for the id — the caller treats that as a
+   *          no-op).
+   */
+  export async function demoteToUncertified(id: number, tx: DBTransaction): Promise<TeacherSelectType | null> {
+    const [row] = await tx
+      .update(teacher)
+      .set({
+        isApproved: false,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(teacher.id, id), eq(teacher.isApproved, true)))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
    * Lists the admin teacher directory: `teacher` rows INNER JOINed to their
    * `users` accounts on the shared PK, filtered by the normalized filter
    * chain, ordered newest-account-first (deterministic `created_at DESC,

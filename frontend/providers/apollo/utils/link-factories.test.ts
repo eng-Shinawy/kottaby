@@ -34,7 +34,7 @@
 import { describe, expect, test } from "bun:test";
 import { ApolloClient, ApolloLink, InMemoryCache, Observable } from "@apollo/client";
 import { parse } from "graphql";
-import { createAuthLink } from "@/frontend/providers/apollo/utils/link-factories";
+import { createAuthLink, createLocaleLink } from "@/frontend/providers/apollo/utils/link-factories";
 
 // ---------------------------------------------------------------------------
 // Execution seam: run the link, capture the outgoing operation
@@ -128,6 +128,68 @@ describe("createAuthLink — additive context-header merge", () => {
       "apollo-require-preflight": "true",
       "x-apollo-operation-name": "PingMutation",
       authorization: "Bearer session-token-123",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createLocaleLink — the shell-locale statement (x-app-locale)
+
+const FIXED_APP_LOCALE = "x-app-locale";
+
+/** Execute the locale link with one locale/context configuration and return
+ * the outgoing headers the terminal HTTP link would read. Mirrors the auth
+ * seam above. */
+async function outgoingLocaleHeadersFor(config: {
+  readonly locale: string;
+  readonly contextHeaders?: Record<string, string>;
+}): Promise<Record<string, string>> {
+  const captured: ApolloLink.Operation[] = [];
+  const capturingTerminal = new ApolloLink(operation => {
+    captured.push(operation);
+    return new Observable<ApolloLink.Result>(observer => observer.complete());
+  });
+
+  const client = new ApolloClient({ link: ApolloLink.empty(), cache: new InMemoryCache() });
+  const chain = ApolloLink.from([createLocaleLink(() => config.locale), capturingTerminal]);
+  const requestContext: Record<string, unknown> = config.contextHeaders ? { headers: config.contextHeaders } : {};
+
+  const result = ApolloLink.execute(chain, { query: OPERATION_DOCUMENT, context: requestContext }, { client });
+  await new Promise<void>((resolve, reject) => {
+    result.subscribe({
+      next: () => undefined,
+      error: reject,
+      complete: () => resolve(),
+    });
+  });
+
+  expect(captured).toHaveLength(1);
+  if (captured.length < 1) {
+    throw new Error("expected the terminal link to capture exactly one forwarded operation");
+  }
+  return captured[0].getContext().headers;
+}
+
+describe("createLocaleLink — shell-locale header writer", () => {
+  test("stamps x-app-locale from the getter — the getter is read at REQUEST time", async () => {
+    // Distinct executions read the getter FRESH each time — exactly like the
+    // provider's apolloLinkState.locale source, so an in-app locale switch is
+    // reflected by the next request without any link/client rebuild.
+    const headers = await outgoingLocaleHeadersFor({ locale: "ar" });
+    expect(headers).toEqual({ [FIXED_APP_LOCALE]: "ar" });
+
+    const afterSwitch = await outgoingLocaleHeadersFor({ locale: "en" });
+    expect(afterSwitch).toEqual({ [FIXED_APP_LOCALE]: "en" });
+  });
+
+  test("merges context headers additively and keeps the link-owned key final", async () => {
+    const headers = await outgoingLocaleHeadersFor({
+      locale: "en",
+      contextHeaders: { "x-idempotency-key": "compose-session-key", "x-app-locale": "fr" },
+    });
+    expect(headers).toEqual({
+      "x-idempotency-key": "compose-session-key",
+      [FIXED_APP_LOCALE]: "en",
     });
   });
 });

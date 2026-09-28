@@ -1,4 +1,6 @@
 import type { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import type { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
+import type { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import type { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
 import type { Gender } from "@/backend/enum/users/gender.enum";
 import type { UserRole } from "@/backend/enum/users/user-role.enum";
@@ -48,6 +50,17 @@ export interface AdminUserListItemReturnType {
   readonly lastActiveAt: Date | null;
   readonly createdAt: Date;
   readonly applicantStatus: ApplicantProfileReturnType["status"] | null;
+  /**
+   * Read-time cooldown observables for the row's teacher-applicant lifecycle
+   * (both `null` when the user has NO `applicants` row). The state flows
+   * through the shared strict-`>` derivation (`deriveCooldownState`) against
+   * one captured `now` per row — the same rule set the detail-page applicant
+   * snapshot uses — so the two surfaces cannot drift. `cooldownUntil` is the
+   * raw stored instant (the client renders it as a hover tooltip on the
+   * directory chip; it never substitutes for the state itself).
+   */
+  readonly cooldownState: ApplicantCooldownState | null;
+  readonly cooldownUntil: Date | null;
   readonly teacherIsApproved: boolean | null;
   readonly teacherIsEvaluator: boolean | null;
   readonly studentHasParentLink: boolean | null;
@@ -102,14 +115,56 @@ export interface AdminUserStatsReturnType {
 }
 
 /**
+ * `AdminCooldownLifecycleStatsReturnType` — the applicant-cooldown
+ * lifecycle counters powering the admin dashboard's lifecycle panel. A
+ * DELIBERATELY separate wire shape from `AdminUserStats` (whose members are
+ * user-population counters shared with platform analytics): the cooldown
+ * lifecycle is its own concept with its own vocabulary, and keeping the
+ * shapes apart means the shared population-counter field helper and the
+ * platform-analytics composition stay untouched.
+ *
+ * The three counts partition the COOLING-applicant population exactly (an
+ * applicant with no stamped cooldown matches no arm; a soft-deleted
+ * account's applicant row matches no arm — the same deleted-flag base
+ * predicate the deep-linked directory applies):
+ *  - `activeCount`       — a stamped cooldown strictly in the future (the
+ *                          shared strict-`>` boundary).
+ *  - `expiringSoonCount` — the slice of `activeCount` expiring within the
+ *                          canonical 7-day window (the SAME
+ *                          `COOLDOWN_EXPIRING_SOON_DAYS` the directory's
+ *                          `cooldownExpiringSoon` filter arm narrows with).
+ *  - `expiredCount`      — a stamped cooldown at or before the captured
+ *                          `now` (the boundary instant reads expired).
+ */
+export interface AdminCooldownLifecycleStatsReturnType {
+  readonly activeCount: number;
+  readonly expiringSoonCount: number;
+  readonly expiredCount: number;
+  /**
+   * The canonical window length (in days) `expiringSoonCount` was measured
+   * with — echoed on the wire so client label copy renders the SAME window
+   * the server counted with (no shared-constant drift across the boundary).
+   */
+  readonly expiringSoonWindowDays: number;
+}
+
+/**
  * `AdminUserActivityEntryReturnType` — one audit-trail entry in the
  * per-user "recent activity" timeline on the admin detail page. Scoped
  * read-back of the append-only `audit_logs` table: rows WHERE
- * `entity_type = 'user' AND entity_id = :userId` (actions performed ON
- * this account), newest-first.
+ * `entity_id = :userId` over the `user` + `applicant` entity arms
+ * (actions performed ON this account and on its teacher-applicant
+ * profile), newest-first.
  *
  *  - `actionType` is re-applied as the `AuditActionType` TS enum over the
  *    raw pgEnum string at map time (fail-closed on corrupt stored values).
+ *  - `entityType` is the raw recorded entity discriminator (`"user"` or
+ *    `"applicant"`) — the timeline renders the applicant rows with a
+ *    distinct entity tag so mixed feeds read unambiguously.
+ *  - `caption` is the server-composed localized rendering of the details
+ *    payload for the applicant lifecycle rows (override / cooldown
+ *    extension); `null` when the payload carries no recognizable caption
+ *    shape (BOPLA: only composed strings survive, never the raw JSON).
  *  - `actorName` is the acting admin's display name, resolved via an
  *    INNER JOIN on `users.id = audit_logs.actor_id` (the FK is NOT NULL
  *    RESTRICT, so the join never drops rows and never nulls the name).
@@ -129,6 +184,8 @@ export interface AdminUserStatsReturnType {
 export interface AdminUserActivityEntryReturnType {
   readonly id: number;
   readonly actionType: AuditActionType;
+  readonly entityType: string;
+  readonly caption: string | null;
   readonly actorName: string;
   readonly changedFields: readonly string[] | null;
   readonly createdAt: Date;
@@ -247,12 +304,38 @@ export interface AdminUpdateUserPatchInput {
  * `search` is a free-text substring applied case-insensitively over
  * `fullName` and `email`; the caller MUST escape LIKE wildcards before
  * composing the pattern (the service layer enforces this).
+ *
+ * The two applicant-lifecycle members narrow the directory to rows whose
+ * `applicants` child (shared PK) currently matches:
+ *  - `applicantStatus` — the stored `applicants.status` value; every
+ *    non-applicant row drops out when the filter is set.
+ *  - `cooldownState` — the DERIVED cooldown read-model state, mirrored
+ *    predicate-for-predicate against the wire field's shared strict-`>`
+ *    derivation (`deriveCooldownState`): `active` ⇔ a stamped future
+ *    cooldown instant, `expired` ⇔ a stamped past instant, `none` ⇔ an
+ *    applicants row with NO cooldown stamped. Non-applicant rows carry a
+ *    `null` state on the wire and are excluded by EVERY arm (including
+ *    `none`) — the filter is an applicant-lifecycle surface, not a
+ *    "users without applicants" shortcut.
  */
 export interface AdminUserFiltersSubmitInput {
   readonly role?: UserRole | null;
   readonly governance?: AdminUserGovernanceFilter | null;
   readonly country?: string | null;
   readonly search?: string | null;
+  readonly applicantStatus?: ApplicantStatus | null;
+  readonly cooldownState?: ApplicantCooldownState | null;
+  /**
+   * Time-window narrow for the cooldown lifecycle — `true` restricts the
+   * listing to applicants whose stamped cooldown expires within the
+   * canonical `COOLDOWN_EXPIRING_SOON_DAYS` window (strictly in the future
+   * AND at most 7 days out; the SAME constant the dashboard lifecycle
+   * panel's `expiringSoonCount` counts with). Absent/`null`/`false` drops
+   * out per the forgiving read rule. Composable with `cooldownState`
+   * (typically `active`) — the panel's deep-link sets both so the applied
+   * chips and the rows tell one story.
+   */
+  readonly cooldownExpiringSoon?: boolean | null;
 }
 
 /**

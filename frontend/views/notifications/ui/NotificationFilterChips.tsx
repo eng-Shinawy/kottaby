@@ -1,6 +1,6 @@
 "use client";
 
-import { FilterListOutlined } from "@mui/icons-material";
+import { ExpandMoreOutlined, FilterListOutlined } from "@mui/icons-material";
 import { Box, Button, Chip, Divider, Stack } from "@mui/material";
 import { type ReactNode, useState } from "react";
 // audit-R4: shared keyboard-focus ring (v9 ButtonBase ships none).
@@ -47,7 +47,8 @@ interface NotificationFilterChipsProps {
  *
  * Responsive posture (plan §5.5): chips render inline on `sm+` and wrap on
  * tablet; on `xs` the rail collapses behind a translated
- * `FilterListOutlined` toggle row (`aria-expanded` announces the state).
+ * `FilterListOutlined` toggle row whose trailing chevron spins 180° while
+ * open (`aria-expanded` announces the state).
  *
  * Chips are `aria-pressed` toggles so the selection state reaches assistive
  * tech without relying on color alone. MUI v9 discipline: `sx`-only styling,
@@ -81,6 +82,18 @@ export function NotificationFilterChips({
         color="primary"
         variant="text"
         startIcon={<FilterListOutlined />}
+        endIcon={
+          // Expansion affordance: a 180° spin is RTL-invariant (a down-chevron
+          // rotated half a turn reads "open" identically under dir="rtl").
+          <ExpandMoreOutlined
+            sx={theme => ({
+              transition: theme.transitions.create("transform", {
+                duration: theme.transitions.duration.shorter,
+              }),
+              transform: filtersOpen ? "rotate(180deg)" : "rotate(0deg)",
+            })}
+          />
+        }
         aria-expanded={filtersOpen}
         onClick={() => setFiltersOpen(open => !open)}
         sx={{

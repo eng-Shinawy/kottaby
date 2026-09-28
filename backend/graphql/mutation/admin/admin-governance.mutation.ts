@@ -1,9 +1,33 @@
 /**
- * Admin governance mutations — `adminSetUserSuspended` / `adminSetUserBlocked`.
+ * Admin governance mutations — `adminSetUserSuspended` / `adminSetUserBlocked`
+ * / `adminExtendApplicantCooldown` / `adminOverrideApplicantEvaluation`.
  *
  * Contract (REQ-060 SDL):
  *  - `adminSetUserSuspended(id: Int!, suspended: Boolean!, periodDays: Int): AdminUserDetail!`
  *  - `adminSetUserBlocked(id: Int!, blocked: Boolean!): AdminUserDetail!`
+ *
+ * `adminExtendApplicantCooldown(applicantId: Int!, additionalDays: Int!):
+ * ApplicantProfile!` — the applicant-lifecycle cooldown extension. The actor
+ * identity for the audit trail is the session user id (never a client-supplied
+ * arg — there is no such argument on the field); the bounds / terminal-status
+ * / audit-row rules live in
+ * `ApplicantLifecycleService.extendApplicantCooldown`, whose `DomainError`
+ * subclasses propagate uncaught to the masking boundary (no try/catch here).
+ * The resolver returns the refreshed applicant profile directly.
+ *
+ * `adminOverrideApplicantEvaluation(applicantId: Int!, action:
+ * AdminApplicantOverrideAction!, cooldownDays: Int): ApplicantProfile!` —
+ * the admin override of an applicant's automated evaluation result (certify
+ * / reject / grant_re_evaluation — docs/planning/TICKETS.md "Admin Override
+ * of Evaluation Results"). Same session-sourced-actor discipline: the audit
+ * actor is `ctx.user.id` (no caller-supplied actor argument exists).
+ * `cooldownDays` follows the `adminSetUserSuspended` `periodDays` precedent:
+ * an OPTIONAL `Int` arg validated ONLY on the reject direction (1..3650
+ * whole days) and IGNORED on certify / grant_re_evaluation. All per-direction
+ * rules (terminal-status guards, teacher-row insert-or-elevate / demote,
+ * cooldown stamping / clearance, the single `action_type='override'` audit
+ * row) live in `ApplicantLifecycleService.overrideApplicantEvaluation`, whose
+ * `DomainError` subclasses propagate uncaught to the masking boundary.
  *
  * authScopes (D10 — `$all` conjunction, MANDATORY):
  *  - `authScopes: { $all: { authenticated: true, role: [UserRole.Admin] } }`
@@ -37,9 +61,11 @@
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { AdminUserDetailPothosObject } from "@/backend/graphql/pothos/admin";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
-import { requirePositiveIntId } from "@/backend/graphql/shared";
+import { AdminApplicantOverrideActionPothosEnum } from "@/backend/graphql/pothos/shared/enum.pothos";
+import { ApplicantProfilePothosObject } from "@/backend/graphql/pothos/teachers/applicant.pothos";
+import { requireAdminUser, requirePositiveIntId } from "@/backend/graphql/shared";
 import { UnauthorizedError } from "@/backend/lib/errors";
-import { AdminUserManagementService } from "@/backend/services";
+import { AdminUserManagementService, ApplicantLifecycleService } from "@/backend/services";
 
 // Side-effect: register the `adminSetUserSuspended` mutation field.
 gqlSchemaBuilder.mutationField("adminSetUserSuspended", t =>
@@ -93,6 +119,70 @@ gqlSchemaBuilder.mutationField("adminSetUserBlocked", t =>
         requirePositiveIntId(args.id, "id"),
         args.blocked,
         ctx.user.id,
+        ctx.locale
+      );
+    },
+  })
+);
+
+// Side-effect: register the `adminExtendApplicantCooldown` mutation field.
+// The `$all` conjunction is INLINED (same shape as `adminOnlyAuthScopes`)
+// so the audit census drift lock can read the gate statically — the
+// census-drift scanner classifies a mutation chunk's `authScopes` literal
+// and records an unresolvable gate in its skip ledger, which must stay
+// empty. Same discipline as the sibling `adminStopBroadcast` registration.
+gqlSchemaBuilder.mutationField("adminExtendApplicantCooldown", t =>
+  t.field({
+    type: ApplicantProfilePothosObject,
+    args: {
+      applicantId: t.arg({ type: "Int", required: true }),
+      additionalDays: t.arg({ type: "Int", required: true }),
+    },
+    authScopes: {
+      $all: {
+        authenticated: true,
+        role: [UserRole.Admin],
+      },
+    },
+    resolve: async (_root, args, ctx) => {
+      const user = await requireAdminUser(ctx);
+      return ApplicantLifecycleService.extendApplicantCooldown(
+        requirePositiveIntId(args.applicantId, "applicantId"),
+        args.additionalDays,
+        user.id,
+        ctx.locale
+      );
+    },
+  })
+);
+
+// Side-effect: register the `adminOverrideApplicantEvaluation` mutation
+// field. The `$all` conjunction is INLINED (same shape as `adminOnlyAuthScopes`)
+// so the audit census drift lock can read the gate statically — same
+// discipline as the sibling `adminExtendApplicantCooldown` registration.
+// `cooldownDays` is the `adminSetUserSuspended`-period precedent: validated
+// on the reject direction ONLY, IGNORED on certify / grant_re_evaluation.
+gqlSchemaBuilder.mutationField("adminOverrideApplicantEvaluation", t =>
+  t.field({
+    type: ApplicantProfilePothosObject,
+    args: {
+      applicantId: t.arg({ type: "Int", required: true }),
+      action: t.arg({ type: AdminApplicantOverrideActionPothosEnum, required: true }),
+      cooldownDays: t.arg({ type: "Int", required: false }),
+    },
+    authScopes: {
+      $all: {
+        authenticated: true,
+        role: [UserRole.Admin],
+      },
+    },
+    resolve: async (_root, args, ctx) => {
+      const user = await requireAdminUser(ctx);
+      return ApplicantLifecycleService.overrideApplicantEvaluation(
+        requirePositiveIntId(args.applicantId, "applicantId"),
+        args.action,
+        args.cooldownDays ?? null,
+        user.id,
         ctx.locale
       );
     },

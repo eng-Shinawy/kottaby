@@ -30,6 +30,7 @@ import { isApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import {
   AdminUserGovernanceFilterPothosEnum,
+  ApplicantCooldownStatePothosEnum,
   ApplicantStatusPothosEnum,
   AuditActionTypePothosEnum,
   GenderPothosEnum,
@@ -43,6 +44,7 @@ import {
 } from "@/backend/graphql/pothos/shared/userFieldHelpers";
 import { ApplicantProfilePothosObject } from "@/backend/graphql/pothos/teachers/applicant.pothos";
 import type {
+  AdminCooldownLifecycleStatsReturnType,
   AdminParentSnapshotReturnType,
   AdminStudentSnapshotReturnType,
   AdminTeacherSnapshotReturnType,
@@ -94,6 +96,23 @@ const AdminUserListItemPothosObject = gqlSchemaBuilder
           return parent.applicantStatus;
         },
       }),
+      /**
+       * Read-time cooldown observables (both null for non-applicant rows).
+       * `cooldownState` reuses the registered `ApplicantCooldownState` enum;
+       * `cooldownUntil` is the raw ISO instant the client shows as the
+       * chip's native tooltip. Read-only surface — no mutation targets the
+       * directory row shape.
+       */
+      cooldownState: t.field({
+        type: ApplicantCooldownStatePothosEnum,
+        nullable: true,
+        resolve: parent => parent.cooldownState,
+      }),
+      cooldownUntil: t.field({
+        type: "String",
+        nullable: true,
+        resolve: parent => (parent.cooldownUntil ? parent.cooldownUntil.toISOString() : null),
+      }),
       teacherIsApproved: t.exposeBoolean("teacherIsApproved", { nullable: true }),
       teacherIsEvaluator: t.exposeBoolean("teacherIsEvaluator", { nullable: true }),
       studentHasParentLink: t.exposeBoolean("studentHasParentLink", { nullable: true }),
@@ -135,12 +154,37 @@ export const AdminUserStatsPothosObject = gqlSchemaBuilder
   });
 
 /**
+ * `AdminApplicantCooldownStats` — the applicant-cooldown LIFECYCLE counters
+ * for the admin dashboard panel. A deliberately SEPARATE wire shape from
+ * `AdminUserStats` (whose members are user-population counters shared with
+ * platform analytics through `adminUserStatsFields`): the cooldown lifecycle
+ * is its own concept with its own vocabulary, so it gets its own scalar-only
+ * envelope instead of widening the shared population-counter helper. Pure
+ * read (no `id` — nothing to normalize), backed by the canonical
+ * `AdminCooldownLifecycleStatsReturnType` via `getCooldownLifecycleStats`.
+ */
+export const AdminApplicantCooldownStatsPothosObject = gqlSchemaBuilder
+  .objectRef<AdminCooldownLifecycleStatsReturnType>("AdminApplicantCooldownStats")
+  .implement({
+    fields: t => ({
+      activeCount: t.exposeInt("activeCount"),
+      expiringSoonCount: t.exposeInt("expiringSoonCount"),
+      expiredCount: t.exposeInt("expiredCount"),
+      /** The window length the expiringSoon bucket was measured with — echoed so label copy cannot drift. */
+      expiringSoonWindowDays: t.exposeInt("expiringSoonWindowDays"),
+    }),
+  });
+
+/**
  * `AdminUserActivityEntry` — one row of the per-user "recent activity"
  * timeline on the admin detail page (scoped `audit_logs` read-back:
- * actions recorded ABOUT this user, newest-first). The raw `details` JSON
- * payload is NOT exposed — only the defensively projected `changedFields`
- * string list survives to the client (BOPLA on read-back). Backed by the
- * canonical `AdminUserActivityEntryReturnType`.
+ * actions recorded ABOUT this user — account rows plus the user's
+ * teacher-applicant lifecycle rows — newest-first). `entityType`
+ * discriminates the mixed feed ("user" vs "applicant") so the client can
+ * tag applicant entries. `caption` is the server-composed localized
+ * rendering of the details payload for the applicant lifecycle rows (the
+ * raw `details` JSON itself is NOT exposed — BOPLA on read-back). Backed
+ * by the canonical `AdminUserActivityEntryReturnType`.
  */
 export const AdminUserActivityEntryPothosObject = gqlSchemaBuilder
   .objectRef<AdminUserActivityEntryReturnType>("AdminUserActivityEntry")
@@ -148,6 +192,8 @@ export const AdminUserActivityEntryPothosObject = gqlSchemaBuilder
     fields: t => ({
       id: t.exposeInt("id"),
       actionType: t.expose("actionType", { type: AuditActionTypePothosEnum }),
+      entityType: t.exposeString("entityType"),
+      caption: t.exposeString("caption", { nullable: true }),
       actorName: t.exposeString("actorName"),
       changedFields: t.field({
         type: ["String"],
@@ -293,7 +339,10 @@ export const AdminUserDetailPothosObject = gqlSchemaBuilder
  * `AdminUserFiltersInput` — independent ANDed filters for the directory
  * listing. Absent or `null` members drop out at the service layer; a
  * transport-tampered `governance` value that is not a recognized enum member
- * fails GraphQL input validation before any resolver runs.
+ * fails GraphQL input validation before any resolver runs. The two
+ * applicant-lifecycle members reuse the SAME registered wire enums the
+ * directory rows expose (`ApplicantStatus` / `ApplicantCooldownState`) —
+ * one vocabulary per domain concept, filter and display cannot drift.
  */
 export const AdminUserFiltersInput = gqlSchemaBuilder.inputType("AdminUserFiltersInput", {
   fields: t => ({
@@ -301,6 +350,20 @@ export const AdminUserFiltersInput = gqlSchemaBuilder.inputType("AdminUserFilter
     governance: t.field({ type: AdminUserGovernanceFilterPothosEnum, required: false }),
     country: t.string({ required: false }),
     search: t.string({ required: false }),
+    applicantStatus: t.field({ type: ApplicantStatusPothosEnum, required: false }),
+    cooldownState: t.field({ type: ApplicantCooldownStatePothosEnum, required: false }),
+    /**
+     * Time-window narrow for the cooldown lifecycle — `true` restricts the
+     * listing to applicants whose stamped cooldown expires within the
+     * canonical `COOLDOWN_EXPIRING_SOON_DAYS` window (the SAME constant the
+     * dashboard lifecycle panel's `expiringSoonCount` counts with, so the
+     * KPI and its deep-linked listing cannot disagree). A plain nullable
+     * Boolean (NOT an enum member): the window LENGTH is a product constant,
+     * not a wire value, so the closed-whitelist discipline stays intact —
+     * the only client-expressible choices are "applied" (`true`) and
+     * "absent" (null/false → dropped per the forgiving read rule).
+     */
+    cooldownExpiringSoon: t.boolean({ required: false }),
   }),
 });
 

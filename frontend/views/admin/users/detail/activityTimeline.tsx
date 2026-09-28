@@ -5,10 +5,6 @@
  * per-user activity card on the admin user DETAIL page): the timeline entry
  * list body and the always-rendered "View Full Audit Log" link button.
  *
- * - `TimelineEntry`: per-entry 10px dot (latest filled `primary`, older
- *   `surfaceContainerHighest`) joined by 1px `divider` segments; entry =
- *   600-weight action label + `byActor actorName · relativeTime` sub-line +
- *   optional localized changed-fields caption.
  * - `ActivityBody`: body renderer in priority order — loading spinner
  *   (initial load only; refresh keeps stale data) → inline error → centered
  *   empty state → the newest-first timeline. A top-level function keeps the
@@ -17,64 +13,16 @@
  *   audit surface stays one click away (full-width footer in the
  *   populated/loading/error states, inline in the compact empty state).
  *
- * Action/field label localization lives in `activityAuditLabels.ts`.
+ * Per-entry row rendering (dot tinting, entity tag, caption lines) lives in
+ * `activityTimelineEntry.tsx` (file-size cap extraction). Action/field
+ * label localization lives in `activityAuditLabels.ts`.
  */
 
 import { Alert, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import {
-  type ActivityEntry,
-  type ActivityLabels,
-  actionLabel,
-  localizeAuditFieldName,
-} from "@/frontend/views/admin/users/utils";
-
-interface TimelineEntryProps {
-  readonly entry: ActivityEntry;
-  readonly isLatest: boolean;
-  readonly hasNext: boolean;
-  readonly labels: ActivityLabels;
-  /** Locale-bound relative-time formatter. */
-  readonly formatRelative: (raw: string | null | undefined) => string;
-}
-
-function TimelineEntry({ entry, isLatest, hasNext, labels, formatRelative }: TimelineEntryProps): ReactNode {
-  return (
-    <Box component="li" sx={{ display: "flex", gap: 1.5 }}>
-      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, width: 12 }}>
-        <Box
-          aria-hidden
-          sx={theme => ({
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            flexShrink: 0,
-            mt: "5px",
-            bgcolor: isLatest ? theme.palette.primary.main : theme.palette.surfaceContainerHighest,
-          })}
-        />
-        {hasNext && (
-          <Box aria-hidden sx={theme => ({ flex: 1, width: 1, minHeight: 24, bgcolor: theme.palette.divider })} />
-        )}
-      </Box>
-      <Box sx={{ minWidth: 0, pb: 1.5 }}>
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          {actionLabel(entry.actionType, labels)}
-        </Typography>
-        <Typography variant="caption" sx={theme => ({ display: "block", color: theme.palette.text.secondary })}>
-          {labels.activity.byActor} {entry.actorName} · {formatRelative(entry.createdAt)}
-        </Typography>
-        {entry.changedFields && entry.changedFields.length > 0 && (
-          <Typography variant="caption" sx={theme => ({ display: "block", color: theme.palette.text.secondary })}>
-            {labels.activity.changedFields}{" "}
-            {entry.changedFields.map(field => localizeAuditFieldName(field, labels)).join(", ")}
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  );
-}
+import { TimelineEntry } from "@/frontend/views/admin/users/detail/activityTimelineEntry";
+import type { ActivityEntry, ActivityLabels } from "@/frontend/views/admin/users/utils";
 
 interface ActivityBodyProps {
   readonly loading: boolean;

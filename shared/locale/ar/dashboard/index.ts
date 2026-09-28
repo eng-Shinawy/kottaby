@@ -1,3 +1,4 @@
+import { formatArabicCooldownDays } from "@/shared/locale/arabic-cooldown-days";
 import type { DashboardLabels } from "@/shared/locale/types/dashboard";
 
 export const dashboardAr: DashboardLabels = {
@@ -103,5 +104,18 @@ export const dashboardAr: DashboardLabels = {
       subscriptions: "أدر خطط اشتراك أطفالك من مكان واحد.",
       notifications: "تحقق من إشعاراتك للحصول على تحديثات جلسات أطفالك.",
     },
+  },
+  cooldownLifecycle: {
+    title: "دورة حياة فترة انتظار المتقدمين",
+    subtitle: "اضغط على أي فئة لفتح دليل المستخدمين مُصفّى مسبقًا.",
+    // مطابق حرفيًا لـ adminUsers.directoryChips.cooldownActive — مفردات واحدة.
+    active: "فترة انتظار نشطة",
+    // `days` يصل من الخادم (طول النافذة الذي حُسبت عليه الفئة).
+    expiringSoon: days => `تنتهي خلال ${formatArabicCooldownDays(days)}`,
+    // مطابق حرفيًا لـ adminUsers.directoryChips.cooldownExpired — مفردات واحدة.
+    expired: "انتهت فترة الانتظار",
+    viewAll: "فتح دليل المستخدمين",
+    bucketAria: (label, count) => `${label}: ${count} متقدم`,
+    loadingLabel: "جارٍ تحميل دورة حياة فترة الانتظار…",
   },
 };

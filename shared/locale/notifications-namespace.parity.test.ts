@@ -52,7 +52,7 @@ import { Notifications } from "@/shared/locale/namespaces/notifications";
 
 // ─── Mandated key inventory (the notification-feed surface ground truth) ────
 
-/** Every key the notifications UI namespace must carry (74 slots). */
+/** Every key the notifications UI namespace must carry (81 slots). */
 const MANDATED_KEYS = [
   "title",
   "emptyTitle",
@@ -70,6 +70,7 @@ const MANDATED_KEYS = [
   "typeSystemBroadcast",
   "typePaymentConfirmation",
   "typeEvaluationResult",
+  "typeApplicantOutcome",
   "markRead",
   "markReadAriaLabel",
   "markAllRead",
@@ -128,17 +129,24 @@ const MANDATED_KEYS = [
   "eventSessionDisputeResolvedRefundBody",
   "eventSessionDisputeResolvedPartialRefundBody",
   "eventSessionDisputeResolvedUpholdBody",
+  "eventApplicantOverrideCertifiedTitle",
+  "eventApplicantOverrideCertifiedBody",
+  "eventApplicantOverrideRejectedTitle",
+  "eventApplicantOverrideRejectedBody",
+  "eventApplicantOverrideReEvaluationTitle",
+  "eventApplicantOverrideReEvaluationBody",
 ] as const;
 
 /**
- * One display-label key per each of the nine notification-type values —
+ * One display-label key per each of the ten notification-type values —
  * `session_request` ↔ typeSessionRequest, `session_completion` ↔
  * typeSessionCompletion, `session_cancellation` ↔ typeSessionCancellation,
  * `session_dispute_opened` ↔ typeSessionDisputeOpened,
  * `session_dispute_resolved` ↔ typeSessionDisputeResolved,
  * `parent_link_request` ↔ typeParentLinkRequest, `system_broadcast` ↔
  * typeSystemBroadcast, `payment_confirmation` ↔ typePaymentConfirmation,
- * `evaluation_result` ↔ typeEvaluationResult. (Pinned as a test fixture —
+ * `evaluation_result` ↔ typeEvaluationResult, `applicant_outcome` ↔
+ * typeApplicantOutcome. (Pinned as a test fixture —
  * this file must not import the backend enum layer.)
  */
 const TYPE_LABEL_KEYS = [
@@ -151,9 +159,10 @@ const TYPE_LABEL_KEYS = [
   "typeSystemBroadcast",
   "typePaymentConfirmation",
   "typeEvaluationResult",
+  "typeApplicantOutcome",
 ] as const;
 
-/** The twenty function-valued slots (pluralization + interpolation templates). */
+/** The twenty-one function-valued slots (pluralization + interpolation templates). */
 const FUNCTION_KEYS = [
   "markReadAriaLabel",
   "markAllResult",
@@ -175,6 +184,7 @@ const FUNCTION_KEYS = [
   "eventPaymentFailedBody",
   "eventSessionReportReadyBody",
   "eventSessionReportReadyParentBody",
+  "eventApplicantOverrideRejectedBody",
 ] as const;
 
 /** Arabic-script probe — at least one Arabic-block character in the value. */
@@ -217,6 +227,7 @@ const FUNCTION_SLOT_SAMPLE_ARGS: Record<
   eventPaymentFailedBody: { en: ["Hifz Plan"], ar: ["خطة الحفظ"] },
   eventSessionReportReadyBody: { en: ["Sheikh Omar"], ar: ["الشيخ عمر"] },
   eventSessionReportReadyParentBody: { en: ["Yusuf", "Sheikh Omar"], ar: ["يوسف", "الشيخ عمر"] },
+  eventApplicantOverrideRejectedBody: { en: [30], ar: [30] },
 };
 
 /** Invokes one function slot with sample args — throws if the slot is not callable or returns a non-string. */
@@ -267,7 +278,7 @@ describe("compile-time parity mirror — ar/en key sets agree", () => {
     expect(Object.hasOwn(notificationsEn, key)).toBe(true);
   });
 
-  test("the mandated inventory is exhaustive (no silent key minting beyond the 74 slots)", () => {
+  test("the mandated inventory is exhaustive (no silent key minting beyond the 81 slots)", () => {
     const mandated = new Set<string>(MANDATED_KEYS);
     for (const key of Object.keys(notificationsAr)) {
       expect(mandated.has(key)).toBe(true);
@@ -277,7 +288,7 @@ describe("compile-time parity mirror — ar/en key sets agree", () => {
 
 // ===========================================================================
 describe("type-label coverage — one display label per notification-type value", () => {
-  test("exactly NINE type-label keys exist (all 9 NotificationType values covered)", () => {
+  test("exactly TEN type-label keys exist (all 10 NotificationType values covered)", () => {
     const typeKeysOnMap = Object.keys(notificationsEn).filter(key => key.startsWith("type"));
     expect(typeKeysOnMap).toEqual([...TYPE_LABEL_KEYS]);
   });

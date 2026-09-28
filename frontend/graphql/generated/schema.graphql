@@ -108,6 +108,13 @@ type AdminAcademicStudentRow {
   progressRowCount: Int!
 }
 
+type AdminApplicantCooldownStats {
+  activeCount: Int!
+  expiredCount: Int!
+  expiringSoonCount: Int!
+  expiringSoonWindowDays: Int!
+}
+
 type AdminApplicantExportEnvelope {
   rows: [AdminApplicantItem!]!
   total: Int!
@@ -133,6 +140,12 @@ type AdminApplicantItem {
   status: String!
   suspended: Boolean!
   verificationAttempts: Int!
+}
+
+enum AdminApplicantOverrideAction {
+  Certify
+  GrantReEvaluation
+  Reject
 }
 
 type AdminApplicantPage {
@@ -517,8 +530,10 @@ input AdminUpdateUserInput {
 type AdminUserActivityEntry {
   actionType: AuditActionType!
   actorName: String!
+  caption: String
   changedFields: [String!]
   createdAt: String!
+  entityType: String!
   id: Int!
 }
 
@@ -548,6 +563,9 @@ type AdminUserDetail {
 }
 
 input AdminUserFiltersInput {
+  applicantStatus: ApplicantStatus
+  cooldownExpiringSoon: Boolean
+  cooldownState: ApplicantCooldownState
   country: String
   governance: AdminUserGovernanceFilter
   role: UserRole
@@ -563,6 +581,8 @@ enum AdminUserGovernanceFilter {
 
 type AdminUserListItem {
   applicantStatus: ApplicantStatus
+  cooldownState: ApplicantCooldownState
+  cooldownUntil: String
   country: String
   createdAt: String!
   dateOfBirth: String
@@ -629,9 +649,16 @@ enum AppLocale {
   En
 }
 
+enum ApplicantCooldownState {
+  Active
+  Expired
+  None
+}
+
 type ApplicantProfile {
   canPurchaseVerification: Boolean!
   cooldownActive: Boolean!
+  cooldownState: ApplicantCooldownState!
   cooldownUntil: DateTime
   id: Int!
   lastAttemptAt: DateTime
@@ -959,6 +986,7 @@ type Mutation {
     input: ChangeSubscriptionPlanInput!
   ): ChangeSubscriptionPlanPayload!
   adminCreateUser(input: AdminCreateUserInput!): AdminUserDetail!
+  adminExtendApplicantCooldown(additionalDays: Int!, applicantId: Int!): ApplicantProfile!
 
   """
   Extends an active subscription's validity window by a whole number of days. Admin-only; the new window end is derived server-side from the row's current end date.
@@ -973,6 +1001,7 @@ type Mutation {
   """
   adminJoinSession(input: AdminSessionJoinInput!): Session!
   adminOnboardStudentWithOfflinePayment(input: AdminOnboardStudentOfflineInput!): AdminOnboardStudentResult!
+  adminOverrideApplicantEvaluation(action: AdminApplicantOverrideAction!, applicantId: Int!, cooldownDays: Int): ApplicantProfile!
 
   """
   Reassign one scheduled session to a different certified teacher (admin-only; scheduled rows only). The candidate's certification is asserted under lock — an unapproved candidate is TEACHER_NOT_CERTIFIED and leaves the row untouched.
@@ -1200,6 +1229,7 @@ type NotificationListPage {
 }
 
 enum NotificationType {
+  ApplicantOutcome
   EvaluationResult
   ParentLinkRequest
   PaymentConfirmation
@@ -1510,6 +1540,7 @@ type Query {
   Admin-only paged academic directory over every active student: latest Jadid/Madi positions, grade summaries, progress row counts, per-row needs-attention flags, and one platform-wide stats block. Out-of-range pages return empty items next to the honest total; governed admins are denied at the service tier.
   """
   adminAcademicDashboard(page: Int = 1, pageSize: Int = 25, search: String): AdminAcademicDashboardPage!
+  adminApplicantCooldownStats: AdminApplicantCooldownStats!
   adminAuditLogs(filters: AdminAuditLogFiltersInput, page: Int, pageSize: Int): AdminAuditLogPage!
 
   """

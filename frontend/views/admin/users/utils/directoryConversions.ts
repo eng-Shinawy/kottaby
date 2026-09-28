@@ -10,8 +10,18 @@
  * without a case update, TypeScript fails the exhaustiveness check.
  */
 
-import { AdminUserGovernanceFilter, UserRole } from "@/frontend/graphql/generated/gql/graphql";
-import type { DirectoryGovernance, DirectoryRole } from "@/frontend/views/admin/users/utils";
+import {
+  AdminUserGovernanceFilter,
+  ApplicantCooldownState,
+  ApplicantStatus,
+  UserRole,
+} from "@/frontend/graphql/generated/gql/graphql";
+import type {
+  DirectoryApplicantStatus,
+  DirectoryCooldownState,
+  DirectoryGovernance,
+  DirectoryRole,
+} from "@/frontend/views/admin/users/utils";
 
 /**
  * Runtime-validated conversion from the local `DirectoryRole` string-literal
@@ -64,4 +74,46 @@ export function toGovernanceFilter(governance: DirectoryGovernance): AdminUserGo
   // return OR none. Return Active (the default governance for new accounts)
   // if a future governance member lands here without a case update.
   return AdminUserGovernanceFilter.Active;
+}
+
+/**
+ * Runtime-validated conversion from the local `DirectoryApplicantStatus`
+ * draft union to the codegen `ApplicantStatus` enum. The draft members were
+ * chosen to spell the enum keys verbatim, so the switch is a real
+ * per-branch mapping (no `as` cast); a future member without a case fails
+ * the exhaustiveness check exactly like the role/governance converters.
+ */
+export function toApplicantStatus(status: DirectoryApplicantStatus): ApplicantStatus {
+  switch (status) {
+    case "Pending":
+      return ApplicantStatus.Pending;
+    case "InEvaluation":
+      return ApplicantStatus.InEvaluation;
+    case "Failed":
+      return ApplicantStatus.Failed;
+    case "Passed":
+      return ApplicantStatus.Passed;
+  }
+  // Exhaustive-switch fallback — return Pending (the registration-time
+  // status for new applicants) if a future member lands without a case.
+  return ApplicantStatus.Pending;
+}
+
+/**
+ * Runtime-validated conversion from the local `DirectoryCooldownState`
+ * draft union to the codegen `ApplicantCooldownState` enum. Same rationale
+ * as `toApplicantStatus`.
+ */
+export function toCooldownState(state: DirectoryCooldownState): ApplicantCooldownState {
+  switch (state) {
+    case "None":
+      return ApplicantCooldownState.None;
+    case "Active":
+      return ApplicantCooldownState.Active;
+    case "Expired":
+      return ApplicantCooldownState.Expired;
+  }
+  // Exhaustive-switch fallback — return None (the calm default) if a
+  // future member lands without a case.
+  return ApplicantCooldownState.None;
 }

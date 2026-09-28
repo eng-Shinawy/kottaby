@@ -5,6 +5,12 @@
  * `SessionDisputeOpened` / `SessionDisputeResolved` are emitted only by the
  * post-confirmation dispute flow; pre-completion (held-escrow) disputes
  * stay notification-silent per the shipped session-lifecycle ruling.
+ *
+ * `ApplicantOutcome` is emitted only by the admin override of an applicant's
+ * evaluation result (`ApplicantLifecycleService.overrideApplicantEvaluation`)
+ * — one kind for all three override directions; the title/body copy carries
+ * the direction (certified / rejected + re-apply window / re-evaluation
+ * granted), mirroring how `parent_link_request` covers both decision copies.
  */
 export enum NotificationType {
   SessionRequest = "session_request",
@@ -16,6 +22,7 @@ export enum NotificationType {
   EvaluationResult = "evaluation_result",
   SessionDisputeOpened = "session_dispute_opened",
   SessionDisputeResolved = "session_dispute_resolved",
+  ApplicantOutcome = "applicant_outcome",
 }
 
 /** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */

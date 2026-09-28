@@ -54,6 +54,7 @@ type RowCellLabels = Pick<
   | "statusBadges"
   | "directoryChips"
   | "emptyState"
+  | "filters"
   | "quickActions"
   | "editDialog"
   | "deleteConfirm"

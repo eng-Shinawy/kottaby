@@ -36,6 +36,7 @@
  *    `query/admin/index.ts` → `query/index.ts` → `gqlSchema.ts`.
  */
 import {
+  AdminApplicantCooldownStatsPothosObject,
   AdminUserActivityEntryPothosObject,
   AdminUserDetailPothosObject,
   AdminUserFiltersInput,
@@ -69,6 +70,9 @@ gqlSchemaBuilder.queryField("adminUsers", t =>
           governance: args.filters?.governance ?? null,
           country: args.filters?.country ?? null,
           search: args.filters?.search ?? null,
+          applicantStatus: args.filters?.applicantStatus ?? null,
+          cooldownState: args.filters?.cooldownState ?? null,
+          cooldownExpiringSoon: args.filters?.cooldownExpiringSoon ?? null,
         },
         page,
         pageSize,
@@ -93,6 +97,25 @@ gqlSchemaBuilder.queryField("adminUserStats", t =>
   })
 );
 
+// Side-effect: register the `adminApplicantCooldownStats` lifecycle query
+// field — the admin dashboard panel's data source. Same BFLA posture as
+// `adminUserStats` (admin-only auth scope + the service's defense-in-depth
+// actor re-check). Deliberately its OWN field (not a widening of
+// `adminUserStats`): the lifecycle counters are a different concept with
+// their own wire type, and the existing stats consumers stay byte-stable.
+gqlSchemaBuilder.queryField("adminApplicantCooldownStats", t =>
+  t.field({
+    type: AdminApplicantCooldownStatsPothosObject,
+    authScopes: adminOnlyAuthScopes,
+    resolve: async (_root, _args, ctx) => {
+      if (!ctx.user) {
+        throw new UnauthorizedError("Authentication required.");
+      }
+      return AdminUserManagementService.getCooldownLifecycleStats(ctx.locale, ctx.user.id);
+    },
+  })
+);
+
 // Side-effect: register the `adminUserDetail` query field.
 gqlSchemaBuilder.queryField("adminUserDetail", t =>
   t.field({
@@ -112,8 +135,10 @@ gqlSchemaBuilder.queryField("adminUserDetail", t =>
 );
 
 // Side-effect: register the `adminUserActivity` per-user timeline query field.
-// Scoped `audit_logs` read-back (actions recorded ABOUT one user,
-// newest-first, limit clamped 1..50 server-side with a default of 10).
+// Scoped `audit_logs` read-back (actions recorded ABOUT one user — account
+// rows plus the user's teacher-applicant lifecycle rows, discriminated by
+// the entry's `entityType`, newest-first, limit clamped 1..50 server-side
+// with a default of 10).
 gqlSchemaBuilder.queryField("adminUserActivity", t =>
   t.field({
     type: [AdminUserActivityEntryPothosObject],

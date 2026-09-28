@@ -20,6 +20,7 @@ import {
   RefreshOutlined as ReactivateIcon,
 } from "@mui/icons-material";
 import { Button, Stack } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import { type AdminUserDetailQuery_adminUserDetail, UserRole } from "@/frontend/graphql/generated/gql/graphql";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
@@ -78,7 +79,16 @@ export function UserHeroActions({ labels, user, onEdit, onDelete, onCertify }: U
           color="error"
           startIcon={<BlockIcon />}
           onClick={onDelete}
-          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168, minHeight: 54 }}
+          sx={theme => ({
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            minWidth: 168,
+            minHeight: 54,
+            "&:not(:disabled)": {
+              bgcolor: alpha(theme.palette.error.main, 0.08),
+              "&:hover": { bgcolor: alpha(theme.palette.error.main, 0.12) },
+            },
+          })}
         >
           {labels.detail.deleteAction}
         </Button>

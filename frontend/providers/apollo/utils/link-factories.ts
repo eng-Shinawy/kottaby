@@ -41,6 +41,44 @@ export const createAuthLink = (getToken: () => string | null) => {
   });
 };
 
+/**
+ * Outgoing-header writer that stamps the SSR shell's locale onto EVERY
+ * browser GraphQL request as `x-app-locale`.
+ *
+ * WHY THIS LINK EXISTS — the mixed-language drift fix: the GraphQL context
+ * factory (`backend/graphql/gqlContextFactory.ts`) resolves the request
+ * locale independently of the RSC shell. Before this link, a cookieless
+ * visitor (no `NEXT_LOCALE` cookie yet) got an Arabic page shell (the RSC
+ * boundary defaults to the canonical `defaultLocale` = "ar") while the
+ * GraphQL boundary negotiated `Accept-Language: en-US` from the browser —
+ * so every server-composed string (activity captions, localized service
+ * errors) rendered in English inside an Arabic page.
+ *
+ * The link reads the locale lazily at REQUEST time (never during render) so
+ * it always carries the value the shell actually rendered with:
+ * module-scope init parses the `NEXT_LOCALE` cookie (same source the RSC
+ * boundary reads), then a provider effect keeps it in sync with the live
+ * `LocaleContext` across in-app switches. Non-browser API clients don't run
+ * this link and keep negotiating via cookie → Accept-Language → canonical
+ * default on the server.
+ *
+ * Additive merge, same discipline as the auth link: context headers spread
+ * FIRST (so a caller can still pin the header explicitly), then the
+ * link-owned key keeps the final word.
+ */
+export const createLocaleLink = (getLocale: () => string) => {
+  return new ApolloLink((operation, forward) => {
+    const contextHeaders = operation.getContext().headers;
+    const headers: Record<string, string> = {
+      ...contextHeaders,
+      "x-app-locale": getLocale(),
+    };
+
+    operation.setContext({ headers });
+    return forward(operation);
+  });
+};
+
 const createSuccessHandler =
   (getConnected: () => boolean, setConnected: (v: boolean) => void, observer: ObserverLike<ApolloLink.Result>) =>
   (result: ApolloLink.Result) => {

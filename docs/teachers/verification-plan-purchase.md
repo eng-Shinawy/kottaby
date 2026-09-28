@@ -1,7 +1,9 @@
 # Teacher Verification Plan Purchase (5 Sessions)
 
 > Contract doc for the teacher-applicant verification-plan purchase flow. Sibling docs:
-> `docs/teachers/applicant-lifecycle.md` (lifecycle states, cooldown, certification) and
+> `docs/teachers/applicant-lifecycle.md` (lifecycle states, cooldown, certification),
+> `docs/teachers/applicant-cooldown.md` (the cooldown state machine that arms the
+> `APPLICANT_COOLDOWN_ACTIVE` denial and the admin extension primitive behind it), and
 > `docs/billing/subscription-purchase.md` (the shared payment pipeline this flow rides).
 
 ## What this flow does

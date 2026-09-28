@@ -95,7 +95,7 @@ export function StatusShell({ children, accent }: Readonly<StatusShellProps>): R
         borderColor: theme.palette.outlineVariant,
         bgcolor: theme.palette.surfaceContainerLow,
         boxShadow: theme.palette.shadow.card,
-        borderTopWidth: 3,
+        borderTopWidth: 4,
         borderTopStyle: "solid",
         borderTopColor: accent ? accent(theme.palette) : theme.palette.primary.main,
       })}

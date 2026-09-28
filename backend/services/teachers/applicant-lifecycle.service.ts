@@ -22,6 +22,29 @@
  *     to `ApplicantRepository.recordVerificationAttempt` and maps its
  *     `null` miss onto a localized `NotFoundError` (the returned updated row
  *     feeds downstream audit-log use).
+ *  4. `extendApplicantCooldown` — the admin cooldown-extension primitive.
+ *     Computes the new expiry from the stored instant (or the captured now
+ *     when none is in force), writes it through the guarded
+ *     `extendCooldownOnce` UPDATE and appends exactly ONE audit row, all
+ *     inside ONE transaction, then returns the re-shaped profile.
+ *  5. `overrideApplicantEvaluation` — the admin override of an applicant's
+ *     automated evaluation result (docs/planning/TICKETS.md "Admin Override
+ *     of Evaluation Results"). One transaction per application:
+ *     `certify` composes the SAME insert-or-elevate teacher arm the rubric
+ *     pass finalization uses and finalizes the applicant (`passed`, cooldown
+ *     cleared); `reject` demotes the teacher row (best-effort), flips the
+ *     applicant to `failed` with a stamped cooldown through the guarded
+ *     `overrideRejectOnce`; `grant_re_evaluation` clears an active cooldown
+ *     through the guarded `clearCooldownOnce` (status untouched). Each
+ *     application appends exactly ONE audit row (`action_type='override'`)
+ *     and emits ONE `applicant_outcome` notification to the applicant —
+ *     persisted inside the SAME transaction in the applicant's persisted
+ *     locale, with the realtime publish deferred past the commit boundary
+ *     this call owns.
+ *     The override SUPERSEDES the automated algorithm; the two-source split
+ *     still holds — the `users` table is never touched and no role flips
+ *     (the teacher-row demote is the ONLY teacher-table write, and only on
+ *     reject).
  *
  * Disciplines enforced here:
  *  - Captured-now: wall clock is read ONCE per invocation; every cooldown
@@ -29,108 +52,84 @@
  *  - Duration-agnostic cooldown math — no hardcoded 30d/90d windows
  *    (cooldown durations belong to the write side, which this service is not).
  *  - Logging: `logger.logDomainError` fires ONLY on the enumerated expected
- *    domain rejections (missing-row guard/reapplication misses, active-
- *    cooldown block, already-certified block). Every happy path — including
+ *    domain rejections (missing-row guard/reapplication/extension misses,
+ *    active-cooldown block, already-certified blocks) and on the post-commit
+ *    cooldown-extension event. Every other happy path — including
  *    the profile `null` answer and the whole of `getMyApplicantProfile` —
  *    emits NOTHING. Unexpected internals bubble up unswallowed to the
  *    GraphQL masking boundary.
- *  - Zero writes outside the delegated re-application increment; no locks;
- *    no teacher-table or governance-field contact.
+ *  - Writes are confined to the delegated re-application increment, the
+ *    admin cooldown extension (+ its audit row), and the admin evaluation
+ *    override (+ its audit row); no locks; no governance-field contact and
+ *    no `users`-table write — the cooldown decision reads
+ *    `applicants.cooldown_until` ONLY, every cooldown write touches only
+ *    that column, and the override's teacher-table writes are the
+ *    insert-or-elevate certify arm and the reject-direction demotion
+ *    (never a role flip).
  *  - All user-facing strings resolve through
  *    `getServerTranslations(locale)` (one-arg bundle + property access);
  *    no hardcoded messages, no `console.*`.
  */
 import { ApplicantRepository } from "@/backend/db/repo";
+import { AdminApplicantOverrideAction } from "@/backend/enum/teachers/applicant-override-action.enum";
 import { ApplicantStatus, isApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
+import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
-import type { ApplicantProfileReturnType, ApplicantSelectType, DBTransaction } from "@/backend/types";
+import { assertActiveActorAdmin } from "@/backend/services/admin/admin-guards.helpers";
+import { AuditService } from "@/backend/services/admin/audit.service";
+import {
+  NotificationEngine,
+  type NotificationEngineCallOptions,
+} from "@/backend/services/notifications/notification-engine.service";
+import {
+  APPLICANT_ENTITY,
+  COOLDOWN_EXTENSION_MAX_DAYS,
+  COOLDOWN_EXTENSION_MIN_DAYS,
+  composeCooldownExtensionAudit,
+  composeOverrideAudit,
+  denyAlreadyCertified,
+  deriveCooldownState,
+  EPOCH_PAST,
+  emitApplicantOutcomeNotification,
+  expandCooldownTemplate,
+  MS_PER_DAY,
+} from "@/backend/services/teachers/applicant-lifecycle.helpers";
+import {
+  applyCertifyOverride,
+  applyGrantReEvaluationOverride,
+  applyRejectOverride,
+  type OverrideArmContext,
+} from "@/backend/services/teachers/applicant-lifecycle.override-arms";
+import type {
+  ApplicantOverrideAudit,
+  ApplicantProfileReturnType,
+  ApplicantSelectType,
+  DBTransaction,
+} from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /**
- * Entity label passed to `NotFoundError` — the code is auto-generated as
- * `${entity}_NOT_FOUND` → `APPLICANT_NOT_FOUND` (entity name, NOT the full
- * code, per docs/graphql/domain-error-extensions-code.md rule 3).
+ * Re-exports — the two public pure functions live in
+ * `./applicant-lifecycle.helpers` (size-budget split, zero behavior
+ * change); re-exported here so every importer of
+ * `applicant-lifecycle.service` (including the `@/backend/services` barrel)
+ * keeps its exact import surface.
  */
-const APPLICANT_ENTITY = "APPLICANT";
-
-/**
- * Resolves the request locale into a BCP-47 tag for ICU formatting.
- *
- * The app ships exactly two locales ("ar" | "en" — `shared/locale/AppLocale.ts`);
- * `getServerTranslations` resolves every OTHER input to the default locale
- * `"ar"`. This helper applies the SAME fallback so an interpolated
- * timestamp always lands in the language of the message template it is
- * embedded into (byte-consistent with `resolveLocale` in
- * `shared/locale/server.ts`: only exact `"en"` selects English).
- */
-function resolveLocaleTag(locale: string): "ar" | "en" {
-  return locale === "en" ? "en" : "ar";
-}
-
-/**
- * Module-private server-side cooldown-timestamp formatters.
- *
- * Deterministic by construction: fixed UTC timeZone + fixed component set +
- * forced 24-hour clock ⇒ the same instant renders byte-identically in every
- * environment (host time zone cannot make a test flaky). Digit shape and
- * month order follow the runtime's ICU data: Arabic-Indic digits under
- * `"ar"`, Latin digits under `"en"`.
- *
- * Rationale: no shared server-side date-util exists yet; this table keeps
- * the single server-side consumer self-contained instead of scattering
- * ad-hoc `toLocaleString` calls.
- */
-const COOLDOWN_FORMATTERS = {
-  ar: new Intl.DateTimeFormat("ar", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }),
-  en: new Intl.DateTimeFormat("en", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }),
-} as const;
-
-/**
- * Formats a cooldown-expiry instant for embedding into the localized
- * `{cooldownUntil}` message slot.
- */
-function formatCooldownExpiry(cooldownUntil: Date, locale: string): string {
-  const formatter = COOLDOWN_FORMATTERS[resolveLocaleTag(locale)];
-  return formatter.format(cooldownUntil);
-}
-
-/**
- * Expands the single ICU `{cooldownUntil}` placeholder of a translated
- * cooldown template. The repo has NO runtime ICU expander yet — consumers
- * interpolate via simple typed replacement; the placeholder NAME is pinned
- * identical across ar/en by the locale parity suites, so a bare `replace`
- * cannot leave residue behind. Shared by every cooldown-copy composer in
- * the domain (the purchase guard below and the evaluation-outcome
- * notification) so the rendered instant keeps ONE format.
- */
-export function expandCooldownTemplate(template: string, cooldownUntil: Date, locale: string): string {
-  return template.replace("{cooldownUntil}", formatCooldownExpiry(cooldownUntil, locale));
-}
+export { deriveCooldownState, expandCooldownTemplate } from "@/backend/services/teachers/applicant-lifecycle.helpers";
 
 export namespace ApplicantLifecycleService {
   /**
-   * Shapes the caller's own applicant profile (self-scope; the userId comes
-   * exclusively from the resolver-derived `ctx.user.id`).
+   * Shapes an applicant profile. GraphQL callers: `myApplicantProfile` is
+   * self-scope (the userId comes exclusively from the resolver-derived
+   * `ctx.user.id`), and the admin cooldown-extension pipeline re-shapes its
+   * post-write read through this same shaper inside its transaction — there
+   * the id is the extension's service-validated applicant id (admin-gated
+   * upstream; the self surface itself never accepts a client-supplied id).
    *
    * Pure read-and-compute: ONE `findByUserId` read, then a single captured
-   * `now` drives both derivations.
+   * `now` drives every derivation (the cooldown boolean, the purchasability
+   * flag, and the explicit cooldown-state enumeration).
    *
    * @returns The canonical closed profile shape, or `null` when no
    *     applicants row exists (never-applicant and certified share the one
@@ -164,6 +163,9 @@ export namespace ApplicantLifecycleService {
     const now = new Date();
     const cooldownActive = row.cooldownUntil !== null && row.cooldownUntil > now;
     const canPurchaseVerification = !cooldownActive && row.status !== ApplicantStatus.Passed;
+    // The explicit enumeration rides the SAME captured instant, so it can
+    // never drift from the boolean it mirrors.
+    const cooldownState = deriveCooldownState(row.cooldownUntil, now);
 
     return {
       id: row.id,
@@ -177,6 +179,7 @@ export namespace ApplicantLifecycleService {
       cooldownUntil: row.cooldownUntil,
       cooldownActive,
       canPurchaseVerification,
+      cooldownState,
     };
   }
 
@@ -278,5 +281,349 @@ export namespace ApplicantLifecycleService {
       throw new NotFoundError(APPLICANT_ENTITY, t.applicantNotFound);
     }
     return row;
+  }
+
+  /**
+   * Admin cooldown-extension primitive. Computes the new expiry as
+   * `max(currentCooldownUntil, now) + additionalDays` — the stored instant is
+   * honored verbatim while still in force, an expired or absent one re-arms
+   * from the captured `now`, so the extension can only LENGTHEN a cooldown,
+   * never shorten it. The write goes through the guarded
+   * `extendCooldownOnce` UPDATE and appends exactly ONE audit row via
+   * `AuditService.createAuditLog`, both inside ONE transaction — the audit
+   * row shares the write's commit/rollback fate. Writes ONLY the applicant
+   * cooldown instant: the account row's governance fields are never touched
+   * from here (the documented two-source split — the `users` table is not
+   * imported into this module).
+   *
+   * `actorId` is the verified caller identity handed over by the admin
+   * resolver (its session user id — never a client-supplied field); it lands
+   * in the audit row as the acting admin. The defense-in-depth BFLA gate
+   * (strict active-admin actor assertion, mirroring the sibling governance
+   * pipeline) runs FIRST — an anonymous, missing, non-admin, or governed
+   * actor is denied with zero writes and zero audit rows before the bounds
+   * validation and before any applicant-row contact. The bounds check runs
+   * before any further database contact.
+   *
+   * @param outerTx  Optional caller transaction — as the FINAL parameter, the
+   *     composition seam: when provided the write + audit join it (savepoint
+   *     semantics); otherwise a fresh top-level transaction is opened.
+   * @throws UnauthorizedError  the actor id is the anonymous sentinel — the
+   *     actor gate runs before any other work (localized).
+   * @throws ForbiddenError    the actor id does not resolve to a real,
+   *     admin-role, non-governed user (localized).
+   * @throws ValidationError  code `APPLICANT_COOLDOWN_EXTENSION_INVALID`
+   *     when `additionalDays` is not an integer in [1, 3650] (localized).
+   * @throws NotFoundError    code `APPLICANT_NOT_FOUND` when no applicants
+   *     row exists (localized).
+   * @throws ValidationError  code `APPLICANT_ALREADY_CERTIFIED` when the
+   *     stored status is `passed` — certification is terminal, there is no
+   *     cooldown left to extend (localized). A certification that lands
+   *     between the guard read and the guarded write collapses onto the same
+   *     typed rejection (the write matched zero rows) instead of an illegal
+   *     extension.
+   * @returns The re-shaped profile (post-extension expiry + derived state).
+   */
+  export async function extendApplicantCooldown(
+    applicantId: number,
+    additionalDays: number,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<ApplicantProfileReturnType> {
+    // Defense-in-depth BFLA gate FIRST — authorization precedes validation
+    // and every database contact. Anonymous callers receive the
+    // unauthenticated class; a missing, non-admin, or governed actor receives
+    // the forbidden class. Both denials perform zero writes and mint zero
+    // audit rows (the gate runs before the extension transaction opens).
+    await assertActiveActorAdmin(actorId, locale, outerTx);
+
+    // Bounds validation NEXT — client input is rejected before any further
+    // database contact.
+    if (
+      !Number.isInteger(additionalDays) ||
+      additionalDays < COOLDOWN_EXTENSION_MIN_DAYS ||
+      additionalDays > COOLDOWN_EXTENSION_MAX_DAYS
+    ) {
+      throw new ValidationError(
+        "APPLICANT_COOLDOWN_EXTENSION_INVALID",
+        getServerTranslations(locale).errorsTranslations.applicantCooldownExtensionInvalid
+      );
+    }
+
+    const t = getServerTranslations(locale).errorsTranslations;
+
+    const extension = await withTransaction(outerTx, async tx => {
+      // Status guard + old expiry from ONE authoritative read.
+      const row = await ApplicantRepository.findByUserId(applicantId, tx);
+      if (!row) {
+        logger.logDomainError("Cooldown extension denied: applicant profile missing", {
+          code: "APPLICANT_NOT_FOUND",
+          entity: "applicants",
+          entityId: applicantId,
+          locale,
+        });
+        throw new NotFoundError(APPLICANT_ENTITY, t.applicantNotFound);
+      }
+
+      // Certification is terminal — a certified applicant has no cooldown
+      // left to extend.
+      if (row.status === ApplicantStatus.Passed) {
+        denyAlreadyCertified(applicantId, locale, t.applicantAlreadyCertified);
+      }
+
+      // Captured-now discipline — one instant joins the base selection. The
+      // stored cooldown is honored verbatim while still in force; an expired
+      // or absent one collapses onto `now` via the pre-epoch sentinel (fresh
+      // window from today) — the extension can only lengthen, never shorten.
+      const now = new Date();
+      const base = row.cooldownUntil ?? EPOCH_PAST;
+      const newExpiry = new Date(Math.max(base.getTime(), now.getTime()) + additionalDays * MS_PER_DAY);
+
+      // Guarded write — the eligible pre-states are re-evaluated atomically
+      // at write time, so a concurrent certification collapses onto the typed
+      // certified rejection instead of an illegal extension.
+      const updated = await ApplicantRepository.extendCooldownOnce(applicantId, newExpiry, tx);
+      if (!updated) {
+        denyAlreadyCertified(applicantId, locale, t.applicantAlreadyCertified);
+      }
+
+      // Audit trail — exactly ONE row, same transaction, field NAMES +
+      // instants only.
+      await AuditService.createAuditLog(
+        composeCooldownExtensionAudit(actorId, applicantId, row.cooldownUntil, newExpiry, additionalDays),
+        tx
+      );
+
+      // The shaper re-reads through the SAME transaction, so the returned
+      // profile reflects the extension it just committed to. Its null answer
+      // cannot occur here (the guarded write just matched this row) — the
+      // fail-closed arm keeps the non-null return contract instead of
+      // widening it.
+      const profile = await getMyApplicantProfile(applicantId, locale, tx);
+      if (profile === null) {
+        logger.logDomainError("Cooldown extension: post-write profile read missed", {
+          code: "APPLICANT_NOT_FOUND",
+          entity: "applicants",
+          entityId: applicantId,
+          locale,
+        });
+        throw new NotFoundError(APPLICANT_ENTITY, t.applicantNotFound);
+      }
+
+      return { profile, oldExpiry: row.cooldownUntil, newExpiry };
+    });
+
+    // Post-commit domain event — the extension is observable in the log even
+    // when no caller inspects the audit trail. The structured context carries
+    // the machine-readable `code` member (the universal DomainErrorContext
+    // convention) so log consumers keying on `code` see this event like any
+    // other; the payload stays entity ids + instants only — never PII.
+    logger.logDomainError("APPLICANT_COOLDOWN_EXTENDED", {
+      code: "APPLICANT_COOLDOWN_EXTENDED",
+      applicantId,
+      additionalDays,
+      oldExpiry: extension.oldExpiry === null ? null : extension.oldExpiry.toISOString(),
+      newExpiry: extension.newExpiry.toISOString(),
+    });
+
+    return extension.profile;
+  }
+
+  /**
+   * Admin override of an applicant's automated evaluation result — the
+   * manual certification / rejection / re-evaluation grant of
+   * docs/planning/TICKETS.md "Admin Override of Evaluation Results". The
+   * override SUPERSEDES the automated algorithm: it re-uses the exact
+   * write primitives the rubric finalization composes (insert-or-elevate
+   * teacher arm, guarded status transitions) but is NOT a second verdict
+   * writer — it composes them, and every application appends exactly ONE
+   * audit row with `action_type='override'` in the SAME transaction.
+   *
+   * Per-direction semantics:
+   *  - `certify`  — a non-`passed` applicant is certified: the teacher row
+   *    is inserted directly certified (`is_approved=true`,
+   *    `is_evaluator=false`) on a nested savepoint, or — on a duplicate
+   *    (`23505` — a pre-existing row) — the locked row is ELEVATED with its
+   *    OWN evaluator flag (a blind `false` would demote a pre-existing
+   *    evaluator), exactly the `finalizeRubricPass` composition; the
+   *    applicant is then finalized (`passed`, cooldown cleared) via
+   *    `finalizeOnCertification`. The `users` table is never touched and
+   *    no role flips.
+   *  - `reject`   — a `passed` applicant is manually rejected: the teacher
+   *    row is demoted (`is_approved=false` — the ONLY teacher-table write,
+   *    best-effort: a missing/already-unapproved row is a no-op), the
+   *    applicant flips to `failed` with the caller-requested cooldown
+   *    stamped through the guarded `overrideRejectOnce` (a concurrent
+   *    certification that won the race collapses onto the typed certified
+   *    rejection), and the audit details carry the stamped instant + the
+   *    requested length. `cooldownDays` is validated ONLY on this
+   *    direction (the `adminSetUserSuspended`-period precedent) and is
+   *    IGNORED on the other two.
+   *  - `grant_re_evaluation` — an ACTIVE cooldown is lifted so the
+   *    applicant may re-purchase verification without waiting for expiry:
+   *    `clearCooldownOnce` NULLs the instant (status untouched); an
+   *    applicant without a stamped cooldown is a typed denial.
+   *
+   * The defense-in-depth BFLA gate (strict active-admin actor assertion)
+   * runs FIRST — an anonymous, missing, non-admin, or governed actor is
+   * denied with zero writes and zero audit rows before any other work.
+   *
+   * @param applicantId  The target applicant's id (service-validated
+   *     upstream by the admin resolver's positive-id guard).
+   * @param action  The override direction (wire enum member).
+   * @param cooldownDays  The reject-direction cooldown length in whole days
+   *     (`1..3650` integer; `null`/ignored on the other directions).
+   * @param actorId  The verified caller identity handed over by the admin
+   *     resolver (its session user id — never a client-supplied field); it
+   *     lands in the audit row as the acting admin.
+   * @param outerTx  Optional caller transaction — the composition seam:
+   *     when provided the writes + audit join it (savepoint semantics);
+   *     otherwise a fresh top-level transaction is opened.
+   * @param options  Optional notification-engine call options (the realtime
+   *     fanout transport + the idempotency claim cache, threaded from the
+   *     GraphQL context by the caller per the parent-link precedent).
+   * @throws UnauthorizedError  the actor id is the anonymous sentinel — the
+   *     actor gate runs before any other work (localized).
+   * @throws ForbiddenError    the actor id does not resolve to a real,
+   *     admin-role, non-governed user (localized).
+   * @throws NotFoundError    code `APPLICANT_NOT_FOUND` when no applicants
+   *     row exists (localized).
+   * @throws ValidationError  code `APPLICANT_ALREADY_CERTIFIED` when the
+   *     stored status is `passed` on the certify / grant directions, or
+   *     when a concurrent certification wins between the guard read and
+   *     the guarded write on ANY direction (localized).
+   * @throws ValidationError  code `APPLICANT_OVERRIDE_NOT_PASSED` when a
+   *     reject targets a non-`passed` applicant (localized).
+   * @throws ValidationError  code `APPLICANT_OVERRIDE_COOLDOWN_INVALID`
+   *     when the reject-direction `cooldownDays` is not an integer in
+   *     [1, 3650] (localized).
+   * @throws ValidationError  code `APPLICANT_NO_ACTIVE_COOLDOWN` when a
+   *     grant targets an applicant with no stamped cooldown (localized).
+   * @throws ConflictError    code `APPLICANT_ALREADY_FINALIZED` when the
+   *     certify-direction finalize matches zero rows (practically
+   *     unreachable post-guard — the fail-closed arm mirrors the rubric
+   *     path; localized).
+   * @returns The re-shaped post-override profile (plus the guard-read
+   *     prior status / cooldown the audit `from` values were composed
+   *     from).
+   *
+   * Recipient notification: EVERY applied override emits ONE
+   * `applicant_outcome` notification to the applicant — persisted INSIDE
+   * the same transaction (a rollback of the override takes the
+   * notification with it), composed in the applicant's persisted locale,
+   * and published to the realtime channel only after the commit boundary
+   * this call owns (a caller-owned transaction publishes after ITS commit
+   * — nothing is ever pushed for a rolled-back emit).
+   */
+  export async function overrideApplicantEvaluation(
+    applicantId: number,
+    action: AdminApplicantOverrideAction,
+    cooldownDays: number | null,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction,
+    options?: NotificationEngineCallOptions
+  ): Promise<ApplicantProfileReturnType> {
+    // Defense-in-depth BFLA gate FIRST — authorization precedes validation
+    // and every database contact. Both denial classes perform zero writes
+    // and mint zero audit rows (the gate runs before the override
+    // transaction opens).
+    await assertActiveActorAdmin(actorId, locale, outerTx);
+
+    const t = getServerTranslations(locale).errorsTranslations;
+
+    const override = await withTransaction(outerTx, async tx => {
+      // Guard read — the prior status / cooldown the audit `from` values
+      // compose from (the same ONE authoritative read the extension uses).
+      const row = await ApplicantRepository.findByUserId(applicantId, tx);
+      if (!row) {
+        logger.logDomainError("Applicant override denied: applicant profile missing", {
+          code: "APPLICANT_NOT_FOUND",
+          entity: "applicants",
+          entityId: applicantId,
+          locale,
+        });
+        throw new NotFoundError(APPLICANT_ENTITY, t.applicantNotFound);
+      }
+
+      // Guard-validate the raw varchar against the canonical enum BEFORE it
+      // feeds the direction arms (the profile-shaper discipline — corrupted
+      // rows fail closed instead of reaching a write).
+      if (!isApplicantStatus(row.status)) {
+        throw new ValidationError("APPLICANT_STATUS_CORRUPT", t.applicantStatusCorrupt);
+      }
+
+      // The three direction arms each run their own pre-write guards,
+      // apply their guarded writes, and return the audit `details` they
+      // composed. The dispatch is the ONLY branchwork the orchestrator
+      // keeps — every arm's complexity lives with its write unit.
+      const armContext: OverrideArmContext = { tx, applicantId, locale, t };
+      let details: ApplicantOverrideAudit;
+      if (action === AdminApplicantOverrideAction.Certify) {
+        details = await applyCertifyOverride(armContext, row.status);
+      } else if (action === AdminApplicantOverrideAction.Reject) {
+        details = await applyRejectOverride(armContext, row.status, cooldownDays);
+      } else {
+        details = await applyGrantReEvaluationOverride(armContext, row.status, row.cooldownUntil);
+      }
+
+      // Audit trail — exactly ONE row per applied override, same
+      // transaction, action_type='override', field NAMES + values only.
+      await AuditService.createAuditLog(composeOverrideAudit(actorId, applicantId, details), tx);
+
+      // Recipient notification — ONE `applicant_outcome` row to the
+      // applicant, composed in THEIR persisted locale and persisted
+      // through the engine's in-tx branch (a rollback of the override
+      // takes the notification with it). The copy carries the direction
+      // only — never the admin identity, never evaluation content.
+      const { receipt: emitted, recipientLocale } = await emitApplicantOutcomeNotification(
+        applicantId,
+        action,
+        cooldownDays,
+        tx,
+        options
+      );
+
+      // The shaper re-reads through the SAME transaction, so the returned
+      // profile reflects the override it just committed to. Its null answer
+      // cannot occur here (the guarded writes just matched this row) — the
+      // fail-closed arm keeps the non-null return contract instead of
+      // widening it.
+      const profile = await getMyApplicantProfile(applicantId, locale, tx);
+      if (profile === null) {
+        logger.logDomainError("Applicant override: post-write profile read missed", {
+          code: "APPLICANT_NOT_FOUND",
+          entity: "applicants",
+          entityId: applicantId,
+          locale,
+        });
+        throw new NotFoundError(APPLICANT_ENTITY, t.applicantNotFound);
+      }
+
+      return { profile, oldStatus: row.status, oldCooldown: row.cooldownUntil, receipt: emitted, recipientLocale };
+    });
+
+    // Post-commit realtime publish — ONLY when this call owned the commit
+    // (the parent-link precedent): a caller-owned transaction publishes
+    // after ITS commit via `NotificationEngine.publishReceipts`, so
+    // nothing is ever pushed for a rolled-back emit.
+    if (outerTx === undefined) {
+      await NotificationEngine.publishReceipts([override.receipt], override.recipientLocale, options);
+    }
+
+    // Post-commit domain event — the override is observable in the log even
+    // when no caller inspects the audit trail. The structured context carries
+    // the machine-readable `code` member (the universal DomainErrorContext
+    // convention) so log consumers keying on `code` see this event like any
+    // other; the payload stays entity ids + the direction only — never PII.
+    logger.logDomainError("APPLICANT_OVERRIDE_APPLIED", {
+      code: "APPLICANT_OVERRIDE_APPLIED",
+      applicantId,
+      action,
+      actorId,
+    });
+
+    return override.profile;
   }
 }

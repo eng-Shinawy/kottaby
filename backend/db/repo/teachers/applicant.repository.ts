@@ -19,7 +19,7 @@
  *    prepared statements — writes are excluded from preparation
  *    (`docs/drizzle/prepared-statements.md`).
  */
-import { and, desc, eq, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNotNull, or, type SQL, sql } from "drizzle-orm";
 import type { PoolClient } from "pg";
 import { db, queryDb } from "@/backend/db";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
@@ -144,13 +144,7 @@ export namespace ApplicantRepository {
   export async function create(userId: number, tx: DBTransaction): Promise<ApplicantSelectType> {
     const [row] = await tx
       .insert(applicants)
-      .values({
-        id: userId,
-        status: "pending",
-        verificationAttempts: 0,
-        lastAttemptAt: null,
-        cooldownUntil: null,
-      })
+      .values({ id: userId, status: "pending", verificationAttempts: 0, lastAttemptAt: null, cooldownUntil: null })
       .returning();
     if (!row) {
       throw new Error("ApplicantRepository.create: insert returned no rows");
@@ -527,5 +521,152 @@ export namespace ApplicantRepository {
       .where(eq(applicants.id, userId))
       .returning({ id: applicants.id });
     return rows.length > 0;
+  }
+
+  /**
+   * Extends an applicant's re-application cooldown: sets `cooldown_until` to
+   * the caller-computed expiry instant (stored VERBATIM — computing the base
+   * instant and the day count is a service-layer decision) and stamps
+   * `updated_at` in ONE guarded atomic UPDATE with `RETURNING *`.
+   *
+   * The guard is the set of non-terminal lifecycle states folded into the
+   * WHERE predicate — the row only matches while its stored status is still
+   * `pending`, `in_evaluation`, or `failed`. A certified (`passed`) applicant
+   * has no cooldown left to extend and matches zero rows, as does an absent
+   * id — the service tier disambiguates the two misses. Under concurrent
+   * extensions the row lock serializes the statements and the predicate
+   * re-evaluates the status atomically at write time, so an interleaved
+   * status transition can never replay an illegal extension. The write is
+   * confined to the cooldown instant and the bookkeeping timestamp — no
+   * other column of any table changes.
+   *
+   * `tx` is REQUIRED (no standalone branch): the extension exists solely
+   * inside the caller's admin transaction — the new expiry commits with
+   * that transaction or not at all.
+   *
+   * Parameterized always; the id, the expiry instant, and the three status
+   * members are bound values, never concatenated; no prepared statement
+   * (writes are excluded — `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns The updated applicant row (the caller composes its audit
+   *          from/to instants from it), or `null` when zero rows matched
+   *          the guarded predicate.
+   */
+  export async function extendCooldownOnce(
+    userId: number,
+    newExpiry: Date,
+    tx: DBTransaction
+  ): Promise<ApplicantSelectType | null> {
+    // Single guarded statement — the eligible pre-states ARE the WHERE
+    // predicate, so a stale read can never replay an illegal extension.
+    const [row] = await tx
+      .update(applicants)
+      .set({
+        cooldownUntil: newExpiry,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(applicants.id, userId),
+          inArray(applicants.status, [ApplicantStatus.Pending, ApplicantStatus.InEvaluation, ApplicantStatus.Failed])
+        )
+      )
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Admin-override rejection write: sets `status` to `failed` and stamps
+   * `cooldown_until` with the caller-computed re-application instant (stored
+   * VERBATIM — computing the duration is a service-layer decision) while
+   * stamping `updated_at`, in ONE guarded atomic UPDATE with `RETURNING *`.
+   *
+   * The guard is the certified pre-state folded into the WHERE predicate —
+   * the row only matches while its stored status is still `passed` (the
+   * guarded-transition shape `transitionToFailed` uses, mirrored for the
+   * manual-override direction that rejects a CERTIFIED applicant). Under
+   * concurrent finalizations the row lock serializes the statements, so a
+   * certification racing this rejection decides the outcome atomically: a
+   * zero-row result is the MISS SIGNAL, never an error — the concurrent
+   * certification won (or the row is absent entirely); the service tier
+   * disambiguates which. No other column of any table changes here — the
+   * teacher-row demotion is the caller's separate write.
+   *
+   * `tx` is REQUIRED (no standalone branch): the write exists solely inside
+   * the caller's admin-override transaction — the rejection commits with
+   * that transaction or not at all.
+   *
+   * Parameterized always; the id, the status member, and the cooldown
+   * instant are bound values, never concatenated; no prepared statement
+   * (writes are excluded — `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns The updated applicant row, or `null` when zero rows matched
+   *          the guarded predicate (a concurrent certification won).
+   */
+  export async function overrideRejectOnce(
+    userId: number,
+    cooldownUntil: Date,
+    tx: DBTransaction
+  ): Promise<ApplicantSelectType | null> {
+    // Single guarded statement — the certified pre-state IS the WHERE
+    // predicate, so a stale read can never replay an illegal rejection.
+    const [row] = await tx
+      .update(applicants)
+      .set({
+        status: ApplicantStatus.Failed,
+        cooldownUntil,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(applicants.id, userId), eq(applicants.status, ApplicantStatus.Passed)))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Admin-override re-evaluation write: clears an outstanding cooldown
+   * (`cooldown_until` → NULL) and stamps `updated_at` in ONE guarded atomic
+   * UPDATE with `RETURNING *`. The applicant's `status` is deliberately NOT
+   * rewritten — granting re-evaluation only lifts the waiting period; the
+   * lifecycle status the row already carries stays exactly as it is.
+   *
+   * The guard is the set of non-terminal lifecycle states WITH a stamped
+   * cooldown folded into the WHERE predicate — the row only matches while
+   * its stored status is still `pending`, `in_evaluation`, or `failed` AND
+   * its `cooldown_until` is not NULL (nothing to clear otherwise). Under
+   * concurrent writers the row lock serializes the statements and the
+   * predicate re-evaluates atomically at write time: a zero-row result is
+   * the MISS SIGNAL, never an error — a concurrent certification won (the
+   * supersede already NULLed the instant), there was no active cooldown, or
+   * the row is absent entirely; the service tier disambiguates which.
+   *
+   * `tx` is REQUIRED (no standalone branch): the write exists solely inside
+   * the caller's admin-override transaction — the clearance commits with
+   * that transaction or not at all.
+   *
+   * Parameterized always; the id and the three status members are bound
+   * values, never concatenated; no prepared statement (writes are excluded
+   * — `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns The updated applicant row, or `null` when zero rows matched
+   *          the guarded predicate (nothing eligible to clear).
+   */
+  export async function clearCooldownOnce(userId: number, tx: DBTransaction): Promise<ApplicantSelectType | null> {
+    // Single guarded statement — the eligible pre-states ARE the WHERE
+    // predicate, so a stale read can never replay an illegal clearance.
+    const [row] = await tx
+      .update(applicants)
+      .set({
+        cooldownUntil: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(applicants.id, userId),
+          inArray(applicants.status, [ApplicantStatus.Pending, ApplicantStatus.InEvaluation, ApplicantStatus.Failed]),
+          isNotNull(applicants.cooldownUntil)
+        )
+      )
+      .returning();
+    return row ?? null;
   }
 }

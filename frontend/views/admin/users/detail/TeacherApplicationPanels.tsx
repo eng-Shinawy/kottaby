@@ -18,12 +18,17 @@
  */
 
 import { Box, Stack, Typography } from "@mui/material";
+import type { Theme } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import type {
   AdminUserDetailFieldsFragment_applicant,
   AdminUserDetailQuery_adminUserDetail,
 } from "@/frontend/graphql/generated/gql/graphql";
 import { DetailEyebrow, DetailTonalChip } from "@/frontend/views/admin/users/detail";
+import {
+  cooldownStateChipOf,
+  cooldownValueToneOf,
+} from "@/frontend/views/admin/users/detail/applicant-cooldown-state.helpers";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 type DetailUser = AdminUserDetailQuery_adminUserDetail;
@@ -41,16 +46,36 @@ const MAX_VERIFICATION_ATTEMPTS = 3;
 interface StatCellProps {
   readonly label: string;
   readonly value: string;
+  /** Optional value color lane — `warning`/`info` tint a value whose
+   * liveness the reader must register at a glance (e.g. an ACTIVE cooldown
+   * expiry). Defaults to the plain primary text color. */
+  readonly tone?: "default" | "warning" | "info";
+}
+
+/**
+ * Value color lane for a stats cell — `warning`/`info` tint a value whose
+ * liveness the reader must register at a glance (e.g. an ACTIVE cooldown
+ * expiry); the default lane keeps the plain primary text color.
+ */
+function statValueColor(theme: Theme, tone: "default" | "warning" | "info"): string {
+  if (tone === "warning") return theme.palette.warning.main;
+  if (tone === "info") return theme.palette.info.main;
+  return theme.palette.text.primary;
 }
 
 /** One stats-panel column: uppercase eyebrow over a 500-weight value — both aligned to the logical start. */
-function StatCell({ label, value }: StatCellProps): ReactNode {
+function StatCell({ label, value, tone = "default" }: StatCellProps): ReactNode {
   return (
     <Box sx={{ minWidth: 0, textAlign: "start" }}>
       <DetailEyebrow>{label}</DetailEyebrow>
       <Typography
         variant="body2"
-        sx={theme => ({ mt: 0.5, fontWeight: 500, textAlign: "start", color: theme.palette.text.primary })}
+        sx={theme => ({
+          mt: 0.5,
+          fontWeight: 500,
+          textAlign: "start",
+          color: statValueColor(theme, tone),
+        })}
       >
         {value}
       </Typography>
@@ -88,12 +113,16 @@ interface StatsPanelProps {
 }
 
 export function StatsPanel({ applicant, user, labels, formatDate }: StatsPanelProps): ReactNode {
-  const cooldownValue = applicant.cooldownActive && applicant.cooldownUntil ? formatDate(applicant.cooldownUntil) : "—";
+  // The stored instant is shown whenever it exists — an expired instant is
+  // still informative (the state chip beside it conveys whether the gate is
+  // currently closed); only a never-cooled applicant sees the em dash.
+  const cooldownValue = applicant.cooldownUntil ? formatDate(applicant.cooldownUntil) : "—";
+  const stateChip = cooldownStateChipOf(applicant.cooldownState, labels.detail.applicantCooldownState);
   return (
     <Box
       sx={theme => ({
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
+        gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" },
         gap: 2,
         p: 2,
         bgcolor: theme.palette.surfaceContainerHigh,
@@ -104,7 +133,17 @@ export function StatsPanel({ applicant, user, labels, formatDate }: StatsPanelPr
         label={labels.detail.applicantFields.verificationAttempts}
         value={`${applicant.verificationAttempts} ${labels.detail.teacherApplication.statsOf} ${MAX_VERIFICATION_ATTEMPTS}`}
       />
-      <StatCell label={labels.detail.applicantFields.cooldownUntil} value={cooldownValue} />
+      <StatCell
+        label={labels.detail.applicantFields.cooldownUntil}
+        value={cooldownValue}
+        tone={cooldownValueToneOf(applicant.cooldownState)}
+      />
+      <Box sx={{ minWidth: 0, textAlign: "start" }}>
+        <DetailEyebrow>{labels.detail.applicantFields.cooldownState}</DetailEyebrow>
+        <Box sx={{ mt: 0.75 }}>
+          <DetailTonalChip tone={stateChip.tone} label={stateChip.label} />
+        </Box>
+      </Box>
       <StatCell label={labels.detail.teacherApplication.submitted} value={formatDate(user.createdAt)} />
     </Box>
   );

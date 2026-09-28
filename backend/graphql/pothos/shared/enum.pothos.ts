@@ -15,7 +15,8 @@
  *  - `UserRole` (full role set incl. "admin")
  *  - `Gender`
  *  - `RegisterPublicRole` (public subset — student/teacher/parent — BFLA)
- *  - `RecitationReading`, `ApplicantStatus`
+ *  - `RecitationReading`, `ApplicantStatus`, `ApplicantCooldownState`,
+ *    `AdminApplicantOverrideAction`
  *  - `SessionStatus`, `SessionType`, `SessionIntent` (scheduling domain)
  *  - `DisputeResolution` (admin arbitration outcome vocabulary)
  *  - `TransactionType`, `TransactionStatus` (billing ledger vocabulary)
@@ -53,6 +54,8 @@ import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { LinkStatus } from "@/backend/enum/shared/link-status.enum";
 import { SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
+import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
+import { AdminApplicantOverrideAction } from "@/backend/enum/teachers/applicant-override-action.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { RubricWeaknessArea } from "@/backend/enum/teachers/rubric-weakness-area.enum";
 import { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
@@ -115,6 +118,40 @@ export const RecitationReadingPothosEnum = gqlSchemaBuilder.enumType(RecitationR
  */
 export const ApplicantStatusPothosEnum = gqlSchemaBuilder.enumType(ApplicantStatus, {
   name: "ApplicantStatus",
+});
+
+/**
+ * GraphQL `ApplicantCooldownState` enum (none|active|expired).
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/teachers/applicant-cooldown-state.enum.ts`) — the derived
+ * read-model vocabulary the service computes from `applicants.cooldown_until`
+ * against the read's captured instant. There is NO pgEnum backing this
+ * vocabulary (the state is never persisted); the enum KEYS are the GraphQL
+ * value names on the wire (`None`, `Active`, `Expired`) while the lowercase
+ * string values remain the runtime representation.
+ */
+export const ApplicantCooldownStatePothosEnum = gqlSchemaBuilder.enumType(ApplicantCooldownState, {
+  name: "ApplicantCooldownState",
+});
+
+/**
+ * GraphQL `AdminApplicantOverrideAction` enum (wire names `Certify`/`Reject`/
+ * `GrantReEvaluation` over the runtime strings "certify"/"reject"/
+ * "grant_re_evaluation") — the manual-override directions an admin may take
+ * on an applicant's automated evaluation result (docs/planning/TICKETS.md
+ * "Admin Override of Evaluation Results").
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/teachers/applicant-override-action.enum.ts`). There is NO
+ * pgEnum backing this vocabulary — it is a pure transport/service selector on
+ * the `adminOverrideApplicantEvaluation` mutation, never a stored column
+ * value. Per the Pothos enum-object convention (identical to
+ * `ApplicantCooldownState`), the enum KEYS are the GraphQL value names on the
+ * wire while the lowercase string values remain the runtime representation.
+ */
+export const AdminApplicantOverrideActionPothosEnum = gqlSchemaBuilder.enumType(AdminApplicantOverrideAction, {
+  name: "AdminApplicantOverrideAction",
 });
 
 /**

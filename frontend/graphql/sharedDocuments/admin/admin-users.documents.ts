@@ -1,6 +1,7 @@
 /**
  * Admin user GraphQL documents — directory, detail, create, update,
- * soft-delete/reactivate.
+ * soft-delete/reactivate, applicant-cooldown extension, applicant
+ * evaluation override.
  *
  * Per `frontend/graphql/sharedDocuments/AGENTS.md`:
  *  - All documents use `gql` + `TypedDocumentNode` (codegen types only).
@@ -12,7 +13,12 @@
  */
 import { gql, type TypedDocumentNode } from "@apollo/client";
 import type {
+  AdminApplicantCooldownStatsQuery,
   AdminCreateUserMutation,
+  AdminExtendApplicantCooldownMutation,
+  AdminExtendApplicantCooldownMutationVariables,
+  AdminOverrideApplicantEvaluationMutation,
+  AdminOverrideApplicantEvaluationMutationVariables,
   AdminSetUserBlockedMutation,
   AdminSetUserBlockedMutationVariables,
   AdminSetUserDeletedMutation,
@@ -43,6 +49,8 @@ const ADMIN_USER_LIST_ITEM_FIELDS = gql`
     lastActiveAt
     createdAt
     applicantStatus
+    cooldownState
+    cooldownUntil
     teacherIsApproved
     teacherIsEvaluator
     studentHasParentLink
@@ -78,6 +86,7 @@ const ADMIN_USER_DETAIL_FIELDS = gql`
       verificationAttempts
       lastAttemptAt
       cooldownUntil
+      cooldownState
       cooldownActive
       canPurchaseVerification
     }
@@ -103,6 +112,26 @@ const ADMIN_USER_DETAIL_FIELDS = gql`
     parent {
       linkedChildrenCount
     }
+  }
+`;
+
+/**
+ * Post-write applicant-profile shape for the cooldown-extension mutation —
+ * the full read model the detail card renders (id FIRST for Apollo cache
+ * normalization into the SAME `ApplicantProfile:<id>` entry the detail
+ * query's `applicant` field links to, so the card re-renders WITHOUT a
+ * refetch).
+ */
+const ADMIN_APPLICANT_PROFILE_FIELDS = gql`
+  fragment AdminApplicantProfileFields on ApplicantProfile {
+    id
+    status
+    verificationAttempts
+    lastAttemptAt
+    cooldownUntil
+    cooldownState
+    cooldownActive
+    canPurchaseVerification
   }
 `;
 
@@ -144,6 +173,25 @@ export const adminUserStatsQueryDocument: TypedDocumentNode<AdminUserStatsQuery>
   }
 `;
 
+/**
+ * Applicant-cooldown lifecycle stats query — the admin dashboard lifecycle
+ * panel's data source (`adminApplicantCooldownStats`). Scalar-only envelope:
+ * no object selections, so no `id` normalization requirement applies. The
+ * three counters share the server's canonical expiring-soon window with the
+ * directory's `cooldownExpiringSoon` filter arm — the KPI and its
+ * deep-linked listing cannot disagree.
+ */
+export const adminApplicantCooldownStatsQueryDocument: TypedDocumentNode<AdminApplicantCooldownStatsQuery> = gql`
+  query AdminApplicantCooldownStats {
+    adminApplicantCooldownStats {
+      activeCount
+      expiringSoonCount
+      expiredCount
+      expiringSoonWindowDays
+    }
+  }
+`;
+
 /** Single-user detail query. */
 export const adminUserDetailQueryDocument: TypedDocumentNode<AdminUserDetailQuery> = gql`
   ${ADMIN_USER_DETAIL_FIELDS}
@@ -156,9 +204,13 @@ export const adminUserDetailQueryDocument: TypedDocumentNode<AdminUserDetailQuer
 
 /**
  * Per-user activity-timeline query — scoped `audit_logs` read-back
- * (actions recorded ABOUT this user, newest-first). `id` selected FIRST
- * per the Apollo cache-normalization rule; the raw `details` JSON is
- * never selected — only the defensively projected `changedFields` list.
+ * (actions recorded ABOUT this user — account rows plus the user's
+ * teacher-applicant lifecycle rows — newest-first). `entityType`
+ * discriminates the mixed feed so the timeline can tag applicant entries;
+ * `caption` is the server-composed localized payload rendering for those
+ * rows. `id` selected FIRST per the Apollo cache-normalization rule; the
+ * raw `details` JSON is never selected — only the defensively projected
+ * `changedFields` list and the composed caption.
  */
 export const adminUserActivityQueryDocument: TypedDocumentNode<
   AdminUserActivityQuery,
@@ -168,6 +220,8 @@ export const adminUserActivityQueryDocument: TypedDocumentNode<
     adminUserActivity(id: $id, limit: $limit) {
       id
       actionType
+      entityType
+      caption
       actorName
       changedFields
       createdAt
@@ -214,6 +268,49 @@ export const adminSetUserSuspendedMutationDocument: TypedDocumentNode<
   mutation AdminSetUserSuspended($id: Int!, $suspended: Boolean!, $periodDays: Int) {
     adminSetUserSuspended(id: $id, suspended: $suspended, periodDays: $periodDays) {
       ...AdminUserDetailFields
+    }
+  }
+`;
+
+/**
+ * Applicant-cooldown extension mutation — returns the post-write applicant
+ * profile (lengthen-only expiry recomputed server-side; the actor is derived
+ * from the authenticated caller, never threaded from the client).
+ */
+export const adminExtendApplicantCooldownMutationDocument: TypedDocumentNode<
+  AdminExtendApplicantCooldownMutation,
+  AdminExtendApplicantCooldownMutationVariables
+> = gql`
+  ${ADMIN_APPLICANT_PROFILE_FIELDS}
+  mutation AdminExtendApplicantCooldown($applicantId: Int!, $additionalDays: Int!) {
+    adminExtendApplicantCooldown(applicantId: $applicantId, additionalDays: $additionalDays) {
+      ...AdminApplicantProfileFields
+    }
+  }
+`;
+
+/**
+ * Applicant-evaluation override mutation — the admin composition of the
+ * three override directions (certify / grant re-evaluation / reject) over
+ * one wire enum. Returns the post-write applicant profile (same shape as
+ * the cooldown-extension mutation, same id-first cache-merge discipline).
+ * `cooldownDays` is REQUIRED for the reject direction only — validated
+ * server-side; certify / grant_re_evaluation ignore it, so it is declared
+ * OPTIONAL here (the `adminSetUserSuspended` `periodDays` precedent).
+ * The actor is always derived server-side from the authenticated caller.
+ */
+export const adminOverrideApplicantEvaluationMutationDocument: TypedDocumentNode<
+  AdminOverrideApplicantEvaluationMutation,
+  AdminOverrideApplicantEvaluationMutationVariables
+> = gql`
+  ${ADMIN_APPLICANT_PROFILE_FIELDS}
+  mutation AdminOverrideApplicantEvaluation(
+    $applicantId: Int!
+    $action: AdminApplicantOverrideAction!
+    $cooldownDays: Int
+  ) {
+    adminOverrideApplicantEvaluation(applicantId: $applicantId, action: $action, cooldownDays: $cooldownDays) {
+      ...AdminApplicantProfileFields
     }
   }
 `;

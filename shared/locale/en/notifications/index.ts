@@ -18,6 +18,7 @@ export const notificationsEn: NotificationsLabels = {
   typeSystemBroadcast: "System Announcement",
   typePaymentConfirmation: "Payment Confirmation",
   typeEvaluationResult: "Evaluation Result",
+  typeApplicantOutcome: "Applicant Outcome",
   markRead: "Mark as read",
   markReadAriaLabel: (notificationTitle: string) => `Mark as read: ${notificationTitle}`,
   markAllRead: "Mark all as read",
@@ -102,4 +103,13 @@ export const notificationsEn: NotificationsLabels = {
     "The arbitration for your session was decided: the session fee was partially refunded. Open the session to see the recorded outcome.",
   eventSessionDisputeResolvedUpholdBody:
     "The arbitration for your session was decided: the session's completion was upheld. Open the session to see the recorded outcome.",
+  eventApplicantOverrideCertifiedTitle: "Application approved",
+  eventApplicantOverrideCertifiedBody:
+    "A platform administrator approved your application — you are now a certified teacher. Welcome aboard!",
+  eventApplicantOverrideRejectedTitle: "Application rejected",
+  eventApplicantOverrideRejectedBody: (days: number) =>
+    `A platform administrator rejected your application — you can re-apply in ${days} ${days === 1 ? "day" : "days"}.`,
+  eventApplicantOverrideReEvaluationTitle: "Re-evaluation granted",
+  eventApplicantOverrideReEvaluationBody:
+    "A platform administrator granted you a re-evaluation — your waiting period has been cleared, so you can book a new evaluation session now.",
 };
