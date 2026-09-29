@@ -446,4 +446,51 @@ export interface SessionsLabels {
   readonly pendingRubricFilterCta: string;
   /** Banner toggle hint while the pending-only filter is ON. */
   readonly pendingRubricFilterActiveCta: string;
+
+  // ─── Teacher Preparation dialog (pre-session readiness view) ────────────────
+  /** Teacher row action — open the pre-session preparation dialog for a scheduled session. */
+  readonly prepAction: string;
+  /** Preparation dialog title. */
+  readonly prepDialogTitle: string;
+  /** Prep progress-card label — the student's current lesson title. */
+  readonly prepCurrentLessonLabel: string;
+  /**
+   * Prep progress-card position line — interpolates the 1-based lesson
+   * position and the plan's total lesson count (typed template function,
+   * not an ICU string; identical signature in both locales).
+   */
+  readonly prepLessonPositionLabel: (position: number, total: number) => string;
+  /** Prep progress-card label — the completed-lessons percentage. */
+  readonly prepCompletionLabel: string;
+  /** Prep progress-card meta label — the learning plan's title. */
+  readonly prepPlanLabel: string;
+  /**
+   * First-session banner title — rendered instead of the curriculum card
+   * when the student has no recorded progress, so no curriculum position is
+   * ever fabricated.
+   */
+  readonly prepFirstSessionTitle: string;
+  /**
+   * First-session banner body — explains the diagnostic nature of a first
+   * session: the teacher assesses the student's level during it.
+   */
+  readonly prepFirstSessionBody: string;
+  /** Prep homework-section heading — the student's previous assignments. */
+  readonly prepPreviousHomeworkHeading: string;
+  /** Prep homework empty-state heading — no prior homework exists. */
+  readonly prepHomeworkEmptyTitle: string;
+  /** Prep homework empty-state body. */
+  readonly prepHomeworkEmptyBody: string;
+  /**
+   * Prep homework overflow line — how many older assignments sit beyond the
+   * shown first page (the `pendingRubricCountLine` template-function
+   * precedent; each locale owns its plural rules).
+   */
+  readonly prepMoreHomeworkLine: (count: number) => string;
+  /** Prep dialog footer hint — the view is read-only; progress advances only through confirmed sessions. */
+  readonly prepReadonlyHint: string;
+  /** Prep dialog meta label — the student the session was booked with (rendered as "Student #id"). */
+  readonly prepStudentLabel: string;
+  /** Prep dialog loading-state label (skeleton aria-label). */
+  readonly prepLoadingLabel: string;
 }

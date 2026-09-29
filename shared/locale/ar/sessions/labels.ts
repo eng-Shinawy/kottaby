@@ -286,4 +286,27 @@ export const sessionsAr: SessionsLabels = {
   },
   pendingRubricFilterCta: "اعرض هذه الجلسات فقط",
   pendingRubricFilterActiveCta: "تُعرض هذه الجلسات فقط — إظهار الجميع",
+
+  // ─── Teacher Preparation dialog (pre-session readiness view) ────────────────
+  prepAction: "التحضير",
+  prepDialogTitle: "التحضير للجلسة القادمة",
+  prepCurrentLessonLabel: "الدرس الحالي",
+  prepLessonPositionLabel: (position: number, total: number) => `الدرس ${position} من ${total}`,
+  prepCompletionLabel: "نسبة الإكمال",
+  prepPlanLabel: "الخطة التعليمية",
+  prepFirstSessionTitle: "الجلسة الأولى — تشخيصية",
+  prepFirstSessionBody:
+    "هذه أول جلسة لهذا الطالب، لذا لم يُسجَّل أي موضع منهجي بعد. استخدمها لتقييم مستوى الطالب في التلاوة وتحديد نقطة البداية المناسبة له.",
+  prepPreviousHomeworkHeading: "الواجب السابق",
+  prepHomeworkEmptyTitle: "لا يوجد واجب سابق",
+  prepHomeworkEmptyBody: "ستظهر هنا واجبات الجلسات السابقة لهذا الطالب.",
+  prepMoreHomeworkLine: (count: number) => {
+    if (count === 1) return "واجب آخر في السجل";
+    if (count === 2) return "واجبان آخران في السجل";
+    if (count <= 10) return `${count} واجبات أخرى في السجل`;
+    return `${count} واجباً آخر في السجل`;
+  },
+  prepReadonlyHint: "هذا العرض للقراءة فقط — يتحدّث تقدّم الطالب تلقائياً بعد كل جلسة مؤكدة.",
+  prepStudentLabel: "الطالب",
+  prepLoadingLabel: "جارٍ تحميل بيانات التحضير…",
 };

@@ -43,6 +43,10 @@ import { InMemoryCache, type InMemoryCacheConfig } from "@apollo/client";
  * trend-row objects are scalar-only snapshots (no `id` anywhere in the
  * aggregate), read back embedded under the root field and replaced
  * wholesale on every refetch.
+ *
+ * `StudentProgress` is the per-student curriculum-progress read model
+ * (computed per request, no `id`): it is cached inline under the
+ * `studentProgress` root field and replaced wholesale on every refetch.
  */
 const adminFinanceTypePolicies = {
   // Admin financial-auditing envelope family — the id-less wrapper types
@@ -222,6 +226,11 @@ const apolloCacheTypePolicies: NonNullable<InMemoryCacheConfig["typePolicies"]> 
   AdminAcademicReportPage: {
     keyFields: false,
   },
+  // Per-student curriculum-progress read model — computed per request, so
+  // it carries no `id` to normalize by (the honesty signal is the
+  // `hasProgress` flag, not an identity); cached inline under the
+  // `studentProgress` root field and replaced wholesale on refetch.
+  StudentProgress: { keyFields: false },
 };
 
 /** Apollo cache with the module-scope {@link apolloCacheTypePolicies} applied. */

@@ -284,4 +284,22 @@ export const sessionsEn: SessionsLabels = {
     count === 1 ? "1 evaluation awaiting your submission" : `${count} evaluations awaiting your submission`,
   pendingRubricFilterCta: "Show only these",
   pendingRubricFilterActiveCta: "Showing only these — show all",
+
+  // ─── Teacher Preparation dialog (pre-session readiness view) ────────────────
+  prepAction: "Prepare",
+  prepDialogTitle: "Prepare for the session",
+  prepCurrentLessonLabel: "Current lesson",
+  prepLessonPositionLabel: (position: number, total: number) => `Lesson ${position} of ${total}`,
+  prepCompletionLabel: "Completion",
+  prepPlanLabel: "Learning plan",
+  prepFirstSessionTitle: "First session — diagnostic",
+  prepFirstSessionBody:
+    "This is the student's first session, so no curriculum position is recorded yet. Use it to assess their recitation level and set the right starting point.",
+  prepPreviousHomeworkHeading: "Previous homework",
+  prepHomeworkEmptyTitle: "No previous homework",
+  prepHomeworkEmptyBody: "Assignments from this student's earlier sessions will appear here.",
+  prepMoreHomeworkLine: (count: number) => `+${count} more in history`,
+  prepReadonlyHint: "This view is read-only — progress advances automatically after each confirmed session.",
+  prepStudentLabel: "Student",
+  prepLoadingLabel: "Loading preparation details…",
 };

@@ -27,6 +27,7 @@ import {
   evictSessionFromListFields,
   TEACHER_SESSION_LIST_FIELDS,
 } from "@/frontend/views/student/sessions/sessionListCacheEviction";
+import { shouldOfferPrep } from "@/frontend/views/teacher/sessions/teacherPrepDialog.helpers";
 import {
   type ContainerNotice,
   dropRowAlert,
@@ -110,6 +111,8 @@ export interface TeacherActionsWiring {
   readonly t: SessionsLabels;
   readonly inFlightSlots: InFlightSlots;
   readonly onStart: (sessionId: string) => void;
+  /** Opens the preparation dialog for a scheduled tajweed session. */
+  readonly onPrepare: (sessionId: string) => void;
   readonly onComplete: (sessionId: string) => void;
   /** Opens the homework viewer for a Started session (read-only). */
   readonly onHomework: (sessionId: string) => void;
@@ -139,7 +142,9 @@ const RUBRIC_SESSION_TYPES: Readonly<Record<SessionType, boolean>> = {
 
 /**
  * Lifecycle → affordance matrix:
- *  - `Scheduled` → Start
+ *  - `Scheduled` → Prepare (scheduled TAJWEED rows only — the prep gate
+ *    admits the row's intent) ordered BEFORE Start (review precedes start),
+ *    then Start
  *  - `Started`    → Complete + Homework (read-only viewer)
  *  - `Completed`  → Report (submission dialog; resolves prepare/submit/review
  *    on open via the dialog's own mode resolution), PLUS Submit evaluation
@@ -148,11 +153,11 @@ const RUBRIC_SESSION_TYPES: Readonly<Record<SessionType, boolean>> = {
  *    stays FIRST so the submitted rows keep their report affordance alone)
  *  - terminal `Cancelled`/`Disputed` → [] (no affordances; the row stays
  *    a pure read-only display).
- * Each descriptor disables while ITS OWN row+kind slot is in flight
- * (`isInFlight` over the per-row slot book) — sibling rows and the other
- * action kind stay interactive. The Homework/Report/Evaluation actions
- * carry NO in-flight slot (the dialog owns loading; the CTA is status-pure
- * — no N+1).
+ * Each lifecycle descriptor disables while ITS OWN row+kind slot is in
+ * flight (`isInFlight` over the per-row slot book) — sibling rows and the
+ * other action kind stay interactive. The Homework/Report/Evaluation and
+ * Prepare actions carry NO in-flight slot (the dialog owns loading; the
+ * CTA is status-pure — no N+1).
  */
 export function teacherActionsForSession(
   session: MyTeacherSessionsQuery_myTeacherSessions_items,
@@ -160,6 +165,13 @@ export function teacherActionsForSession(
 ): ReadonlyArray<SessionRowAction> {
   const actions: SessionRowAction[] = [];
   if (session.status === SessionStatus.Scheduled) {
+    if (shouldOfferPrep(session)) {
+      actions.push({
+        id: "prepare",
+        label: wiring.t.prepAction,
+        onIntent: wiring.onPrepare,
+      });
+    }
     actions.push({
       id: "start",
       label: wiring.t.startSession,

@@ -369,6 +369,28 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   title. → landed: `references/capture-protocol.md` (document.title page-local gotcha, updated in
   this change).
 
+### 2026-09-28 — teacher-preparation-view (visual-improvement-loop run)
+
+- MUI Alert inline-error overflow at compact widths: `.MuiAlert-action` wrapper (shrinkable flex
+  item) collapsed below the `flexShrink: 0` Button's intrinsic width — the button overflowed its
+  OWN wrapper (26px past the alert edge at 390×844 ar), symmetric on LTR/RTL. Fix promoted to
+  `references/fix-patterns.md` (flexWrap + message minWidth:0 + action flexShrink:0). → landed:
+  `references/fix-patterns.md`; plan outcome 11-visual-improvement-loop-outcome.md.
+- MUI determinate LinearProgress fill is TRANSLATE-based (matrix(1,0,0,1,-x,0)) in RTL-aware
+  builds, so `getBoundingClientRect().width` of the bar reads the FULL track; visible fill =
+  trackW − |translate|. Arbitrate "bar misaligned/short" claims with the computed transform, not
+  the bar box. → candidate (plan outcome records the measurement).
+- Re-inspecting UNCHANGED pixels after an unrelated fix wave re-raised a DOM-disproven finding
+  (retry overflow post-fix measured `fitsHorizontally: true`) — the rubric's contradiction
+  signature holds; the arbitration record in the outcome is the durable counter. → landed:
+  reinforces `references/rubric.md` (no reference change needed).
+- Locale pinning: the app's per-user locale re-asserts between capture batches even after
+  `/api/set-locale` — pin via BOTH the API and the `NEXT_LOCALE` cookie, and let the title guard
+  catch drift before each batch (two bounces caught this run). → reinforces
+  `references/capture-protocol.md` (existing rule, no change).
+- `bun tsgo` (run-locked-cmd wrapper) can exit 1 SILENTLY in nested-worktree sandboxes while the
+  inner `tsgo -b --noEmit` passes with zero errors — adjudicate type-gate failures by running the
+  binary directly before believing a harness exit code. → candidate (agent-ops knowledge).
 ## 2026-09-28 — cooldown plan visual run (trace 1a0e7a0e9b9cfe91)
 - Sandbox survival: Storybook dies silently after "ready" (reaper + Chromatic watcher ENOSPC storms). Fallback rig: dev server + `browser-login.ts --inject`; sessions invalidate on every server restart — re-inject per batch. (captured in this log; capture-protocol already documents the reaper pattern)
 - PGlite double-start: an orphaned `next-server` surviving pkill + supervisor respawn opens TWO WASM instances on one data dir → `Aborted()` GraphQL 500s on login. Rule: after ANY restart assert `servers=1`; on aborts rebuild the dir (bootstrap+seed). → promoted into capture-protocol "DB-provider gotcha".

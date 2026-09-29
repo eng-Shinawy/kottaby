@@ -20,8 +20,9 @@
  *      placeholder-name sets agree across locales per key (no locale-local
  *      drift). The registry includes the post-confirmation arbitration
  *      inventory (escrow-class chips, consumed-escrow outcome labels/helpers,
- *      the partial-refund amount field, and the case-review dialog's
- *      section/empty-state copy).
+ *      the partial-refund amount field, the case-review dialog's
+ *      section/empty-state copy) and the teacher-preparation dialog's
+ *      progress/homework copy.
  *   3. REGISTRY WIRING — the `Sessions` handle is registered in
  *      `shared/locale/namespaces/index.ts` with the conventional `<ns>.<ns>`
  *      id and its getter resolves to the composed bundle slice; both message
@@ -235,6 +236,22 @@ const MANDATED_SESSIONS_KEYS = [
   "pendingRubricCountLine",
   "pendingRubricFilterCta",
   "pendingRubricFilterActiveCta",
+  // ─── Teacher Preparation dialog (pre-session readiness view) — the new vocabulary.
+  "prepAction",
+  "prepDialogTitle",
+  "prepCurrentLessonLabel",
+  "prepLessonPositionLabel",
+  "prepCompletionLabel",
+  "prepPlanLabel",
+  "prepFirstSessionTitle",
+  "prepFirstSessionBody",
+  "prepPreviousHomeworkHeading",
+  "prepHomeworkEmptyTitle",
+  "prepHomeworkEmptyBody",
+  "prepMoreHomeworkLine",
+  "prepReadonlyHint",
+  "prepStudentLabel",
+  "prepLoadingLabel",
 ] as const;
 
 /**
@@ -242,8 +259,10 @@ const MANDATED_SESSIONS_KEYS = [
  * precedent) instead of plain strings — the arbitration count line
  * interpolates the honest total, the per-star rating aria label
  * interpolates the star position, the Surah/Juz label resolves a
- * `SurahJuzRef` enum member value to its localized display name, and the
- * grade-chip aria label composes the locale-controlled grade copy.
+ * `SurahJuzRef` enum member value to its localized display name, the
+ * grade-chip aria label composes the locale-controlled grade copy, the
+ * prep position line interpolates (lesson position, plan total), and the
+ * prep overflow line interpolates the hidden-homework count.
  */
 const FUNCTION_LABEL_KEYS: ReadonlySet<string> = new Set([
   "adminDisputesCountLine",
@@ -252,6 +271,8 @@ const FUNCTION_LABEL_KEYS: ReadonlySet<string> = new Set([
   "reportGradeAriaLabel",
   "pendingRubricCountLine",
   "rubricDraftsPrunedLine",
+  "prepLessonPositionLabel",
+  "prepMoreHomeworkLine",
 ]);
 
 /** Keys resolved through `getTranslations(locale)` in the sync-resolution tier. */
@@ -268,6 +289,8 @@ const SYNC_SAMPLE_SESSIONS_KEYS = [
   "resolutionPartialRefundLabel",
   "caseReviewTitle",
   "rubricSubmittedSuccess",
+  "prepDialogTitle",
+  "prepFirstSessionTitle",
 ] as const;
 
 /** Keys probed for Arabic-script content in the `ar` leaf. */
@@ -289,6 +312,12 @@ const ARABIC_SCRIPT_SAMPLE_KEYS = [
   "rubricDraftDiscardCta",
   "rubricDraftSavedAtLabel",
   "rubricDraftParkedChip",
+  "prepDialogTitle",
+  "prepFirstSessionTitle",
+  "prepFirstSessionBody",
+  "prepHomeworkEmptyBody",
+  "prepReadonlyHint",
+  "prepLoadingLabel",
 ] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -351,6 +380,7 @@ function stringLeafOf(localeMap: object, path: string, localeName: string): stri
 function sampleArgsFor(key: string): unknown[] {
   if (key === "surahJuzLabel") return ["juz_2"];
   if (key === "reportGradeAriaLabel") return ["Jadid grade", 92];
+  if (key === "prepLessonPositionLabel") return [2, 3];
   return [2];
 }
 
@@ -367,8 +397,9 @@ function resolvedLabelOf(localeMap: object, key: string, localeName: string): st
       throw new Error(`${localeName}.${key} must be a template function`);
     }
     // Sample arguments per function-label family: the Surah/Juz label takes
-    // a string ref; the grade-chip aria label takes (gradeLabel, grade);
-    // the numeric-key family (count line, star aria) takes one number.
+    // a string ref; the grade-chip aria label takes (gradeLabel, grade); the
+    // prep position line takes (lessonPosition, lessonTotal); the numeric-key
+    // family (count lines, star aria) takes one number.
     const value: unknown = Reflect.apply(fn, undefined, sampleArgsFor(key));
     if (typeof value !== "string" || value.length === 0) {
       throw new Error(`${localeName}.${key} must resolve to a non-empty localized string`);

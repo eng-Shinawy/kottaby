@@ -31,7 +31,8 @@
  * Completed EVALUATION rows that still owe a rubric submission (the
  * evaluator's pending-rubric read decides "still owes") additionally offer
  * the **submit-evaluation** affordance — the rubric dialog mounts keyed by
- * session id beside the report dialog.
+ * session id beside the report dialog, and the read-only preparation dialog
+ * (the scheduled tajweed rows' Prepare affordance) mounts the same way.
  * The applicant teacher never owns sessions — the server answers an empty
  * page and the localized EMPTY state renders (never an error).
  *
@@ -130,7 +131,8 @@ const teacherSessionsQueryVariables = (statusFilter: SessionStatus | null) => ({
  * dialog, the dispute case dialog (the session's own teacher's read —
  * rows with dispute history carry the "Case details" affordance), the
  * rubric-evaluation dialog (completed evaluation rows that still owe a
- * submission) and the snackbar chrome.
+ * submission), the read-only preparation dialog (scheduled tajweed rows)
+ * and the snackbar chrome.
  */
 export function TeacherSessionsContainer(): ReactNode {
   const t = useAppTranslation(Sessions);
@@ -155,6 +157,9 @@ export function TeacherSessionsContainer(): ReactNode {
     rubricDialogSessionId,
     openRubricDialog,
     closeRubricDialog,
+    prepDialogSessionId,
+    openPrepDialog,
+    closePrepDialog,
   } = useTeacherSessionDialogSessions();
   const dismissNotice = useCallback(() => setNotice(null), []);
   const handleFilterChange = useCallback((status: SessionStatus | null) => setStatusFilter(status), []);
@@ -226,6 +231,7 @@ export function TeacherSessionsContainer(): ReactNode {
         disputeInFlightSlots={slots.inFlightSlots}
         inFlightSlots={slots.inFlightSlots}
         onStart={mutations.handleStart}
+        onPrepare={openPrepDialog}
         onComplete={mutations.handleComplete}
         onHomework={openHomeworkDialog}
         onReport={openReportDialog}
@@ -243,6 +249,8 @@ export function TeacherSessionsContainer(): ReactNode {
         closeCaseDialog={closeCaseDialog}
         reportDialogSessionId={reportDialogSessionId}
         closeReportDialog={closeReportDialog}
+        prepDialogSessionId={prepDialogSessionId}
+        closePrepDialog={closePrepDialog}
         rubricDialogSessionId={rubricDialogSessionId}
         closeRubricDialog={closeRubricDialog}
         data={data}

@@ -2,8 +2,8 @@
 
 /**
  * The teacher sessions surface's overlay cluster — the cancel/dispute
- * dialogs, the dispute case dialog, the report + rubric mounts, and the
- * snackbar chrome (split out of `TeacherSessionsContainer.tsx` for the
+ * dialogs, the dispute case dialog, the report + prep + rubric mounts, and
+ * the snackbar chrome (split out of `TeacherSessionsContainer.tsx` for the
  * lint caps). Pure plumbing: every intent and piece of state stays owned
  * by the container; this composes the mounts in one place.
  */
@@ -14,6 +14,7 @@ import type { MyTeacherSessionsQuery } from "@/frontend/graphql/generated/gql/gr
 import { StudentSessionsDialogs } from "@/frontend/views/student/sessions/StudentSessionsDialogs";
 import { OPEN_SESSION_DISPUTE_MUTATION } from "@/frontend/views/student/sessions/sessionDisputeMutations";
 import { TeacherDisputeCaseDialog } from "@/frontend/views/teacher/disputes/TeacherDisputeCaseDialog";
+import { TeacherPrepDialogMount } from "@/frontend/views/teacher/sessions/TeacherPrepDialogMount";
 import { TeacherRubricDialogMount } from "@/frontend/views/teacher/sessions/TeacherRubricDialogMount";
 import { TeacherSessionReportDialogMount } from "@/frontend/views/teacher/sessions/TeacherSessionReportDialogMount";
 import { type ContainerNotice, SNACKBAR_AUTOHIDE_MS } from "@/frontend/views/teacher/sessions/teacherSessionSlots";
@@ -28,6 +29,8 @@ interface TeacherSessionsOverlaysProps {
   readonly closeCaseDialog: () => void;
   readonly reportDialogSessionId: string | null;
   readonly closeReportDialog: () => void;
+  readonly prepDialogSessionId: string | null;
+  readonly closePrepDialog: () => void;
   readonly rubricDialogSessionId: string | null;
   readonly closeRubricDialog: () => void;
   readonly data: MyTeacherSessionsQuery | undefined;
@@ -47,6 +50,8 @@ export function TeacherSessionsOverlays({
   closeCaseDialog,
   reportDialogSessionId,
   closeReportDialog,
+  prepDialogSessionId,
+  closePrepDialog,
   rubricDialogSessionId,
   closeRubricDialog,
   data,
@@ -85,6 +90,7 @@ export function TeacherSessionsOverlays({
         setNotice={setNotice}
         setRowAlerts={setRowAlerts}
       />
+      <TeacherPrepDialogMount sessionId={prepDialogSessionId} data={data} onClose={closePrepDialog} />
       <TeacherRubricDialogMount
         sessionId={rubricDialogSessionId}
         onClose={closeRubricDialog}

@@ -3,7 +3,8 @@
  * teacher starts/completes the session, the student confirms its completion,
  * the student rates once the row is dual-confirmed; the teacher views
  * homework on Started rows, submits the session report on Completed rows,
- * and files the rubric evaluation on completed evaluation rows).
+ * opens the preparation glance on scheduled tajweed rows, and files the
+ * rubric evaluation on completed evaluation rows).
  * `disabled` is the CALLER'S per-mutation in-flight state —
  * the row never owns mutation bookkeeping. `readOnly` renders a
  * NON-INTERACTIVE chip instead of a Button (`onIntent` unused) — the
@@ -14,7 +15,7 @@
  */
 export interface SessionRowAction {
   /** Stable affordance identity (doubles as the render key + testid suffix). */
-  readonly id: "start" | "complete" | "confirm" | "rate" | "homework" | "report" | "submitEvaluation";
+  readonly id: "start" | "prepare" | "complete" | "confirm" | "rate" | "homework" | "report" | "submitEvaluation";
   /** Compile-time i18n copy resolved by the container. */
   readonly label: string;
   /** Disabled while THIS action's own mutation is in flight. */

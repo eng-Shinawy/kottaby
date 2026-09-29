@@ -3,7 +3,8 @@
  * `teacherActionsForSession`.
  *
  * Verifies the lifecycle → affordance matrix:
- *  - `Scheduled` → `["start"]`
+ *  - `Scheduled` → `["prepare", "start"]` on tajweed rows (Prepare BEFORE
+ *    Start — review precedes start), plain `["start"]` on every other intent
  *  - `Started`    → `["complete", "homework"]` (order stable — Complete
  *    BEFORE Homework, mirroring the lifecycle time-arrow)
  *  - `Completed`  → `["report"]`, plus `"submitEvaluation"` on evaluation
@@ -103,6 +104,7 @@ function wiringOf(
     t: sessionsEn,
     inFlightSlots,
     onStart: noopIntent,
+    onPrepare: noopIntent,
     onComplete: noopIntent,
     onHomework: noopIntent,
     onReport: noopIntent,
@@ -268,6 +270,80 @@ describe("teacherActionsForSession — rubric-evaluation affordance (pending-set
   });
 });
 
+describe("teacherActionsForSession — prepare affordance (scheduled-tajweed gate)", () => {
+  test("Scheduled tajweed row → ['prepare', 'start'] in STABLE ORDER (Prepare BEFORE Start, asserted by index)", () => {
+    const actions = teacherActionsForSession(
+      { ...sessionOf("42", SessionStatus.Scheduled), intent: SessionIntent.Tajweed },
+      wiringOf()
+    );
+    expect(actions).toHaveLength(2);
+    expect(actions[0]?.id).toBe("prepare");
+    expect(actions[0]?.label).toBe(sessionsEn.prepAction);
+    expect(actions[1]?.id).toBe("start");
+    expect(actions[1]?.label).toBe(sessionsEn.startSession);
+  });
+
+  test("Prepare descriptor carries the wiring's onPrepare handler untouched (intent-only callback; row identity is the only payload)", () => {
+    const actions = teacherActionsForSession(
+      { ...sessionOf("42", SessionStatus.Scheduled), intent: SessionIntent.Tajweed },
+      wiringOf()
+    );
+    expect(actions[0]?.id).toBe("prepare");
+    // The wiring's own handler passes through untouched (module-scope noop identity).
+    expect(actions[0]?.onIntent).toBe(noopIntent);
+  });
+
+  test("Scheduled hifz row → ['start'] ONLY (the intent gate holds)", () => {
+    const actions = teacherActionsForSession(
+      { ...sessionOf("42", SessionStatus.Scheduled), intent: SessionIntent.Hifz },
+      wiringOf()
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.id).toBe("start");
+  });
+
+  test("Scheduled evaluation row → ['start'] ONLY (the intent gate holds)", () => {
+    const actions = teacherActionsForSession(
+      { ...sessionOf("42", SessionStatus.Scheduled), intent: SessionIntent.Evaluation },
+      wiringOf()
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.id).toBe("start");
+  });
+
+  test("Scheduled row with a NULL intent → ['start'] ONLY (the null-guard folds to no prepare)", () => {
+    const actions = teacherActionsForSession({ ...sessionOf("42", SessionStatus.Scheduled), intent: null }, wiringOf());
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.id).toBe("start");
+  });
+
+  test("Non-scheduled rows NEVER offer prepare, regardless of intent (the status gate holds)", () => {
+    for (const status of [
+      SessionStatus.Started,
+      SessionStatus.Completed,
+      SessionStatus.Cancelled,
+      SessionStatus.Disputed,
+    ]) {
+      for (const intent of [SessionIntent.Tajweed, SessionIntent.Hifz, SessionIntent.Evaluation, null]) {
+        const actions = teacherActionsForSession({ ...sessionOf("42", status), intent }, wiringOf());
+        expect(actions.find(action => action.id === "prepare")).toBeUndefined();
+      }
+    }
+  });
+
+  test("Prepare CTA never carries a `disabled` flag (the dialog owns loading; the CTA is status-pure — no in-flight slot)", () => {
+    const actions = teacherActionsForSession(
+      { ...sessionOf("42", SessionStatus.Scheduled), intent: SessionIntent.Tajweed },
+      wiringOf(START_IN_FLIGHT_FOR_42)
+    );
+    const prepareAction = actions.find(action => action.id === "prepare");
+    expect(prepareAction?.disabled).toBeUndefined();
+    // The start slot stays ITS OWN — the in-flight Start CTA disables without touching Prepare.
+    expect(actions[1]?.id).toBe("start");
+    expect(actions[1]?.disabled).toBe(true);
+  });
+});
+
 describe("teacherActionsForSession — label identity (compile-time i18n keys, no hardcoded strings)", () => {
   test("every label is the EXACT pinned SessionsLabels key (label identity, not string equality)", () => {
     // The Start CTA's label is the type-pinned `startSession` key.
@@ -304,7 +380,7 @@ describe("teacherActionsForSession — action id union stays closed", () => {
   // Pin the closed union — every action id the matrix emits MUST be one of
   // the canonical ids. A future drift where someone widens the union
   // to `string` would surface here.
-  test("every emitted action id is one of {start, complete, homework, report, submitEvaluation}", () => {
+  test("every emitted action id is one of {prepare, start, complete, homework, report, submitEvaluation}", () => {
     const allStatuses = [
       SessionStatus.Scheduled,
       SessionStatus.Started,
@@ -312,20 +388,26 @@ describe("teacherActionsForSession — action id union stays closed", () => {
       SessionStatus.Cancelled,
       SessionStatus.Disputed,
     ];
+    // The sweep varies the row's intent too — `sessionOf` defaults to Hifz,
+    // which never trips the prepare gate, so the Tajweed legs are what sweep
+    // the Scheduled rows that emit `prepare`.
+    const allIntents = [SessionIntent.Tajweed, SessionIntent.Hifz, SessionIntent.Evaluation, null];
     const seenIds = new Set<string>();
     for (const status of allStatuses) {
       for (const sessionType of [SessionType.TeacherEvaluation, SessionType.StudentSession]) {
-        for (const action of teacherActionsForSession(
-          sessionOf("1", status, sessionType),
-          wiringOf(EMPTY_IN_FLIGHT_SLOTS, new Set(["1"]))
-        )) {
-          seenIds.add(action.id);
+        for (const intent of allIntents) {
+          for (const action of teacherActionsForSession(
+            { ...sessionOf("1", status, sessionType), intent },
+            wiringOf(EMPTY_IN_FLIGHT_SLOTS, new Set(["1"]))
+          )) {
+            seenIds.add(action.id);
+          }
         }
       }
     }
-    // The matrix covers exactly the lifecycle + the three dialog-opening
+    // The matrix covers exactly the lifecycle + the four dialog-opening
     // CTAs; the student-surface-only `confirm` and `rate` ids never appear
     // on the teacher surface.
-    expect(seenIds).toEqual(new Set(["start", "complete", "homework", "report", "submitEvaluation"]));
+    expect(seenIds).toEqual(new Set(["prepare", "start", "complete", "homework", "report", "submitEvaluation"]));
   });
 });

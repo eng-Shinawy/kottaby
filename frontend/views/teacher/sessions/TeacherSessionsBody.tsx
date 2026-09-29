@@ -39,6 +39,8 @@ export interface TeacherSessionsBodyProps {
   readonly disputeInFlightSlots: InFlightSlots;
   readonly inFlightSlots: InFlightSlots;
   readonly onStart: (sessionId: string) => void;
+  /** Opens the read-only preparation dialog for a scheduled tajweed session. */
+  readonly onPrepare: (sessionId: string) => void;
   readonly onComplete: (sessionId: string) => void;
   /** Opens the homework viewer for a Started session (read-only). */
   readonly onHomework: (sessionId: string) => void;
@@ -100,6 +102,7 @@ export function TeacherSessionsBody({
   disputeInFlightSlots,
   inFlightSlots,
   onStart,
+  onPrepare,
   onComplete,
   onHomework,
   onReport,
@@ -166,6 +169,7 @@ export function TeacherSessionsBody({
           t,
           inFlightSlots,
           onStart,
+          onPrepare,
           onComplete,
           onHomework,
           onReport,

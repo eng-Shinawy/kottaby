@@ -36,7 +36,15 @@ export function ErrorRetryAlert({
     <Alert
       severity="error"
       variant="outlined"
-      sx={{ borderRadius: 2 }}
+      sx={{
+        borderRadius: 2,
+        // Tight inline lanes (compact dialog/viewport widths) can squeeze the
+        // action wrapper below the button's intrinsic width — the wrapped
+        // action drops to its own row instead of overflowing its shrunk box.
+        flexWrap: "wrap",
+        "& .MuiAlert-message": { minWidth: 0 },
+        "& .MuiAlert-action": { flexShrink: 0 },
+      }}
       action={
         <Button
           color="error"
