@@ -35,6 +35,17 @@ describe("isSafeRedirect — same-origin type guard", () => {
       "/\nevil.example",
       "/\revil.example",
       "/\0evil.example",
+      "/%5Cevil.example/x",
+      "/%5c%5cevil.example/x",
+      "/%2f%2fevil.example/x",
+      "/%2f%5cevil.example/x",
+      "/%00evil.example/x",
+      "/%0Aevil.example/x",
+      "/%0D%0Aevil.example/x",
+      "/%ff",
+      "%6a%61%76%61%73%63%72%69%70%74%3aalert(1)",
+      " %6a%61%76%61%73%63%72%69%70%74%3aalert(1)",
+      "/%E0%A0",
     ]) {
       expect(isSafeRedirect(hostile)).toBe(false);
     }
@@ -53,10 +64,12 @@ describe("buildLoginHref — login redirect param construction", () => {
     expect(buildLoginHref("/dashboard")).toBe(`/login?redirect=${encodeURIComponent("/dashboard")}`);
   });
 
-  test("hostile inputs (incl. backslash folds) collapse to bare /login", () => {
+  test("hostile inputs (incl. backslash folds & percent-encoded bypasses) collapse to bare /login", () => {
     expect(buildLoginHref("//evil.example/x")).toBe("/login");
     expect(buildLoginHref("https://evil.example")).toBe("/login");
     expect(buildLoginHref("/\\evil.example")).toBe("/login");
+    expect(buildLoginHref("/%5Cevil.example")).toBe("/login");
+    expect(buildLoginHref("/%2f%2fevil.example")).toBe("/login");
     expect(buildLoginHref()).toBe("/login");
   });
 });

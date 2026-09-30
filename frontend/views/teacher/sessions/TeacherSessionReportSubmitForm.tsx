@@ -7,7 +7,7 @@
  */
 
 import { Alert, Box, Button, Rating, Stack, TextField, Typography } from "@mui/material";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback } from "react";
 import { AssignmentBlock } from "@/frontend/views/teacher/sessions/TeacherSessionReportDialog.parts";
 import type {
   FormGradeFields,
@@ -15,6 +15,32 @@ import type {
   SessionReportFormState,
 } from "@/frontend/views/teacher/sessions/teacherSessionReportDialog.helpers";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
+
+interface PreviousGradesSectionProps {
+  readonly form: SessionReportFormState;
+  readonly handleGrade: (track: "currentGrade" | "revisionGrade", grade: number | null) => void;
+  readonly t: SessionsLabels;
+}
+
+function PreviousGradesSection({ form, handleGrade, t }: Readonly<PreviousGradesSectionProps>): ReactNode {
+  return (
+    <Stack sx={{ gap: 1 }}>
+      <Typography variant="subtitle2">{t.gradePreviousSectionTitle}</Typography>
+      <TextField
+        label={t.reportGradeJadidLabel}
+        type="number"
+        value={form.previousGrades?.currentGrade ?? ""}
+        onChange={event => handleGrade("currentGrade", event.target.value === "" ? null : Number(event.target.value))}
+      />
+      <TextField
+        label={t.reportGradeMadiLabel}
+        type="number"
+        value={form.previousGrades?.revisionGrade ?? ""}
+        onChange={event => handleGrade("revisionGrade", event.target.value === "" ? null : Number(event.target.value))}
+      />
+    </Stack>
+  );
+}
 
 interface SubmitFormProps {
   readonly mode: "prepare" | "submit";
@@ -37,15 +63,27 @@ export function SubmitForm({
   submitLoading,
   onClose,
 }: Readonly<SubmitFormProps>): ReactNode {
-  const handleNotes = (notes: string) => setForm(prev => ({ ...prev, teacherNotes: notes }));
-  const handleRating = (rating: number | null) => setForm(prev => ({ ...prev, studentRatingByTeacher: rating }));
-  const handleBlock = (track: "jadid" | "madi") => (block: SessionReportFormState["jadid"]) =>
-    setForm(prev => ({ ...prev, [track]: block }));
-  const handleGrade = (track: "currentGrade" | "revisionGrade", grade: number | null) =>
-    setForm(prev => {
-      const previous: FormGradeFields = prev.previousGrades ?? { currentGrade: null, revisionGrade: null };
-      return { ...prev, previousGrades: { ...previous, [track]: grade } };
-    });
+  const handleNotes = useCallback((notes: string) => setForm(prev => ({ ...prev, teacherNotes: notes })), [setForm]);
+  const handleRating = useCallback(
+    (rating: number | null) => setForm(prev => ({ ...prev, studentRatingByTeacher: rating })),
+    [setForm]
+  );
+  const handleJadidBlock = useCallback(
+    (block: SessionReportFormState["jadid"]) => setForm(prev => ({ ...prev, jadid: block })),
+    [setForm]
+  );
+  const handleMadiBlock = useCallback(
+    (block: SessionReportFormState["madi"]) => setForm(prev => ({ ...prev, madi: block })),
+    [setForm]
+  );
+  const handleGrade = useCallback(
+    (track: "currentGrade" | "revisionGrade", grade: number | null) =>
+      setForm(prev => {
+        const previous: FormGradeFields = prev.previousGrades ?? { currentGrade: null, revisionGrade: null };
+        return { ...prev, previousGrades: { ...previous, [track]: grade } };
+      }),
+    [setForm]
+  );
   return (
     <Stack sx={{ gap: 2 }}>
       {mode === "submit" ? (
@@ -68,7 +106,7 @@ export function SubmitForm({
         toAyahLabel={t.toAyahLabel}
         surahJuzPickerLabel={t.surahJuzPickerLabel}
         block={form.jadid ?? null}
-        onChange={handleBlock("jadid")}
+        onChange={handleJadidBlock}
         t={t}
       />
       <AssignmentBlock
@@ -77,29 +115,11 @@ export function SubmitForm({
         toAyahLabel={t.toAyahLabel}
         surahJuzPickerLabel={t.surahJuzPickerLabel}
         block={form.madi ?? null}
-        onChange={handleBlock("madi")}
+        onChange={handleMadiBlock}
         t={t}
       />
       {mode === "submit" && newestRow && isNewestUngraded ? (
-        <Stack sx={{ gap: 1 }}>
-          <Typography variant="subtitle2">{t.gradePreviousSectionTitle}</Typography>
-          <TextField
-            label={t.reportGradeJadidLabel}
-            type="number"
-            value={form.previousGrades?.currentGrade ?? ""}
-            onChange={event =>
-              handleGrade("currentGrade", event.target.value === "" ? null : Number(event.target.value))
-            }
-          />
-          <TextField
-            label={t.reportGradeMadiLabel}
-            type="number"
-            value={form.previousGrades?.revisionGrade ?? ""}
-            onChange={event =>
-              handleGrade("revisionGrade", event.target.value === "" ? null : Number(event.target.value))
-            }
-          />
-        </Stack>
+        <PreviousGradesSection form={form} handleGrade={handleGrade} t={t} />
       ) : null}
       {mode === "submit" && !newestRow ? <Alert severity="info">{t.reportFirstSessionHint}</Alert> : null}
       {mode === "submit" ? (

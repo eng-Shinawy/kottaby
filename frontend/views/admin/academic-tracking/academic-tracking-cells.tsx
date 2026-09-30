@@ -16,6 +16,7 @@
 import { NavigateBeforeOutlined, NavigateNextOutlined } from "@mui/icons-material";
 import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import type {
   AdminAcademicDashboardQuery_adminAcademicDashboard_items_jadidGradeSummary as AcademicGradeSummary,
   AdminAcademicAttentionReason,
@@ -163,7 +164,7 @@ export function AcademicHistoryPager({
               aria-label={previousLabel}
               disabled={page <= 1}
               onClick={onPrevious}
-              sx={{ width: 44, height: 44 }}
+              sx={{ ...focusVisibleRingSx, width: 44, height: 44 }}
             >
               <NavigateBeforeOutlined
                 sx={theme => ({ transform: theme.direction === "rtl" ? "scaleX(-1)" : "none" })}
@@ -177,7 +178,7 @@ export function AcademicHistoryPager({
               aria-label={nextLabel}
               disabled={page >= pageCount}
               onClick={onNext}
-              sx={{ width: 44, height: 44 }}
+              sx={{ ...focusVisibleRingSx, width: 44, height: 44 }}
             >
               <NavigateNextOutlined sx={theme => ({ transform: theme.direction === "rtl" ? "scaleX(-1)" : "none" })} />
             </IconButton>

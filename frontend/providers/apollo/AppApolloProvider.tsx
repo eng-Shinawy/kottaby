@@ -35,7 +35,7 @@ import { defaultLocale, isAppLocale, LOCALE_COOKIE_NAME } from "@/shared/locale/
  */
 function readInitialShellLocale(): string {
   if (typeof document === "undefined") return defaultLocale;
-  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${LOCALE_COOKIE_NAME}=([a-z-]+)`));
+  const match = new RegExp(`(?:^|;\\s*)${LOCALE_COOKIE_NAME}=([a-z-]+)`).exec(document.cookie);
   const value = match?.[1];
   return value && isAppLocale(value) ? value : defaultLocale;
 }

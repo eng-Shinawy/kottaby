@@ -10,7 +10,7 @@
  */
 
 import { FormControl, InputLabel, MenuItem, Rating, Select, Stack, TextField, Typography } from "@mui/material";
-import { type ReactNode, useId } from "react";
+import { memo, type ReactNode, useId } from "react";
 import { SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
 import type { HomeWorkBlockInput } from "@/backend/types";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
@@ -28,7 +28,12 @@ interface AssignmentBlockProps {
   readonly t: SessionsLabels;
 }
 
-export function AssignmentBlock({
+/**
+ * Bolt Performance Optimization:
+ * Wrapped AssignmentBlock with React.memo to prevent unnecessary re-renders of sub-forms
+ * (such as Jadid when Madi/teacher notes/ratings change, or vice versa).
+ */
+export const AssignmentBlock = memo(function AssignmentBlock({
   title,
   fromAyahLabel,
   toAyahLabel,
@@ -79,7 +84,7 @@ export function AssignmentBlock({
       </FormControl>
     </Stack>
   );
-}
+});
 
 function handleAyahChange(
   value: string,

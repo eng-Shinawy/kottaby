@@ -31,13 +31,22 @@ export function BroadcastComposeSuccessSnackbar(props: BroadcastComposeSuccessSn
       autoHideDuration={6000}
       onClose={props.onClose}
       anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      action={
-        <IconButton aria-label={props.closeLabel} onClick={props.onClose} size="small" sx={SNACKBAR_DISMISS_SX}>
-          <CloseOutlined />
-        </IconButton>
-      }
     >
-      <Alert severity="success" variant="filled" sx={{ width: "100%" }}>
+      <Alert
+        severity="success"
+        variant="filled"
+        sx={{ width: "100%", alignItems: "center" }}
+        action={
+          <IconButton
+            aria-label={props.closeLabel}
+            onClick={props.onClose}
+            size="small"
+            sx={{ ...SNACKBAR_DISMISS_SX, color: "inherit" }}
+          >
+            <CloseOutlined fontSize="small" />
+          </IconButton>
+        }
+      >
         {props.labels.successToast(props.count)}
       </Alert>
     </Snackbar>

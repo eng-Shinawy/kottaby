@@ -67,6 +67,9 @@ export enum RecitationReading {
  */
 export const RECITATION_READINGS: ReadonlyArray<RecitationReading> = Object.freeze(Object.values(RecitationReading));
 
+/** Pre-allocated lookup set for O(1) membership check without per-call array allocations. */
+const RECITATION_READING_MEMBERS: ReadonlySet<string> = new Set(Object.values(RecitationReading));
+
 /**
  * Type guard: returns `true` if `value` is a valid `RecitationReading` enum
  * value (string). Used by the catalog service + registration validation to
@@ -76,5 +79,5 @@ export const RECITATION_READINGS: ReadonlyArray<RecitationReading> = Object.free
  * if (isRecitationReading(input.preferredRecitation)) { ... }
  */
 export function isRecitationReading(value: unknown): value is RecitationReading {
-  return typeof value === "string" && (Object.values(RecitationReading) as string[]).includes(value);
+  return typeof value === "string" && RECITATION_READING_MEMBERS.has(value);
 }

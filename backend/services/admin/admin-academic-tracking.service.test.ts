@@ -210,8 +210,12 @@ describe("AdminAcademicTrackingService.getAcademicDashboard", () => {
       expect(page.total).toBe(baseline.total + 2);
       expect(page.page).toBe(1);
       expect(page.pageSize).toBe(25);
-      expect(page.pageCount).toBe(1);
-      expect(page.items).toHaveLength(baseline.items.length + 2);
+      // Committed students (GraphQL integration suites accumulate rows on
+      // the test DB by convention) can push the lane past one page — the
+      // envelope math is derived from the baseline, never hardcoded to 1.
+      const expectedTotal = baseline.total + 2;
+      expect(page.pageCount).toBe(Math.ceil(expectedTotal / 25));
+      expect(page.items).toHaveLength(Math.min(expectedTotal, 25));
 
       const aliceRow = page.items.find(row => row.id === alice.user.id);
       const bobRow = page.items.find(row => row.id === bob.user.id);
@@ -350,7 +354,10 @@ describe("AdminAcademicTrackingService.getAcademicDashboard", () => {
         tx
       );
       expect(whitespace.total).toBe(baseline.total + 2);
-      expect(whitespace.items).toHaveLength(baseline.items.length + 2);
+      // Page-1 items cap at the page size: the honest length is the total
+      // clamped to 25, not baseline.items.length + 2 (committed students
+      // from GraphQL integration suites can already fill page 1).
+      expect(whitespace.items).toHaveLength(Math.min(baseline.total + 2, 25));
 
       const byEmail = await AdminAcademicTrackingService.getAcademicDashboard(
         admin.id,
@@ -374,12 +381,16 @@ describe("AdminAcademicTrackingService.getAcademicDashboard", () => {
       await createStudent(tx, "Range Student Two");
       await createStudent(tx, "Range Student Three");
 
-      const page = await AdminAcademicTrackingService.getAcademicDashboard(admin.id, {}, 9, 2, LOCALE, tx);
-
       const expectedTotal = baseline.total + 3;
+      // "Out of range" is RELATIVE to the honest total (committed students
+      // from GraphQL integration suites can put page 9 in range): any page
+      // strictly past the final page must read empty next to that total.
+      const outOfRangePage = Math.ceil(expectedTotal / 2) + 1;
+      const page = await AdminAcademicTrackingService.getAcademicDashboard(admin.id, {}, outOfRangePage, 2, LOCALE, tx);
+
       expect(page.items).toEqual([]);
       expect(page.total).toBe(expectedTotal);
-      expect(page.page).toBe(9);
+      expect(page.page).toBe(outOfRangePage);
       expect(page.pageSize).toBe(2);
       expect(page.pageCount).toBe(Math.ceil(expectedTotal / 2));
     });

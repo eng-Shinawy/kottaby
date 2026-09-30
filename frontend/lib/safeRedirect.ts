@@ -43,9 +43,23 @@ export function isSafeRedirect(url: string | null | undefined): url is string {
   // WHATWG URL parsing strips control characters (e.g., "/\tevil.com" ≡ "//evil.com"
   // or "http://evil.com/") and folds backslashes into slashes ("/\\evil.com" ≡ "//evil.com").
   if (hasControlOrBackslashChar(url)) return false;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(url);
+  } catch {
+    return false;
+  }
+
+  // Validate the URL-decoded representation so percent-encoded bypasses
+  // (%5C for \, %2f%2f for //, %00 for null, %0A for newline) are caught.
+  if (!decoded.startsWith("/")) return false;
+  if (decoded.startsWith("//")) return false;
+  if (hasControlOrBackslashChar(decoded)) return false;
+
   // Block scheme-prefixed values (`javascript:`, `data:`, etc.) even if
-  // leading whitespace was used to smuggle them past the first check.
-  const trimmed = url.trimStart().toLowerCase();
+  // leading whitespace or percent encoding was used to smuggle them.
+  const trimmed = decoded.trimStart().toLowerCase();
   if (trimmed.includes(":") && !trimmed.startsWith("/")) return false;
   return true;
 }
