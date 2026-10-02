@@ -42,35 +42,24 @@ import { DirectoryErrorAlert } from "@/frontend/views/admin/directory-shared/Dir
 import { AdminUserSuccessSnackbar, DirectoryMutationDialogs } from "@/frontend/views/admin/users/dialogs";
 import {
   ActiveFiltersRow,
+  CountryBreakdownRow,
   DirectoryResults,
   DirectoryToolbar,
   FilterChipsRow,
 } from "@/frontend/views/admin/users/directory";
 import { useAdminUsersDirectory } from "@/frontend/views/admin/users/hooks";
+import { useCountryFacetSelect } from "@/frontend/views/admin/users/hooks/useCountryBreakdown";
 import { useAppTranslation } from "@/shared/locale/client";
 import { AdminUsers } from "@/shared/locale/namespaces/adminUsers";
 
 export function AdminUsersDirectoryContainer(): ReactNode {
   const labels = useAppTranslation(AdminUsers);
   const directory = useAdminUsersDirectory();
-  // The copy-email quick action reports success through the shared success
-  // snackbar (identical feedback channel as the create/edit/delete writes).
-  // The copy-LINK action rides the same channel.
-  const handleCopyEmail = () => {
-    directory.setSnackbarMessage(labels.quickActions.emailCopied);
-  };
-  const handleCopyLink = () => {
-    directory.setSnackbarMessage(labels.quickActions.linkCopied);
-  };
-  // Re-fetch the current page after a load failure (transport failure or
-  // GraphQL error). The promise is handed to Apollo; rejections re-surface
-  // through the same `hasError` state.
+  // One shared snackbar channel (the create/edit/delete feedback channel) + retry/clear-all.
+  const notify = (message: string) => directory.setSnackbarMessage(message);
   const retryDirectory = () => {
     void directory.refetch();
   };
-  // One-click recovery from over-filtering — resets EVERY filter draft
-  // (the same page-resetting setters the toolbar's clear button routes
-  // through) and is surfaced inside the empty state's CTA slot.
   const clearAllFilters = () => {
     directory.setRoleFilter("");
     directory.setGovernanceFilter("");
@@ -80,6 +69,8 @@ export function AdminUsersDirectoryContainer(): ReactNode {
     directory.setCountryFilter("");
     directory.setSearchInput("");
   };
+  // The facet's chip contract: same seed bridge as the URL; toggle-off on re-activate.
+  const handleCountryFacetSelect = useCountryFacetSelect(directory);
   return (
     // Bottom padding clears the fixed mobile FAB (bottom 24 + 56 height) so
     // the last stacked card never slides under it when scrolled to the end.
@@ -103,7 +94,7 @@ export function AdminUsersDirectoryContainer(): ReactNode {
         searchInput={directory.searchInput}
         setSearchInput={directory.setSearchInput}
         onCreateUser={() => directory.setCreateOpen(true)}
-        onCopyLink={handleCopyLink}
+        onCopyLink={() => notify(labels.quickActions.linkCopied)}
       />
 
       <FilterChipsRow
@@ -114,6 +105,15 @@ export function AdminUsersDirectoryContainer(): ReactNode {
         setRoleFilter={directory.setRoleFilter}
         setGovernanceFilter={directory.setGovernanceFilter}
         setCooldownStateFilter={directory.setCooldownStateFilter}
+      />
+
+      {/* The "users by country" facet — same country setter, URL mirrors it. */}
+      <CountryBreakdownRow
+        labels={labels}
+        buckets={directory.countryBuckets}
+        unresolvedCount={directory.countryUnresolvedCount}
+        activeCountry={directory.countryFilter}
+        onSelect={handleCountryFacetSelect}
       />
 
       <ActiveFiltersRow
@@ -141,7 +141,7 @@ export function AdminUsersDirectoryContainer(): ReactNode {
       <DirectoryResults
         labels={labels}
         directory={directory}
-        onCopyEmail={handleCopyEmail}
+        onCopyEmail={() => notify(labels.quickActions.emailCopied)}
         onClearFilters={clearAllFilters}
       />
 

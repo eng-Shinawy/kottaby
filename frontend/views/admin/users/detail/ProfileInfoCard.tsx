@@ -28,6 +28,8 @@ import { Box, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import { type AdminUserDetailQuery_adminUserDetail, Gender } from "@/frontend/graphql/generated/gql/graphql";
 import { DetailCard, DetailInfoStrip } from "@/frontend/views/admin/users/detail";
+import { countryDisplayLabel } from "@/shared/lib/country-code";
+import { useAppLocale } from "@/shared/locale";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 type DetailUser = AdminUserDetailQuery_adminUserDetail;
@@ -102,6 +104,7 @@ function ProfileRow({ label, borderStyle, ltr = false, truncate = false, childre
 }
 
 export function ProfileInfoCard({ user, labels, formatDate, onEdit }: ProfileInfoCardProps): ReactNode {
+  const locale = useAppLocale();
   return (
     <DetailCard>
       <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", mb: 1 }}>
@@ -129,7 +132,7 @@ export function ProfileInfoCard({ user, labels, formatDate, onEdit }: ProfileInf
           {user.phone ?? labels.detail.emptyValue}
         </ProfileRow>
         <ProfileRow label={labels.headers.country} borderStyle="solid">
-          {user.country ?? labels.detail.emptyValue}
+          {user.country ? countryDisplayLabel(user.country, locale) : labels.detail.emptyValue}
         </ProfileRow>
         <ProfileRow label={labels.createDialog.gender} borderStyle="solid">
           {genderLabel(user.gender, labels)}

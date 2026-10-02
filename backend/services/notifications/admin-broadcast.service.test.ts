@@ -466,6 +466,108 @@ describe("AdminBroadcastService.broadcast — service behavior matrix", () => {
     });
   });
 
+  test("country cohort by ISO code — the seed bridge canonicalizes; the dual arm resolves legacy display-text rows", async () => {
+    await runInRollback(async tx => {
+      const cast = await provisionCast(tx);
+      // The student rides the canonical pair (code-bearing); the teacher is
+      // a pre-bridge legacy row (display text, NULL code) — ONE audience
+      // must resolve BOTH through the repository's legacy-tolerant dual arm.
+      await tx.update(users).set({ country: "Egypt", countryCode: "EG" }).where(eq(users.id, cast.student.id));
+      await tx.update(users).set({ country: "Egypt", countryCode: null }).where(eq(users.id, cast.teacher.id));
+      const transportSpy = new SpiedFanoutTransport();
+      const options = { transport: transportSpy, cache: new ScriptedClaimCache() };
+      const logs = recordDomainLogs();
+      const title = `svc_country_iso_${randomUUID()}`;
+
+      try {
+        // The wire still carries the plain string — the ISO code, exactly
+        // as the shared CountrySelector submits it.
+        const broadcastCount = await callBroadcast(
+          tx,
+          {
+            title,
+            body: null,
+            audience: { type: BroadcastAudienceType.Country, country: "EG" },
+          },
+          cast.admin.id,
+          options,
+          randomUUID()
+        );
+
+        const rows = await rowsByTitle(tx, title);
+        const recipientIds = rows.map(row => row.userId);
+        // The shared test database's committed fixtures may also carry the
+        // "Egypt" display vocabulary — the assertion is containment, not an
+        // exact set: both cast users (code-bearing AND legacy) are IN, the
+        // companions are OUT, and the returned count stays self-consistent
+        // with the persisted notification rows.
+        expect(recipientIds).toContain(cast.student.id);
+        expect(recipientIds).toContain(cast.teacher.id);
+        expect(recipientIds).not.toContain(cast.admin.id);
+        expect(recipientIds).not.toContain(cast.parent.id);
+        expect(broadcastCount).toBe(rows.length);
+
+        // The header snapshot stores the CANONICAL display name (the
+        // `users.country` vocabulary), not the raw wire seed.
+        const header = await headerByTitle(tx, title);
+        expect(header.audienceCountry).toBe("Egypt");
+
+        // The audit provenance carries the ISO twin beside the snapshot name.
+        const metadata: unknown = JSON.parse((await broadcastAuditRowsFor(tx, cast.admin.id))[0]?.details ?? "{}");
+        expect(metadata).toEqual({
+          scope: "country",
+          country: "Egypt",
+          countryCode: "EG",
+          recipientCount: broadcastCount,
+        });
+
+        // A padded lowercase variant of the code resolves the SAME cohort
+        // and canonicalizes onto the identical snapshot name.
+        const lowerTitle = `${title}_lower`;
+        const lowerCount = await callBroadcast(
+          tx,
+          {
+            title: lowerTitle,
+            body: null,
+            audience: { type: BroadcastAudienceType.Country, country: "  eg " },
+          },
+          cast.admin.id,
+          options,
+          randomUUID()
+        );
+        const lowerRows = await rowsByTitle(tx, lowerTitle);
+        expect(lowerCount).toBe(lowerRows.length);
+        expect(lowerRows.map(row => row.userId)).toContain(cast.student.id);
+        expect(lowerRows.map(row => row.userId)).toContain(cast.teacher.id);
+        expect((await headerByTitle(tx, lowerTitle)).audienceCountry).toBe("Egypt");
+
+        // The legacy display text itself resolves identically (the bridge's
+        // name arm) — no pre-bridge caller or bookmarked payload breaks.
+        const legacyTitle = `${title}_legacy`;
+        const legacyCount = await callBroadcast(
+          tx,
+          {
+            title: legacyTitle,
+            body: null,
+            audience: { type: BroadcastAudienceType.Country, country: "Egypt" },
+          },
+          cast.admin.id,
+          options,
+          randomUUID()
+        );
+        const legacyRows = await rowsByTitle(tx, legacyTitle);
+        expect(legacyCount).toBe(legacyRows.length);
+        expect(legacyRows.map(row => row.userId)).toContain(cast.student.id);
+        expect(legacyRows.map(row => row.userId)).toContain(cast.teacher.id);
+
+        expect(transportSpy.publishCount).toBe(3);
+        expect(logs.entries).toEqual([]);
+      } finally {
+        logs.spy.mockRestore();
+      }
+    });
+  });
+
   test("plan cohort — the active-window subscriber receives; the expired-window subscriber does not", async () => {
     await runInRollback(async tx => {
       const cast = await provisionCast(tx);

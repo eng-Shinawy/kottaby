@@ -18,6 +18,7 @@ const sharedGqlConfig: CodegenConfig["config"] = {
   strictScalars: true,
   defaultScalarType: "unknown",
   scalars: {
+    CountryCode: "string",
     Date: "string",
     DateTime: "string",
     Email: "string",

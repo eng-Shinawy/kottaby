@@ -254,6 +254,13 @@ function buildBroadcastAuditDetails(selector: ValidatedAudienceSelector, recipie
   }
   if (selector.type === BroadcastAudienceType.Country) {
     metadata.country = selector.country;
+    // The ISO twin rides the snapshot provenance only when the seed
+    // resolved onto a dataset code (the invariant keeps it null for
+    // unresolvable free text) — the audit JSON stays exactly as wide as
+    // the cohort it describes.
+    if (selector.countryCode !== null) {
+      metadata.countryCode = selector.countryCode;
+    }
   }
   if (selector.type === BroadcastAudienceType.Plan) {
     metadata.planId = selector.planId;

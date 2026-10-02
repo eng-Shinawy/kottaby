@@ -26,6 +26,8 @@ export const authEn: AuthLabels = {
   passwordRequired: "Password is required.",
   passwordTooShort: "Password must be at least 8 characters.",
   countryRequired: "Country is required.",
+  countryCodeRequired: "Please select a country.",
+  countryCodeInvalid: "The selected country is not recognized.",
   roleRequired: "Please select a role.",
   roleForbidden: "This role is not available for public registration.",
   emailAlreadyExists: "An account with this email already exists.",

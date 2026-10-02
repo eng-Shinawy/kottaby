@@ -91,6 +91,22 @@ export interface AdminUsersLabels {
   };
 
   /**
+   * "Users by country" distribution facet above the directory results —
+   * a chip row where each chip (flag + locale dataset name + count badge)
+   * deep-links into the directory's `?country=` filter contract. The
+   * bucket labels/flags come from the server (shared dataset, request
+   * locale); only the chrome copy lives here.
+   */
+  readonly countryBreakdown: {
+    /** Overline heading for the facet card. */
+    readonly title: string;
+    /** Accessible label per country chip (interpolation: {label} is the locale dataset name). */
+    readonly chipAriaLabel: string;
+    /** Muted trailing caption for users whose country is not bucketable (interpolation: {count}). */
+    readonly unresolved: string;
+  };
+
+  /**
    * Clipboard + navigation affordances shared by the directory rows and the
    * detail-page header (view-profile links, copy-email button, feedback).
    */
@@ -190,6 +206,12 @@ export interface AdminUsersLabels {
     };
     /** Label for the country filter select. */
     readonly country: string;
+    /**
+     * Placeholder inside the country filter selector while empty —
+     * filter-voiced ("Filter by country"), overriding the shared picker's
+     * first-person form prompt.
+     */
+    readonly countryPlaceholder: string;
     /** Accessible label for the search input. */
     readonly search: string;
     /** Placeholder shown inside an empty search input. */
@@ -260,6 +282,8 @@ export interface AdminUsersLabels {
     readonly gender: string;
     /** Field label for the country select. */
     readonly country: string;
+    /** Helper text under the country select — what the stored value drives. */
+    readonly countryHelper: string;
     /** Field label for the role select. */
     readonly role: string;
     /** Role segment-labels for the role selector; student/parent reuse `roleLabels` instead. */
@@ -287,6 +311,8 @@ export interface AdminUsersLabels {
     readonly phone: string;
     /** Field label for the country select. */
     readonly country: string;
+    /** Helper text under the country select — what the stored value drives. */
+    readonly countryHelper: string;
     /** Field label for the gender select. */
     readonly gender: string;
     /** Field label for the date-of-birth input. */

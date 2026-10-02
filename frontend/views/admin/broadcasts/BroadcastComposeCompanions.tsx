@@ -5,17 +5,19 @@
  * ONE renders per non-`All` audience kind (fragment + `null` for the `All`
  * default, so nothing companions it): the role select fed by the codegen
  * `UserRole` members (labels from the admin directory's `roleLabels` group),
- * the exact-match country free-text with the ≤100-character helper copy, and
- * the plan select fed by the EXISTING `adminPlansQueryDocument` — Skeletons
- * on an `aria-busy` `output` while the plan options load.
+ * the shared `CountrySelector` (ISO 3166-1 picker with the flag adornment
+ * and localized dataset names — its code value rides the wire and the
+ * server's seed bridge resolves the cohort), and the plan select fed by the
+ * EXISTING `adminPlansQueryDocument` — Skeletons on an `aria-busy` `output`
+ * while the plan options load.
  */
 
-import { FormControl, InputLabel, MenuItem, Select, Skeleton, Stack, TextField, Typography } from "@mui/material";
+import { FormControl, InputLabel, MenuItem, Select, Skeleton, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { CountrySelector } from "@/frontend/components/ui/CountrySelector";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { type AdminPlansQuery_adminPlans, BroadcastAudienceType } from "@/frontend/graphql/generated/gql/graphql";
 import {
-  COUNTRY_MAX_LENGTH,
   type ComposeState,
   isUserRoleValue,
   PLAN_SELECT_LABEL_ID,
@@ -68,13 +70,11 @@ export function BroadcastComposeCompanions(props: BroadcastComposeCompanionsProp
   }
   if (props.compose.audienceType === BroadcastAudienceType.Country) {
     return (
-      <TextField
+      <CountrySelector
         label={props.labels.countryLabel}
-        placeholder={props.labels.countryPlaceholder}
         helperText={props.labels.countryHelperText}
         value={props.compose.country}
-        onChange={event => props.onDraftChange({ country: event.target.value })}
-        slotProps={{ htmlInput: { dir: "auto", maxLength: COUNTRY_MAX_LENGTH } }}
+        onChange={code => props.onDraftChange({ country: code })}
       />
     );
   }

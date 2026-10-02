@@ -192,6 +192,16 @@ export interface DashboardLabels {
    * as the argument) and pluralizes through the shared day-count grammar.
    */
   readonly cooldownLifecycle: DashboardCooldownLifecycleLabels;
+  /**
+   * Country distribution panel (admin dashboard) — the tappable per-country
+   * population rows (share bar + count) deep-linking into the directory's
+   * guarded `?country=` contract. The `title` mirrors the directory facet's
+   * `adminUsers.countryBreakdown.title` VERBATIM and `unresolved` mirrors
+   * `adminUsers.countryBreakdown.unresolved` VERBATIM so the dashboard and
+   * the directory read as one system (same discipline as the
+   * cooldownLifecycle ↔ directoryChips mirrors).
+   */
+  readonly countryDistribution: DashboardCountryDistributionLabels;
 }
 
 /**
@@ -205,6 +215,24 @@ interface DashboardGettingStartedTips {
   readonly subscriptions: string;
   /** Bullet next to the notifications icon */
   readonly notifications: string;
+}
+
+/**
+ * Country distribution panel copy (admin dashboard).
+ */
+interface DashboardCountryDistributionLabels {
+  /** Panel headline (mirrors adminUsers.countryBreakdown.title verbatim). */
+  readonly title: string;
+  /** One-line instruction under the headline. */
+  readonly subtitle: string;
+  /** Accessible per-row announcement: "<country label>: <count> users". */
+  readonly rowAria: (label: string, count: number) => string;
+  /** Trailing caption — the honest population the rows cannot represent (mirrors adminUsers.countryBreakdown.unresolved verbatim). */
+  readonly unresolved: (count: number) => string;
+  /** Trailing action — opens the (unfiltered) user directory. */
+  readonly viewAll: string;
+  /** Live-region announcement while the breakdown query resolves. */
+  readonly loadingLabel: string;
 }
 
 /**

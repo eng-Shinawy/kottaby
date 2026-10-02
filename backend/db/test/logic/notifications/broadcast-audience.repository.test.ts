@@ -102,6 +102,8 @@ const rawFixtures = {
   teacherSubscriberId: 0,
   expiredSubscriberId: 0,
   governedStudentId: 0,
+  /** Code-bearing twin of countryA — exercises the dual-arm country predicate's code half. */
+  codeSubscriberId: 0,
   countryA: uniqueCountry("RAW"),
   countryB: uniqueCountry("RAW"),
 };
@@ -119,11 +121,26 @@ beforeAll(async () => {
     const teacherSubscriber = await createTestUser(fxtx, { role: UserRole.Teacher });
     const expiredSubscriber = await createTestUser(fxtx, { role: UserRole.Student, country: rawFixtures.countryB });
     const governedStudent = await createTestUser(fxtx, { role: UserRole.Student, isDeleted: true });
+    // The code-bearing twin: its OWN run-unique display text (so the legacy
+    // no-code selector stays an exact set) plus a dataset code fixtures
+    // never otherwise seed (verified absent in the shared test database).
+    const codeSubscriber = await createTestUser(fxtx, {
+      role: UserRole.Student,
+      country: uniqueCountry("RAW"),
+      countryCode: "AQ",
+    });
     rawFixtures.subscriberId = subscriber.id;
     rawFixtures.teacherSubscriberId = teacherSubscriber.id;
     rawFixtures.expiredSubscriberId = expiredSubscriber.id;
     rawFixtures.governedStudentId = governedStudent.id;
-    committedUserIds.push(subscriber.id, teacherSubscriber.id, expiredSubscriber.id, governedStudent.id);
+    rawFixtures.codeSubscriberId = codeSubscriber.id;
+    committedUserIds.push(
+      subscriber.id,
+      teacherSubscriber.id,
+      expiredSubscriber.id,
+      governedStudent.id,
+      codeSubscriber.id
+    );
 
     const now = Date.now();
     const rows = await fxtx
@@ -228,6 +245,32 @@ describe("BroadcastAudienceRepository.resolveAudienceIds — transactional branc
 
       // The value is unique per run, so the cohort is an exact set.
       expect(resolved).toEqual([first.id, second.id].toSorted((a, b) => a - b));
+      expect(resolved).not.toContain(elsewhere.id);
+    });
+  });
+
+  test("Tier 1 — 'country' with an ISO twin resolves code-bearing AND legacy display-text rows (legacy-tolerant dual arm)", async () => {
+    await runInRollback(async tx => {
+      // The display text is run-unique (exact legacy-arm cohort) and the
+      // code is a dataset member neither the fixtures nor the seed data
+      // ever stamp, so the exact-set assertions cannot collide with
+      // committed rows (the raw-branch fixture uses "AQ" — this probe uses
+      // "BV" for the same reason). The canonical row (name + code) and the
+      // pre-bridge legacy row (name, NULL code) both match the dual arm —
+      // one audience must reach both vocabularies.
+      const displayName = uniqueCountry("LEG");
+      const code = "BV";
+      const canonical = await createTestUser(tx, { country: displayName, countryCode: code });
+      const legacy = await createTestUser(tx, { country: displayName, countryCode: null });
+      // A different display name with a NULL code matches neither arm.
+      const elsewhere = await createTestUser(tx, { country: uniqueCountry("VOID"), countryCode: null });
+
+      const resolved = await BroadcastAudienceRepository.resolveAudienceIds(
+        { type: BroadcastAudienceType.Country, country: displayName, countryCode: code },
+        tx
+      );
+
+      expect(resolved).toEqual([canonical.id, legacy.id].toSorted((a, b) => a - b));
       expect(resolved).not.toContain(elsewhere.id);
     });
   });
@@ -509,6 +552,18 @@ describe("BroadcastAudienceRepository.resolveAudienceIds — raw-SQL branch (com
     });
 
     expect(resolved).toEqual([rawFixtures.subscriberId]);
+  });
+
+  test("Tier 1 — 'country' with an ISO twin resolves the code-bearing AND legacy committed rows", async () => {
+    const resolved = await BroadcastAudienceRepository.resolveAudienceIds({
+      type: BroadcastAudienceType.Country,
+      country: rawFixtures.countryA,
+      countryCode: "AQ",
+    });
+
+    // The code arm reaches the code-bearing twin; the name arm reaches the
+    // pre-bridge legacy row (NULL code) with the same display text.
+    expect(resolved).toEqual([rawFixtures.subscriberId, rawFixtures.codeSubscriberId].toSorted((a, b) => a - b));
   });
 
   test("Tier 1 — 'plan' resolves exactly the committed active-window subscribers", async () => {

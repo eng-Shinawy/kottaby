@@ -10,6 +10,9 @@ import {
   roleOptionLabel,
   trimmedOrNullable,
 } from "@/frontend/views/admin/broadcasts/broadcast-compose.helpers";
+import { COUNTRIES } from "@/shared/constants/countries";
+import { countrySeedToCode } from "@/shared/lib/country-code";
+import type { AppLocale } from "@/shared/locale/AppLocale";
 import type { AdminBroadcastsLabels } from "@/shared/locale/types/adminBroadcasts";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
@@ -120,15 +123,20 @@ export function broadcastStatusLabelKey(status: BroadcastStatus): "statusActive"
  * The audience column's display text: the audience-kind label
  * (`audienceAll` / `audienceRole` / `audienceCountry` / `audiencePlan`)
  * qualified with the cohort detail the entry snapshot carries — the role
- * label for role cohorts (admin directory `roleLabels`), the country token
- * for country cohorts. Plan cohorts render the kind label alone (the
- * snapshot stores the plan ID, not its name). A `null` audience type
- * (backfill-tolerance arm) renders the typographic placeholder.
+ * label for role cohorts (admin directory `roleLabels`), and for country
+ * cohorts the snapshot text resolved through the shared seed bridge: a
+ * resolvable value (ISO code or legacy display text) renders as the flag
+ * emoji + the LOCALE's dataset name (the directory filter chip's grammar);
+ * unresolvable free text renders verbatim. Plan cohorts render the kind
+ * label alone (the snapshot stores the plan ID, not its name). A `null`
+ * audience type (backfill-tolerance arm) renders the typographic
+ * placeholder.
  */
 export function broadcastAudienceText(
   entry: BroadcastHistoryRow,
   t: AdminBroadcastsLabels,
-  roleLabels: AdminUsersLabels["roleLabels"]
+  roleLabels: AdminUsersLabels["roleLabels"],
+  locale: AppLocale
 ): string {
   if (entry.audienceType === null) {
     return HISTORY_NO_VALUE_PLACEHOLDER;
@@ -138,6 +146,10 @@ export function broadcastAudienceText(
     return `${kindLabel}: ${roleOptionLabel(entry.audienceRole, roleLabels)}`;
   }
   if (entry.audienceType === BroadcastAudienceType.Country && entry.audienceCountry !== null) {
+    const code = countrySeedToCode(entry.audienceCountry);
+    if (code !== "") {
+      return `${kindLabel}: ${COUNTRIES[code].flag} ${COUNTRIES[code][locale]}`;
+    }
     return `${kindLabel}: ${entry.audienceCountry}`;
   }
   return kindLabel;

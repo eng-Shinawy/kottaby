@@ -38,6 +38,7 @@
 import {
   AdminApplicantCooldownStatsPothosObject,
   AdminUserActivityEntryPothosObject,
+  AdminUserCountryBreakdownPothosObject,
   AdminUserDetailPothosObject,
   AdminUserFiltersInput,
   AdminUserPagePothosObject,
@@ -112,6 +113,28 @@ gqlSchemaBuilder.queryField("adminApplicantCooldownStats", t =>
         throw new UnauthorizedError("Authentication required.");
       }
       return AdminUserManagementService.getCooldownLifecycleStats(ctx.locale, ctx.user.id);
+    },
+  })
+);
+
+// Side-effect: register the `adminUserCountryBreakdown` distribution query
+// field — the admin directory's "users by country" facet data source.
+// Same BFLA posture as its sibling aggregate reads (admin-only auth scope
+// + the service's defense-in-depth actor re-check). The optional `limit`
+// clamps server-side (1..12, default 6 — clamp-first, never errors) so the
+// facet window is a server contract, not a client courtesy.
+gqlSchemaBuilder.queryField("adminUserCountryBreakdown", t =>
+  t.field({
+    type: AdminUserCountryBreakdownPothosObject,
+    args: {
+      limit: t.arg({ type: "Int", required: false }),
+    },
+    authScopes: adminOnlyAuthScopes,
+    resolve: async (_root, args, ctx) => {
+      if (!ctx.user) {
+        throw new UnauthorizedError("Authentication required.");
+      }
+      return AdminUserManagementService.getCountryBreakdown(ctx.locale, ctx.user.id, args.limit ?? null);
     },
   })
 );

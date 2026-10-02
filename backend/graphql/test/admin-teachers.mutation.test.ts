@@ -522,6 +522,7 @@ function mockInProcessUser(role: UserRole, userId: number): UserSelectType {
     fullName: `${FIXTURE_MARKER} in-process ${role}`,
     phone: "+15550101010",
     country: "Egypt",
+    countryCode: "EG",
     gender: "male",
     dateOfBirth: "1990-01-01",
     role,

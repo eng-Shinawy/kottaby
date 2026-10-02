@@ -26,6 +26,7 @@ import {
   type EditUserFormState,
 } from "@/frontend/views/admin/users/dialogs";
 import { useAdminUserFormFeedback } from "@/frontend/views/admin/users/hooks";
+import { countrySeedToCode } from "@/shared/lib/country-code";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 /**
@@ -62,10 +63,15 @@ interface EditDialogProps {
 }
 
 export function EditUserDialog({ labels, user, loading, onClose, onSubmit }: EditDialogProps): ReactNode {
+  // The stored country is legacy display text ("Egypt") or already a code;
+  // the picker only speaks dataset codes, so the seed resolves through the
+  // same fail-closed bridge the directory filter URL uses. An unresolvable
+  // legacy value seeds "" — untouched, the patch omits the field entirely,
+  // so opening + saving another field never silently rewrites the country.
   const [form, setForm] = useState<EditUserFormState>({
     fullName: user.fullName,
     phone: user.phone ?? "",
-    country: user.country ?? "",
+    country: countrySeedToCode(user.country ?? ""),
     // Pre-fill gender + dateOfBirth from the target row so admins see the
     // current value when patching. The list fragment carries these two safe
     // `users` columns to avoid a second round-trip to the detail endpoint.

@@ -112,7 +112,7 @@ function makeStudentRegistrationInput(): RegistrationSubmitInput {
     email: `hs-lock-${crypto.randomUUID()}@test.local`,
     phone: "+10000000000",
     password: TEST_REGISTRATION_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role: "student",
   };
 }

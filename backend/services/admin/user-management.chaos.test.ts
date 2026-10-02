@@ -165,7 +165,7 @@ function makeCreateInput(role: "student" | "teacher" | "parent" = "student"): Ad
     email: `test-${randomUUID()}@test.local`,
     phone: "+10000000000",
     password: TEST_DEFAULT_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role,
   };
 }
@@ -343,7 +343,7 @@ describe("AdminUserManagementService — chaos & concurrency", () => {
         email: sharedEmail,
         phone: "+10000000000",
         password: TEST_DEFAULT_CREDENTIAL,
-        country: "Egypt",
+        country: "EG",
         role: "student",
       };
 

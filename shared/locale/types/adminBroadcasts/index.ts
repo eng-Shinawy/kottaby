@@ -59,17 +59,15 @@ export interface AdminBroadcastsLabels {
   readonly audienceAll: string;
   /** Audience option — a role cohort (teachers/students/parents). */
   readonly audienceRole: string;
-  /** Audience option — an exact-match country cohort. */
+  /** Audience option — a country cohort (ISO 3166-1 selector, legacy-tolerant matching). */
   readonly audienceCountry: string;
   /** Audience option — an active-subscription plan cohort. */
   readonly audiencePlan: string;
   /** Companion role field label (audienceRole branch). */
   readonly roleLabel: string;
-  /** Companion country field label (audienceCountry branch). */
+  /** Companion country field label (audienceCountry branch) — the shared CountrySelector's visible label. */
   readonly countryLabel: string;
-  /** Companion country field placeholder (audienceCountry branch). */
-  readonly countryPlaceholder: string;
-  /** Country field helper copy — exact-match + length contract. */
+  /** Country field helper copy — cohort-matching semantics (code-bearing with legacy tolerance). */
   readonly countryHelperText: string;
   /** Companion plan field label (audiencePlan branch). */
   readonly planLabel: string;
@@ -84,6 +82,10 @@ export interface AdminBroadcastsLabels {
   readonly confirmTitle: string;
   /** Confirmation-dialog body (static audience summary — no interpolation). */
   readonly confirmBody: string;
+  /** Confirmation-dialog summary block: the composed broadcast's title line label. */
+  readonly confirmSummaryTitle: string;
+  /** Confirmation-dialog summary block: the audience line's label. */
+  readonly confirmSummaryAudience: string;
   /** Confirmation-dialog primary action. */
   readonly confirmAction: string;
   /** Confirmation-dialog dismiss action (also the form's cancel affordance). */

@@ -45,6 +45,12 @@ export interface RegistrationSubmitInput {
   readonly phone: string;
   readonly password: string;
   readonly gender?: Gender;
+  /**
+   * ISO 3166-1 alpha-2 country code (e.g. "EG"). Wire-typed as the
+   * `CountryCode` scalar; kept as `string` at this service boundary because
+   * the scalar resolves to a string. The service normalizes and
+   * membership-checks the value before persistence.
+   */
   readonly country: string;
   readonly role: RegisterPublicRole;
   /**
@@ -72,6 +78,12 @@ export interface AdminRegistrationSubmitInput {
   readonly phone: string;
   readonly password: string;
   readonly gender?: Gender;
+  /**
+   * ISO 3166-1 alpha-2 country code (e.g. "EG"). Wire-typed as the
+   * `CountryCode` scalar (shared admin-create input); kept as `string` at
+   * this service boundary because the scalar resolves to a string. The
+   * service normalizes and membership-checks the value before persistence.
+   */
   readonly country: string;
   readonly role: "admin";
   /** Optional preferred recitation reading (not persisted to `recitation`, same as public input). */

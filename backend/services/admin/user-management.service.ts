@@ -68,12 +68,14 @@ import {
   isPositiveSafeInteger,
   normalizeFilters,
   resolveActivityLimit,
+  resolveCountryBreakdownLimit,
   resolvePageBounds,
   validateCreateInput,
   validateUpdatePatch,
 } from "@/backend/services/admin/user-management.helpers";
 import {
   assembleDetail,
+  buildCountryBreakdown,
   mapActivityRow,
   mapDirectoryRow,
   mapStatsRow,
@@ -84,6 +86,7 @@ import type {
   AdminCreateUserSubmitInput,
   AdminUpdateUserPatchInput,
   AdminUserActivityEntryReturnType,
+  AdminUserCountryBreakdownReturnType,
   AdminUserDetailReturnType,
   AdminUserFiltersSubmitInput,
   AdminUserPageReturnType,
@@ -178,6 +181,35 @@ export namespace AdminUserManagementService {
   ): Promise<AdminCooldownLifecycleStatsReturnType> {
     await assertActorAdmin(actorId, locale, outerTx);
     return AdminUserRepository.getCooldownLifecycleStats(outerTx);
+  }
+
+  /**
+   * Resolves the "users by country" distribution for the admin directory
+   * facet (`AdminUserCountryBreakdown`). Pure read: ZERO audit rows (reads
+   * never audit — matches `getStats`), zero writes, two aggregate
+   * round-trips via `AdminUserRepository.getCountryBreakdown`.
+   * Defense-in-depth BFLA applies as everywhere else (anonymous →
+   * `UnauthorizedError`, authenticated non-admin → `ForbiddenError`, both
+   * BEFORE any DB read beyond the actor probe).
+   *
+   * The mapper (`buildCountryBreakdown`) owns the dataset vocabulary:
+   * out-of-dataset codes and the NULL-code population fold into the honest
+   * `unresolvedCount`, and the facet window caps at `limit` (clamped
+   * 1..12, default 6 — the same clamp-first read-path discipline as the
+   * activity timeline). Bucket labels resolve through the shared dataset
+   * in the REQUEST locale, so the facet's copy matches the directory's
+   * country chips and the broadcast audience summary — one country
+   * vocabulary everywhere.
+   */
+  export async function getCountryBreakdown(
+    locale: string,
+    actorId: number,
+    limit?: number | null,
+    outerTx?: DBTransaction
+  ): Promise<AdminUserCountryBreakdownReturnType> {
+    await assertActorAdmin(actorId, locale, outerTx);
+    const row = await AdminUserRepository.getCountryBreakdown(outerTx);
+    return buildCountryBreakdown(row, locale, resolveCountryBreakdownLimit(limit));
   }
 
   /**

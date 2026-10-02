@@ -30,6 +30,9 @@ import type {
   DirectoryGovernance,
   DirectoryRole,
 } from "@/frontend/views/admin/users/utils";
+import { COUNTRIES, type CountryCode } from "@/shared/constants/countries";
+import type { AppLocale } from "@/shared/locale/AppLocale";
+import { useAppLocale } from "@/shared/locale/localeContext";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 interface ActiveFilterChip {
@@ -47,7 +50,7 @@ interface ActiveFiltersRowProps {
   readonly governanceFilter: DirectoryGovernance | "";
   readonly applicantStatusFilter: DirectoryApplicantStatus | "";
   readonly cooldownStateFilter: DirectoryCooldownState | "";
-  readonly countryFilter: string;
+  readonly countryFilter: CountryCode | "";
   /** The APPLIED (debounced) search — mirrors what the URL and results show. */
   readonly searchApplied: string;
   readonly setRoleFilter: (value: DirectoryRole | "") => void;
@@ -56,7 +59,7 @@ interface ActiveFiltersRowProps {
   readonly setCooldownStateFilter: (value: DirectoryCooldownState | "") => void;
   readonly cooldownExpiringSoon: boolean;
   readonly setCooldownExpiringSoon: (value: boolean) => void;
-  readonly setCountryFilter: (value: string) => void;
+  readonly setCountryFilter: (value: CountryCode | "") => void;
   readonly setSearchInput: (value: string) => void;
 }
 
@@ -66,8 +69,12 @@ interface ActiveFiltersRowProps {
  * country), labeled `filterLabel: value` in the active locale. Each
  * `onDelete` closes over the row's setter props, so removal routes through
  * the same page-resetting setters the toolbar uses.
+ *
+ * The country chip renders the selected dataset entry (flag + localized
+ * name) instead of the bare ISO code the filter carries — the chip is a
+ * display surface, so it speaks the same vocabulary the option rows do.
  */
-function buildActiveFilterChips(props: ActiveFiltersRowProps): ActiveFilterChip[] {
+function buildActiveFilterChips(props: ActiveFiltersRowProps, locale: AppLocale): ActiveFilterChip[] {
   const { labels } = props;
   const roleValueLabels: Record<DirectoryRole, string> = {
     Admin: labels.roleLabels.admin,
@@ -136,10 +143,11 @@ function buildActiveFilterChips(props: ActiveFiltersRowProps): ActiveFilterChip[
       onDelete: () => props.setCooldownExpiringSoon(false),
     });
   }
-  if (props.countryFilter.trim() !== "") {
+  if (props.countryFilter !== "") {
+    const country = COUNTRIES[props.countryFilter];
     chips.push({
       key: "active-country",
-      label: `${labels.filters.country}: ${props.countryFilter.trim()}`,
+      label: `${labels.filters.country}: ${country.flag} ${country[locale]}`,
       onDelete: () => props.setCountryFilter(""),
     });
   }
@@ -148,7 +156,8 @@ function buildActiveFilterChips(props: ActiveFiltersRowProps): ActiveFilterChip[
 }
 
 export function ActiveFiltersRow(props: ActiveFiltersRowProps): ReactNode {
-  const chips = buildActiveFilterChips(props);
+  const locale = useAppLocale();
+  const chips = buildActiveFilterChips(props, locale);
 
   if (chips.length === 0) {
     return null;

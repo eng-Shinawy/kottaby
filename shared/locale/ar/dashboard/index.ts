@@ -118,4 +118,14 @@ export const dashboardAr: DashboardLabels = {
     bucketAria: (label, count) => `${label}: ${count} متقدم`,
     loadingLabel: "جارٍ تحميل دورة حياة فترة الانتظار…",
   },
+  countryDistribution: {
+    // مطابق حرفيًا لـ adminUsers.countryBreakdown.title — مفردات واحدة.
+    title: "المستخدمون حسب الدولة",
+    subtitle: "اضغط على أي دولة لفتح دليل المستخدمين مُصفّى إليها.",
+    rowAria: (label, count) => `${label}: ${count} مستخدم`,
+    // مطابق حرفيًا لـ adminUsers.countryBreakdown.unresolved — مفردات واحدة.
+    unresolved: count => `${count} دون دولة مدرجة`,
+    viewAll: "فتح دليل المستخدمين",
+    loadingLabel: "جارٍ تحميل المستخدمين حسب الدولة…",
+  },
 };

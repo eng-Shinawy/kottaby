@@ -30,6 +30,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
+import { db } from "@/backend/db";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { parents } from "@/backend/db/schema/parents/parents";
 import { students } from "@/backend/db/schema/students/students";
@@ -58,6 +59,7 @@ import {
   ValidationError,
 } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { buildCreateUserInsert, validateCreateInput } from "@/backend/services/admin/user-management.helpers";
 import { AdminUserManagementService } from "@/backend/services/admin/user-management.service";
 import type {
   AdminCreateUserSubmitInput,
@@ -65,7 +67,13 @@ import type {
   DBTransaction,
   UserSelectType,
 } from "@/backend/types";
+import { COUNTRIES, COUNTRY_CODES } from "@/shared/constants/countries";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
+// Deep import (NOT the `@/test/helpers` barrel) — the barrel pulls the
+// Apollo test client into a backend-suite module graph; the db-cleanup
+// module itself only needs drizzle + the db handle (same rationale as the
+// chaos suite's import).
+import { deleteUsersByIds } from "@/test/helpers/db-cleanup";
 
 const LOCALE = "en";
 const tErrors = getServerTranslations(LOCALE).errorsTranslations;
@@ -121,6 +129,19 @@ function assertErrorCode(error: Error, expectedCode: string): void {
 }
 
 /**
+ * Independent fuzz oracle for the create-path country partition: the
+ * documented trim+uppercase normalization over the committed dataset —
+ * deliberately NOT the zod schema under test. Whitespace-empty →
+ * `COUNTRY_CODE_REQUIRED`; a dataset member → accepted; anything else →
+ * `COUNTRY_CODE_INVALID`.
+ */
+function expectedFuzzClassification(raw: string): string {
+  if (raw.trim().length === 0) return "COUNTRY_CODE_REQUIRED";
+  const normalized = raw.trim().toUpperCase();
+  return COUNTRY_CODES.some(member => member === normalized) ? "accepted" : "COUNTRY_CODE_INVALID";
+}
+
+/**
  * Provisions a super-admin actor (users row + admin role-child row) for use
  * as the `actorId` of subsequent service calls. Returns the user row.
  */
@@ -137,7 +158,7 @@ function makeCreateInput(role: "student" | "teacher" | "parent" = "student"): Ad
     email: `test-${randomUUID()}@test.local`,
     phone: "+10000000000",
     password: TEST_DEFAULT_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role,
   };
 }
@@ -550,7 +571,8 @@ describe("AdminUserManagementService.getUserActivity", () => {
       const admin = await provisionAdminActor(tx);
 
       // createUser appends audit(Create); updateUser appends audit(Update,
-      // changedFields=[phone, country]).
+      // changedFields=[phone, country, countryCode] — the country bridge
+      // writes the display name AND its canonical code twin).
       const created = await AdminUserManagementService.createUser(makeCreateInput("student"), admin.id, LOCALE, tx);
       await AdminUserManagementService.updateUser(
         created.id,
@@ -574,8 +596,10 @@ describe("AdminUserManagementService.getUserActivity", () => {
       // Newest-first: the Update row (higher id) precedes the Create row.
       expect(entries[0].actionType).toBe(AuditActionType.Update);
       expect(entries[1].actionType).toBe(AuditActionType.Create);
-      // The Update entry carries the defensively parsed changed-fields list.
-      expect(entries[0].changedFields).toEqual(["phone", "country"]);
+      // The Update entry carries the defensively parsed changed-fields list
+      // (the legacy display-text country resolves onto the code+name pair,
+      // so the SET clause touches the `countryCode` twin too).
+      expect(entries[0].changedFields).toEqual(["phone", "country", "countryCode"]);
       // The Create entry has no changedFields projection (payload lacks the key).
       expect(entries[1].changedFields).toBeNull();
       // The acting admin's display name is resolved via the INNER JOIN.
@@ -1058,7 +1082,7 @@ describe("AdminUserManagementService.createUser", () => {
       expect(byField.get("email")).toBe("EMAIL_INVALID");
       expect(byField.get("phone")).toBe("PHONE_REQUIRED");
       expect(byField.get("password")).toBe("PASSWORD_TOO_SHORT");
-      expect(byField.get("country")).toBe("COUNTRY_REQUIRED");
+      expect(byField.get("country")).toBe("COUNTRY_CODE_REQUIRED");
       // Every entry carries a localized message (non-empty string).
       for (const entry of fields) {
         expect(typeof entry.message).toBe("string");
@@ -1114,6 +1138,301 @@ describe("AdminUserManagementService.createUser", () => {
       const input = { ...makeCreateInput(), fullName: "a".repeat(255) };
       const result = await AdminUserManagementService.createUser(input, admin.id, LOCALE, tx);
       expect(result.fullName).toHaveLength(255);
+    });
+  });
+
+  // ─── Country-code validation parity (ISO 3166-1 alpha-2, shared schema) ──
+
+  test("valid create stores the ISO code in country_code and the English display name in country", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const input = { ...makeCreateInput("student"), country: "EG" };
+
+      const result = await AdminUserManagementService.createUser(input, admin.id, LOCALE, tx);
+
+      const rows = await tx
+        .select({ countryCode: users.countryCode, country: users.country })
+        .from(users)
+        .where(eq(users.id, result.id));
+      expect(rows[0]?.countryCode).toBe("EG");
+      expect(rows[0]?.country).toBe(COUNTRIES.EG.en);
+      expect(result.country).toBe(COUNTRIES.EG.en);
+    });
+  });
+
+  test("empty country → COUNTRY_CODE_REQUIRED with the localized countryCodeRequired message", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      silenceDomainLog();
+      const input = { ...makeCreateInput(), country: "" };
+
+      const error = await expectRepoError(() => AdminUserManagementService.createUser(input, admin.id, LOCALE, tx));
+
+      const fields = asValidationError(error).fields;
+      if (!Array.isArray(fields)) throw new Error("expected a fields payload");
+      const countryEntry = fields.find(entry => entry.field === "country");
+      expect(countryEntry?.code).toBe("COUNTRY_CODE_REQUIRED");
+      expect(countryEntry?.message).toBe(tAuth.countryCodeRequired);
+    });
+  });
+
+  test("whitespace-only country → COUNTRY_CODE_REQUIRED", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      silenceDomainLog();
+      const input = { ...makeCreateInput(), country: "   " };
+
+      const error = await expectRepoError(() => AdminUserManagementService.createUser(input, admin.id, LOCALE, tx));
+
+      const fields = asValidationError(error).fields;
+      if (!Array.isArray(fields)) throw new Error("expected a fields payload");
+      expect(fields.find(entry => entry.field === "country")?.code).toBe("COUNTRY_CODE_REQUIRED");
+    });
+  });
+
+  test("malformed / non-member country → COUNTRY_CODE_INVALID with the localized countryCodeInvalid message", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      silenceDomainLog();
+      // Legacy free-text ("Egypt"), over-length 3-letter shape ("EGY"), and
+      // valid-shape non-members ("XX" / curated-out "AA") all fail the same
+      // normalize→membership pipeline with ONE code.
+      const badCountries = ["Egypt", "EGY", "XX", "AA"];
+      const errors = await Promise.all(
+        badCountries.map(badCountry =>
+          expectRepoError(() =>
+            AdminUserManagementService.createUser({ ...makeCreateInput(), country: badCountry }, admin.id, LOCALE, tx)
+          )
+        )
+      );
+      for (const [index, badCountry] of badCountries.entries()) {
+        const error = errors[index];
+        if (!error) throw new Error(`expected a ValidationError for ${badCountry}`);
+        const fields = asValidationError(error).fields;
+        if (!Array.isArray(fields)) throw new Error("expected a fields payload");
+        const countryEntry = fields.find(entry => entry.field === "country");
+        expect(countryEntry?.code).toBe("COUNTRY_CODE_INVALID");
+        expect(countryEntry?.message).toBe(tAuth.countryCodeInvalid);
+      }
+    });
+  });
+
+  test('lowercase + surrounding whitespace country normalizes to the uppercase code ("  eg " → EG)', async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const input = { ...makeCreateInput("student"), country: "  eg  " };
+
+      const result = await AdminUserManagementService.createUser(input, admin.id, LOCALE, tx);
+
+      const rows = await tx
+        .select({ countryCode: users.countryCode, country: users.country })
+        .from(users)
+        .where(eq(users.id, result.id));
+      expect(rows[0]?.countryCode).toBe("EG");
+      expect(rows[0]?.country).toBe(COUNTRIES.EG.en);
+    });
+  });
+
+  test("buildCreateUserInsert — normalized code + display-name mapping on the create path", () => {
+    const insert = buildCreateUserInsert({ ...makeCreateInput(), country: "  eg  " }, "hash");
+    expect(insert.countryCode).toBe("EG");
+    expect(insert.country).toBe(COUNTRIES.EG.en);
+  });
+
+  test("buildCreateUserInsert — direct call with unvalidated free-text degrades to the legacy row (code null)", () => {
+    const insert = buildCreateUserInsert({ ...makeCreateInput(), country: "Egypt" }, "hash");
+    expect(insert.countryCode).toBeNull();
+    expect(insert.country).toBe("Egypt");
+  });
+
+  // ─── Tier 3: fuzz + concurrent admin creates ────────────────────────────
+
+  test("fuzz — seeded arbitrary country strings fail closed; deterministic across two passes", async () => {
+    let seed = 0x2545f491;
+    const nextRandom = (): number => {
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      return seed >>> 0;
+    };
+    const alphabet = "abEGXxZz09 %\\_";
+    const extras = ["مصر", "🇪🇬"];
+    const pool = [...alphabet.split(""), ...extras];
+    const corpus: string[] = Array.from({ length: 64 }, () => {
+      const length = nextRandom() % 6;
+      let value = "";
+      for (let index = 0; index < length; index += 1) {
+        const pick = nextRandom() % pool.length;
+        value += pool[pick] ?? "";
+      }
+      return value;
+    });
+    corpus.push("", "   ", "\u200B", "EG", "eg", " EG ", "Egypt", "EGY", "XX", "AA");
+
+    const classify = (raw: string): Promise<string> =>
+      Promise.resolve().then(() => {
+        try {
+          validateCreateInput({ ...makeCreateInput(), country: raw }, LOCALE);
+          return "accepted";
+        } catch (error) {
+          if (!(error instanceof ValidationError)) throw error;
+          const fields = error.fields;
+          const countryEntry = Array.isArray(fields) ? fields.find(entry => entry.field === "country") : undefined;
+          return countryEntry?.code ?? "no-country-entry";
+        }
+      });
+
+    // Independent oracle: `expectedFuzzClassification` (module scope) — the
+    // documented trim+uppercase normalization over the committed dataset,
+    // deliberately NOT the zod schema under test.
+
+    const outcomes = await Promise.allSettled(corpus.map(classify));
+    const codes = outcomes.map(outcome => {
+      if (outcome.status !== "fulfilled") throw new Error("fuzz probe threw an unexpected error kind");
+      return outcome.value;
+    });
+    for (const [index, raw] of corpus.entries()) {
+      expect(codes[index]).toBe(expectedFuzzClassification(raw));
+    }
+
+    // Determinism: the identical corpus classifies identically on a re-run.
+    const secondPass = await Promise.allSettled(corpus.map(classify));
+    const secondCodes = secondPass.map(outcome => (outcome.status === "fulfilled" ? outcome.value : "rejected"));
+    expect(secondCodes).toEqual(codes);
+  });
+
+  test("concurrent admin creates via Promise.allSettled — five distinct codes persist independently", async () => {
+    silenceDomainLog();
+    // Concurrency harness mirrors `user-management.chaos.test.ts`: each
+    // concurrent service call opens its OWN top-level transaction on the
+    // pool — the shared `pg` session deprecates concurrent queries on one
+    // client, so the rollback `tx` must never carry concurrent calls.
+    const adminActor = await db.transaction(async fixtureTx => {
+      const user = await createTestUser(fixtureTx, { role: "admin" });
+      await createTestAdmin(fixtureTx, user.id);
+      return user;
+    });
+    const createdIds = [adminActor.id];
+    try {
+      const codes = ["EG", "US", "SA", "AE", "PS"] as const;
+      const results = await Promise.allSettled(
+        codes.map(code =>
+          AdminUserManagementService.createUser({ ...makeCreateInput("student"), country: code }, adminActor.id, LOCALE)
+        )
+      );
+      // Track fulfilled ids BEFORE asserting so the finally-block cleanup
+      // removes every persisted row even when an assertion fails.
+      for (const outcome of results) {
+        if (outcome.status === "fulfilled") createdIds.push(outcome.value.id);
+      }
+      expect(results.filter(outcome => outcome.status === "fulfilled")).toHaveLength(codes.length);
+      const storedRows = await Promise.all(
+        results.map(outcome => {
+          if (outcome.status !== "fulfilled") throw new Error("a concurrent create did not fulfil");
+          return db
+            .select({ countryCode: users.countryCode, country: users.country })
+            .from(users)
+            .where(eq(users.id, outcome.value.id));
+        })
+      );
+      for (const [index, code] of codes.entries()) {
+        expect(storedRows[index]?.[0]?.countryCode).toBe(code);
+        expect(storedRows[index]?.[0]?.country).toBe(COUNTRIES[code].en);
+      }
+    } finally {
+      // Self-cleanup — the shared helper pre-clears RESTRICT-gated audit
+      // rows before hard-deleting the fixtures (chaos-suite pattern).
+      await deleteUsersByIds(createdIds);
+    }
+  });
+
+  // ─── Tier 4: BFLA gate ordering + mass-assignment (BOPLA) ───────────────
+
+  test("BFLA ordering — non-admin callers are rejected by the admin gate BEFORE country validation runs", async () => {
+    await runInRollback(async tx => {
+      silenceDomainLog();
+      // Transport gate: the `adminCreateUser` mutation field declares
+      // `authScopes: { $all: { authenticated: true, role: [UserRole.Admin] } }`
+      // (backend/graphql/mutation/admin/admin-users.mutation.ts:64-67), so
+      // non-admin tokens never reach the resolver. The service re-asserts
+      // the same gate via `assertActorAdmin` before `validateCreateInput`.
+      // The input below is deliberately country-INVALID as well: a
+      // ValidationError here would mean validation ran before authorization.
+      const fixturesByRole = [
+        { role: "student", provision: (id: number) => createTestStudent(tx, id) },
+        { role: "parent", provision: (id: number) => createTestParent(tx, id) },
+        { role: "teacher", provision: (id: number) => createTestApplicant(tx, id) },
+      ] as const;
+      const callers = await Promise.all(
+        fixturesByRole.map(async ({ role, provision }) => {
+          const user = await createTestUser(tx, { role });
+          await provision(user.id);
+          return user;
+        })
+      );
+      const denialErrors = await Promise.all(
+        callers.map(caller =>
+          expectRepoError(() =>
+            AdminUserManagementService.createUser({ ...makeCreateInput(), country: "Egypt" }, caller.id, LOCALE, tx)
+          )
+        )
+      );
+      for (const error of denialErrors) {
+        expect(error).toBeInstanceOf(ForbiddenError);
+        if (error instanceof ValidationError) throw new Error("country validation ran before the admin gate");
+        expect(error.message).toContain(tErrors.forbidden);
+      }
+
+      const anonError = await expectRepoError(() =>
+        AdminUserManagementService.createUser(
+          { ...makeCreateInput(), country: "Egypt" },
+          ANONYMOUS_ACTOR_ID,
+          LOCALE,
+          tx
+        )
+      );
+      expect(anonError).toBeInstanceOf(UnauthorizedError);
+      if (anonError instanceof ValidationError) throw new Error("country validation ran before the admin gate");
+    });
+  });
+
+  test("mass-assignment probe — smuggled countryCode/governance fields in the create input are ignored (BOPLA)", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const smuggled: AdminCreateUserSubmitInput = makeCreateInput("student");
+      const smuggledHashValue = "smuggledHashValue0123";
+      // Pattern matches the existing BOPLA probes (no `as unknown as` cast).
+      Object.assign(smuggled, {
+        country: "eg",
+        countryCode: "ZZ",
+        passwordHash: smuggledHashValue,
+        isDeleted: true,
+        suspended: true,
+        suspendedPeriodDays: 999,
+        isBlocked: true,
+      });
+
+      const result = await AdminUserManagementService.createUser(smuggled, admin.id, LOCALE, tx);
+
+      const rows = await tx
+        .select({
+          countryCode: users.countryCode,
+          country: users.country,
+          passwordHash: users.passwordHash,
+          isDeleted: users.isDeleted,
+          suspended: users.suspended,
+          suspendedPeriodDays: users.suspendedPeriodDays,
+          isBlocked: users.isBlocked,
+        })
+        .from(users)
+        .where(eq(users.id, result.id));
+      expect(rows[0]?.countryCode).toBe("EG");
+      expect(rows[0]?.country).toBe(COUNTRIES.EG.en);
+      expect(rows[0]?.passwordHash).not.toBe(smuggledHashValue);
+      expect(rows[0]?.isDeleted).toBe(false);
+      expect(rows[0]?.suspended).toBe(false);
+      expect(rows[0]?.suspendedPeriodDays).toBeNull();
+      expect(rows[0]?.isBlocked).toBe(false);
     });
   });
 });

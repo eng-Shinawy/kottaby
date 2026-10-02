@@ -26,6 +26,8 @@ export const authAr: AuthLabels = {
   passwordRequired: "كلمة المرور مطلوبة.",
   passwordTooShort: "يجب أن تكون كلمة المرور 8 أحرف على الأقل.",
   countryRequired: "الدولة مطلوبة.",
+  countryCodeRequired: "يرجى اختيار الدولة.",
+  countryCodeInvalid: "الدولة المحددة غير معترف بها.",
   roleRequired: "يرجى اختيار دور.",
   roleForbidden: "هذا الدور غير متاح للتسجيل العام.",
   emailAlreadyExists: "يوجد حساب بهذا البريد الإلكتروني بالفعل.",

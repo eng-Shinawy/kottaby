@@ -22,12 +22,14 @@ interface RegisterAccountSectionProps {
   readonly passwordValue: string;
   readonly genderField: UseControllerReturn<RegisterFormValues, "gender">;
   readonly selectedGender: Gender | "";
+  readonly countryField: UseControllerReturn<RegisterFormValues, "country">;
 }
 
 /**
- * RegisterForm's "Account Information" section: the identity text fields in
- * a 2-column grid, the full-width password row (its strength meter rendered
- * flush beneath it), and the optional gender select.
+ * RegisterForm's "Account Information" section: the identity fields (text
+ * inputs plus the country picker) in a 2-column grid, the full-width
+ * password row (its strength meter rendered flush beneath it), and the
+ * optional gender select.
  */
 export function RegisterAccountSection({
   register,
@@ -36,6 +38,7 @@ export function RegisterAccountSection({
   passwordValue,
   genderField,
   selectedGender,
+  countryField,
 }: RegisterAccountSectionProps) {
   const [showPassword, setShowPassword] = useState(false);
   const { ref: passwordInputRef, ...passwordRegistration } = register("password", {
@@ -56,7 +59,7 @@ export function RegisterAccountSection({
           gap: 2,
         }}
       >
-        <RegisterIdentityFields register={register} errors={errors} t={t} />
+        <RegisterIdentityFields register={register} errors={errors} t={t} countryField={countryField} />
         {/* Password holds its own full-width grid row so the strength
             meter (remote visual, reconciled onto the register() contract)
             sits flush under the field instead of a squeezed half-cell. */}

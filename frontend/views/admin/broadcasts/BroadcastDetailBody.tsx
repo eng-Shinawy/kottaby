@@ -136,7 +136,10 @@ function SettledDetailBody({ detail }: Readonly<SettledDetailBodyProps>): ReactN
             gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
           }}
         >
-          <SessionMetaCell label={t.detailAudience} value={broadcastAudienceText(entry, t, tUsers.roleLabels)} />
+          <SessionMetaCell
+            label={t.detailAudience}
+            value={broadcastAudienceText(entry, t, tUsers.roleLabels, locale)}
+          />
           <SessionMetaCell label={t.detailRecipients} value={String(entry.recipientCount)} />
           <SessionMetaCell label={t.detailDelivered} value={String(detail.liveDeliveredCount)} />
           <SessionMetaCell label={t.detailRead} value={String(detail.liveReadCount)} />

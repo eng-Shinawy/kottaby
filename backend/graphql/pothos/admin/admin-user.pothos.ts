@@ -49,6 +49,8 @@ import type {
   AdminStudentSnapshotReturnType,
   AdminTeacherSnapshotReturnType,
   AdminUserActivityEntryReturnType,
+  AdminUserCountryBreakdownReturnType,
+  AdminUserCountryBucketReturnType,
   AdminUserDetailReturnType,
   AdminUserListItemReturnType,
   AdminUserPageReturnType,
@@ -172,6 +174,52 @@ export const AdminApplicantCooldownStatsPothosObject = gqlSchemaBuilder
       expiredCount: t.exposeInt("expiredCount"),
       /** The window length the expiringSoon bucket was measured with — echoed so label copy cannot drift. */
       expiringSoonWindowDays: t.exposeInt("expiringSoonWindowDays"),
+    }),
+  });
+
+/**
+ * `AdminUserCountryBucket` — one entry of the directory's "users by
+ * country" distribution facet. `code` is the canonical ISO 3166-1 alpha-2
+ * code (the SAME vocabulary the `?country=` deep link speaks — a chip
+ * click writes exactly this value into the URL contract); `label` is the
+ * LOCALE-resolved dataset display name and `flag` the dataset's
+ * regional-indicator emoji, so the facet, the directory chips, and the
+ * broadcast audience summary render one country vocabulary. Backed by the
+ * canonical `AdminUserCountryBucketReturnType`.
+ */
+const AdminUserCountryBucketPothosObject = gqlSchemaBuilder
+  .objectRef<AdminUserCountryBucketReturnType>("AdminUserCountryBucket")
+  .implement({
+    fields: t => ({
+      code: t.exposeString("code"),
+      label: t.exposeString("label"),
+      flag: t.exposeString("flag"),
+      count: t.exposeInt("count"),
+    }),
+  });
+
+/**
+ * `AdminUserCountryBreakdown` — the "users by country" distribution
+ * envelope for the admin directory facet. Pure read (no `id` — a
+ * scalar-only envelope the Apollo cache never normalizes as an entity,
+ * same posture as `AdminUserStats`). `buckets` carries the top-N
+ * dataset-resolvable populations (count-desc, code-asc — SQL-owned
+ * determinism); `unresolvedCount` is the honest remainder (NULL-code
+ * legacy/never-set rows + out-of-vocabulary codes) that the facet renders
+ * as a muted caption so chips + caption always account for the whole
+ * active population. Backed by the canonical
+ * `AdminUserCountryBreakdownReturnType` via
+ * `AdminUserManagementService.getCountryBreakdown`.
+ */
+export const AdminUserCountryBreakdownPothosObject = gqlSchemaBuilder
+  .objectRef<AdminUserCountryBreakdownReturnType>("AdminUserCountryBreakdown")
+  .implement({
+    fields: t => ({
+      buckets: t.field({
+        type: [AdminUserCountryBucketPothosObject],
+        resolve: root => root.buckets,
+      }),
+      unresolvedCount: t.exposeInt("unresolvedCount"),
     }),
   });
 

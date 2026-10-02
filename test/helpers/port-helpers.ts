@@ -37,15 +37,32 @@ function killWindowsListeners(port: number, selfPid: string, parentPid: string):
 }
 
 /**
- * POSIX branch of `killListenersOnPort` — lsof + kill -9.
+ * ss(8) fallback for environments without lsof (minimal sandboxes): parse
+ * `ss -lptn` listener lines for `pid=N` tokens. The line shape is
+ * `LISTEN 0 511 0.0.0.0:PORT 0.0.0.0:* users:(("name",pid=817,fd=22))` —
+ * the pid list may span several comma-separated entries, all captured.
+ */
+function listListenerPidsViaSs(port: number, selfPid: string, parentPid: string): string[] {
+  const res = spawnSync(["ss", "-lptn", `sport = :${port}`], { stdout: "pipe", stderr: "ignore" });
+  const stdout = res.stdout.toString();
+  if (!stdout) return [];
+  return [...stdout.matchAll(/pid=(\d+)/g)].map(match => match[1]).filter(pid => pid !== selfPid && pid !== parentPid);
+}
+
+/**
+ * POSIX branch of `killListenersOnPort` — lsof + kill -9, falling back to
+ * ss(8) parsing when lsof is absent (the spawn fails with ENOENT and yields
+ * no output — silently no-oping the whole cleanup in minimal sandboxes).
  * Extracted to keep per-function sonarjs cognitive complexity within budget;
  * behavior is identical to the previous inline branch.
  */
 function killUnixListeners(port: number, selfPid: string, parentPid: string): number {
   const res = spawnSync(["lsof", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"], { stdout: "pipe", stderr: "ignore" });
   const stdout = res.stdout.toString().trim();
-  if (!stdout) return 0;
-  const pids = stdout.split(/\s+/).filter(pid => Boolean(pid) && pid !== selfPid && pid !== parentPid);
+  const pids =
+    stdout !== ""
+      ? stdout.split(/\s+/).filter(pid => Boolean(pid) && pid !== selfPid && pid !== parentPid)
+      : listListenerPidsViaSs(port, selfPid, parentPid);
   for (const pid of pids) {
     spawnSync(["kill", "-9", pid], { stdout: "ignore", stderr: "ignore" });
   }

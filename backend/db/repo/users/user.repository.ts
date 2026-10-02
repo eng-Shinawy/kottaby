@@ -49,7 +49,8 @@ export namespace UserRepository {
     // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
     const result = await queryDb<UserSelectType>(
       `SELECT id, full_name AS "fullName", email, phone, password_hash AS "passwordHash",
-              role, date_of_birth AS "dateOfBirth", gender, country, locale,
+              role, date_of_birth AS "dateOfBirth", gender, country,
+              country_code AS "countryCode", locale,
               is_deleted AS "isDeleted", deleted_at AS "deletedAt",
               suspended, suspended_at AS "suspendedAt",
               suspended_period_days AS "suspendedPeriodDays",
@@ -81,7 +82,8 @@ export namespace UserRepository {
     // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
     const result = await queryDb<UserSelectType>(
       `SELECT id, full_name AS "fullName", email, phone, password_hash AS "passwordHash",
-              role, date_of_birth AS "dateOfBirth", gender, country, locale,
+              role, date_of_birth AS "dateOfBirth", gender, country,
+              country_code AS "countryCode", locale,
               is_deleted AS "isDeleted", deleted_at AS "deletedAt",
               suspended, suspended_at AS "suspendedAt",
               suspended_period_days AS "suspendedPeriodDays",

@@ -42,7 +42,11 @@ import { BroadcastComposeConfirmDialog } from "@/frontend/views/admin/broadcasts
 import { BroadcastComposeForm } from "@/frontend/views/admin/broadcasts/BroadcastComposeForm";
 import { BroadcastComposeHeader } from "@/frontend/views/admin/broadcasts/BroadcastComposeHeader";
 import { BroadcastComposeSuccessSnackbar } from "@/frontend/views/admin/broadcasts/BroadcastComposeSuccessSnackbar";
+import { composeAudienceSummary } from "@/frontend/views/admin/broadcasts/broadcast-compose.helpers";
 import { useBroadcastCompose } from "@/frontend/views/admin/broadcasts/useBroadcastCompose";
+import { useAppTranslation } from "@/shared/locale/client";
+import { useAppLocale } from "@/shared/locale/localeContext";
+import { AdminUsers } from "@/shared/locale/namespaces/adminUsers";
 
 export function BroadcastComposeContainer(): ReactNode {
   const {
@@ -67,6 +71,12 @@ export function BroadcastComposeContainer(): ReactNode {
   } = useBroadcastCompose();
 
   const sendIcon = sending ? <CircularProgress size={18} color="inherit" /> : <SendOutlined />;
+  // The confirm gate echoes the send's identity: the live audience selection
+  // in the history table's display grammar (the helper composes title line
+  // separately — the dialog receives both).
+  const locale = useAppLocale();
+  const tu = useAppTranslation(AdminUsers);
+  const audienceSummary = composeAudienceSummary(compose, plans, labels, tu.roleLabels, locale);
 
   return (
     <Box
@@ -115,6 +125,8 @@ export function BroadcastComposeContainer(): ReactNode {
         sending={sending}
         sendIcon={sendIcon}
         labels={labels}
+        composeTitle={compose.title}
+        audienceSummary={audienceSummary}
         onClose={closeConfirmDialog}
         onConfirm={handleConfirmSend}
       />

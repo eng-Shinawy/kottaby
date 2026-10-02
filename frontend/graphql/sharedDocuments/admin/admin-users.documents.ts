@@ -27,6 +27,8 @@ import type {
   AdminUpdateUserMutation,
   AdminUserActivityQuery,
   AdminUserActivityQueryVariables,
+  AdminUserCountryBreakdownQuery,
+  AdminUserCountryBreakdownQueryVariables,
   AdminUserDetailQuery,
   AdminUserStatsQuery,
   AdminUsersQuery,
@@ -188,6 +190,33 @@ export const adminApplicantCooldownStatsQueryDocument: TypedDocumentNode<AdminAp
       expiringSoonCount
       expiredCount
       expiringSoonWindowDays
+    }
+  }
+`;
+
+/**
+ * "Users by country" distribution query — the admin directory facet's
+ * data source (`adminUserCountryBreakdown`). The server resolves each
+ * bucket's LOCALE display label + flag from the shared dataset and owns
+ * the top-N window (`limit` clamps server-side 1..12, default 6), so the
+ * client renders chips whose copy matches the directory's country chips
+ * and the broadcast audience summary. `unresolvedCount` is the honest
+ * remainder (NULL-code legacy/never-set rows + out-of-vocabulary codes).
+ * Scalar-only envelope: no `id` normalization requirement applies.
+ */
+export const adminUserCountryBreakdownQueryDocument: TypedDocumentNode<
+  AdminUserCountryBreakdownQuery,
+  AdminUserCountryBreakdownQueryVariables
+> = gql`
+  query AdminUserCountryBreakdown($limit: Int) {
+    adminUserCountryBreakdown(limit: $limit) {
+      buckets {
+        code
+        label
+        flag
+        count
+      }
+      unresolvedCount
     }
   }
 `;

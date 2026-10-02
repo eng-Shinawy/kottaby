@@ -22,6 +22,11 @@
  *  - BOPLA: input with extra fields is ignored.
  *  - Atomicity: child-insert failure → zero residual rows.
  *  - Password stored hashed.
+ *  - Country contract: `country` is an ISO 3166-1 alpha-2 code — empty →
+ *    COUNTRY_CODE_REQUIRED, present-but-non-member → COUNTRY_CODE_INVALID
+ *    (both on the `country` field path); lowercase/padded values normalize
+ *    before the membership check; the persisted pair is the normalized code
+ *    plus the canonical English display name; fuzz + mass-assignment probes.
  *
  * A dedicated "registration contract locks" describe below pins:
  * exact-row teacher registration (identity-scoped), the applicants-defaults
@@ -45,7 +50,7 @@ import { ApplicantStatus } from "@/backend/enum";
 import { comparePassword } from "@/backend/lib/auth/password";
 import { ConflictError, ValidationError } from "@/backend/lib/errors";
 import { RegistrationService } from "@/backend/services/auth/registration.service";
-import type { DBTransaction, RegistrationSubmitInput, UserInsertType } from "@/backend/types";
+import type { ApiFieldErrorType, DBTransaction, RegistrationSubmitInput, UserInsertType } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /** PostgreSQL unique-violation SQLSTATE hunted through Drizzle cause chains. */
@@ -92,7 +97,10 @@ function makeValidInput(overrides: Partial<RegistrationSubmitInput> = {}): Regis
     email: `reg-${crypto.randomUUID()}@test.local`,
     phone: "+10000000000",
     password: TEST_DEFAULT_CREDENTIAL,
-    country: "Egypt",
+    // `country` now carries an ISO 3166-1 alpha-2 code — the service
+    // validates it against the shared dataset and persists the normalized
+    // code plus the canonical English display name.
+    country: "EG",
     role: "student",
     ...overrides,
   };
@@ -155,7 +163,10 @@ function buildRaceUserValues(email: string): UserInsertType {
     passwordHash: RACE_FIXTURE_STUB_HASH,
     role: "teacher",
     gender: null,
+    // Mirrors the service's persisted pair for input "EG": normalized ISO
+    // code plus the canonical English display name (createUserRow contract).
     country: "Egypt",
+    countryCode: "EG",
     isDeleted: false,
     deletedAt: null,
     suspended: false,
@@ -184,6 +195,84 @@ function hasUniqueViolationCode(error: unknown): boolean {
     current = (current as { cause?: unknown }).cause;
   }
   return false;
+}
+
+/** Lowercase dataset members sprinkled into the fuzz corpus (normalize-accept path). */
+const FUZZ_VALID_CODE_POOL = ["eg", "us", "sa", "ae", "ps"];
+
+/** Hostile/mixed fuzz alphabet: letter cases, digits, padding, symbols, Arabic, flag emoji. */
+const FUZZ_ALPHABET = [
+  "e",
+  "E",
+  "g",
+  "G",
+  "s",
+  "S",
+  "a",
+  "A",
+  "0",
+  "1",
+  "9",
+  " ",
+  "_",
+  "%",
+  "\\",
+  "'",
+  "-",
+  "م",
+  "ص",
+  "ر",
+  "🇪🇬",
+];
+
+/**
+ * Deterministic 32-bit LCG (Numerical Recipes constants) — deliberately
+ * shaped differently from the xorshift helpers other fuzz suites use (clone
+ * hygiene). Returns floats in [0, 1).
+ */
+function createFuzzRng(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+/**
+ * Builds one randomized country payload: mostly garbage strings from the
+ * mixed alphabet (lengths 0–8), with a deterministic ~1-in-8 slice of
+ * lowercase dataset members so both the accept and reject branches of the
+ * country gate run under fuzz.
+ */
+function buildFuzzCountryPayload(rng: () => number): string {
+  if (rng() < 0.125) {
+    return FUZZ_VALID_CODE_POOL[Math.floor(rng() * FUZZ_VALID_CODE_POOL.length)] ?? "eg";
+  }
+  const length = Math.floor(rng() * 9);
+  let payload = "";
+  for (let index = 0; index < length; index++) {
+    payload += FUZZ_ALPHABET[Math.floor(rng() * FUZZ_ALPHABET.length)] ?? "e";
+  }
+  return payload;
+}
+
+/**
+ * Registers a role="parent" fixture carrying the given raw country value
+ * inside the current rollback transaction and returns the SINGLE field-error
+ * entry the service must emit. Fails the test when the rejection is anything
+ * but a one-entry ValidationError on the `country` path — callers assert the
+ * `code`/`message` on the returned entry.
+ */
+async function expectCountryFieldError(tx: DBTransaction, country: string): Promise<ApiFieldErrorType> {
+  const input = makeValidInput({ country, role: "parent" });
+  const error = await expectRepoError(() => RegistrationService.registerUser(input, LOCALE, tx));
+  expect(error).toBeInstanceOf(ValidationError);
+  if (!(error instanceof ValidationError)) throw new Error("expected a ValidationError instance");
+  expect(error.fields).toHaveLength(1);
+  const entry = error.fields?.[0];
+  if (!entry) throw new Error("expected a country field-error entry");
+  expect(entry.field).toBe("country");
+  return entry;
 }
 
 describe("RegistrationService.registerUser", () => {
@@ -345,7 +434,7 @@ describe("RegistrationService.registerUser", () => {
       expect(byField.get("fullName")).toBe("NAME_REQUIRED");
       expect(byField.get("email")).toBe("EMAIL_INVALID");
       expect(byField.get("password")).toBe("PASSWORD_TOO_SHORT");
-      expect(byField.get("country")).toBe("COUNTRY_REQUIRED");
+      expect(byField.get("country")).toBe("COUNTRY_CODE_REQUIRED");
       // The top-level message stays the FIRST entry's message (backwards-
       // compatible with the throw-on-first-failure contract).
       expect(error.message).toBe(fields[0]?.message);
@@ -408,7 +497,7 @@ describe("RegistrationService.registerUser", () => {
         email: `hostile-${crypto.randomUUID()}@test.local`,
         phone: "+10000000000",
         password: TEST_DEFAULT_CREDENTIAL,
-        country: "Egypt",
+        country: "EG",
         role: "student",
       };
       // Hostile extras — the service MUST ignore these (transport-layer tamper).
@@ -513,7 +602,7 @@ describe("RegistrationService.registerUser", () => {
         email: `admin-${crypto.randomUUID()}@test.local`,
         phone: "+10000000000",
         password: TEST_DEFAULT_CREDENTIAL,
-        country: "Egypt",
+        country: "EG",
         role: "admin" as const,
       };
 
@@ -537,6 +626,198 @@ describe("RegistrationService.registerUser", () => {
 
       // Format: KSB- + exactly 8 chars from [A-Z0-9].
       expect(code).toMatch(/^KSB-[A-Z0-9]{8}$/);
+    });
+  });
+});
+
+describe("RegistrationService country-code contract (ISO 3166-1 alpha-2)", () => {
+  // ─── Tier 1: persisted pair + localized field errors ────────────────
+
+  test('valid code "EG": persists the normalized countryCode + canonical English display name', async () => {
+    await runInRollback(async tx => {
+      const input = makeValidInput({ country: "EG", role: "parent" });
+
+      const result = await RegistrationService.registerUser(input, LOCALE, tx);
+
+      const userRows = await tx.select().from(users).where(eq(users.id, result.id));
+      expect(userRows).toHaveLength(1);
+      const userRow = userRows[0];
+      if (!userRow) throw new Error("expected user row");
+      expect(userRow.countryCode).toBe("EG");
+      // The legacy column carries the dataset's English display name —
+      // not the raw ISO code the client submitted.
+      expect(userRow.country).toBe("Egypt");
+    });
+  });
+
+  test('valid code "US": the display-name lookup is per-code, not hardcoded', async () => {
+    await runInRollback(async tx => {
+      const input = makeValidInput({ country: "US", role: "parent" });
+
+      const result = await RegistrationService.registerUser(input, LOCALE, tx);
+
+      const userRows = await tx.select().from(users).where(eq(users.id, result.id));
+      const userRow = userRows[0];
+      if (!userRow) throw new Error("expected user row");
+      expect(userRow.countryCode).toBe("US");
+      expect(userRow.country).toBe("United States");
+    });
+  });
+
+  test("empty country → COUNTRY_CODE_REQUIRED with the localized message on the `country` path", async () => {
+    await runInRollback(async tx => {
+      const entry = await expectCountryFieldError(tx, "");
+      expect(entry.code).toBe("COUNTRY_CODE_REQUIRED");
+      expect(entry.message).toBe(getServerTranslations(LOCALE).authTranslations.countryCodeRequired);
+    });
+  });
+
+  test('legacy free text "Egypt" → COUNTRY_CODE_INVALID with the localized message on the `country` path', async () => {
+    await runInRollback(async tx => {
+      const entry = await expectCountryFieldError(tx, "Egypt");
+      expect(entry.code).toBe("COUNTRY_CODE_INVALID");
+      expect(entry.message).toBe(getServerTranslations(LOCALE).authTranslations.countryCodeInvalid);
+    });
+  });
+
+  // ─── Tier 2: normalization + membership boundaries ──────────────────
+
+  test('lowercase "eg" normalizes to "EG" and persists the display name', async () => {
+    await runInRollback(async tx => {
+      const input = makeValidInput({ country: "eg", role: "parent" });
+
+      const result = await RegistrationService.registerUser(input, LOCALE, tx);
+
+      const userRows = await tx.select().from(users).where(eq(users.id, result.id));
+      const userRow = userRows[0];
+      if (!userRow) throw new Error("expected user row");
+      expect(userRow.countryCode).toBe("EG");
+      expect(userRow.country).toBe("Egypt");
+    });
+  });
+
+  test('whitespace-padded " EG " normalizes to "EG"', async () => {
+    await runInRollback(async tx => {
+      const input = makeValidInput({ country: " EG ", role: "parent" });
+
+      const result = await RegistrationService.registerUser(input, LOCALE, tx);
+
+      const userRows = await tx.select().from(users).where(eq(users.id, result.id));
+      const userRow = userRows[0];
+      if (!userRow) throw new Error("expected user row");
+      expect(userRow.countryCode).toBe("EG");
+      expect(userRow.country).toBe("Egypt");
+    });
+  });
+
+  test('valid-shape non-members "XX" / "AA" → COUNTRY_CODE_INVALID', async () => {
+    await runInRollback(async tx => {
+      // Both payloads are rejected during input validation (before any
+      // transactional work), so the arms can run concurrently on the shared tx.
+      const entries = await Promise.all(["XX", "AA"].map(code => expectCountryFieldError(tx, code)));
+      for (const entry of entries) {
+        expect(entry.code).toBe("COUNTRY_CODE_INVALID");
+      }
+    });
+  });
+
+  test("null / undefined country (transport tamper) → COUNTRY_CODE_REQUIRED", async () => {
+    await runInRollback(async tx => {
+      // Transport-tamper shapes — the GraphQL layer rejects these before the
+      // resolver, the service guard defends in depth. Both payloads are
+      // rejected during input validation (before any transactional work),
+      // so the arms can run concurrently on the shared tx.
+      const errors = await Promise.all(
+        [null, undefined].map(tampered => {
+          const input: RegistrationSubmitInput = makeValidInput();
+          Object.assign(input, { country: tampered });
+          return expectRepoError(() => RegistrationService.registerUser(input, LOCALE, tx));
+        })
+      );
+      for (const error of errors) {
+        expect(error).toBeInstanceOf(ValidationError);
+        if (!(error instanceof ValidationError)) throw new Error("expected a ValidationError instance");
+        expect(error.fields?.[0]).toMatchObject({ field: "country", code: "COUNTRY_CODE_REQUIRED" });
+      }
+    });
+  });
+
+  // ─── Tier 3: fuzz — nothing but country ValidationErrors escapes ────
+
+  test("fuzz: randomized country payloads never throw anything but a country ValidationError", async () => {
+    await runInRollback(async tx => {
+      const rng = createFuzzRng(3307790);
+      const attempts = Array.from({ length: 64 }, () =>
+        makeValidInput({ country: buildFuzzCountryPayload(rng), role: "parent" })
+      );
+
+      // SEQUENTIAL on purpose: VALID payloads open a nested savepoint on the
+      // shared outer tx, and concurrent nested savepoints collide (drizzle
+      // derives sibling names from the parent's index — the race contract-
+      // lock below documents the same hazard). Invalid payloads throw before
+      // any transactional work, so interleaving them through the fold is safe.
+      let fulfilledRegistrations = 0;
+      const registerAndClassify = async (input: RegistrationSubmitInput): Promise<void> => {
+        try {
+          await RegistrationService.registerUser(input, LOCALE, tx);
+          fulfilledRegistrations++;
+        } catch (error) {
+          expect(error).toBeInstanceOf(ValidationError);
+          if (!(error instanceof ValidationError)) {
+            throw new Error("expected a ValidationError instance", { cause: error });
+          }
+          expect(error.fields?.length ?? 0).toBeGreaterThan(0);
+          for (const entry of error.fields ?? []) {
+            expect(entry.field).toBe("country");
+            expect(["COUNTRY_CODE_REQUIRED", "COUNTRY_CODE_INVALID"]).toContain(entry.code);
+          }
+        }
+      };
+      await attempts.reduce<Promise<void>>(
+        (chain, input) => chain.then(() => registerAndClassify(input)),
+        Promise.resolve()
+      );
+      // The corpus deliberately mixes dataset members in — the valid slice
+      // must have taken the success path above.
+      expect(fulfilledRegistrations).toBeGreaterThan(0);
+    });
+  });
+
+  // ─── Tier 4: BOPLA — the country pair is server-mapped, never echoed ─
+
+  test("mass-assignment: hostile countryCode / governance extras are never written", async () => {
+    await runInRollback(async tx => {
+      const hostileInput: RegistrationSubmitInput = makeValidInput({ country: "EG" });
+      Object.assign(hostileInput, {
+        countryCode: "RU",
+        isDeleted: true,
+        suspended: true,
+        suspendedPeriodDays: 99,
+        isBlocked: true,
+        handshakeCode: "EVIL-CODE",
+      });
+
+      const result = await RegistrationService.registerUser(hostileInput, LOCALE, tx);
+
+      const userRows = await tx.select().from(users).where(eq(users.id, result.id));
+      expect(userRows).toHaveLength(1);
+      const userRow = userRows[0];
+      if (!userRow) throw new Error("expected user row");
+      // The pair is derived server-side from the VALID input code — the
+      // hostile `countryCode` extra never reaches the row.
+      expect(userRow.countryCode).toBe("EG");
+      expect(userRow.country).toBe("Egypt");
+      // Governance fields keep their server-set defaults:
+      expect(userRow.isDeleted).toBe(false);
+      expect(userRow.suspended).toBe(false);
+      expect(userRow.suspendedPeriodDays).toBeNull();
+      expect(userRow.isBlocked).toBe(false);
+      // The student child row keeps a fresh server-generated handshake code:
+      const studentRows = await tx.select().from(students).where(eq(students.id, result.id));
+      const studentRow = studentRows[0];
+      if (!studentRow) throw new Error("expected student row");
+      expect(studentRow.handshakeCode).not.toBe("EVIL-CODE");
+      expect(studentRow.handshakeCode).toMatch(/^KSB-[A-Z0-9]{8}$/);
     });
   });
 });

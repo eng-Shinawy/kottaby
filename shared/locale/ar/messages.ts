@@ -10,6 +10,7 @@ import { applicantAr } from "@/shared/locale/ar/applicant";
 import { authAr } from "@/shared/locale/ar/auth";
 import { checkoutAr } from "@/shared/locale/ar/checkout";
 import { commonAr } from "@/shared/locale/ar/common";
+import { countrySelectorAr } from "@/shared/locale/ar/countrySelector";
 import { dashboardAr } from "@/shared/locale/ar/dashboard";
 import { errorsAr } from "@/shared/locale/ar/errors";
 import { handshakeCodeAr } from "@/shared/locale/ar/handshakeCode";
@@ -44,6 +45,7 @@ export const arMessages: Translations = {
   walletTranslations: walletAr,
   upNextTranslations: upNextAr,
   checkoutTranslations: checkoutAr,
+  countrySelectorTranslations: countrySelectorAr,
   adminAcademicTranslations: adminAcademicAr,
   adminUsersTranslations: adminUsersAr,
   adminTeachersTranslations: adminTeachersAr,

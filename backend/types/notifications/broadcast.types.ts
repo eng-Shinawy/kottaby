@@ -2,6 +2,7 @@ import type { broadcasts } from "@/backend/db/schema/notifications/broadcasts";
 import type { BroadcastAudienceType } from "@/backend/enum/notifications/broadcast-audience-type.enum";
 import type { BroadcastStatus } from "@/backend/enum/notifications/broadcast-status.enum";
 import type { UserRole } from "@/backend/enum/users/user-role.enum";
+import type { CountryCode } from "@/shared/constants/countries";
 
 /**
  * Type-discriminated audience selector for an admin broadcast — the closed
@@ -14,7 +15,10 @@ import type { UserRole } from "@/backend/enum/users/user-role.enum";
  * - `All`     — every companion absent (whole governed user base).
  * - `Role`    — `role` required; `country` / `planId` absent.
  * - `Country` — `country` required (trimmed, at most 100 characters);
- *   `role` / `planId` absent.
+ *   `role` / `planId` absent. `countryCode` is the optional ISO twin the
+ *   service's seed bridge stamps onto a resolvable seed — the repo's
+ *   legacy-tolerant cohort arm matches BOTH the code column and the
+ *   canonical display name when present, the raw text alone otherwise.
  * - `Plan`    — `planId` required (positive safe integer); `role` /
  *   `country` absent.
  *
@@ -30,6 +34,13 @@ export interface BroadcastAudienceSelector {
   readonly role?: UserRole | null;
   /** Recipient country (exact match) — meaningful only when `type` is `Country`. */
   readonly country?: string | null;
+  /**
+   * ISO 3166-1 alpha-2 twin of `country` — non-null exactly when `country`
+   * is a dataset display name (the shared canonical-pair invariant the
+   * register/admin bridges uphold). Meaningful only when `type` is
+   * `Country`; callers that predate the bridge simply omit it.
+   */
+  readonly countryCode?: CountryCode | null;
   /** Plan whose active subscribers receive the broadcast — meaningful only when `type` is `Plan`. */
   readonly planId?: number | null;
 }

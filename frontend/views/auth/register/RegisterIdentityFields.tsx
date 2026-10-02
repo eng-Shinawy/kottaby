@@ -4,26 +4,37 @@ import {
   EmailOutlined as EmailIcon,
   PersonOutlined as PersonIcon,
   PhoneOutlined as PhoneIcon,
-  PublicOutlined as PublicIcon,
 } from "@mui/icons-material";
 import { TextField } from "@mui/material";
-import type { FieldErrors, UseFormRegister } from "react-hook-form";
-import { isValidEmailShape, type RegisterFormValues } from "@/frontend/views/auth/register";
+import type { FieldErrors, UseControllerReturn, UseFormRegister } from "react-hook-form";
+import { CountrySelector } from "@/frontend/components/ui/CountrySelector";
+import { countryFromValue, isValidEmailShape, type RegisterFormValues } from "@/frontend/views/auth/register";
 import type { AuthLabels } from "@/shared/locale/types/auth";
 
 interface RegisterIdentityFieldsProps {
   readonly register: UseFormRegister<RegisterFormValues>;
   readonly errors: FieldErrors<RegisterFormValues>;
   readonly t: AuthLabels;
+  readonly countryField: UseControllerReturn<RegisterFormValues, "country">;
 }
 
 /**
- * The identity grid of RegisterForm: fullName, email, phone, and country
- * text fields. Validation is pure RHF (`register` rules) with the
- * `auth`-namespace client-tier messages; error text arrives without moving
- * focus, so each helper node is a polite live region for SR announcement.
+ * The identity grid of RegisterForm: fullName, email, and phone text fields
+ * plus the country picker. Text fields keep pure RHF (`register` rules)
+ * with the `auth`-namespace client-tier messages; the country picker is
+ * bound to its own RHF controller and gated inline by the shared country
+ * code schema (empty → required copy, non-member → invalid copy — the same
+ * split the registration service emits on the `country` field path, whose
+ * server pairs are projected into `errors` unchanged). Error text arrives
+ * without moving focus, so each helper node is a polite live region for SR
+ * announcement (the selector wires its own).
  */
-export function RegisterIdentityFields({ register, errors, t }: RegisterIdentityFieldsProps) {
+export function RegisterIdentityFields({ register, errors, t, countryField }: RegisterIdentityFieldsProps) {
+  // The country field degrades to `string` under the checker; pin the raw
+  // value back to a dataset member (or "") before it reaches the controlled
+  // selector instead of trusting the field value.
+  const selectedCountry = countryFromValue(countryField.field.value);
+
   return (
     <>
       <TextField
@@ -83,21 +94,17 @@ export function RegisterIdentityFields({ register, errors, t }: RegisterIdentity
           formHelperText: { "aria-live": "polite" },
         }}
       />
-      <TextField
-        {...register("country", { required: t.countryRequired })}
+      <CountrySelector
+        id="register-country"
+        name={countryField.field.name}
+        inputRef={countryField.field.ref}
         label={t.country}
-        required
-        fullWidth
-        autoComplete="country-name"
+        value={selectedCountry}
+        onChange={countryField.field.onChange}
+        onBlur={countryField.field.onBlur}
         error={Boolean(errors.country)}
         helperText={errors.country?.message ?? " "}
-        aria-invalid={Boolean(errors.country)}
-        slotProps={{
-          input: {
-            startAdornment: <PublicIcon fontSize="small" sx={{ mr: 1, color: "var(--mui-palette-action-active)" }} />,
-          },
-          formHelperText: { "aria-live": "polite" },
-        }}
+        required
       />
     </>
   );

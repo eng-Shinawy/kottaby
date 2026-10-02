@@ -10,6 +10,7 @@ import type { ApplicantLabels } from "@/shared/locale/types/applicant";
 import type { AuthLabels } from "@/shared/locale/types/auth";
 import type { CheckoutLabels } from "@/shared/locale/types/checkout";
 import type { CommonLabels } from "@/shared/locale/types/common";
+import type { CountrySelectorLabels } from "@/shared/locale/types/countrySelector";
 import type { DashboardLabels } from "@/shared/locale/types/dashboard";
 import type { ErrorsLabels } from "@/shared/locale/types/errors";
 import type { HandshakeCodeLabels } from "@/shared/locale/types/handshakeCode";
@@ -43,6 +44,7 @@ export interface Translations {
   walletTranslations: WalletLabels;
   upNextTranslations: UpNextLabels;
   checkoutTranslations: CheckoutLabels;
+  countrySelectorTranslations: CountrySelectorLabels;
   adminAcademicTranslations: AdminAcademicLabels;
   adminUsersTranslations: AdminUsersLabels;
   adminTeachersTranslations: AdminTeachersLabels;

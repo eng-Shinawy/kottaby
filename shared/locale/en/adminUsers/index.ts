@@ -53,6 +53,11 @@ export const adminUsersEn: AdminUsersLabels = {
     newThisWeek: "new this week",
     roleDistribution: "Roles",
   },
+  countryBreakdown: {
+    title: "Users by country",
+    chipAriaLabel: "Show users from {label}",
+    unresolved: "{count} without a listed country",
+  },
   quickActions: {
     viewProfile: "View user details",
     copyEmail: "Copy email address",
@@ -84,6 +89,7 @@ export const adminUsersEn: AdminUsersLabels = {
       expired: "Cooldown expired",
     },
     country: "Country",
+    countryPlaceholder: "Filter by country",
     search: "Search",
     searchPlaceholder: "Search by name or email",
     searchClearLabel: "Clear search",
@@ -119,6 +125,7 @@ export const adminUsersEn: AdminUsersLabels = {
     passwordHelper: "Set an initial password; the user must change it on first login.",
     gender: "Gender",
     country: "Country",
+    countryHelper: "Drives broadcast targeting and the directory country filter.",
     role: "Role",
     roleSegments: {
       teacherApplicant: "Teacher Applicant",
@@ -134,6 +141,7 @@ export const adminUsersEn: AdminUsersLabels = {
     fullName: "Full name",
     phone: "Phone",
     country: "Country",
+    countryHelper: "Drives broadcast targeting and the directory country filter.",
     gender: "Gender",
     dateOfBirth: "Date of birth",
     submit: "Save changes",

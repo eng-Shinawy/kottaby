@@ -106,8 +106,13 @@ export default defineConfig({
       },
     },
     {
-      // Translation dictionaries & generated timezone constants scale with data size.
-      files: ["shared/locale/**", "shared/constants/iana-timezone*.ts", "shared/constants/iana-timezones.ts"],
+      // Translation dictionaries & generated locale-data constants scale with data size.
+      files: [
+        "shared/locale/**",
+        "shared/constants/iana-timezone*.ts",
+        "shared/constants/iana-timezones.ts",
+        "shared/constants/countries.ts",
+      ],
       rules: {
         "max-lines": "off",
       },

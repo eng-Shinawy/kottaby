@@ -1,8 +1,8 @@
 # UI Test Rules (`test/ui/`)
 
-`test/ui/` is **E2E-only** and contains a single suite: the live Paymob checkout E2E (`test/ui/e2e/paymob-checkout.e2e.test.ts`). There is no static/component UI test layer — UI verification is E2E-only.
+`test/ui/` is **E2E-only** and contains two suites: the live Paymob checkout E2E (`test/ui/e2e/paymob-checkout.e2e.test.ts`) and the admin country-filter round-trip E2E (`test/ui/e2e/admin-country-filter.e2e.test.ts`). There is no static/component UI test layer — UI verification is E2E-only.
 
-## The Suite
+## The Paymob Suite
 
 `test/ui/e2e/paymob-checkout.e2e.test.ts` drives the student purchase funnel end-to-end in a REAL browser, through the REAL vendor hosted checkout (`eg.checkout.paymob.com`), settled by the REAL webhook delivered over a REAL ngrok tunnel:
 
@@ -17,11 +17,24 @@ The suite requires `PAYMOB_LIVE_TESTS=1` + live sandbox credentials + the reserv
 ## Commands
 
 ```bash
-bun run test:ui:e2e:paymob  # Paymob live checkout E2E (generates .env.paymob.test, then run-server-tests.ts --e2e --port 3100)
-bun run gen:paymob-test-env # (Re)generate .env.paymob.test from the committed plan bundle
-bun run build:test          # Build .next-test-prod (required for production-mode E2E)
-bun run test:kill           # Kill stale test servers on the test port only (never dev:3000 or start:4000)
+bun run test:ui:e2e:paymob           # Paymob live checkout E2E (generates .env.paymob.test, then run-server-tests.ts --e2e --port 3100)
+bun run test:ui:e2e:country-filter   # Admin country-filter round-trip E2E (run-server-tests.ts --e2e, default port 3066)
+bun run gen:paymob-test-env          # (Re)generate .env.paymob.test from the committed plan bundle
+bun run build:test                   # Build .next-test-prod (required for production-mode E2E)
+bun run test:kill                    # Kill stale test servers on the test port only (never dev:3000 or start:4000)
 ```
+
+## The Country-Filter Suite
+
+`test/ui/e2e/admin-country-filter.e2e.test.ts` drives the admin directory's country filter as a REAL admin in a REAL browser — the shareable-URL contract of the country-filter family (issue-230 follow-ups):
+
+1. Fixtures are per-run and unique: an ADMIN row inserted through `createTestUser`/`createTestAdmin` (`@/backend/db/test/entity-setup`) with a **REAL bcrypt hash** (the login service verifies hashes — the shared stub hash can never log in), plus two STUDENTS registered through the REAL `registerUser` mutation with country `EG` / `US` (the product write path, so rows carry canonical `(country, country_code)` pairs).
+2. The admin signs in over the real wire (Login mutation — the httpOnly cookies land in the API context's jar, shared by every page in the context).
+3. DIRECT URL: `?country=EG` renders the applied-filter chip (`${filters.country}: ${flag} ${name}`) and honors the filter — the Egypt fixture visible, the US fixture absent.
+4. UI SELECTION: picking مصر in the toolbar's `CountrySelector` rewrites the URL to `?country=EG` (the mirror effect) and paints the chip — the URL → state → URL round-trip closes.
+5. CHIP DISMISSAL: deleting the chip drops the URL param; a US seed paints its own chip.
+
+No live gate — the suite runs entirely against the test environment via `TEST_ENV_FILE=.env.test` (the sanctioned test base: `app_db_test`, `AUTH_COOKIE_SECURE=false`, sanctioned markers). Teardown deletes the created users' sessions and rows via `@/test/helpers/db-cleanup` (`deleteSessionsByParticipantUserIds` → `deleteUsersByIds` + residue check). Screenshots archive under the issue-230 plan bundle's `outcome/e2e-screenshots/` directory.
 
 ## Runner & Server Lifecycle
 

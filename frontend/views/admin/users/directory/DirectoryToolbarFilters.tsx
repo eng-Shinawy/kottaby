@@ -4,21 +4,23 @@
  * DirectoryToolbarFilters — the filter controls of the admin user directory
  * toolbar, extracted from `DirectoryToolbar` (file-size cap): the three
  * lifecycle filter selects (governance, applicant status, cooldown state)
- * and the country text field. Pure wrappers around the shared
+ * and the country `CountrySelector`. Pure wrappers around the shared
  * `DirectoryFilterSelect` — each maps a free-string select value back onto
  * its closed wire union, so the toolbar's filter state can never drift out
- * of the enum vocabulary. Label slices are passed down narrowed — nothing
- * is hardcoded.
+ * of the enum vocabulary (the country selector is already code-typed).
+ * Label slices are passed down narrowed — nothing is hardcoded.
  */
 
-import { TextField } from "@mui/material";
+import { Box } from "@mui/material";
 import type { ReactNode } from "react";
+import { CountrySelector } from "@/frontend/components/ui/CountrySelector";
 import { DirectoryFilterSelect } from "@/frontend/views/admin/users/directory";
 import type {
   DirectoryApplicantStatus,
   DirectoryCooldownState,
   DirectoryGovernance,
 } from "@/frontend/views/admin/users/utils";
+import type { CountryCode } from "@/shared/constants/countries";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 /** Toolbar filter label slice (governance/applicant/cooldown option copy). */
@@ -84,6 +86,8 @@ export function DirectoryApplicantStatusFilterSelect(props: {
       value={props.applicantStatusFilter}
       onChange={value => props.setApplicantStatusFilter(asApplicantStatusFilterValue(value))}
       emptyOptionLabel={labels.genderOptions.unspecified}
+      // The longest toolbar label — without the extra room the notch clips it.
+      minWidth={192}
       options={[
         { value: "Pending", label: labels.filters.applicantStatusOptions.pending },
         { value: "InEvaluation", label: labels.filters.applicantStatusOptions.inEvaluation },
@@ -131,8 +135,11 @@ export function DirectoryCooldownStateFilterSelect(props: {
 }
 
 /**
- * Country text filter — keeps the label pinned to the notch at all times so
- * the field never renders unlabeled (matches the selects above). Grow on
+ * Country filter — the shared `CountrySelector` (ISO 3166-1 alpha-2), the
+ * same picker the create dialog uses, so the directory narrow speaks the
+ * code vocabulary the create path persists. The label stays pinned to the
+ * notch (`shrinkLabel`) so the empty selector reads like the selects beside
+ * it — one label grammar across the toolbar (pass-2 QA finding). Grow on
  * the md–lg wrapped line (and fill the xl leftover band): a stretched
  * filter field absorbs the free space ahead of the right-aligned actions —
  * no mid-row dead band (pass-2 HIGH).
@@ -140,17 +147,29 @@ export function DirectoryCooldownStateFilterSelect(props: {
 export function DirectoryCountryFilter(props: {
   readonly id: string;
   readonly labels: ToolbarFilterLabels;
-  readonly countryFilter: string;
-  readonly setCountryFilter: (value: string) => void;
+  readonly countryFilter: CountryCode | "";
+  readonly setCountryFilter: (value: CountryCode | "") => void;
 }): ReactNode {
   return (
-    <TextField
-      id={props.id}
-      label={props.labels.filters.country}
-      value={props.countryFilter}
-      onChange={event => props.setCountryFilter(event.target.value)}
-      slotProps={{ inputLabel: { shrink: true } }}
-      sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "1 1 220px" }, "& .MuiInputBase-root": { minHeight: 54 } }}
-    />
+    <Box
+      sx={{
+        minWidth: 150,
+        flex: { xs: "1 1 100%", sm: "1 1 220px" },
+        // Hold the toolbar's uniform 54px control height (the selects above
+        // pin the same height), so the wrapped rows keep a level baseline.
+        "& .MuiOutlinedInput-root": { height: 54 },
+      }}
+    >
+      <CountrySelector
+        id={props.id}
+        label={props.labels.filters.country}
+        value={props.countryFilter}
+        onChange={props.setCountryFilter}
+        shrinkLabel
+        // Filter-voiced prompt — the shared picker's "Select your country"
+        // is a first-person form grammar, wrong for a directory control.
+        placeholder={props.labels.filters.countryPlaceholder}
+      />
+    </Box>
   );
 }

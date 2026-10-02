@@ -18,6 +18,8 @@ import type {
   DirectoryGovernance,
   DirectoryRole,
 } from "@/frontend/views/admin/users/utils";
+import type { CountryCode } from "@/shared/constants/countries";
+import { countrySeedToCode } from "@/shared/lib/country-code";
 
 type Role = DirectoryRole;
 type Governance = DirectoryGovernance;
@@ -30,6 +32,12 @@ type CooldownStateFilter = DirectoryCooldownState;
  * (`/users` shareable link); the applied search seeds BOTH the draft and the
  * debounced value so the FIRST query is already filtered — no unfiltered
  * first fetch.
+ *
+ * The country draft is a `CountryCode | ""` (the toolbar renders the shared
+ * selector), so the URL seed resolves through `countrySeedToCode`: canonical
+ * codes, padded/lowercase variants, AND legacy display-text links
+ * (`country=Egypt`) all seed the picker, while unresolvable values fail
+ * closed to the no-filter default.
  */
 export function useDirectoryFilters() {
   const urlSeed = parseUsersUrlState(useSearchParams());
@@ -40,7 +48,7 @@ export function useDirectoryFilters() {
   );
   const [cooldownStateFilter, setCooldownStateFilter] = useState<CooldownStateFilter | "">(urlSeed.cooldownState);
   const [cooldownExpiringSoon, setCooldownExpiringSoon] = useState(urlSeed.cooldownExpiringSoon);
-  const [countryFilter, setCountryFilter] = useState(urlSeed.country);
+  const [countryFilter, setCountryFilter] = useState<CountryCode | "">(countrySeedToCode(urlSeed.country));
   const [searchInput, setSearchInput] = useState(urlSeed.q);
   const [searchDebounced, setSearchDebounced] = useState(urlSeed.q);
 
@@ -100,7 +108,7 @@ export function createPageResettingFilterSetters(
       filters.setCooldownExpiringSoon(value);
       setPage(0);
     },
-    setCountryFilter: (value: string) => {
+    setCountryFilter: (value: CountryCode | "") => {
       filters.setCountryFilter(value);
       setPage(0);
     },

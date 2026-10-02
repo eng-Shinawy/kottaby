@@ -40,6 +40,8 @@ import type { AdminUserDetailQuery_adminUserDetail } from "@/frontend/graphql/ge
 import { DirectoryGovernanceLabel, DirectoryRolePill } from "@/frontend/views/admin/users/directory";
 import { ApplicantStatusChip } from "@/frontend/views/admin/users/ui";
 import type { DirectoryGovernance, DirectoryRole } from "@/frontend/views/admin/users/utils";
+import { countryDisplayLabel } from "@/shared/lib/country-code";
+import { useAppLocale } from "@/shared/locale";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 type DetailUser = AdminUserDetailQuery_adminUserDetail;
@@ -110,6 +112,7 @@ export function UserHeroIdentity({
   formatDate,
   formatRelative,
 }: UserHeroIdentityProps): ReactNode {
+  const locale = useAppLocale();
   return (
     <Box sx={{ minWidth: 0, maxWidth: { md: 560 } }}>
       <Typography
@@ -129,7 +132,14 @@ export function UserHeroIdentity({
       <Stack direction="row" sx={{ mt: 1.5, gap: 3, flexWrap: "wrap", alignItems: "center" }}>
         <ContactItem icon={<EmailIcon />} value={user.email} ltr truncate />
         {user.phone && <ContactItem icon={<PhoneIcon />} value={user.phone} ltr truncate={false} />}
-        {user.country && <ContactItem icon={<LocationIcon />} value={user.country} ltr={false} truncate={false} />}
+        {user.country && (
+          <ContactItem
+            icon={<LocationIcon />}
+            value={countryDisplayLabel(user.country, locale)}
+            ltr={false}
+            truncate={false}
+          />
+        )}
       </Stack>
       <Stack direction="row" sx={{ mt: 1, gap: 3, flexWrap: "wrap", alignItems: "center" }}>
         <ContactItem

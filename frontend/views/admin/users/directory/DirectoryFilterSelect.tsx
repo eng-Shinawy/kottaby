@@ -28,6 +28,12 @@ interface DirectoryFilterSelectProps {
   readonly onChange: (value: string) => void;
   readonly emptyOptionLabel: string;
   readonly options: readonly DirectoryFilterOption[];
+  /**
+   * Minimum control width. The default fits the short labels (role/status/
+   * cooldown); longer notch labels ("Applicant status") need more room or
+   * the outline notch clips their tail (toolbar QA finding).
+   */
+  readonly minWidth?: number;
 }
 
 export function DirectoryFilterSelect({
@@ -37,9 +43,10 @@ export function DirectoryFilterSelect({
   onChange,
   emptyOptionLabel,
   options,
+  minWidth = 150,
 }: DirectoryFilterSelectProps): ReactNode {
   return (
-    <FormControl sx={{ minWidth: 150, flex: { xs: "1 1 100%", sm: "0 1 auto" } }}>
+    <FormControl sx={{ minWidth, flex: { xs: "1 1 100%", sm: "0 1 auto" } }}>
       <InputLabel htmlFor={id}>{label}</InputLabel>
       <Select
         id={id}

@@ -3,8 +3,11 @@
  *
  * Layers the admin user-directory keys on the shared trio: `role`
  * (`admin` | `teacher` | `student` | `parent`), `governance`
- * (`active` | `suspended` | `blocked` | `deleted`), `country` (trimmed
- * free text) and the applicant-lifecycle keys `status`
+ * (`active` | `suspended` | `blocked` | `deleted`), `country` (the ISO
+ * 3166-1 alpha-2 code the toolbar's selector commits; historical links may
+ * still carry legacy display text — the consuming hook resolves the seed
+ * through `countrySeedToCode` and drops unresolvable values) and the
+ * applicant-lifecycle keys `status`
  * (`pending` | `in_evaluation` | `failed` | `passed`), `cooldown`
  * (`none` | `active` | `expired`) and `expiring` (`1` — the
  * expiring-soon window narrow the dashboard lifecycle panel deep-links
@@ -106,9 +109,9 @@ export function parseUsersUrlState(searchParams: ReadableSearchParams): UsersDir
 
 /**
  * Serializes the users hook's APPLIED state into a query string. The country
- * filter is a free-text field committed per keystroke, so the serializer
- * trims it — a whitespace-only draft shares as the default (omitted), and
- * the shared link always carries the exact predicate the query runs.
+ * filter is the selector's committed ISO code, so the serializer trims it —
+ * a cleared draft shares as the default (omitted), and the shared link
+ * always carries the exact predicate the query runs.
  */
 export function serializeUsersUrlState(input: {
   q: string;

@@ -79,8 +79,11 @@ export const gqlSchemaBuilder = new SchemaBuilder<{
     /** Custom scalars registered in `shared/scalar.pothos.ts` (via
      *  `addScalarType`). `DateTime` is backed by `DateTimeResolver` from
      *  `graphql-scalars` (ISO-8601 UTC serialization; Date out, accepts
-     *  pre-serialized ISO strings pass-through). */
+     *  pre-serialized ISO strings pass-through). `CountryCode` is backed by
+     *  `CountryCodeResolver` from `graphql-scalars` (ISO 3166-1 alpha-2;
+     *  strings in, value returned unchanged — no normalization). */
     DateTime: { Input: Date; Output: Date | string };
+    CountryCode: { Input: string; Output: string };
   };
   AuthScopes: {
     /** Caller must have a verified `ctx.user` (401 otherwise). */

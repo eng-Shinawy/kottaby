@@ -330,6 +330,7 @@ function contextOnlyUser(role: "student" | "teacher" | "parent", userId: number)
     fullName: `Platform Analytics Wire ${role}`,
     phone: "+10000000000",
     country: "Egypt",
+    countryCode: "EG",
     gender: "male",
     dateOfBirth: "1990-01-01",
     role,

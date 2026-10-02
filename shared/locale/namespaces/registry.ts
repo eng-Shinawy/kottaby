@@ -16,6 +16,7 @@ import { Applicant } from "@/shared/locale/namespaces/applicant";
 import { Auth } from "@/shared/locale/namespaces/auth";
 import { Checkout } from "@/shared/locale/namespaces/checkout";
 import { Common } from "@/shared/locale/namespaces/common";
+import { CountrySelector } from "@/shared/locale/namespaces/countrySelector";
 import { Dashboard } from "@/shared/locale/namespaces/dashboard";
 import { Errors } from "@/shared/locale/namespaces/errors";
 import { HandshakeCode } from "@/shared/locale/namespaces/handshakeCode";
@@ -47,6 +48,7 @@ export const namespaces = {
   Auth,
   Checkout,
   Common,
+  CountrySelector,
   Dashboard,
   Errors,
   HandshakeCode,

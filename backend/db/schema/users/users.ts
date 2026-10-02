@@ -21,6 +21,12 @@ export const users = pgTable(
     gender: gender("gender"),
     country: varchar("country", { length: 100 }),
     /**
+     * Normalized ISO 3166-1 alpha-2 country code (e.g. "EG"). Nullable —
+     * legacy rows carry only the free-text `country` display value until the
+     * deferred normalization backfill runs; new writes populate both.
+     */
+    countryCode: varchar("country_code", { length: 2 }),
+    /**
      * Per-user app locale (UI + copy preference). Nullable — unset until the
      * user explicitly chooses one (registration leaves it null by the D2
      * deferred decision); the notification emitters read it to localize

@@ -82,7 +82,9 @@ function makeValidInput(overrides: Partial<RegistrationSubmitInput> = {}): Regis
     email: `reg-${crypto.randomUUID()}@test.local`,
     phone: "+10000000000",
     password: TEST_DEFAULT_CREDENTIAL,
-    country: "Egypt",
+    // `country` carries an ISO 3166-1 alpha-2 code — the registration
+    // service validates it against the shared country dataset.
+    country: "EG",
     role: "student",
     ...overrides,
   };
@@ -173,7 +175,7 @@ describe("RegistrationService trial provisioning", () => {
         email: `admin-${crypto.randomUUID()}@test.local`,
         phone: "+10000000000",
         password: TEST_DEFAULT_CREDENTIAL,
-        country: "Egypt",
+        country: "EG",
         role: "admin" as const,
       };
 

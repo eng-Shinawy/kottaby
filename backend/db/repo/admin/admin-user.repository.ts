@@ -42,6 +42,7 @@ import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
 import {
   getCooldownLifecycleStatsAggregate,
+  getCountryBreakdownAggregate,
   getStatsAggregate,
 } from "@/backend/db/repo/admin/admin-user.repository.helpers";
 import {
@@ -53,6 +54,7 @@ import {
 import type {
   AdminCooldownLifecycleRow,
   AdminUserActivityRow,
+  AdminUserCountryBreakdownRow,
   AdminUserDetailRow,
   AdminUserDirectoryRow,
   AdminUserStatsRow,
@@ -94,6 +96,7 @@ function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
  */
 export type {
   AdminUserActivityRow,
+  AdminUserCountryBreakdownRow,
   AdminUserDetailRow,
   AdminUserDirectoryRow,
   AdminUserStatsRow,
@@ -251,6 +254,27 @@ export namespace AdminUserRepository {
    */
   export async function getCooldownLifecycleStats(tx?: DBTransaction): Promise<AdminCooldownLifecycleRow> {
     return getCooldownLifecycleStatsAggregate(tx);
+  }
+
+  /**
+   * Resolves the "users by country" distribution for the admin directory
+   * facet — TWO aggregate round-trips over `users` (a `GROUP BY` over the
+   * stamped `country_code` of every NON-DELETED user, ordered count-desc
+   * then code-asc; plus the scalar active-population denominator). The
+   * deleted-flag base predicate mirrors the directory listing — a
+   * soft-deleted account can never inflate a bucket the deep-linked
+   * directory would not list.
+   *
+   * The repository returns RAW truth: every stamped code (even one outside
+   * the shared dataset vocabulary) and the denominator. The service layer
+   * owns the dataset logic — vocabulary filtering, locale label + flag
+   * resolution, the top-N window, and the derived `unresolvedCount`.
+   *
+   * @returns The raw envelope (counts are `::int`-cast; the empty-table
+   *          edge case yields no GROUP BY rows and a zero denominator).
+   */
+  export async function getCountryBreakdown(tx?: DBTransaction): Promise<AdminUserCountryBreakdownRow> {
+    return getCountryBreakdownAggregate(tx);
   }
 
   /**

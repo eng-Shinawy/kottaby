@@ -9,7 +9,15 @@
  *  - `all`     — every companion absent;
  *  - `role`    — a recognized user role required, country/planId absent;
  *  - `country` — a trimmed, non-empty, ≤100 character country required,
- *                role/planId absent (the trimmed value is what resolves);
+ *                role/planId absent. The trimmed value resolves through the
+ *                shared `countrySeedToCode` bridge (canonical ISO codes,
+ *                padded/lowercase variants, and legacy display text):
+ *                a resolvable seed canonicalizes onto the dataset pair —
+ *                `country` becomes the canonical English display name and
+ *                the validated selector carries its `countryCode` twin —
+ *                while unresolvable free text keeps the legacy exact-match
+ *                shape (`countryCode` null), so run-unique sentinels and
+ *                pre-bridge callers behave byte-identically to before;
  *  - `plan`    — a positive safe integer planId required, role/country absent.
  *
  * Any violation — including a hostile non-member kind string or a role the
@@ -25,6 +33,8 @@ import { toUserRole, type UserRole } from "@/backend/enum/users/user-role.enum";
 import { rejectBroadcast } from "@/backend/services/notifications/admin-broadcast.service.helpers";
 import { isPositiveSafeInt } from "@/backend/services/notifications/emit-validation";
 import type { BroadcastAudienceSelector } from "@/backend/types";
+import { COUNTRIES, type CountryCode } from "@/shared/constants/countries";
+import { countrySeedToCode } from "@/shared/lib/country-code";
 
 /** `users.country` column bound (varchar(100)) — the country companion's ceiling. */
 const COUNTRY_MAX_LENGTH = 100;
@@ -40,7 +50,13 @@ const COUNTRY_MAX_LENGTH = 100;
 export type ValidatedAudienceSelector =
   | { readonly type: BroadcastAudienceType.All }
   | { readonly type: BroadcastAudienceType.Role; readonly role: UserRole }
-  | { readonly type: BroadcastAudienceType.Country; readonly country: string }
+  | {
+      readonly type: BroadcastAudienceType.Country;
+      /** The matched `users.country` vocabulary: canonical display name for a resolvable seed, the raw trimmed text otherwise. */
+      readonly country: string;
+      /** The ISO twin — non-null exactly when `country` is a dataset display name (the shared invariant). */
+      readonly countryCode: CountryCode | null;
+    }
   | { readonly type: BroadcastAudienceType.Plan; readonly planId: number };
 
 /** Wire-level "not provided" semantics: both absent and explicit null are absent. */
@@ -84,7 +100,15 @@ function validateCountryKind(selector: BroadcastAudienceSelector): ValidatedAudi
   if (country.length === 0 || country.length > COUNTRY_MAX_LENGTH) {
     return null;
   }
-  return { type: BroadcastAudienceType.Country, country };
+  // The seed bridge — the same normalization the directory filter and the
+  // admin user patch use: canonical codes (padded/lowercase included) and
+  // legacy English display names resolve onto a code; anything else fails
+  // closed to "" and rides the legacy exact-match arm below.
+  const code = countrySeedToCode(country);
+  if (code !== "") {
+    return { type: BroadcastAudienceType.Country, country: COUNTRIES[code].en, countryCode: code };
+  }
+  return { type: BroadcastAudienceType.Country, country, countryCode: null };
 }
 
 function validatePlanKind(selector: BroadcastAudienceSelector): ValidatedAudienceSelector | null {

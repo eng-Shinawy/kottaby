@@ -115,6 +115,39 @@ export interface AdminUserStatsReturnType {
 }
 
 /**
+ * `AdminUserCountryBucketReturnType` — one entry of the directory's
+ * "users by country" distribution. `code` is the canonical ISO 3166-1
+ * alpha-2 code (uppercase, the SAME vocabulary the `?country=` deep link
+ * and the directory country filter speak); `label` is the LOCALE-resolved
+ * dataset display name (the shared `COUNTRIES` dataset — Arabic under the
+ * `ar` locale, English under `en`), and `flag` is the dataset's regional-
+ * indicator emoji so every consumer renders the same glyph without each
+ * re-deriving it. Pure read projection — no id, nothing addressable.
+ */
+export interface AdminUserCountryBucketReturnType {
+  readonly code: string;
+  readonly label: string;
+  readonly flag: string;
+  readonly count: number;
+}
+
+/**
+ * `AdminUserCountryBreakdownReturnType` — the "users by country"
+ * distribution envelope for the admin directory facet. `buckets` carries
+ * the top-N resolvable-country populations (count-desc, then code-asc for
+ * determinism). `unresolvedCount` is the honest remainder: non-deleted
+ * users whose country is NOT bucketable — a NULL `country_code` (legacy
+ * free-text rows or never-set) or a value outside the dataset's code
+ * vocabulary. The facet renders `unresolvedCount` as a muted trailing
+ * caption (never silently dropped), so the chips + caption always account
+ * for the whole active population.
+ */
+export interface AdminUserCountryBreakdownReturnType {
+  readonly buckets: AdminUserCountryBucketReturnType[];
+  readonly unresolvedCount: number;
+}
+
+/**
  * `AdminCooldownLifecycleStatsReturnType` — the applicant-cooldown
  * lifecycle counters powering the admin dashboard's lifecycle panel. A
  * DELIBERATELY separate wire shape from `AdminUserStats` (whose members are
@@ -340,14 +373,16 @@ export interface AdminUserFiltersSubmitInput {
 
 /**
  * `AdminUserUpdateDbPatch` — repo-internal whitelisted patch shape for
- * the guarded profile update. The field set is the same as the input
- * patch whitelist; the service layer builds this shape field-by-field
- * (never via spread) and the repo applies it as the `SET` clause of a
- * guarded `UPDATE ... RETURNING`. `Partial` lets the service omit
- * unchanged fields so only touched columns are written.
+ * the guarded profile update. The field set is the input patch whitelist
+ * plus the repo-side `countryCode` twin the service derives from a
+ * code-bearing `country` value (the same code + display-name pairing the
+ * create path persists); the service layer builds this shape
+ * field-by-field (never via spread) and the repo applies it as the `SET`
+ * clause of a guarded `UPDATE ... RETURNING`. `Partial` lets the service
+ * omit unchanged fields so only touched columns are written.
  */
 export type AdminUserUpdateDbPatch = Partial<
-  Pick<UserSelectType, "fullName" | "phone" | "country" | "gender" | "dateOfBirth">
+  Pick<UserSelectType, "fullName" | "phone" | "country" | "countryCode" | "gender" | "dateOfBirth">
 >;
 
 /**

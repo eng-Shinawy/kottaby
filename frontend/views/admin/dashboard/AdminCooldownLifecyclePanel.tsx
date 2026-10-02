@@ -54,10 +54,6 @@
  */
 
 import { useQuery } from "@apollo/client/react";
-import Box from "@mui/material/Box";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
-import Typography from "@mui/material/Typography";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { adminApplicantCooldownStatsQueryDocument } from "@/frontend/graphql/sharedDocuments";
@@ -68,6 +64,7 @@ import {
   PanelSkeleton,
 } from "@/frontend/views/admin/dashboard/LifecyclePanelChrome";
 import { buildBucketViews } from "@/frontend/views/admin/dashboard/lifecycleBucketViews";
+import { PanelCard } from "@/frontend/views/admin/dashboard/PanelCard";
 import { Dashboard, useAppTranslation } from "@/shared/locale";
 
 export function AdminCooldownLifecyclePanel(): ReactNode {
@@ -110,39 +107,10 @@ export function AdminCooldownLifecyclePanel(): ReactNode {
   };
 
   return (
-    <Card
-      elevation={0}
-      sx={theme => ({
-        borderRadius: 3,
-        border: "1px solid",
-        borderColor: theme.palette.outlineVariant,
-        bgcolor: theme.palette.surfaceContainerLow,
-        transition: theme.transitions.create(["box-shadow", "border-color"], {
-          duration: theme.transitions.duration.short,
-          easing: theme.transitions.easing.easeOut,
-        }),
-        "&:hover": {
-          boxShadow: theme.shadows[2],
-        },
-      })}
-    >
-      <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-        <Box sx={{ mb: 2.5 }}>
-          <Typography variant="h6" component="h2" sx={{ fontWeight: 700, letterSpacing: "-0.01em" }}>
-            {t.cooldownLifecycle.title}
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={theme => ({ color: theme.palette.text.secondary, mt: 0.5, textWrap: "balance" })}
-          >
-            {t.cooldownLifecycle.subtitle}
-          </Typography>
-        </Box>
+    <PanelCard title={t.cooldownLifecycle.title} subtitle={t.cooldownLifecycle.subtitle}>
+      <LifecycleRail ariaLabel={t.cooldownLifecycle.title} buckets={buckets} onOpen={openBucket} />
 
-        <LifecycleRail ariaLabel={t.cooldownLifecycle.title} buckets={buckets} onOpen={openBucket} />
-
-        <LifecycleFooter viewAllLabel={t.cooldownLifecycle.viewAll} onViewAll={() => openBucket("/admin/users")} />
-      </CardContent>
-    </Card>
+      <LifecycleFooter viewAllLabel={t.cooldownLifecycle.viewAll} onViewAll={() => openBucket("/admin/users")} />
+    </PanelCard>
   );
 }

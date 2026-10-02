@@ -3,8 +3,9 @@
  *
  * Responsibilities:
  *  1. Validate the public `RegistrationSubmitInput` (required fields, email
- *     shape, password ≥ 8 chars, country non-empty, role ∈ {student, teacher,
- *     parent}). Throws `ValidationError` with localized messages from
+ *     shape, password ≥ 8 chars, country an ISO 3166-1 alpha-2 code from the
+ *     shared dataset, role ∈ {student, teacher, parent}). Throws
+ *     `ValidationError` with localized messages from
  *     `getServerTranslations(locale).authTranslations`.
  *  2. Hash the password via `hashPassword` BEFORE the transaction opens so
  *     plaintext never crosses into repository input types or logs.
@@ -45,7 +46,9 @@ import type {
   RegistrationSubmitInput,
   UserInsertType,
 } from "@/backend/types";
+import { COUNTRIES } from "@/shared/constants/countries";
 import type { RecitationReading } from "@/shared/constants/recitation-reading.enum";
+import { countryCodeSchema, isValidCountryCode, normalizeCountryCode } from "@/shared/lib/country-code";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /** Shared primitives (`isValidEmail`, `generateHandshakeCode`,
@@ -218,8 +221,17 @@ export namespace RegistrationService {
     } else if (input.password.length < MIN_PASSWORD_LENGTH) {
       entries.push({ field: "password", code: "PASSWORD_TOO_SHORT", message: t.passwordTooShort });
     }
-    if (!input.country || input.country.trim().length === 0) {
-      entries.push({ field: "country", code: "COUNTRY_REQUIRED", message: t.countryRequired });
+    // Country carries an ISO 3166-1 alpha-2 code (any case / surrounding
+    // padding — the shared schema normalizes before the dataset membership
+    // check). Absent, blank, or non-string values take the REQUIRED code so
+    // the form prompts a selection; any present-but-non-member value takes
+    // INVALID. The field path stays `country` so the registration form's
+    // field-error projection is unchanged.
+    const country = typeof input.country === "string" ? input.country : "";
+    if (country.trim().length === 0) {
+      entries.push({ field: "country", code: "COUNTRY_CODE_REQUIRED", message: t.countryCodeRequired });
+    } else if (!countryCodeSchema.safeParse(country).success) {
+      entries.push({ field: "country", code: "COUNTRY_CODE_INVALID", message: t.countryCodeInvalid });
     }
     // BFLA: role ∈ {student, teacher, parent}. The TS type enforces this at
     // compile time; this runtime guard defends against transport-layer tamper.
@@ -246,7 +258,14 @@ export namespace RegistrationService {
     }
   }
 
-  /** Inserts the `users` row with governance defaults set server-side. */
+  /**
+   * Inserts the `users` row with governance defaults set server-side.
+   *
+   * The country is persisted as a normalized ISO 3166-1 alpha-2 code in
+   * `countryCode` alongside its canonical English display name in the
+   * legacy `country` column (backward-compatible free-text consumers keep
+   * reading a human-readable name).
+   */
   async function createUserRow(
     input: RegistrationSubmitInput | AdminRegistrationSubmitInput,
     passwordHash: string,
@@ -257,6 +276,16 @@ export namespace RegistrationService {
     // We map the string union to the `UserRole` enum explicitly (the pgEnum
     // string values and the TS enum values are identical at runtime).
     const role: UserRole = toUserRole(input.role);
+    // Country: `validateInput` already gated the value through the shared
+    // schema on every entry point, so it normalizes into a dataset member.
+    // Normalize first, then narrow to the generated `CountryCode` union
+    // BEFORE the display-name lookup — the `COUNTRIES` index is therefore
+    // statically member-safe (never undefined, never prototype-polluted).
+    // The null arm is unreachable through the service entry points (the
+    // code is a validated member before this mapping runs) and keeps the
+    // persisted pair consistent: no code ⇔ no display name.
+    const normalizedCountryCode = normalizeCountryCode(input.country);
+    const countryCode = isValidCountryCode(normalizedCountryCode) ? normalizedCountryCode : null;
     // BOPLA: explicit field-by-field mapping — NEVER `{ ...input }` spread.
     const insert: UserInsertType = {
       fullName: input.fullName,
@@ -265,7 +294,8 @@ export namespace RegistrationService {
       passwordHash,
       role,
       gender: input.gender ?? null,
-      country: input.country,
+      country: countryCode === null ? null : COUNTRIES[countryCode].en,
+      countryCode,
       // Governance defaults — server-set, never client-controlled.
       isDeleted: false,
       deletedAt: null,

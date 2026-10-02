@@ -20,11 +20,13 @@
  *    teacher-applicant — admin stays excluded, as before). The submitted
  *    `role` value and validation behavior are unchanged; only the control
  *    surface changed.
- *  - There is NO country → dial-code mapping anywhere in the codebase
- *    (country is a free-text field and stored phone numbers already carry
- *    the full international prefix), so the prototype's dial-prefix chip has
- *    no honest data source and is omitted; the phone input keeps its current
- *    behavior and is pinned `direction: ltr` for bidi-safe entry.
+ *  - The country field is the shared `CountrySelector` (ISO 3166-1 alpha-2
+ *    codes — the create wire input rejects anything else at the schema
+ *    layer). There is still NO country → dial-code mapping in the codebase
+ *    (stored phone numbers already carry the full international prefix), so
+ *    the prototype's dial-prefix chip has no honest data source and is
+ *    omitted; the phone input keeps its current behavior and is pinned
+ *    `direction: ltr` for bidi-safe entry.
  *  - All colors resolve through `theme.palette` callbacks; spacing uses
  *    theme spacing, radii use the documented px scale, and every control
  *    keeps a ≥44px touch target.
@@ -50,6 +52,7 @@ interface CreateUserDialogInput {
   readonly phone: string;
   readonly password: string;
   readonly gender?: "Male" | "Female" | "Other";
+  /** Selected ISO 3166-1 alpha-2 code (the create wire input is code-only). */
   readonly country: string;
   readonly role: CreateUserDialogRole;
 }

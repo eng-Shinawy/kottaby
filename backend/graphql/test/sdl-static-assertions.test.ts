@@ -62,9 +62,8 @@
  *    the NULLABLE `sessionRecitation(sessionId: ID!): SessionRecitation`
  *    query (the collapse channel), the six-field `SessionRecitation` object
  *    (id on the wire, every instant on the DateTime scalar), and the closed
- *    two-member `SessionRecitationInput`. The `DateTime` scalar is asserted
- *    to remain the artifact's ONLY custom scalar (registered exactly once —
- *    no new scalars).
+ *    two-member `SessionRecitationInput`. The custom-scalar set is pinned:
+ *    exactly `DateTime` + `CountryCode`, each registered exactly once.
  *  - **Apollo normalization** — the `Notification` object carries `id: ID!`
  *    among EXACTLY the eight inbox fields.
  *  - **Depth/complexity posture (REQ-069)** — `Notification` is FLAT: every
@@ -261,6 +260,7 @@ const FROZEN_QUERY_FIELDS = [
   "adminTeachersExport",
   "adminTeacherWallet",
   "adminUserActivity",
+  "adminUserCountryBreakdown",
   "adminUserDetail",
   "adminUsers",
   "adminUserStats",
@@ -462,7 +462,7 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 66-op baseline (the prior 65-op baseline + the sanctioned applicant-cooldown lifecycle read — `adminApplicantCooldownStats: AdminApplicantCooldownStats!`, a role-gated read that registers ZERO mutations; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 67-op baseline (the prior 66-op baseline + the sanctioned users-by-country distribution read — `adminUserCountryBreakdown(limit: Int): AdminUserCountryBreakdown!`, a role-gated admin aggregate that registers ZERO mutations; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -1129,19 +1129,21 @@ describe("Session-recitation surface — artifact-side pins", () => {
     expect(fields).toHaveLength(2);
   });
 
-  test("DateTime remains the artifact's ONLY custom scalar — registered EXACTLY once (no new scalars)", () => {
-    // AST tier: the complete scalar-definition set of the artifact is just
-    // `DateTime` — the session-recitation surface introduced zero new
-    // scalars, and both record timestamps ride the pre-existing
-    // registration.
+  test("the artifact's custom-scalar set is EXACTLY DateTime + CountryCode — each registered EXACTLY once (no unnamed extras)", () => {
+    // AST tier: the complete scalar-definition set of the artifact is
+    // `DateTime` + `CountryCode` — the session-recitation surface introduced
+    // zero new scalars, both record timestamps ride the pre-existing
+    // DateTime registration, and the country input adds the CountryCode
+    // registration (single scalar registry: `shared/scalar.pothos.ts`).
     const scalarDefinitions = sdlDocument.definitions
       .filter(definition => definition.kind === Kind.SCALAR_TYPE_DEFINITION)
       .map(definition => definition.name.value);
-    expect(scalarDefinitions).toEqual(["DateTime"]);
-    // Lexical belt-and-braces: exactly ONE scalar declaration line exists,
-    // and it is the DateTime registration.
-    expect(sdlText.match(/^scalar /gm) ?? []).toHaveLength(1);
+    expect(scalarDefinitions).toEqual(["CountryCode", "DateTime"]);
+    // Lexical belt-and-braces: exactly TWO scalar declaration lines exist,
+    // and they are the two sanctioned registrations.
+    expect(sdlText.match(/^scalar /gm) ?? []).toHaveLength(2);
     expect(sdlText).toMatch(/^scalar DateTime$/gm);
+    expect(sdlText).toMatch(/^scalar CountryCode$/gm);
   });
 });
 

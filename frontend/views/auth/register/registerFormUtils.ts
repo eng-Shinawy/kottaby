@@ -1,4 +1,6 @@
 import { Gender, type RecitationReading, RegisterPublicRole } from "@/frontend/graphql/generated/gql/graphql";
+import type { CountryCode } from "@/shared/constants/countries";
+import { isValidCountryCode, normalizeCountryCode } from "@/shared/lib/country-code";
 import { isValidEmail } from "@/shared/lib/email";
 import type { AuthLabels } from "@/shared/locale/types/auth";
 
@@ -58,6 +60,21 @@ const ROLE_BY_SELECT_VALUE: Readonly<Record<string, RegisterPublicRole>> = {
 /** Pins a raw select value back to {@link RegisterPublicRole} (else `""`). */
 export function roleFromSelectValue(rawValue: string): RegisterPublicRole | "" {
   return ROLE_BY_SELECT_VALUE[rawValue] ?? "";
+}
+
+/**
+ * Pins a raw country value back to {@link CountryCode} (else `""`),
+ * mirroring the select-value pinning guards: the register form's country
+ * field degrades to `string`, so the value handed to the controlled country
+ * selector is always re-narrowed through dataset membership (after the
+ * shared trim/uppercase normalization) instead of being trusted. Values
+ * that are absent or normalize into nothing return `""`, matching the
+ * selector's cleared state.
+ */
+export function countryFromValue(rawValue: string | null | undefined): CountryCode | "" {
+  if (typeof rawValue !== "string") return "";
+  const normalized = normalizeCountryCode(rawValue);
+  return isValidCountryCode(normalized) ? normalized : "";
 }
 
 export interface RegisterFormValues {

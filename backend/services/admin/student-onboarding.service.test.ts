@@ -286,7 +286,7 @@ function buildOnboardInput(overrides: Partial<AdminOnboardStudentSubmitInput> = 
     phone: "+20100444000",
     password: ONBOARDED_CREDENTIAL,
     gender: undefined,
-    country: "Egypt",
+    country: "EG",
     parentId: null,
     planId: 0,
     paymentMethod: PaymentGateway.OfflineCash,

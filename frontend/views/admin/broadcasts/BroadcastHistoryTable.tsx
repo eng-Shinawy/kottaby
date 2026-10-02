@@ -75,7 +75,7 @@ function HistoryTableRow({ entry, onViewDetails, onStopIntent }: Readonly<Histor
           {entry.title}
         </Typography>
       </TableCell>
-      <TableCell dir="auto">{broadcastAudienceText(entry, t, tUsers.roleLabels)}</TableCell>
+      <TableCell dir="auto">{broadcastAudienceText(entry, t, tUsers.roleLabels, locale)}</TableCell>
       <TableCell align="right">{entry.recipientCount}</TableCell>
       <TableCell>
         <Chip

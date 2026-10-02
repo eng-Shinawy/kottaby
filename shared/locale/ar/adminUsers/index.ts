@@ -49,6 +49,11 @@ export const adminUsersAr: AdminUsersLabels = {
     newThisWeek: "جديد هذا الأسبوع",
     roleDistribution: "الأدوار",
   },
+  countryBreakdown: {
+    title: "المستخدمون حسب الدولة",
+    chipAriaLabel: "عرض المستخدمين من {label}",
+    unresolved: "{count} دون دولة مدرجة",
+  },
   quickActions: {
     viewProfile: "عرض تفاصيل المستخدم",
     copyEmail: "نسخ البريد الإلكتروني",
@@ -80,6 +85,7 @@ export const adminUsersAr: AdminUsersLabels = {
       expired: "انتهت فترة الانتظار",
     },
     country: "الدولة",
+    countryPlaceholder: "تصفية حسب الدولة",
     search: "بحث",
     searchPlaceholder: "ابحث بالاسم أو البريد الإلكتروني",
     searchClearLabel: "مسح البحث",
@@ -115,6 +121,7 @@ export const adminUsersAr: AdminUsersLabels = {
     passwordHelper: "عيّن كلمة مرور أولية؛ يجب على المستخدم تغييرها عند أول تسجيل دخول.",
     gender: "الجنس",
     country: "الدولة",
+    countryHelper: "تُستخدم لتحديد جمهور الإعلانات ومرشح الدولة في دليل المستخدمين.",
     role: "الدور",
     roleSegments: {
       teacherApplicant: "المتقدم للتدريس",
@@ -130,6 +137,7 @@ export const adminUsersAr: AdminUsersLabels = {
     fullName: "الاسم الكامل",
     phone: "رقم الهاتف",
     country: "الدولة",
+    countryHelper: "تُستخدم لتحديد جمهور الإعلانات ومرشح الدولة في دليل المستخدمين.",
     gender: "الجنس",
     dateOfBirth: "تاريخ الميلاد",
     submit: "حفظ التغييرات",

@@ -15,6 +15,9 @@ import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { users } from "@/backend/db/schema/users/users";
 import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
 import { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
+import { escapeLikeWildcards } from "@/backend/lib/db/escape-like-wildcards";
+import { COUNTRIES } from "@/shared/constants/countries";
+import { isValidCountryCode, normalizeCountryCode } from "@/shared/lib/country-code";
 
 /**
  * The canonical "expiring soon" window for the applicant-cooldown lifecycle,
@@ -50,6 +53,7 @@ export const SAFE_USER_SELECT = {
   dateOfBirth: users.dateOfBirth,
   gender: users.gender,
   country: users.country,
+  countryCode: users.countryCode,
   isDeleted: users.isDeleted,
   deletedAt: users.deletedAt,
   suspended: users.suspended,
@@ -62,6 +66,42 @@ export const SAFE_USER_SELECT = {
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
 } as const;
+
+/**
+ * Country filter predicate — bridges the ISO-code filter vocabulary onto the
+ * dual-column persistence without a data backfill:
+ *
+ *  - New rows (the shared `CountrySelector` create paths) store the
+ *    canonical code in `country_code` AND the dataset's English display
+ *    name in `country`.
+ *  - Legacy rows may hold any free text (`"Egypt"`, `"egypt"`, `"EG"`) in
+ *    `country` with a NULL `country_code`.
+ *
+ * A selector-shaped seed (`"EG"`) therefore matches, in order of tolerance:
+ * the stamped `country_code` exactly, the canonical English name
+ * case-insensitively (the create paths store `COUNTRIES[code].en`), and the
+ * seed as a whole value over `country` (legacy rows that spell the code as
+ * text) — so pre-migration rows surface beside migrated ones. Any other
+ * seed falls back to a case-insensitive whole-value comparison over
+ * `country` (wildcards escaped), preserving the old exact-text filter's
+ * behavior while making it case-tolerant. A whitespace-only seed filters
+ * nothing (fail-closed default), matching every other absent filter.
+ */
+function buildCountryFilterPredicate(countrySeed: string): SQL {
+  const raw = countrySeed.trim();
+  if (raw === "") {
+    return sql`false`;
+  }
+  const asCode = normalizeCountryCode(raw);
+  const codeArms = isValidCountryCode(asCode)
+    ? [
+        eq(users.countryCode, asCode),
+        ilike(users.country, escapeLikeWildcards(COUNTRIES[asCode].en)),
+        ilike(users.country, escapeLikeWildcards(raw)),
+      ]
+    : [];
+  return or(...codeArms, ilike(users.country, escapeLikeWildcards(raw))) ?? sql`false`;
+}
 
 /**
  * Builds the ANDed WHERE chain from normalized filters.
@@ -135,7 +175,7 @@ export function buildFilterChain(filters: NormalizedAdminUserFilters): SQL | und
     }
   }
   if (filters.country) {
-    conditions.push(eq(users.country, filters.country));
+    conditions.push(buildCountryFilterPredicate(filters.country));
   }
   if (filters.searchPattern) {
     conditions.push(

@@ -84,6 +84,7 @@ const baseUser: UserSelectType = {
   suspendedPeriodDays: null,
   lastActiveAt: null,
   country: null,
+  countryCode: null,
   dateOfBirth: null,
   gender: null,
   blockedAt: null,

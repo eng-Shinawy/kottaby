@@ -118,4 +118,14 @@ export const dashboardEn: DashboardLabels = {
     bucketAria: (label, count) => `${label}: ${count} applicants`,
     loadingLabel: "Loading cooldown lifecycle…",
   },
+  countryDistribution: {
+    // Mirrors adminUsers.countryBreakdown.title verbatim — one vocabulary.
+    title: "Users by country",
+    subtitle: "Tap a country to open the user directory filtered to it.",
+    rowAria: (label, count) => `${label}: ${count} users`,
+    // Mirrors adminUsers.countryBreakdown.unresolved verbatim — one vocabulary.
+    unresolved: count => `${count} without a listed country`,
+    viewAll: "Open user directory",
+    loadingLabel: "Loading users by country…",
+  },
 };

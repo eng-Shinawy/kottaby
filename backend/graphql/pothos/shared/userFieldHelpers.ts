@@ -92,7 +92,8 @@ export function nullableUserGenderField<Shape extends { readonly gender: string 
  * definitions — names, requiredness, and enum types) by `RegisterUserInput`
  * and `AdminCreateUserInput`. `role` uses `RegisterPublicRolePothosEnum`
  * (student/teacher/parent — `admin` structurally excluded at the schema
- * layer; BFLA-safe).
+ * layer; BFLA-safe). `country` is the `CountryCode` scalar (ISO 3166-1
+ * alpha-2): non-members are rejected at the wire, before any resolver.
  */
 export function userRegistrationInputFields(t: InputFieldBuilder<GqlSchemaTypes, "InputObject">) {
   return {
@@ -101,7 +102,7 @@ export function userRegistrationInputFields(t: InputFieldBuilder<GqlSchemaTypes,
     phone: t.string({ required: true }),
     password: t.string({ required: true }),
     gender: t.field({ type: GenderPothosEnum, required: false }),
-    country: t.string({ required: true }),
+    country: t.field({ type: "CountryCode", required: true }),
     role: t.field({ type: RegisterPublicRolePothosEnum, required: true }),
   };
 }

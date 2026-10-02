@@ -215,6 +215,7 @@ describe("parent-link-request.helpers — requireActor", () => {
     suspendedPeriodDays: null,
     lastActiveAt: new Date(),
     country: null,
+    countryCode: null,
     dateOfBirth: null,
     gender: null,
     blockedAt: null,

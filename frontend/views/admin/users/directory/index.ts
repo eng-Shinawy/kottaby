@@ -1,5 +1,6 @@
 export * from "./ActiveFiltersRow";
 export * from "./AdminUsersDirectoryContainer";
+export * from "./CountryBreakdownRow";
 export * from "./DirectoryActionsMenu";
 export * from "./DirectoryEmptyState";
 export * from "./DirectoryFilterSelect";

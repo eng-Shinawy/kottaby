@@ -10,10 +10,14 @@
  * on the caller's executor; absent one, the global handle serves the
  * standalone read — mirroring the repository's executor-choice convention.
  */
-import { eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { COOLDOWN_EXPIRING_SOON_DAYS } from "@/backend/db/repo/admin/admin-user-query-helpers";
-import type { AdminCooldownLifecycleRow, AdminUserStatsRow } from "@/backend/db/repo/admin/admin-user-row-types";
+import type {
+  AdminCooldownLifecycleRow,
+  AdminUserCountryBreakdownRow,
+  AdminUserStatsRow,
+} from "@/backend/db/repo/admin/admin-user-row-types";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { users } from "@/backend/db/schema/users/users";
 import type { DBTransaction } from "@/backend/types";
@@ -115,5 +119,54 @@ export async function getCooldownLifecycleStatsAggregate(tx?: DBTransaction): Pr
     // Echoed verbatim from the SAME constant the window predicate used —
     // the wire carries the window the count was measured with.
     expiringSoonWindowDays: COOLDOWN_EXPIRING_SOON_DAYS,
+  };
+}
+
+/**
+ * Resolves the "users by country" distribution for the admin directory
+ * facet — TWO aggregate round-trips over `users` (no JOINs):
+ *
+ *  1. a GROUP BY over the stamped `country_code` for every NON-DELETED
+ *     user whose code is stamped, ordered `count`-desc then code-asc
+ *     (count ties break alphabetically — the ordering is deterministic,
+ *     so repeated reads cannot shuffle the facet's chips);
+ *  2. a scalar count of every NON-DELETED user (the denominator).
+ *
+ * The service layer owns the dataset logic: codes outside the shared
+ * dataset vocabulary and the NULL-code population are jointly reported as
+ * `unresolvedCount` = denominator − Σ(resolvable buckets) — the honest
+ * remainder the facet renders as a muted caption. The repository returns
+ * raw truth only (every stamped code, even an unresolvable one, plus the
+ * active-population denominator), keeping the SQL free of dataset
+ * coupling.
+ *
+ * The deleted-flag base predicate mirrors the directory listing and the
+ * cooldown aggregate (`coalesce(is_deleted, false) = false`) — a
+ * soft-deleted account can never inflate a bucket the deep-linked
+ * directory would not list.
+ *
+ * @returns The raw envelope (counts are `::int`-cast; the empty-table
+ *          edge case yields no GROUP BY rows and a zero denominator).
+ */
+export async function getCountryBreakdownAggregate(tx?: DBTransaction): Promise<AdminUserCountryBreakdownRow> {
+  const bucketRows = await (tx ?? db)
+    .select({
+      code: users.countryCode,
+      count: sql<number>`count(*)::int`.as("country_user_count"),
+    })
+    .from(users)
+    .where(
+      and(or(eq(users.isDeleted, false), isNull(users.isDeleted)) ?? sql`false`, isNotNull(users.countryCode)) ??
+        sql`false`
+    )
+    .groupBy(users.countryCode)
+    .orderBy(desc(sql`count(*)`), asc(users.countryCode));
+  const activeTotalRows = await (tx ?? db)
+    .select({ activeTotal: sql<number>`count(*)::int`.as("active_total") })
+    .from(users)
+    .where(or(eq(users.isDeleted, false), isNull(users.isDeleted)) ?? sql`false`);
+  return {
+    buckets: bucketRows.flatMap(row => (row.code === null ? [] : [{ code: row.code, count: row.count ?? 0 }])),
+    activeTotal: activeTotalRows[0]?.activeTotal ?? 0,
   };
 }

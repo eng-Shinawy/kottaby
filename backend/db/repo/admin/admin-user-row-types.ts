@@ -172,6 +172,7 @@ export interface AdminUserDetailRow {
   readonly dateOfBirth: string | null;
   readonly gender: RawGender;
   readonly country: string | null;
+  readonly countryCode: string | null;
   readonly isDeleted: boolean | null;
   readonly deletedAt: Date | null;
   readonly suspended: boolean | null;
@@ -243,4 +244,29 @@ export interface AdminUserActivityRow {
   readonly actorName: string | null;
   readonly details: string | null;
   readonly createdAt: Date;
+}
+
+/**
+ * `AdminUserCountryBucketRow` — one raw GROUP BY row of the "users by
+ * country" aggregate: the stamped ISO code plus its non-deleted user
+ * population. The service layer resolves the locale display label + flag
+ * from the shared dataset and caps the list to the facet's top-N window.
+ */
+interface AdminUserCountryBucketRow {
+  readonly code: string;
+  readonly count: number;
+}
+
+/**
+ * `AdminUserCountryBreakdownRow` — raw envelope returned by the country
+ * breakdown aggregate read. `buckets` carries EVERY stamped code
+ * (uncapped — the code vocabulary bounds the row count; the service owns
+ * the top-N window and the dataset-vocabulary filter) sorted count-desc
+ * then code-asc. `activeTotal` is the raw denominator — the non-deleted
+ * user population — from which the service derives the honest
+ * `unresolvedCount` (denominator − Σ dataset-resolvable buckets).
+ */
+export interface AdminUserCountryBreakdownRow {
+  readonly buckets: AdminUserCountryBucketRow[];
+  readonly activeTotal: number;
 }

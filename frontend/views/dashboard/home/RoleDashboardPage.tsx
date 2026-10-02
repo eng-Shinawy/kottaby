@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { withPageAuth } from "@/frontend/lib/auth/withPageAuth";
 import { AdminCooldownLifecyclePanel } from "@/frontend/views/admin/dashboard/AdminCooldownLifecyclePanel";
+import { AdminCountryDistributionPanel } from "@/frontend/views/admin/dashboard/AdminCountryDistributionPanel";
 import { DashboardView } from "@/frontend/views/dashboard";
 import { ParentUpNextCard } from "@/frontend/views/parent/dashboard";
 import {
@@ -55,6 +56,15 @@ import { getLocaleFromCookie } from "@/shared/locale/server-cookies";
  *       boundary).
  *     - Other roles → nothing (slot empty; their dashboards unchanged).
  *
+ *     - Admin → `<AdminCooldownLifecyclePanel />` +
+ *       `<AdminCountryDistributionPanel />` composed as siblings inside a
+ *       Stack (same gap recipe as the teacher/student slots). Both are
+ *       zero-prop client components whose admin-scoped queries answer the
+ *       aggregates server-side; both deep-link into the user directory
+ *       pre-filtered (lifecycle buckets and the guarded `?country=`
+ *       contract respectively), and both degrade per-block on their own
+ *       query failures.
+ *
  * Extracted to eliminate jscpd duplicates across the 4 role dashboard pages
  * (student, teacher, parent, admin).
  */
@@ -88,13 +98,19 @@ function resolveStatusSlot(role: UserRole): React.ReactNode {
     case UserRole.Parent:
       return <ParentUpNextCard />;
     case UserRole.Admin:
-      // The applicant-cooldown lifecycle panel: three tappable lifecycle
-      // buckets deep-linking into the directory pre-filtered (active →
-      // expiring-soon → expired). Same additive pattern as the role cards
-      // above — zero-prop client component whose admin-scoped query answers
-      // the aggregates server-side; the page guard stays the only
-      // authorization boundary.
-      return <AdminCooldownLifecyclePanel />;
+      // The applicant-cooldown lifecycle panel + the country distribution
+      // panel: tappable lifecycle buckets and per-country population rows,
+      // both deep-linking into the directory pre-filtered (cooldown states
+      // → `?cooldown=…`; countries → the guarded `?country=` contract).
+      // Same additive pattern as the role cards above — zero-prop client
+      // components whose admin-scoped queries answer the aggregates
+      // server-side; the page guard stays the only authorization boundary.
+      return (
+        <Stack sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <AdminCooldownLifecyclePanel />
+          <AdminCountryDistributionPanel />
+        </Stack>
+      );
     default:
       return undefined;
   }

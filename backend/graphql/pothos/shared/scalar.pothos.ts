@@ -16,15 +16,27 @@
  *    `Date` to an ISO-8601 UTC string; wire format is identical to the old
  *    manual `toISOString()` convention, so existing String consumers are
  *    unaffected. Frontend codegen maps it to `string` (codegen.ts).
+ *  - `CountryCode` — `CountryCodeResolver` from `graphql-scalars`
+ *    (ISO 3166-1 alpha-2; validates against the library's full-country list,
+ *    case-insensitive, returns the value unchanged — normalization +
+ *    curated-set membership stay in the service; frontend codegen maps it to
+ *    `string`).
  *
  * After registering a new scalar here, update the builder's `Scalars` type,
  * then run `bun run generate:gqlSchema` and `bun codegen` to refresh the SDL
  * + frontend codegen.
  */
-import { DateTimeResolver } from "graphql-scalars";
+import { CountryCodeResolver, DateTimeResolver } from "graphql-scalars";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 
 // ISO-8601 UTC date-time scalar (serializes `Date`; accepts ISO strings
 // pass-through) — registered by side effect when this module loads; domain
 // Pothos fields reference it by NAME (`type: "DateTime"`).
 gqlSchemaBuilder.addScalarType("DateTime", DateTimeResolver, {});
+
+// ISO 3166-1 alpha-2 country-code scalar (accepts any code from the
+// library's hardcoded full-country list, case-insensitively, and returns
+// the value UNCHANGED — no normalization; dataset membership + trimming
+// stay in the service layer) — registered by side effect when this module
+// loads; domain Pothos fields reference it by NAME (`type: "CountryCode"`).
+gqlSchemaBuilder.addScalarType("CountryCode", CountryCodeResolver, {});

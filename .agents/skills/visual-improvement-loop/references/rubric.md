@@ -9,6 +9,12 @@ Contract for the single-image visual inspector subagents.
 - What the app shell looks like and that the shell (sidebar/topbar/bottom nav) is pre-existing and never scored.
 - On re-inspection passes: the prior known issues being re-checked (so the inspector confirms or contradicts intentionally).
 - The capture already passed the objective pre-check gate (console clean, no overflow, right page). Inspectors judge visual quality only — never re-litigate what the gate measures.
+- **Describe the SURFACE, not the component contract (added 2026-10-01):** naming a feature's
+  implementation ("the CountrySelector is an MUI Autocomplete with label + helper") in a prompt for
+  a surface that legitimately renders NO input (dashboards with distribution rows, read-only detail
+  views) makes inspectors hallucinate a missing form field — 3 phantom findings on one run, all
+  DOM-disproven. On non-form surfaces describe what the surface IS; component contracts belong only
+  on surfaces that actually host the component.
 
 ## Scoring axis (0–10 each; total = mean)
 

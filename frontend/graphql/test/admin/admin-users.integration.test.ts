@@ -687,8 +687,9 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
       // supplied `dateOfBirth: null`, but the resolver maps null → undefined
       // (partial-update semantics — explicit nulls are dropped, never
       // "clear the value"; see QA 6-QA-4 P2-2), so the audit payload
-      // carries the four string/enum fields only.
-      expect(entries[2].changedFields).toEqual(["fullName", "phone", "country", "gender"]);
+      // carries the four string/enum fields plus the derived ISO
+      // `countryCode` stamped alongside its `country` display name.
+      expect(entries[2].changedFields).toEqual(["fullName", "phone", "country", "countryCode", "gender"]);
       expect(entries[0].changedFields).toBeNull();
       expect(entries[1].changedFields).toBeNull();
       expect(entries[3].changedFields).toBeNull();
@@ -763,7 +764,7 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
             phone: "",
             password: "short",
             gender: null,
-            country: "",
+            country: "EG",
             role: RegisterPublicRole.Student,
           },
         },
@@ -789,11 +790,82 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
       expect(byField.get("email")).toBe("EMAIL_INVALID");
       expect(byField.get("phone")).toBe("PHONE_REQUIRED");
       expect(byField.get("password")).toBe("PASSWORD_TOO_SHORT");
-      expect(byField.get("country")).toBe("COUNTRY_REQUIRED");
+      // `country: "EG"` is a wire-valid ISO code: it passes the CountryCode
+      // scalar gate AND the service membership check, so the multi-field
+      // payload carries only the four genuinely failed fields.
+      expect(byField.has("country")).toBe(false);
       // Every entry also carries a localized message for helperText.
       for (const entry of fieldsPayload) {
         expect(typeof entry?.message).toBe("string");
       }
+    });
+
+    test("admin createUser with an empty country string → BAD_USER_INPUT at the CountryCode wire gate; zero audit writes", async () => {
+      const auditBefore = await countAllAuditRows();
+      const result = await testClient.mutate({
+        mutation: adminCreateUserMutationDocument,
+        variables: {
+          input: {
+            fullName: "Wire Gate Probe",
+            email: uniqueEmail("wire-gate-empty-country"),
+            phone: "+201234567890",
+            password: TEST_CREDENTIAL,
+            gender: null,
+            country: "",
+            role: RegisterPublicRole.Student,
+          },
+        },
+        context: bearer(adminActor.accessToken),
+      });
+      // `country` is the non-null `CountryCode` scalar: an empty string fails
+      // the scalar's ISO 3166-1 parse during VARIABLE COERCION — before any
+      // resolver runs — so the transport answers BAD_USER_INPUT, not a service
+      // VALIDATION payload. The service-tier required-country branch stays
+      // behind the GraphQL layer and is covered by the service suite.
+      const error = expectMutationError(result.error, "BAD_USER_INPUT");
+      const messages = error.errors.map(item => item.message).join(" | ");
+      expect(messages).toContain("Value is not a valid country code");
+      expect(await countAllAuditRows()).toBe(auditBefore);
+    });
+
+    test("admin createUser with a dataset-curated-out ISO code (XK) → VALIDATION + COUNTRY_CODE_INVALID on the country path; zero audit writes", async () => {
+      const auditBefore = await countAllAuditRows();
+      const result = await testClient.mutate({
+        mutation: adminCreateUserMutationDocument,
+        variables: {
+          input: {
+            fullName: "Curated Out Probe",
+            email: uniqueEmail("curated-out-country"),
+            phone: "+201234567890",
+            password: TEST_CREDENTIAL,
+            gender: null,
+            country: "XK",
+            role: RegisterPublicRole.Student,
+          },
+        },
+        context: bearer(adminActor.accessToken),
+      });
+      // `XK` is in the scalar's hardcoded ISO 3166-1 list, so wire coercion
+      // PASSES it through, but the project dataset curates it out — the
+      // service membership check rejects the create with `COUNTRY_CODE_INVALID`
+      // on the unchanged `country` field path (the path the create dialog's
+      // helperText projection reads).
+      const gqlError = expectMutationError(result.error, "VALIDATION");
+      const fieldsPayload = gqlError.errors[0]?.extensions?.fields;
+      expect(Array.isArray(fieldsPayload)).toBe(true);
+      if (!Array.isArray(fieldsPayload)) throw new Error("expected extensions.fields on the wire");
+      const byField = new Map<string, string>();
+      for (const entry of fieldsPayload) {
+        if (typeof entry?.field === "string" && typeof entry.code === "string") {
+          byField.set(entry.field, entry.code);
+        }
+      }
+      expect(byField.get("country")).toBe("COUNTRY_CODE_INVALID");
+      // Every entry also carries a localized message for helperText.
+      for (const entry of fieldsPayload) {
+        expect(typeof entry?.message).toBe("string");
+      }
+      expect(await countAllAuditRows()).toBe(auditBefore);
     });
 
     test("admin fetches unknown user id → USER_NOT_FOUND; zero audit writes", async () => {

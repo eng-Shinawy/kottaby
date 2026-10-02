@@ -56,7 +56,7 @@ import { namespaces } from "@/shared/locale/namespaces/index";
 
 // ─── Mandated key inventory (the broadcast-compose surface ground truth) ────
 
-/** Every key the AdminBroadcasts UI namespace must carry (65 slots). */
+/** Every key the AdminBroadcasts UI namespace must carry (66 slots). */
 const MANDATED_KEYS = [
   "pageTitle",
   "pageSubtitle",
@@ -72,13 +72,14 @@ const MANDATED_KEYS = [
   "audiencePlan",
   "roleLabel",
   "countryLabel",
-  "countryPlaceholder",
   "countryHelperText",
   "planLabel",
   "planLoading",
   "previewDisclaimer",
   "confirmTitle",
   "confirmBody",
+  "confirmSummaryTitle",
+  "confirmSummaryAudience",
   "confirmAction",
   "cancelAction",
   "sendAction",
@@ -182,7 +183,7 @@ describe("compile-time parity mirror — ar/en key sets agree", () => {
     expect(Object.hasOwn(adminBroadcastsEn, key)).toBe(true);
   });
 
-  test("the mandated inventory is exhaustive (no silent key minting beyond the 65 slots)", () => {
+  test("the mandated inventory is exhaustive (no silent key minting beyond the 66 slots)", () => {
     const mandated = new Set<string>(MANDATED_KEYS);
     for (const key of Object.keys(adminBroadcastsAr)) {
       expect(mandated.has(key)).toBe(true);

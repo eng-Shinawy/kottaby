@@ -20,6 +20,8 @@
 import type { Dispatch, SetStateAction } from "react";
 import { type BroadcastAudienceInput, BroadcastAudienceType, UserRole } from "@/frontend/graphql/generated/gql/graphql";
 import { applyProjectedFieldErrors, projectMutationFieldErrors } from "@/frontend/lib/mutationFieldErrors";
+import { COUNTRIES, type CountryCode } from "@/shared/constants/countries";
+import type { AppLocale } from "@/shared/locale/AppLocale";
 import type { AdminBroadcastsLabels } from "@/shared/locale/types/adminBroadcasts";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
@@ -35,7 +37,8 @@ export interface ComposeState {
   readonly body: string;
   readonly audienceType: BroadcastAudienceType;
   readonly role: UserRole | null;
-  readonly country: string;
+  /** ISO 3166-1 alpha-2 code (or "" when unselected) — the shared CountrySelector's contract. */
+  readonly country: CountryCode | "";
   readonly planId: string | null;
 }
 
@@ -66,9 +69,6 @@ const ROLE_OPTION_VALUES: ReadonlySet<string> = new Set<string>(ROLE_OPTIONS);
 
 /** Title ceiling shared with the server's title-validation bound. */
 export const TITLE_MAX_LENGTH = 255;
-
-/** Country ceiling matching the `countryHelperText` exact-match contract. */
-export const COUNTRY_MAX_LENGTH = 100;
 
 export const ROLE_SELECT_LABEL_ID = "broadcast-compose-role-label";
 export const PLAN_SELECT_LABEL_ID = "broadcast-compose-plan-label";
@@ -107,6 +107,42 @@ export function roleOptionLabel(role: UserRole, roleLabels: AdminUsersLabels["ro
   return roleLabels.parent;
 }
 
+/**
+ * The confirmation dialog's audience summary — WHO the send is about to
+ * reach, in the SAME display grammar the history table renders: the kind
+ * label qualified with the cohort detail, where country cohorts speak the
+ * flag emoji + the LOCALE's dataset name (the directory chip's and the
+ * history column's vocabulary). Plan cohorts resolve their LIVE title from
+ * the compose query — an asymmetry with the history column (which renders
+ * the kind label alone, because the snapshot stores only the plan ID): the
+ * compose dialog knows the selection and says WHICH plan it is, which is
+ * exactly what a send confirmation is for. The summary never renders a
+ * recipient COUNT — recipients resolve at send time; this is identity,
+ * not size.
+ */
+export function composeAudienceSummary(
+  state: ComposeState,
+  plans: ReadonlyArray<{ readonly id: string; readonly title: string }>,
+  t: AdminBroadcastsLabels,
+  roleLabels: AdminUsersLabels["roleLabels"],
+  locale: AppLocale
+): string {
+  const kindLabel = audienceKindLabel(state.audienceType, t);
+  if (state.audienceType === BroadcastAudienceType.Role && state.role !== null) {
+    return `${kindLabel}: ${roleOptionLabel(state.role, roleLabels)}`;
+  }
+  if (state.audienceType === BroadcastAudienceType.Country && state.country !== "") {
+    return `${kindLabel}: ${COUNTRIES[state.country].flag} ${COUNTRIES[state.country][locale]}`;
+  }
+  if (state.audienceType === BroadcastAudienceType.Plan) {
+    const plan = plans.find(candidate => candidate.id === state.planId);
+    if (plan !== undefined) {
+      return `${kindLabel}: ${plan.title}`;
+    }
+  }
+  return kindLabel;
+}
+
 /** Trimmed value — `null` when absent, so the nullable wire slot stays null. */
 export function trimmedOrNullable(value: string): string | null {
   const trimmed = value.trim();
@@ -116,7 +152,7 @@ export function trimmedOrNullable(value: string): string | null {
 /** Whether the selected audience kind's companion field is complete. */
 export function isAudienceReady(state: ComposeState): boolean {
   if (state.audienceType === BroadcastAudienceType.Role) return state.role !== null;
-  if (state.audienceType === BroadcastAudienceType.Country) return state.country.trim() !== "";
+  if (state.audienceType === BroadcastAudienceType.Country) return state.country !== "";
   if (state.audienceType === BroadcastAudienceType.Plan) {
     if (state.planId === null) return false;
     const parsedPlanId = Number(state.planId);
@@ -125,12 +161,17 @@ export function isAudienceReady(state: ComposeState): boolean {
   return true;
 }
 
-/** Wire audience selector — exactly one meaningful companion per kind. */
+/**
+ * Wire audience selector — exactly one meaningful companion per kind. The
+ * country companion rides as the ISO code string; the server's seed bridge
+ * resolves it onto the canonical (display name, code) pair before cohort
+ * resolution, so the wire contract stays unchanged.
+ */
 export function buildAudienceInput(state: ComposeState): BroadcastAudienceInput {
   return {
     type: state.audienceType,
     role: state.audienceType === BroadcastAudienceType.Role ? state.role : null,
-    country: state.audienceType === BroadcastAudienceType.Country ? state.country.trim() : null,
+    country: state.audienceType === BroadcastAudienceType.Country ? state.country : null,
     planId: state.audienceType === BroadcastAudienceType.Plan && state.planId !== null ? Number(state.planId) : null,
   };
 }

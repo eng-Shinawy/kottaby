@@ -2,20 +2,24 @@
 
 /**
  * CreateUserFormGrid — the two-column field grid of the admin "create user"
- * dialog (extracted from `CreateUserDialog.tsx`): name/email/phone/country
- * text fields, the shared gender select, and the credential field. The form
- * state and its setter are owned by the dialog and threaded through
- * verbatim; per-field VALIDATION errors render as inline `helperText`.
+ * dialog (extracted from `CreateUserDialog.tsx`): name/email/phone text
+ * fields, the shared `CountrySelector` (ISO 3166-1 alpha-2 — the wire input
+ * accepts codes only), the shared gender select, and the credential field.
+ * The form state and its setter are owned by the dialog and threaded
+ * through verbatim; per-field VALIDATION errors render as inline
+ * `helperText`.
  */
 
 import { Box, TextField } from "@mui/material";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { CountrySelector } from "@/frontend/components/ui/CountrySelector";
 import {
   AdminDialogFieldLabel,
   CreateUserCredentialField,
   type CreateUserDialogRole,
 } from "@/frontend/views/admin/users/dialogs";
 import { AdminUserGenderSelect } from "@/frontend/views/admin/users/ui";
+import type { CountryCode } from "@/shared/constants/countries";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 const CREATE_NAME_ID = "admin-users-create-fullname";
@@ -31,7 +35,8 @@ export interface CreateUserFormState {
   phone: string;
   password: string;
   gender: "" | "Male" | "Female" | "Other";
-  country: string;
+  /** Selected ISO 3166-1 alpha-2 code, or "" while nothing is picked. */
+  country: CountryCode | "";
   role: CreateUserDialogRole;
 }
 
@@ -90,16 +95,21 @@ export function CreateUserFormGrid({ labels, form, setForm, fieldErrors }: Creat
       </Box>
       <Box>
         <AdminDialogFieldLabel htmlFor={CREATE_COUNTRY_ID} text={labels.createDialog.country} required />
-        <TextField
+        <CountrySelector
           id={CREATE_COUNTRY_ID}
-          fullWidth
+          name="country"
+          label={labels.createDialog.country}
+          // The grid draws its own visible label above the field; the
+          // selector keeps the accessible name via aria-label.
+          hideLabel
           value={form.country}
-          onChange={e => setForm({ ...form, country: e.target.value })}
-          placeholder={labels.createDialog.country}
+          onChange={code => setForm({ ...form, country: code })}
           required
           error={!!fieldErrors.country}
-          helperText={fieldErrors.country}
-          aria-invalid={!!fieldErrors.country}
+          // Validation errors win the helper slot; otherwise the field
+          // explains what the stored country drives (same grammar as the
+          // password field's helper).
+          helperText={fieldErrors.country ?? labels.createDialog.countryHelper}
         />
       </Box>
       <AdminUserGenderSelect

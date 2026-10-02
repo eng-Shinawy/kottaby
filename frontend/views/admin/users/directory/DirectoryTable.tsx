@@ -67,15 +67,18 @@ export function DirectoryTable(props: DirectoryTableProps): ReactNode {
       <Table sx={{ tableLayout: "fixed" }}>
         <TableHead>
           <TableRow sx={theme => ({ bgcolor: theme.palette.surfaceContainerHigh })}>
-            <DirectoryHeaderCell width="28.5%">{labels.headers.name}</DirectoryHeaderCell>
+            <DirectoryHeaderCell width="27.5%">{labels.headers.name}</DirectoryHeaderCell>
             <DirectoryHeaderCell width="13%">{labels.headers.phone}</DirectoryHeaderCell>
             {/* ROLE gets ≥11% — the tonal pill's Arabic label ("مسؤول") needs
                 ~60px of label space; at the former 9% the fixed-layout cell
                 squeezed the chip below its content size and ellipsized it. */}
             <DirectoryHeaderCell width="11%">{labels.headers.role}</DirectoryHeaderCell>
-            <DirectoryHeaderCell width="16%">{labels.headers.statusDetails}</DirectoryHeaderCell>
-            <DirectoryHeaderCell width="9%">{labels.headers.governance}</DirectoryHeaderCell>
-            <DirectoryHeaderCell width="14.5%">{labels.headers.lastActive}</DirectoryHeaderCell>
+            <DirectoryHeaderCell width="15%">{labels.headers.statusDetails}</DirectoryHeaderCell>
+            {/* GOVERNANCE gets ≥13% — the letter-spaced "GOVERNANCE" caps label
+                needs ~90px; at the former 9% it overflowed its fixed-layout
+                cell and painted into the LAST ACTIVE header beside it. */}
+            <DirectoryHeaderCell width="13%">{labels.headers.governance}</DirectoryHeaderCell>
+            <DirectoryHeaderCell width="12.5%">{labels.headers.lastActive}</DirectoryHeaderCell>
             <DirectoryHeaderCell width="8%" align="end">
               {labels.headers.actions}
             </DirectoryHeaderCell>
@@ -139,6 +142,10 @@ function DirectoryHeaderCell({ children, width, align }: DirectoryHeaderCellProp
         color: theme.palette.text.secondary,
         textAlign: align === "end" ? "end" : "start",
         borderBottom: `1px solid ${theme.palette.border.light}`,
+        // Fixed-layout boundary guard: an overflowing header clips at its OWN
+        // cell edge instead of painting into the neighbor's label. Column
+        // widths above are sized so nothing reaches this clip in practice.
+        overflow: "hidden",
         // End-aligned cells (the ACTIONS column) prevent wrapping so the
         // letter-spaced label never ellipsizes/clips, and get explicit
         // inline-end breathing room so it never kisses the card edge.

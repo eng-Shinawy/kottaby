@@ -37,6 +37,9 @@ export interface AuthLabels {
   readonly passwordRequired: string;
   readonly passwordTooShort: string;
   readonly countryRequired: string;
+  /** Country selector validation (ISO 3166-1 alpha-2 codes) */
+  readonly countryCodeRequired: string;
+  readonly countryCodeInvalid: string;
   readonly roleRequired: string;
   readonly roleForbidden: string;
   /** Conflict / server errors */

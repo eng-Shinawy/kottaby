@@ -5,6 +5,11 @@ Used by the visual-improvement-loop skill. All screenshots must land in `scratch
 ## Sessions & auth
 
 - Fresh session per loop: `agent-browser session id --scope worktree --prefix <short-prefix>`; export the value as `AGENT_BROWSER_SESSION`.
+- **Public auth pages need an anonymous session (added 2026-10-01):** an injected admin cookie
+  session silently redirects `/register` (and other public auth routes) to the authenticated home —
+  capture public auth surfaces in a second, never-logged-in session or you are scoring the wrong
+  page. The bounce is silent: the title guard passes, the URL is just not the one you asked for.
+  Re-verify `location.pathname` in the same eval as the title guard.
 - App pages (dev server): authenticate via `bun run scripts/browser-login.ts --inject` — never type credentials into a login form; the AI layer redacts emails and the submission fails Email validation. If `--inject` errors on daemon startup, fall back to `agent-browser cookies set --curl .browser-auth/playwright.cookies.json --domain localhost`.
 - Storybook (`localhost:6006`): NO auth needed. Capture from the raw iframe URL, not the full manager UI:
   `http://localhost:6006/iframe.html?id=<story-id>&viewMode=story&globals=locale:en|ar`
@@ -30,6 +35,10 @@ Screenshots must not be trusted just because `screenshot` exited 0. Verify:
 1. **Title guard** before accepting: `agent-browser eval "document.title"` must match the expected page (e.g. `"Student Credits | Siraj"` — not `"Login | Siraj"`). A stale/expired session turns everything after into login-page screenshots. Re-auth and recapture.
 2. **State guard** for interaction-driven content (expanded banners, selected options, prefilled forms): run the interaction, then check the expected DOM marker twice — immediately before AND after the screenshot. If either check is off, redo.
 3. Allow settle time: dev server + Suspense + apollo mocks need 10-15s on first open per bundle. Use a fixed short sleep then verify via DOM — never `waitForTimeout`-style blind sleeps inside tests; for captures a plain `sleep 10` + DOM verification is correct and sufficient.
+   - **MUI Autocomplete open-state rig (added 2026-10-01):** synthetic events via eval
+     (`el.focus()`, `dispatchEvent(new MouseEvent('mousedown'))`, `el.click()`) do NOT open the
+     listbox; a real CDP click (`agent-browser click "input[role=combobox]"`) does. Gate on
+     `[role=listbox]` + option count, and re-verify the listbox is still open after the screenshot.
 4. **Data-state guard (added 2026-09-23):** Apollo refetch (e.g. after a locale re-pin) can hold a page in MUI skeletons past ANY fixed settle while `document.title` still passes. Gate every capture on a DATA marker — `document.querySelectorAll("[data-testid=…]").length > 0` with zero `.MuiSkeleton-root` — before shooting; retry up to 3×.
 
 ## `--full` screenshot pitfall (observed)
@@ -39,11 +48,16 @@ Screenshots must not be trusted just because `screenshot` exited 0. Verify:
 - Plain viewport screenshot, plus `document.querySelector("<selector>").scrollIntoView({ block: "center", behavior: "instant" })` to frame a specific section.
 - Reserve `--full` for stateless, fully-rendered pages, and even then verify DOM state after the shot.
 
-## Batch capture discipline (added 2026-09-13)
+## Batch capture discipline (added 2026-09-13; viewport-proofing 2026-10-01)
 
 - Re-verify the ACTIVE tab + a content marker with `agent-browser eval` before EVERY screenshot in
   a viewport-marching batch — browser/session churn between commands has produced captures of the
   wrong tab's content.
+- **Viewport-proof every shot (added 2026-10-01):** run `set viewport` + `eval window.innerWidth`
+  immediately before EVERY screenshot (not once per batch), and after each batch audit every PNG's
+  actual pixel size (e.g. PIL) against its label. Batch headers that skip `set viewport` inherit the
+  previous batch's width silently, and CDP drops reset width mid-run — both produced captures
+  labeled 1440 that were really 390, one of which was mis-inspected as "desktop".
 - Re-pin `NEXT_LOCALE` + viewport after every re-login; the locale cookie silently reverts.
 - The browser session console buffer persists across navigations: after fixing a console error,
   the gate can still see stale `[error]` entries. Gate on a FRESH session, or confirm the error

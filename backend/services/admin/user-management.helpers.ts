@@ -1,8 +1,12 @@
 /**
  * Admin user-management support helpers — pure guards, validators, and
  * payload builders extracted VERBATIM from `user-management.service.ts`
- * (behavior-identical extraction; zero logic change). See
- * `docs/admin/user-management.md`.
+ * (behavior-identical extraction; zero logic change) except the country
+ * validation, which enforces the shared ISO 3166-1 alpha-2 code schema
+ * (`countryCodeSchema`) instead of free-text checks — on BOTH write paths.
+ * The create path requires a code; the update path BRIDGES (a dataset code
+ * persists as the code + display-name pair, legacy free text keeps its
+ * legacy shape). See `docs/admin/user-management.md`.
  */
 import type { NormalizedAdminUserFilters } from "@/backend/db/repo/admin/admin-user.repository";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
@@ -20,6 +24,8 @@ import type {
   AuditLogWriteContract,
   UserInsertType,
 } from "@/backend/types";
+import { COUNTRIES } from "@/shared/constants/countries";
+import { countryCodeSchema, countrySeedToCode, isValidCountryCode } from "@/shared/lib/country-code";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
@@ -45,6 +51,11 @@ const DEFAULT_PAGE_SIZE = 25;
 const MIN_ACTIVITY_LIMIT = 1;
 const MAX_ACTIVITY_LIMIT = 50;
 const DEFAULT_ACTIVITY_LIMIT = 10;
+
+/** Country-breakdown facet bounds — same clamp-first read-path discipline. */
+const MIN_COUNTRY_BREAKDOWN_LIMIT = 1;
+const MAX_COUNTRY_BREAKDOWN_LIMIT = 12;
+const DEFAULT_COUNTRY_BREAKDOWN_LIMIT = 6;
 
 /**
  * Defensively projects the `changedFields` array out of a raw audit
@@ -239,10 +250,17 @@ export function validateCreateInput(input: AdminCreateUserSubmitInput, locale: s
   } else if (input.password.length < MIN_PASSWORD_LENGTH) {
     entries.push({ field: "password", code: "PASSWORD_TOO_SHORT", message: tAuth.passwordTooShort });
   }
-  if (!input.country || input.country.trim().length === 0) {
-    entries.push({ field: "country", code: "COUNTRY_REQUIRED", message: tAuth.countryRequired });
-  } else if (input.country.trim().length > MAX_COUNTRY_LENGTH) {
-    entries.push({ field: "country", code: "COUNTRY_TOO_LONG", message: tErrors.validation });
+  // Country is an ISO 3166-1 alpha-2 code on the create path (shared schema
+  // with public registration): empty/whitespace → REQUIRED, anything else
+  // failing the normalize→membership pipeline → INVALID (covers legacy
+  // free-text values, over-length strings, and curated-out codes alike).
+  if (typeof input.country !== "string" || input.country.trim().length === 0) {
+    entries.push({ field: "country", code: "COUNTRY_CODE_REQUIRED", message: tAuth.countryCodeRequired });
+  } else {
+    const parsedCountry = countryCodeSchema.safeParse(input.country);
+    if (!parsedCountry.success) {
+      entries.push({ field: "country", code: "COUNTRY_CODE_INVALID", message: tAuth.countryCodeInvalid });
+    }
   }
   if (input.gender !== undefined && !isValidGender(input.gender)) {
     entries.push({ field: "gender", code: "GENDER_INVALID", message: tErrors.validation });
@@ -273,6 +291,34 @@ export function validateCreateInput(input: AdminCreateUserSubmitInput, locale: s
  * `fields` payload identifies the offending fields for inline helperText
  * projection (same contract as `validateCreateInput` above).
  */
+
+/**
+ * Collects the update-patch country checks into `entries` — both arms project
+ * onto the SAME `country` field path the edit dialog renders:
+ *  - a `country` string must be non-empty and within the column length
+ *    (malformed values, including whitespace-only, are `COUNTRY_INVALID`);
+ *  - defense-in-depth on the service-derived twin: a present (non-null)
+ *    `countryCode` is built by `buildUpdatePatch` from a dataset-valid code,
+ *    so anything else means a caller bypassed the builder — fail closed.
+ * `null` / absent values on either member are the legitimate "clear / not
+ * touched" arms and never collect an entry.
+ */
+function collectCountryPatchEntries(
+  patch: AdminUserUpdateDbPatch,
+  entries: ApiFieldErrorType[],
+  validationMessage: string
+): void {
+  if (typeof patch.country === "string") {
+    const trimmed = patch.country.trim();
+    if (trimmed.length === 0 || trimmed.length > MAX_COUNTRY_LENGTH) {
+      entries.push({ field: "country", code: "COUNTRY_INVALID", message: validationMessage });
+    }
+  }
+  if (patch.countryCode !== undefined && patch.countryCode !== null && !isValidCountryCode(patch.countryCode)) {
+    entries.push({ field: "country", code: "COUNTRY_INVALID", message: validationMessage });
+  }
+}
+
 export function validateUpdatePatch(patch: AdminUserUpdateDbPatch, locale: string): void {
   const tErrors = getServerTranslations(locale).errorsTranslations;
   const entries: ApiFieldErrorType[] = [];
@@ -286,12 +332,7 @@ export function validateUpdatePatch(patch: AdminUserUpdateDbPatch, locale: strin
   if (typeof patch.phone === "string" && patch.phone.length > MAX_PHONE_LENGTH) {
     entries.push({ field: "phone", code: "PHONE_TOO_LONG", message: tErrors.validation });
   }
-  if (typeof patch.country === "string") {
-    const trimmed = patch.country.trim();
-    if (trimmed.length === 0 || trimmed.length > MAX_COUNTRY_LENGTH) {
-      entries.push({ field: "country", code: "COUNTRY_INVALID", message: tErrors.validation });
-    }
-  }
+  collectCountryPatchEntries(patch, entries, tErrors.validation);
   if (patch.gender !== undefined && patch.gender !== null && !isValidGender(patch.gender)) {
     entries.push({ field: "gender", code: "GENDER_INVALID", message: tErrors.validation });
   }
@@ -311,9 +352,18 @@ export function validateUpdatePatch(patch: AdminUserUpdateDbPatch, locale: strin
  * Builds the `users` insert payload field-by-field (BOPLA — never a spread).
  * Maps the validated input + the pre-hashed password + server-controlled
  * governance defaults into the `UserInsertType` shape.
+ *
+ * Country contract: `validateCreateInput` guarantees an ISO 3166-1 alpha-2
+ * code on `input.country` before this builder runs on the create path, so
+ * the normalized code is stored in `countryCode` and the English display
+ * name in the legacy `country` column. A direct call with unvalidated
+ * input degrades to the legacy free-text row (`countryCode` null) rather
+ * than persisting an unmapped code.
  */
 export function buildCreateUserInsert(input: AdminCreateUserSubmitInput, passwordHash: string): UserInsertType {
   const role: UserRole = toUserRole(input.role) ?? UserRole.Student;
+  const parsedCountry = countryCodeSchema.safeParse(input.country);
+  const countryCode = parsedCountry.success ? parsedCountry.data : null;
   return {
     fullName: input.fullName,
     email: input.email,
@@ -321,7 +371,8 @@ export function buildCreateUserInsert(input: AdminCreateUserSubmitInput, passwor
     passwordHash,
     role,
     gender: input.gender ?? null,
-    country: input.country,
+    countryCode,
+    country: countryCode !== null ? COUNTRIES[countryCode].en : input.country,
     // Governance defaults — server-set, never client-controlled.
     isDeleted: false,
     deletedAt: null,
@@ -338,6 +389,16 @@ export function buildCreateUserInsert(input: AdminCreateUserSubmitInput, passwor
  * Builds the whitelisted profile patch field-by-field (BOPLA — never a spread).
  * Only fields the caller supplied are included so the SET clause touches
  * just the changed columns. `updatedAt` is server-stamped inside the repo.
+ *
+ * Country bridge (mirrors `buildCreateUserInsert`'s pairing, with the READ-
+ * side tolerance of `countrySeedToCode`): a caller value that resolves to a
+ * dataset country — a canonical code, a padded/lowercase variant, OR legacy
+ * display text such as "Egypt" from older wire consumers — persists the
+ * canonical pair: normalized code into `countryCode`, English display name
+ * into the legacy `country` column. Truly unresolvable free text keeps its
+ * legacy shape: raw text in `country` with the `countryCode` twin explicitly
+ * cleared to `null`, so the row invariant "`countryCode` non-null ⟺
+ * `country` is a dataset display name" holds on every write path.
  */
 export function buildUpdatePatch(input: AdminUpdateUserPatchInput): AdminUserUpdateDbPatch {
   const patch: AdminUserUpdateDbPatch = {};
@@ -348,7 +409,14 @@ export function buildUpdatePatch(input: AdminUpdateUserPatchInput): AdminUserUpd
     patch.phone = input.phone;
   }
   if (input.country !== undefined) {
-    patch.country = input.country;
+    const resolvedCode = countrySeedToCode(input.country);
+    if (resolvedCode !== "") {
+      patch.country = COUNTRIES[resolvedCode].en;
+      patch.countryCode = resolvedCode;
+    } else {
+      patch.country = input.country;
+      patch.countryCode = null;
+    }
   }
   if (input.gender !== undefined) {
     patch.gender = input.gender;
@@ -392,6 +460,18 @@ export function resolveActivityLimit(limit?: number | null): number {
   const rawLimit = limit ?? DEFAULT_ACTIVITY_LIMIT;
   const truncated = Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : DEFAULT_ACTIVITY_LIMIT;
   return Math.min(Math.max(truncated, MIN_ACTIVITY_LIMIT), MAX_ACTIVITY_LIMIT);
+}
+
+/**
+ * Resolves the country-breakdown facet's `limit`. Clamp-first, mirroring
+ * `resolveActivityLimit`: `undefined`/`null`/non-finite → default (6);
+ * every finite value truncates then clamps into 1..12. An explicit 0
+ * reads as "minimum" (1), never as "unbounded".
+ */
+export function resolveCountryBreakdownLimit(limit?: number | null): number {
+  const rawLimit = limit ?? DEFAULT_COUNTRY_BREAKDOWN_LIMIT;
+  const truncated = Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : DEFAULT_COUNTRY_BREAKDOWN_LIMIT;
+  return Math.min(Math.max(truncated, MIN_COUNTRY_BREAKDOWN_LIMIT), MAX_COUNTRY_BREAKDOWN_LIMIT);
 }
 
 /**

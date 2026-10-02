@@ -39,6 +39,7 @@ import {
   projectMutationFieldErrors,
 } from "@/frontend/lib/mutationFieldErrors";
 import { mapGraphQLErrorByCode } from "@/frontend/providers/apollo/error-link.map";
+import { isRegisterFieldPath } from "@/frontend/views/auth/register/registerFormUtils";
 import { getDefaultTranslations, loadAllTranslations } from "@/shared/locale/server";
 import type { AuthLabels } from "@/shared/locale/types/auth";
 
@@ -233,6 +234,68 @@ describe("applyProjectedFieldErrors — setError receives field:message pairs", 
 });
 
 // ---------------------------------------------------------------------------
+// Country field path: the registration service's country-code codes land on
+// the unchanged `country` path, so the register form's whitelist projection
+// (REGISTER_FIELD_PATHS → isRegisterFieldPath) surfaces them inline.
+
+const COUNTRY_REQUIRED_PAIR = { field: "country", code: "COUNTRY_CODE_REQUIRED", message: "Please select a country." };
+const COUNTRY_INVALID_PAIR = {
+  field: "country",
+  code: "COUNTRY_CODE_INVALID",
+  message: "The selected country is not recognized.",
+};
+
+describe("country field-path mapping — COUNTRY_CODE_* codes project onto `country`", () => {
+  test("the register form's known-path whitelist still accepts `country` (and only that path)", () => {
+    expect(isRegisterFieldPath("country")).toBe(true);
+    expect(isRegisterFieldPath("countryCode")).toBe(false);
+    expect(isRegisterFieldPath("locale")).toBe(false);
+  });
+
+  test("COUNTRY_CODE_REQUIRED projects as a single pair on the country path", () => {
+    const pairs = projectMutationFieldErrors(combinedError([validationItem([COUNTRY_REQUIRED_PAIR])]));
+    expect(pairs).toHaveLength(1);
+    expect(firstPairOrThrow(pairs)).toEqual({ field: "country", message: "Please select a country." });
+  });
+
+  test("COUNTRY_CODE_INVALID projects as a single pair on the country path", () => {
+    const pairs = projectMutationFieldErrors(combinedError([validationItem([COUNTRY_INVALID_PAIR])]));
+    expect(pairs).toHaveLength(1);
+    expect(firstPairOrThrow(pairs)).toEqual({ field: "country", message: "The selected country is not recognized." });
+  });
+
+  test("both country pairs collapse first-wins onto one helper line", () => {
+    const pairs = projectMutationFieldErrors(
+      combinedError([validationItem([COUNTRY_REQUIRED_PAIR, COUNTRY_INVALID_PAIR])])
+    );
+    expect(pairs).toHaveLength(1);
+    expect(firstPairOrThrow(pairs).message).toBe("Please select a country.");
+  });
+
+  test("register-form seam: the whitelisted sink applies the country pair for RHF setError", () => {
+    const received: Array<{ field: string; message: string }> = [];
+    const applied = applyProjectedFieldErrors(
+      projectMutationFieldErrors(combinedError([validationItem([COUNTRY_INVALID_PAIR])])),
+      isRegisterFieldPath,
+      (field, errorOptions) => {
+        received.push({ field, message: errorOptions.message });
+      }
+    );
+
+    expect(applied).toBe(1);
+    expect(received).toEqual([{ field: "country", message: "The selected country is not recognized." }]);
+  });
+
+  test("country pairs travel alongside the other registration pairs in wire order", () => {
+    const pairs = projectMutationFieldErrors(
+      combinedError([validationItem([COUNTRY_REQUIRED_PAIR, ...REGISTRATION_FIELD_PAIRS])])
+    );
+    expect(pairs).toHaveLength(3);
+    expect(pairs.map(pair => pair.field)).toEqual(["country", "email", "password"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // EXISTING keys only: reuse set for consumer fallback copy
 
 const REUSE_SET = [
@@ -243,6 +306,8 @@ const REUSE_SET = [
   "passwordRequired",
   "passwordTooShort",
   "countryRequired",
+  "countryCodeRequired",
+  "countryCodeInvalid",
   "roleRequired",
   "emailAlreadyExists",
   "registrationFailed",

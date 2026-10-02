@@ -44,6 +44,7 @@ import type {
   DirectoryGovernance,
   DirectoryRole,
 } from "@/frontend/views/admin/users/utils";
+import type { CountryCode } from "@/shared/constants/countries";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 type ToolbarLabels = Pick<
@@ -61,8 +62,8 @@ interface DirectoryToolbarProps {
   readonly setApplicantStatusFilter: (value: DirectoryApplicantStatus | "") => void;
   readonly cooldownStateFilter: DirectoryCooldownState | "";
   readonly setCooldownStateFilter: (value: DirectoryCooldownState | "") => void;
-  readonly countryFilter: string;
-  readonly setCountryFilter: (value: string) => void;
+  readonly countryFilter: CountryCode | "";
+  readonly setCountryFilter: (value: CountryCode | "") => void;
   readonly searchInput: string;
   readonly setSearchInput: (value: string) => void;
   readonly onCreateUser: () => void;

@@ -7,6 +7,7 @@
  */
 import type {
   AdminUserActivityRow,
+  AdminUserCountryBreakdownRow,
   AdminUserDetailRow,
   AdminUserDirectoryRow,
   AdminUserStatsRow,
@@ -22,11 +23,63 @@ import { normalizeDateOnly, projectChangedFields } from "@/backend/services/admi
 import { deriveCooldownState } from "@/backend/services/teachers/applicant-lifecycle.service";
 import type {
   AdminUserActivityEntryReturnType,
+  AdminUserCountryBreakdownReturnType,
   AdminUserDetailReturnType,
   AdminUserListItemReturnType,
   AdminUserStatsReturnType,
 } from "@/backend/types";
+import { COUNTRIES, type CountryCode } from "@/shared/constants/countries";
+import { defaultLocale, isAppLocale } from "@/shared/locale/AppLocale";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
+
+/**
+ * Maps the raw "users by country" aggregate to the canonical facet
+ * envelope. PURE — no IO, no clock — so the vocabulary/window math is
+ * unit-testable without a database.
+ *
+ *  - Only codes inside the shared `COUNTRIES` dataset survive into
+ *    `buckets` (the label comes from the dataset; an out-of-vocabulary
+ *    code has no locale name or flag to render).
+ *  - The input ordering (count-desc, code-asc from the SQL) is preserved;
+ *    the function re-sorts NOTHING — the SQL owns determinism.
+ *  - `limit` caps the returned window AFTER the vocabulary filter (so an
+ *    unresolvable row never consumes a slot).
+ *  - `unresolvedCount` = active population − Σ(dataset-resolvable
+ *    counts): the NULL-code legacy/never-set rows AND any
+ *    out-of-vocabulary code, honestly carried instead of silently
+ *    dropped. Never negative (defensive against a raw row whose buckets
+ *    sum above the denominator — impossible at the SQL layer).
+ */
+export function buildCountryBreakdown(
+  row: AdminUserCountryBreakdownRow,
+  locale: string,
+  limit: number
+): AdminUserCountryBreakdownReturnType {
+  const labelLocale = isAppLocale(locale) ? locale : defaultLocale;
+  const resolvable = row.buckets.flatMap(bucket => {
+    if (!isValidDatasetCode(bucket.code)) {
+      return [];
+    }
+    return [
+      {
+        code: bucket.code,
+        label: COUNTRIES[bucket.code][labelLocale],
+        flag: COUNTRIES[bucket.code].flag,
+        count: bucket.count,
+      },
+    ];
+  });
+  const resolvedTotal = resolvable.reduce<number>((sum, bucket) => sum + bucket.count, 0);
+  return {
+    buckets: resolvable.slice(0, limit),
+    unresolvedCount: Math.max(row.activeTotal - resolvedTotal, 0),
+  };
+}
+
+/** Dataset-membership guard — narrows a raw stamped code to a `CountryCode` key. */
+function isValidDatasetCode(code: string): code is CountryCode {
+  return code in COUNTRIES;
+}
 
 /**
  * Maps a raw directory-wide stats row to the canonical overview return
@@ -235,6 +288,7 @@ export function assembleDetail(row: AdminUserDetailRow, locale: string): AdminUs
     dateOfBirth: normalizeDateOnly(row.dateOfBirth),
     gender: row.gender,
     country: row.country,
+    countryCode: row.countryCode,
     isDeleted: row.isDeleted ?? false,
     deletedAt: row.deletedAt,
     suspended: row.suspended ?? false,

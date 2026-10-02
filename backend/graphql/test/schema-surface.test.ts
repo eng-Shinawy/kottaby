@@ -279,6 +279,7 @@ const SESSION_LIFECYCLE_ENUMS = ["SessionIntent", "SessionStatus", "SessionType"
 const ADMIN_USER_USER_QUERY_FIELDS = [
   "adminApplicantCooldownStats",
   "adminUserActivity",
+  "adminUserCountryBreakdown",
   "adminUserDetail",
   "adminUserStats",
   "adminUsers",
@@ -358,6 +359,10 @@ const ADMIN_USER_TYPE_NAMES = [
   "AdminTeacherSnapshot",
   "AdminUpdateUserInput",
   "AdminUserActivityEntry",
+  // users-by-country distribution read — the sanctioned admin aggregate
+  // surface (root query + two embedded value objects; zero mutations).
+  "AdminUserCountryBreakdown",
+  "AdminUserCountryBucket",
   "AdminUserDetail",
   "AdminUserFiltersInput",
   "AdminUserListItem",
@@ -1340,7 +1345,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime scalar + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1349,6 +1354,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     const additions = sdlTypeNames().filter(name => !(PRE_3_1_TYPE_NAMES as readonly string[]).includes(name));
     expect(additions).toEqual(
       [
+        "CountryCode",
         "DateTime",
         "HandshakeCodeLookup",
         "HealthCheck",
@@ -3049,6 +3055,11 @@ describe("Codegen sync — committed SDL is byte-identical to the built schema",
     // Belt-and-braces: the synced artifact really contains the retyped probe.
     expect(committedSdl).toContain("_health: HealthCheck!");
     expect(committedSdl).toContain("type HealthCheck {");
+    // …and the `CountryCode` scalar declaration is really inside the
+    // committed artifact (the CountryCode scalar surface pin — the scalar
+    // rides the builder registry and must stay byte-synced with the
+    // committed SDL).
+    expect(committedSdl).toContain("scalar CountryCode");
     // …and the session surface (7 root operations + 2 object
     // types + 2 input types) is really inside the committed artifact.
     expect(committedSdl).toContain("sessionById(id: ID!): Session");

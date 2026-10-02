@@ -5,12 +5,18 @@
  * One selector kind per call, four query shapes over two tables:
  *  - `all`     — every governed user.
  *  - `role`    — governed users whose `users.role` equals the selector role.
- *  - `country` — governed users whose `users.country` equals the selector
- *                country by EXACT equality. There is no LIKE/ILIKE predicate
- *                anywhere in this file, so the canonical LIKE-wildcard
- *                sanitizer (`escapeLikeWildcards`) is not applicable by
- *                construction: `%` / `_` inside the value are compared
- *                literally, never interpreted as patterns.
+ *  - `country` — governed users whose registered country matches the
+ *                selector country. The code-bearing arm (the service's seed
+ *                bridge stamps `countryCode` onto a resolvable seed) is
+ *                legacy-tolerant: `country_code = $code OR country =
+ *                $display-name`, so pre-bridge rows stored as display text
+ *                (code NULL) and code-upgraded rows both resolve. A
+ *                code-free selector (unresolvable free text) exact-matches
+ *                the raw `users.country` text. There is no LIKE/ILIKE
+ *                predicate anywhere in this file, so the canonical
+ *                LIKE-wildcard sanitizer (`escapeLikeWildcards`) is not
+ *                applicable by construction: `%` / `_` inside the value are
+ *                compared literally, never interpreted as patterns.
  *  - `plan`    — governed users holding a subscription to the selector plan
  *                that is active now. The owner FK is the generic
  *                `subscriptions.user_id`, so a subscriber of ANY role counts
@@ -94,6 +100,20 @@ function governanceConditions(): (SQL | undefined)[] {
 }
 
 /**
+ * The Drizzle-builder country cohort predicate — the legacy-tolerant dual
+ * arm: a code-bearing selector matches the ISO twin column OR the canonical
+ * display name (pre-bridge rows carry the display text with a NULL code);
+ * a code-free selector exact-matches the raw text. Exact equality on both
+ * arms — the no-LIKE discipline is intact by construction.
+ */
+function countryCohortCondition(country: string, countryCode: string | null | undefined): SQL {
+  if (countryCode != null) {
+    return or(eq(users.countryCode, countryCode), eq(users.country, country)) ?? sql`false`;
+  }
+  return eq(users.country, country);
+}
+
+/**
  * Transactional branch — Drizzle query builders on the supplied transaction,
  * so cohort resolution participates in the caller's unit of work and sees
  * its uncommitted state. `coalesce(...)`/`now()` window comparisons that the
@@ -140,7 +160,7 @@ async function resolveViaTransaction(
       const query = tx
         .select({ id: users.id })
         .from(users)
-        .where(and(eq(users.country, selector.country), ...governanceConditions()))
+        .where(and(countryCohortCondition(selector.country, selector.countryCode), ...governanceConditions()))
         .orderBy(asc(users.id))
         .$dynamic();
       const rows = await (limit === undefined ? query : query.limit(limit));
@@ -190,6 +210,23 @@ function limitClause(limit: number | undefined, nextParamIndex: number): { claus
 }
 
 /**
+ * The raw-SQL country cohort shape — predicate text, bound params, and the
+ * bind index the LIMIT clause takes. The code-bearing arm binds TWO
+ * parameters (the ISO twin, the canonical display name — the legacy-tolerant
+ * dual arm); the raw-text arm stays single-parameter. Both are exact
+ * equality, so the no-LIKE discipline is intact by construction.
+ */
+function countryCohortShape(
+  country: string,
+  countryCode: string | null | undefined
+): { predicate: string; params: string[]; nextParamIndex: number } {
+  if (countryCode != null) {
+    return { predicate: "(country_code = $1 OR country = $2)", params: [countryCode, country], nextParamIndex: 3 };
+  }
+  return { predicate: "country = $1", params: [country], nextParamIndex: 2 };
+}
+
+/**
  * Non-transactional branch — raw parameterized SQL over the pool (Neon HTTP
  * fast path when eligible). The single-table shapes filter `users` directly;
  * the plan shape joins `subscriptions` and dedupes with `DISTINCT`.
@@ -225,10 +262,11 @@ async function resolveViaQueryDb(selector: BroadcastAudienceSelector, limit: num
       if (selector.country == null) {
         return [];
       }
-      const bound = limitClause(limit, 2);
+      const shape = countryCohortShape(selector.country, selector.countryCode);
+      const bound = limitClause(limit, shape.nextParamIndex);
       const result = await queryDb<AudienceIdRow>(
-        `SELECT id FROM users WHERE ${GOVERNANCE_PREDICATE_SQL} AND country = $1 ORDER BY id ASC${bound.clause}`,
-        [selector.country, ...bound.params]
+        `SELECT id FROM users WHERE ${GOVERNANCE_PREDICATE_SQL} AND ${shape.predicate} ORDER BY id ASC${bound.clause}`,
+        [...shape.params, ...bound.params]
       );
       return result.rows.map(row => row.id);
     }

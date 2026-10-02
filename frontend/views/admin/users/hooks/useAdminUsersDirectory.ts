@@ -25,10 +25,15 @@ import {
   adminCreateUserMutationDocument,
   adminSetUserDeletedMutationDocument,
   adminUpdateUserMutationDocument,
+  adminUserCountryBreakdownQueryDocument,
   adminUsersQueryDocument,
 } from "@/frontend/graphql/sharedDocuments/admin";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { parseUsersUrlState, serializeUsersUrlState } from "@/frontend/views/admin/directory-url-state";
+import {
+  COUNTRY_BREAKDOWN_CHIP_LIMIT,
+  useCountryBreakdown,
+} from "@/frontend/views/admin/users/hooks/useCountryBreakdown";
 import {
   createPageResettingFilterSetters,
   useDirectoryFilters,
@@ -39,9 +44,13 @@ import { toApplicantStatus, toCooldownState, toGovernanceFilter, toUserRole } fr
 
 /** The three directory write mutations, all refetching the current page after success. */
 function useDirectoryMutations(variables: AdminUsersQueryVariables) {
-  // Every completed write re-fetches the directory page so the list stays
-  // honest without a manual reload.
-  const refetchAfterWrite = [{ query: adminUsersQueryDocument, variables }];
+  // Every completed write re-fetches the directory page (plus the country
+  // breakdown facet — a create/delete can move a user between buckets) so
+  // the list stays honest without a manual reload.
+  const refetchAfterWrite = [
+    { query: adminUsersQueryDocument, variables },
+    { query: adminUserCountryBreakdownQueryDocument, variables: { limit: COUNTRY_BREAKDOWN_CHIP_LIMIT } },
+  ];
 
   const [createUser, { loading: createLoading }] = useMutation(adminCreateUserMutationDocument, {
     refetchQueries: refetchAfterWrite,
@@ -96,6 +105,7 @@ export function useAdminUsersDirectory() {
     variables,
     fetchPolicy: "cache-and-network",
   });
+  const countryFacet = useCountryBreakdown();
   const mutations = useDirectoryMutations(variables);
 
   // `errorPolicy: "none"` (the default) drops `data` to undefined when a
@@ -147,6 +157,8 @@ export function useAdminUsersDirectory() {
     ...mutations,
     items,
     totalCount,
+    countryBuckets: countryFacet.countryBuckets,
+    countryUnresolvedCount: countryFacet.countryUnresolvedCount,
     loading,
     hasError,
     firstErrorCode,

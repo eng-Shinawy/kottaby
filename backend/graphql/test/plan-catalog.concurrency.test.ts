@@ -21,6 +21,7 @@ function buildAdminContext(): Context {
     fullName: "Admin User",
     phone: "+10000000000",
     country: "Egypt",
+    countryCode: "EG",
     gender: "male" as const,
     dateOfBirth: "1990-01-01",
     role: "admin" as const,

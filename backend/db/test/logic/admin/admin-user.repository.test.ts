@@ -402,6 +402,40 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
     });
   });
 
+  test("country filter bridges ISO-code seeds onto legacy display-text rows", async () => {
+    await runInRollback(async tx => {
+      // New-style row: canonical English display name + stamped ISO code.
+      const codeRow = await createTestUser(tx, { country: "Egypt", countryCode: "EG" });
+      // Legacy rows: case-variant display text, or the code spelled as text.
+      const legacyNameRow = await createTestUser(tx, { country: "egypt" });
+      const legacyCodeRow = await createTestUser(tx, { country: "EG" });
+      // A different country — excluded by every arm.
+      const saUser = await createTestUser(tx, { country: "Saudi Arabia", countryCode: "SA" });
+
+      // An ISO seed matches the stamped code AND both legacy spellings.
+      const byCode = await AdminUserRepository.listDirectory({ country: "EG" }, 100, 0, tx);
+      const codeIds = byCode.map(r => r.id);
+      expect(codeIds).toContain(codeRow.id);
+      expect(codeIds).toContain(legacyNameRow.id);
+      expect(codeIds).toContain(legacyCodeRow.id);
+      expect(codeIds).not.toContain(saUser.id);
+
+      // A display-text seed keeps matching case-insensitively (old links).
+      const byName = await AdminUserRepository.listDirectory({ country: "egypt" }, 100, 0, tx);
+      const nameIds = byName.map(r => r.id);
+      expect(nameIds).toContain(codeRow.id);
+      expect(nameIds).toContain(legacyNameRow.id);
+      expect(nameIds).not.toContain(legacyCodeRow.id);
+      expect(nameIds).not.toContain(saUser.id);
+
+      // Wildcards in the seed are escaped — % never widens the match.
+      const byWildcard = await AdminUserRepository.listDirectory({ country: "Eg%pt" }, 100, 0, tx);
+      const wildcardIds = byWildcard.map(r => r.id);
+      expect(wildcardIds).not.toContain(codeRow.id);
+      expect(wildcardIds).not.toContain(legacyNameRow.id);
+    });
+  });
+
   test("search filter matches fullName OR email case-insensitively (escaped + %…%-wrapped pattern)", async () => {
     await runInRollback(async tx => {
       const fullNameUser = await createTestUser(tx, {
@@ -1397,9 +1431,10 @@ describe("AdminUserRepository — Tier 4: security / abuse", () => {
     // `updateProfileFields` spreads `...patch` into the `.set({...})`
     // call, but the `patch` is the already-whitelisted
     // `AdminUserUpdateDbPatch` (Partial<Pick<UserSelectType,
-    // "fullName" | "phone" | "country" | "gender" | "dateOfBirth">>),
-    // never the raw input. So a raw `{ ...input }` spread would be an
-    // anti-pattern. Verify zero occurrences of `{ ...input }`.
+    // "fullName" | "phone" | "country" | "countryCode" | "gender" |
+    // "dateOfBirth">>), never the raw input. So a raw `{ ...input }`
+    // spread would be an anti-pattern. Verify zero occurrences of
+    // `{ ...input }`.
     expect(source.includes("...input")).toBe(false);
   });
 });

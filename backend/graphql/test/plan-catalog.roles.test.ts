@@ -81,6 +81,7 @@ function mockUser(role?: UserRole, userId = 100): UserSelectType | null {
     fullName: `Test ${role}`,
     phone: "+10000000000",
     country: "Egypt",
+    countryCode: "EG",
     gender: "male",
     dateOfBirth: "1990-01-01",
     role,

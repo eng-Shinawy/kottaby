@@ -65,6 +65,7 @@ export function RegisterForm() {
     genderField,
     roleField,
     preferredRecitationField,
+    countryField,
     selectedGender,
     selectedRole,
     selectedRecitation,
@@ -94,6 +95,7 @@ export function RegisterForm() {
           passwordValue={passwordValue}
           genderField={genderField}
           selectedGender={selectedGender}
+          countryField={countryField}
         />
 
         <Divider sx={{ my: 3 }} />

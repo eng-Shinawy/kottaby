@@ -5,14 +5,30 @@ import { useController, useForm, useWatch } from "react-hook-form";
 import type { Gender, RecitationReading, RegisterPublicRole } from "@/frontend/graphql/generated/gql/graphql";
 import { recitationReadingsQueryDocument } from "@/frontend/graphql/sharedDocuments/auth/recitation.documents";
 import { genderFromSelectValue, type RegisterFormValues, roleFromSelectValue } from "@/frontend/views/auth/register";
+import { countryCodeSchema } from "@/shared/lib/country-code";
 import type { AuthLabels } from "@/shared/locale/types/auth";
+
+const REGISTER_FORM_DEFAULTS: RegisterFormValues = {
+  fullName: "",
+  email: "",
+  phone: "",
+  password: "",
+  country: "",
+  gender: null,
+  role: "",
+  preferredRecitation: null,
+};
 
 /**
  * Owns the RegisterForm's React Hook Form state: the `useForm` instance,
- * compiler-safe watched values, and the select-field controllers whose
+ * compiler-safe watched values, the select-field controllers whose
  * `.value` degrades to `string` under tsgo — each select pins its value back
  * through the pure *FromSelectValue tables instead of trusting the raw field
- * value. Also fetches the recitation-reading catalog for the selector.
+ * value — and the country picker controller, gated inline by the shared
+ * country-code schema (no zod resolver: the raw value is validated with
+ * `countryCodeSchema.safeParse`, splitting the empty vs non-member copies
+ * the same way the registration service does). Also fetches the
+ * recitation-reading catalog for the selector.
  */
 export function useRegisterFormState(t: AuthLabels) {
   // Fetch the canonical recitation-reading catalog (public query,
@@ -26,18 +42,7 @@ export function useRegisterFormState(t: AuthLabels) {
     handleSubmit,
     register,
     setError,
-  } = useForm<RegisterFormValues>({
-    defaultValues: {
-      fullName: "",
-      email: "",
-      phone: "",
-      password: "",
-      country: "",
-      gender: null,
-      role: "",
-      preferredRecitation: null,
-    },
-  });
+  } = useForm<RegisterFormValues>({ defaultValues: REGISTER_FORM_DEFAULTS });
 
   // Compiler-safe value tracking (IMPLEMENTATION_LEARNINGS §7: useWatch, not watch()).
   const passwordValue = useWatch({ control, name: "password", defaultValue: "" });
@@ -61,6 +66,24 @@ export function useRegisterFormState(t: AuthLabels) {
     control,
     name: "preferredRecitation",
     defaultValue: null,
+  });
+  // Country picker controller. The selector emits the picked ISO code (or
+  // "" when cleared); inline validation runs the shared country-code schema
+  // on the raw value — empty stays on the required copy, a present value
+  // that is not a dataset member falls to the invalid copy. No zod resolver
+  // dependency is introduced for this.
+  const countryField = useController<RegisterFormValues, "country">({
+    control,
+    name: "country",
+    rules: {
+      required: t.countryCodeRequired,
+      validate: rawCountry => {
+        const value = typeof rawCountry === "string" ? rawCountry : "";
+        if (value.trim().length === 0) return t.countryCodeRequired;
+        return countryCodeSchema.safeParse(value).success ? true : t.countryCodeInvalid;
+      },
+    },
+    defaultValue: "",
   });
 
   // Pin the checker-degraded string values back to their GraphQL unions via
@@ -92,6 +115,7 @@ export function useRegisterFormState(t: AuthLabels) {
     genderField,
     roleField,
     preferredRecitationField,
+    countryField,
     selectedGender,
     selectedRole,
     selectedRecitation,

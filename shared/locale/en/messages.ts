@@ -10,6 +10,7 @@ import { applicantEn } from "@/shared/locale/en/applicant";
 import { authEn } from "@/shared/locale/en/auth";
 import { checkoutEn } from "@/shared/locale/en/checkout";
 import { commonEn } from "@/shared/locale/en/common";
+import { countrySelectorEn } from "@/shared/locale/en/countrySelector";
 import { dashboardEn } from "@/shared/locale/en/dashboard";
 import { errorsEn } from "@/shared/locale/en/errors";
 import { handshakeCodeEn } from "@/shared/locale/en/handshakeCode";
@@ -44,6 +45,7 @@ export const enMessages: Translations = {
   walletTranslations: walletEn,
   upNextTranslations: upNextEn,
   checkoutTranslations: checkoutEn,
+  countrySelectorTranslations: countrySelectorEn,
   adminAcademicTranslations: adminAcademicEn,
   adminUsersTranslations: adminUsersEn,
   adminTeachersTranslations: adminTeachersEn,

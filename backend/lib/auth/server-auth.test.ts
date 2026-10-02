@@ -80,6 +80,7 @@ function mockUserRow(overrides: Partial<UserSelectType> = {}): UserSelectType {
     phone: "+123456789",
     gender: "male",
     country: "EG",
+    countryCode: null,
     dateOfBirth: "1995-05-15",
     deletedAt: null,
     blockedAt: null,
