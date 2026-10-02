@@ -207,6 +207,18 @@ switcher writes through to the account; the cookie API does not). Before EVERY b
 re-set the locale cookie AND re-verify the page's toolbar button aria-label marker —
 if the marker doesn't match the expected locale's label, the batch will marker-fail.
 
+## Orphaned-Chrome OOM spiral (added 2026-10-02)
+
+- Every `agent-browser session id` call issued after a daemon crash/CDP drop can leave the previous
+  headless Chrome (~400MB) alive. Three orphaned instances + a turbopack compile spike OOM-killed
+  `next-server` twice in one run (dmesg: `oom-kill … task=next-server`) — the page that "fails" is
+  the one being compiled when memory runs out, which misdirects debugging.
+- Ritual: before resuming captures after ANY server death, `pkill -f chrome; pkill -f agent-browser`,
+  assert 0 remain, restart exactly ONE daemon, and **curl-warm every route the batch will visit
+  BEFORE opening the browser** — compilation then costs no browser memory.
+- `NODE_OPTIONS=--max-old-space-size=…` does NOT cap turbopack's compile workers; lowering the heap
+  cap alone does not prevent the OOM. The curl-warm pattern is the reliable mitigation.
+
 ## Harness branch-flip vs dev-server module graph (added 2026-10-02)
 
 - In harness-managed sandboxes the worktree can be force-checked-out to the default branch

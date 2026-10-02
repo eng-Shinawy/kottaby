@@ -19,7 +19,8 @@ import { toUserRole } from "@/backend/enum/users/user-role.enum";
 import { ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { toAuditActionType } from "@/backend/services/admin/admin-gate.helpers";
-import { normalizeDateOnly, projectChangedFields } from "@/backend/services/admin/user-management.helpers";
+import { projectChangedFields } from "@/backend/services/admin/user-management.activity.helpers";
+import { normalizeDateOnly } from "@/backend/services/admin/user-management.helpers";
 import { deriveCooldownState } from "@/backend/services/teachers/applicant-lifecycle.service";
 import type {
   AdminUserActivityEntryReturnType,

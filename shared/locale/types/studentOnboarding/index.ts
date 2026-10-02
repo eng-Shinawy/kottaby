@@ -59,6 +59,7 @@ export interface StudentOnboardingLabels {
     readonly fullName: string;
     readonly email: string;
     readonly phone: string;
+    readonly phoneInvalid: string;
     /** The admin-supplied initial password (label only — the value never renders). */
     readonly password: string;
     /** Accessible label of the credential field's reveal toggle. */

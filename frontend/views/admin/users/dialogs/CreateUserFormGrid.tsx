@@ -2,17 +2,20 @@
 
 /**
  * CreateUserFormGrid — the two-column field grid of the admin "create user"
- * dialog (extracted from `CreateUserDialog.tsx`): name/email/phone text
- * fields, the shared `CountrySelector` (ISO 3166-1 alpha-2 — the wire input
- * accepts codes only), the shared gender select, and the credential field.
- * The form state and its setter are owned by the dialog and threaded
- * through verbatim; per-field VALIDATION errors render as inline
- * `helperText`.
+ * dialog (extracted from `CreateUserDialog.tsx`): name/email text fields,
+ * the shared `PhoneInput` phone field, the shared `CountrySelector`
+ * (ISO 3166-1 alpha-2 — the wire input accepts codes only), the shared
+ * gender select, and the credential field. The form state and its setter
+ * are owned by the dialog and threaded through verbatim; per-field
+ * VALIDATION errors render as inline `helperText`, and fields without a
+ * dedicated helper keep the line reserved with a blank space so all rows
+ * share one height and error copy never shifts the grid layout.
  */
 
 import { Box, TextField } from "@mui/material";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { CountrySelector } from "@/frontend/components/ui/CountrySelector";
+import { PhoneInput } from "@/frontend/components/ui/PhoneInput";
 import {
   AdminDialogFieldLabel,
   CreateUserCredentialField,
@@ -20,6 +23,7 @@ import {
 } from "@/frontend/views/admin/users/dialogs";
 import { AdminUserGenderSelect } from "@/frontend/views/admin/users/ui";
 import type { CountryCode } from "@/shared/constants/countries";
+import { isValidPhone } from "@/shared/lib/phone";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 const CREATE_NAME_ID = "admin-users-create-fullname";
@@ -49,6 +53,12 @@ interface CreateUserFormGridProps {
 
 /** Field grid — two columns on ≥sm, single column below. */
 export function CreateUserFormGrid({ labels, form, setForm, fieldErrors }: CreateUserFormGridProps): ReactNode {
+  // Client-side format hint for instant feedback; a projected server error,
+  // when present, stays authoritative and wins over the hint.
+  const phoneClientError = form.phone.length > 0 && !isValidPhone(form.phone);
+  const phoneError = Boolean(fieldErrors.phone) || phoneClientError;
+  const phoneErrorText = fieldErrors.phone ?? (phoneClientError ? labels.createDialog.phoneInvalid : " ");
+
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: { xs: 2, sm: 3 } }}>
       <Box>
@@ -61,7 +71,7 @@ export function CreateUserFormGrid({ labels, form, setForm, fieldErrors }: Creat
           onChange={e => setForm({ ...form, fullName: e.target.value })}
           required
           error={!!fieldErrors.fullName}
-          helperText={fieldErrors.fullName}
+          helperText={fieldErrors.fullName ?? " "}
           aria-invalid={!!fieldErrors.fullName}
         />
       </Box>
@@ -75,22 +85,20 @@ export function CreateUserFormGrid({ labels, form, setForm, fieldErrors }: Creat
           onChange={e => setForm({ ...form, email: e.target.value })}
           required
           error={!!fieldErrors.email}
-          helperText={fieldErrors.email}
+          helperText={fieldErrors.email ?? " "}
           aria-invalid={!!fieldErrors.email}
         />
       </Box>
       <Box>
         <AdminDialogFieldLabel htmlFor={CREATE_PHONE_ID} text={labels.createDialog.phone} required />
-        <TextField
+        <PhoneInput
           id={CREATE_PHONE_ID}
-          fullWidth
           value={form.phone}
           onChange={e => setForm({ ...form, phone: e.target.value })}
           required
-          error={!!fieldErrors.phone}
-          helperText={fieldErrors.phone}
-          aria-invalid={!!fieldErrors.phone}
-          slotProps={{ htmlInput: { dir: "ltr" } }}
+          error={phoneError}
+          helperText={phoneErrorText}
+          aria-invalid={phoneError}
         />
       </Box>
       <Box>
@@ -110,6 +118,7 @@ export function CreateUserFormGrid({ labels, form, setForm, fieldErrors }: Creat
           // explains what the stored country drives (same grammar as the
           // password field's helper).
           helperText={fieldErrors.country ?? labels.createDialog.countryHelper}
+          aria-invalid={!!fieldErrors.country}
         />
       </Box>
       <AdminUserGenderSelect

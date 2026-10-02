@@ -1,5 +1,19 @@
-import { afterAll, expect, test } from "bun:test";
-import { RecitationReading, RegisterPublicRole, UserRole } from "@/frontend/graphql/generated/gql/graphql";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import type { CombinedGraphQLErrors } from "@apollo/client";
+import { GraphQLInputObjectType, GraphQLObjectType } from "graphql";
+import { graphQLSchema } from "@/backend/graphql/gqlSchema";
+import {
+  type AdminCreateUserInput,
+  RecitationReading,
+  RegisterPublicRole,
+  type RegisterUserInput,
+  UserRole,
+} from "@/frontend/graphql/generated/gql/graphql";
+import {
+  adminCreateUserMutationDocument,
+  adminUpdateUserMutationDocument,
+} from "@/frontend/graphql/sharedDocuments/admin/admin-users.documents";
 import {
   changeMyPasswordMutationDocument,
   loginMutationDocument,
@@ -9,12 +23,15 @@ import {
   registerUserMutationDocument,
 } from "@/frontend/graphql/sharedDocuments/auth/auth.documents";
 import { recitationReadingsQueryDocument } from "@/frontend/graphql/sharedDocuments/auth/recitation.documents";
+import { authEn } from "@/shared/locale/en/auth";
+import { errorsEn } from "@/shared/locale/en/errors";
 import {
   countUsersByIds,
   deleteUsersByIds,
   describeGraphqlSuite,
   expectMutationError,
   extractErrorCode,
+  insertAdminUserWithChildRow,
   setupTestServerLifecycle,
   testClient,
 } from "@/test/helpers";
@@ -31,6 +48,72 @@ import {
 // selected field a compile-time error, and the assertions below catch the
 // wire behavior.
 
+/**
+ * Structural shape of one `extensions.fields[]` entry at the wire — the
+ * `{ field, code, message }` triple that forms and dialogs project into
+ * per-field helper text.
+ */
+interface WirePhoneFieldError {
+  readonly field: string;
+  readonly code: string;
+  readonly message: string;
+}
+
+/** Unique per-probe email — UUID-salted so repeated and parallel runs never collide. */
+function uniqueWireEmail(prefix: string): string {
+  return `${prefix}-${Date.now()}-${randomUUID().slice(0, 8)}@test.local`;
+}
+
+/** Per-request locale pin — the server default locale is Arabic, so probes that
+ * assert English copy stamp the app-locale header the frontend itself sends. */
+function enLocale(): { headers: { "x-app-locale": string } } {
+  return { headers: { "x-app-locale": "en" } };
+}
+
+/** Admin-bearer variant of the locale pin — identity + locale in one header set. */
+function adminBearer(token: string): { headers: { Authorization: string; "x-app-locale": string } } {
+  return { headers: { Authorization: `Bearer ${token}`, "x-app-locale": "en" } };
+}
+
+/**
+ * Reads the single `phone` entry off the first GraphQL error's
+ * `extensions.fields[]`, asserting the payload is present, well-formed, and
+ * exclusively about the phone field (every probe below submits exactly one
+ * invalid field). Narrowed structurally — no unsafe assertions.
+ */
+function readPhoneFieldError(combined: CombinedGraphQLErrors): WirePhoneFieldError {
+  const fieldsPayload = combined.errors[0]?.extensions?.fields;
+  expect(Array.isArray(fieldsPayload)).toBe(true);
+  if (!Array.isArray(fieldsPayload)) {
+    throw new Error("expected extensions.fields on the first GraphQL error");
+  }
+  expect(fieldsPayload).toHaveLength(1);
+  const entry = fieldsPayload[0];
+  if (typeof entry?.field !== "string" || typeof entry?.code !== "string" || typeof entry?.message !== "string") {
+    throw new Error("malformed extensions.fields entry on the wire");
+  }
+  expect(entry.field).toBe("phone");
+  return { field: entry.field, code: entry.code, message: entry.message };
+}
+
+/** Fails unless the named type is a registered GraphQL input type. */
+function requireInputObjectType(name: string): GraphQLInputObjectType {
+  const type = graphQLSchema.getType(name);
+  if (!(type instanceof GraphQLInputObjectType)) {
+    throw new Error(`${name} must be registered as a GraphQL input type`);
+  }
+  return type;
+}
+
+/** Fails unless the named type is a registered GraphQL object type. */
+function requireObjectType(name: string): GraphQLObjectType {
+  const type = graphQLSchema.getType(name);
+  if (!(type instanceof GraphQLObjectType)) {
+    throw new Error(`${name} must be registered as a GraphQL object type`);
+  }
+  return type;
+}
+
 describeGraphqlSuite("Auth GraphQL Integration", () => {
   // Memory-constrained sandbox adaptation: setting TEST_SERVER_EXTERNAL=1 +
   // GRAPHQL_TEST_PORT=<already-running server> runs the suite against that
@@ -41,10 +124,11 @@ describeGraphqlSuite("Auth GraphQL Integration", () => {
   }
 
   // ─── Hygiene: restore the shared dev database to canonical seed state ───
-  // Deletes exactly the user this suite registers (tracked by id) plus any
+  // Deletes exactly the users this suite creates (tracked by id) plus any
   // RESTRICT-gated audit/subscriptions/evaluations references; child rows
   // cascade. Rejection-path probes never create rows, so the set holds only
-  // the single happy-path registration.
+  // the successful registrations, the phone-probe admin fixture, the admin
+  // update target, and the denial-probe actors.
   const createdUserIds = new Set<number>();
 
   afterAll(async () => {
@@ -230,7 +314,7 @@ describeGraphqlSuite("Auth GraphQL Integration", () => {
     expect(result.data?.logout?.success).toBe(true);
   });
 
-  // ─── Self-service credential rotation (`changeMyPassword`) ──────────────
+  // ─── Self-service credential rotation (`changeMyPassword`) ────────────
   // Appended AFTER the logout probe so the rotation can never disturb the
   // earlier login/me/refreshToken assertions: the access token minted above
   // stays valid (stateless JWT — there is no session store to revoke), the
@@ -329,6 +413,288 @@ describeGraphqlSuite("Auth GraphQL Integration", () => {
 
     expect(newCredentialLogin.error).toBeUndefined();
     expect(newCredentialLogin.data?.login?.user.email).toBe(testEmail);
+  });
+
+  // ─── Phone validation surfaced at the wire ────────────────────────────────
+  //
+  // The shared E.164 phone contract reaches clients as a VALIDATION error
+  // whose `extensions.fields[]` carries `{ field, code, message }` — the exact
+  // payload the register form and the admin dialogs reduce to per-field
+  // helper text. The server gate is the trust boundary: probes below submit
+  // hostile phones straight over the wire, and every rejection must carry the
+  // gate's machine code with the fixed localized template as the message —
+  // never an echo of the submitted value. All users created here are tracked
+  // in `createdUserIds` and drained by the suite cleanup above.
+  describe("phone validation surfaced at the wire", () => {
+    // Wire payloads mirroring the shared schema's check order: required →
+    // too-long (one past the 16-char E.164 ceiling) → E.164 shape.
+    const INVALID_PHONE = "12345";
+    const TOO_LONG_PHONE = "+2012345678901234"; // 17 chars
+    const CEILING_PHONE = "+201234567890123"; // 16 chars — exactly at the ceiling
+
+    let adminToken: string;
+    let adminUpdateTargetId: number;
+
+    beforeAll(async () => {
+      // Admin is not publicly registrable (the public role union excludes it),
+      // so the shared fixture seam provisions the admin user + child row
+      // directly and a real session is minted through the public login.
+      const adminEmail = uniqueWireEmail("phone-wire-admin");
+      const adminUserId = await insertAdminUserWithChildRow({
+        fullName: "Phone Wire Admin",
+        email: adminEmail,
+        phone: "+201234567891",
+        password: testCredential,
+      });
+      createdUserIds.add(adminUserId);
+
+      const adminLogin = await testClient.mutate({
+        mutation: loginMutationDocument,
+        variables: { email: adminEmail, password: testCredential },
+      });
+      expect(adminLogin.error).toBeUndefined();
+      const token = adminLogin.data?.login?.accessToken;
+      if (!token) throw new Error("admin login returned no accessToken");
+      adminToken = token;
+
+      // The admin update probe needs an existing target user — registered
+      // through the public path with a valid phone.
+      const registered = await testClient.mutate({
+        mutation: registerUserMutationDocument,
+        variables: {
+          input: {
+            fullName: "Phone Wire Update Target",
+            email: uniqueWireEmail("phone-wire-target"),
+            phone: "+201234567894",
+            password: testCredential,
+            gender: null,
+            country: "EG",
+            role: RegisterPublicRole.Student,
+            preferredRecitation: null,
+          },
+        },
+      });
+      expect(registered.error).toBeUndefined();
+      const targetId = registered.data?.registerUser?.id;
+      if (!targetId) throw new Error("registerUser returned no id for the update target");
+      adminUpdateTargetId = targetId;
+      createdUserIds.add(targetId);
+    });
+
+    /** Fully-populated registration input — every field passed, optional ones explicit. */
+    function registrationInput(phone: string): RegisterUserInput {
+      return {
+        fullName: "Phone Wire Probe",
+        email: uniqueWireEmail("phone-wire-probe"),
+        phone,
+        password: testCredential,
+        gender: null,
+        country: "EG",
+        role: RegisterPublicRole.Student,
+        preferredRecitation: null,
+      };
+    }
+
+    /** Fully-populated admin create input — every field passed, optional ones explicit. */
+    function adminCreateInput(phone: string): AdminCreateUserInput {
+      return {
+        fullName: "Phone Wire Admin Probe",
+        email: uniqueWireEmail("phone-wire-admin-create"),
+        phone,
+        password: testCredential,
+        gender: null,
+        country: "EG",
+        role: RegisterPublicRole.Student,
+      };
+    }
+
+    test("registerUser — invalid phone → VALIDATION with a PHONE_INVALID field error", async () => {
+      const result = await testClient.mutate({
+        mutation: registerUserMutationDocument,
+        variables: { input: registrationInput(INVALID_PHONE) },
+        context: enLocale(),
+      });
+
+      const combined = expectMutationError(result.error, "VALIDATION");
+      const phoneError = readPhoneFieldError(combined);
+      expect(phoneError.code).toBe("PHONE_INVALID");
+      expect(phoneError.message).toBe(authEn.phoneInvalid);
+      expect(phoneError.message).not.toContain(INVALID_PHONE);
+      // The top-level message mirrors the single field entry (first-entry contract).
+      expect(combined.errors[0]?.message).toBe(phoneError.message);
+    });
+
+    test("registerUser — empty phone → VALIDATION with a PHONE_REQUIRED field error", async () => {
+      const result = await testClient.mutate({
+        mutation: registerUserMutationDocument,
+        variables: { input: registrationInput("") },
+        context: enLocale(),
+      });
+
+      const combined = expectMutationError(result.error, "VALIDATION");
+      const phoneError = readPhoneFieldError(combined);
+      expect(phoneError.code).toBe("PHONE_REQUIRED");
+      expect(phoneError.message).toBe(authEn.phoneRequired);
+      expect(combined.errors[0]?.message).toBe(phoneError.message);
+    });
+
+    test("registerUser — whitespace-only phone trims to PHONE_REQUIRED", async () => {
+      const result = await testClient.mutate({
+        mutation: registerUserMutationDocument,
+        variables: { input: registrationInput("   ") },
+        context: enLocale(),
+      });
+
+      const combined = expectMutationError(result.error, "VALIDATION");
+      const phoneError = readPhoneFieldError(combined);
+      expect(phoneError.code).toBe("PHONE_REQUIRED");
+      expect(phoneError.message).toBe(authEn.phoneRequired);
+    });
+
+    test("registerUser — 17-char phone → VALIDATION with a PHONE_TOO_LONG field error", async () => {
+      const result = await testClient.mutate({
+        mutation: registerUserMutationDocument,
+        variables: { input: registrationInput(TOO_LONG_PHONE) },
+        context: enLocale(),
+      });
+
+      const combined = expectMutationError(result.error, "VALIDATION");
+      const phoneError = readPhoneFieldError(combined);
+      expect(phoneError.code).toBe("PHONE_TOO_LONG");
+      expect(phoneError.message).toBe(errorsEn.validation);
+      expect(phoneError.message).not.toContain(TOO_LONG_PHONE);
+      expect(combined.errors[0]?.message).toBe(phoneError.message);
+    });
+
+    test("registerUser — 16-char phone at the E.164 ceiling registers successfully", async () => {
+      const input = registrationInput(CEILING_PHONE);
+      const result = await testClient.mutate({
+        mutation: registerUserMutationDocument,
+        variables: { input },
+        context: enLocale(),
+      });
+
+      expect(result.error).toBeUndefined();
+      const user = result.data?.registerUser;
+      if (!user) throw new Error("registerUser returned no data at the ceiling phone");
+      if (typeof user.id === "number") createdUserIds.add(user.id);
+      expect(user.email).toBe(input.email);
+      expect(user.role).toBe(UserRole.Student);
+    });
+
+    test("adminCreateUser — invalid phone → VALIDATION with a PHONE_INVALID field error", async () => {
+      const result = await testClient.mutate({
+        mutation: adminCreateUserMutationDocument,
+        variables: { input: adminCreateInput(INVALID_PHONE) },
+        context: adminBearer(adminToken),
+      });
+
+      const combined = expectMutationError(result.error, "VALIDATION");
+      const phoneError = readPhoneFieldError(combined);
+      expect(phoneError.code).toBe("PHONE_INVALID");
+      expect(phoneError.message).toBe(authEn.phoneInvalid);
+      expect(phoneError.message).not.toContain(INVALID_PHONE);
+      expect(combined.errors[0]?.message).toBe(phoneError.message);
+    });
+
+    test("adminUpdateUser — 17-char phone → VALIDATION with a PHONE_TOO_LONG field error", async () => {
+      const result = await testClient.mutate({
+        mutation: adminUpdateUserMutationDocument,
+        variables: {
+          id: adminUpdateTargetId,
+          input: { fullName: null, phone: TOO_LONG_PHONE, country: null, dateOfBirth: null, gender: null },
+        },
+        context: adminBearer(adminToken),
+      });
+
+      const combined = expectMutationError(result.error, "VALIDATION");
+      const phoneError = readPhoneFieldError(combined);
+      expect(phoneError.code).toBe("PHONE_TOO_LONG");
+      expect(phoneError.message).toBe(errorsEn.validation);
+      expect(phoneError.message).not.toContain(TOO_LONG_PHONE);
+      expect(combined.errors[0]?.message).toBe(phoneError.message);
+    });
+
+    test("unauthenticated adminCreateUser → UNAUTHORIZED (auth gate precedes the phone gate)", async () => {
+      const result = await testClient.mutate({
+        mutation: adminCreateUserMutationDocument,
+        variables: { input: adminCreateInput(INVALID_PHONE) },
+        context: enLocale(),
+      });
+
+      // The hostile phone must not surface as a validation payload — the
+      // denial is an authorization decision, emitted before any input check.
+      const denial = expectMutationError(result.error, "UNAUTHORIZED");
+      expect(denial.errors).toHaveLength(1);
+    });
+
+    test("unauthenticated adminUpdateUser → UNAUTHORIZED (auth gate precedes the phone gate)", async () => {
+      const result = await testClient.mutate({
+        mutation: adminUpdateUserMutationDocument,
+        variables: {
+          id: adminUpdateTargetId,
+          input: { fullName: null, phone: TOO_LONG_PHONE, country: null, dateOfBirth: null, gender: null },
+        },
+        context: enLocale(),
+      });
+
+      const denial = expectMutationError(result.error, "UNAUTHORIZED");
+      expect(denial.errors).toHaveLength(1);
+    });
+
+    test("student-role adminCreateUser → FORBIDDEN (non-admin caller denied)", async () => {
+      const studentInput = registrationInput("+201234567895");
+      const registered = await testClient.mutate({
+        mutation: registerUserMutationDocument,
+        variables: { input: studentInput },
+        context: enLocale(),
+      });
+      expect(registered.error).toBeUndefined();
+      const studentId = registered.data?.registerUser?.id;
+      if (!studentId) throw new Error("student registration returned no id");
+      if (typeof studentId === "number") createdUserIds.add(studentId);
+
+      const loggedIn = await testClient.mutate({
+        mutation: loginMutationDocument,
+        variables: { email: studentInput.email, password: testCredential },
+      });
+      expect(loggedIn.error).toBeUndefined();
+      const token = loggedIn.data?.login?.accessToken;
+      if (!token) throw new Error("student login returned no accessToken");
+
+      const result = await testClient.mutate({
+        mutation: adminCreateUserMutationDocument,
+        variables: { input: adminCreateInput(INVALID_PHONE) },
+        context: adminBearer(token),
+      });
+      expectMutationError(result.error, "FORBIDDEN");
+    });
+  });
+
+  // ─── Phone schema surface ─────────────────────────────────────────────────
+  //
+  // The phone contract lives entirely in application validation — the schema
+  // keeps `phone` as a plain String on every user surface and registers no
+  // dedicated phone type. These assertions pin the live in-process emission
+  // (the same schema graph Apollo Server serves), so a schema-level type
+  // change cannot slip through unnoticed.
+  describe("phone schema surface", () => {
+    test("RegisterUserInput keeps phone as a required String", () => {
+      expect(requireInputObjectType("RegisterUserInput").getFields().phone?.type.toString()).toBe("String!");
+    });
+
+    test("AdminCreateUserInput mirrors the same required phone shape", () => {
+      expect(requireInputObjectType("AdminCreateUserInput").getFields().phone?.type.toString()).toBe("String!");
+    });
+
+    test("the User and AdminUserDetail read types keep phone as a nullable String", () => {
+      expect(requireObjectType("User").getFields().phone?.type.toString()).toBe("String");
+      expect(requireObjectType("AdminUserDetail").getFields().phone?.type.toString()).toBe("String");
+    });
+
+    test("no dedicated Phone type exists in the schema", () => {
+      expect(graphQLSchema.getType("Phone")).toBeUndefined();
+    });
   });
 });
 

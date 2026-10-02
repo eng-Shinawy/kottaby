@@ -23,6 +23,7 @@ export const authAr: AuthLabels = {
   emailRequired: "البريد الإلكتروني مطلوب.",
   emailInvalid: "يرجى إدخال بريد إلكتروني صحيح.",
   phoneRequired: "رقم الهاتف مطلوب.",
+  phoneInvalid: "يرجى إدخال رقم هاتف صحيح.",
   passwordRequired: "كلمة المرور مطلوبة.",
   passwordTooShort: "يجب أن تكون كلمة المرور 8 أحرف على الأقل.",
   countryRequired: "الدولة مطلوبة.",

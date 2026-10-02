@@ -117,7 +117,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
 
 ## Phase 0 — Baseline
 
-- [ ] 0. Baseline + ledger + outcome read (MANDATORY)
+- [x] 0. Baseline + ledger + outcome read (MANDATORY)
   - Record the pre-implementation baseline BEFORE any edit:
     ```bash
     bun tsgo 2>&1 | grep -c "error TS" > /tmp/baseline-tsgo.txt
@@ -132,7 +132,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
 
 ## Phase 1 — Shared Schema + i18n
 
-- [ ] 1. Shared Zod phone schema module — `shared/lib/phone.ts` (REQ-1.1, REQ-1.2, REQ-1.3)
+- [x] 1. Shared Zod phone schema module — `shared/lib/phone.ts` (REQ-1.1, REQ-1.2, REQ-1.3)
   - CREATE `shared/lib/phone.ts` (flat file, sibling of `shared/lib/email.ts`) — the FIRST `zod` usage in `shared/` (allowed: zod has no layer dependencies; `shared/` MUST NOT import `@/frontend`, `@/backend`, `@/app`). Export exactly:
     - `export const PHONE_E164_PATTERN = /^\+[1-9]\d{7,14}$/;` (REQ-1.1)
     - `export const PHONE_MAX_LENGTH = 16;` (REQ-1.1 — `+` + max 15 E.164 digits; DB column is `varchar(20)` at `users.ts:17`, so 16 fits with headroom, but note the DB column is NOT changed per D10)
@@ -150,7 +150,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 1.IV **Instruction Verification** — read the AGENTS.md + `.agents/instructions/*` files printed by `sub-loop.ts` for `shared/` and validate `shared/lib/phone.ts` against them.
   - _Requirements: REQ-1.1, REQ-1.2, REQ-1.3, REQ-9.1_
 
-- [ ] 2. Shared schema 4-tier unit tests — `shared/lib/phone.test.ts` (REQ-1.4, REQ-6.1)
+- [x] 2. Shared schema 4-tier unit tests — `shared/lib/phone.test.ts` (REQ-1.4, REQ-6.1)
   - CREATE `shared/lib/phone.test.ts`, mirroring the structure of `shared/lib/email.test.ts` (bun:test, 4 explicit tiers, no render/DOM). Runner: `bun run test/scripts/run-test.ts shared/lib/phone.test.ts` (NEVER raw `bun test`).
   - **Tier 1 — Branch & Statement (100%):** every branch of `isValidPhone` (empty / whitespace-only / valid E.164 / missing `+` / leading zero / too short / too long / non-digit body); every branch of `normalizePhone` (leading/trailing whitespace, internal spaces, dashes, parens, mixed, already-normal); every arm of `phoneSchema` (`min` → `PHONE_REQUIRED`, `max` → `PHONE_TOO_LONG`, `regex` → `PHONE_INVALID`, success → no issue) asserting the exact `message` CODE.
   - **Tier 2 — Boundary Value Analysis:** `PHONE_MAX_LENGTH` (16) exactly valid vs 17 rejected; `PHONE_MAX_LENGTH` constant vs the actual E.164 max (15 digits); minimum valid `+` + 8 digits → valid vs 7 digits → invalid; `+` alone; `+0...` (leading zero rejected by `[1-9]`); unicode/Arabic-Indic digit bodies → invalid (regex is ASCII `\d`); RTL/Bidi marks in the string → invalid; empty string and `"   "`.
@@ -164,7 +164,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 2.IV **Instruction Verification** — read applicable AGENTS.md + `.agents/instructions/tests.instructions.md` (matches `**/*.test.ts`) printed by `sub-loop.ts`.
   - _Requirements: REQ-1.4, REQ-6.1, REQ-9.3_
 
-- [ ] 3. i18n — add `phoneInvalid` key to the three label groups (REQ-5.1)
+- [x] 3. i18n — add `phoneInvalid` key to the three label groups (REQ-5.1)
   - **`Auth` namespace** (register + backend producer):
     - `shared/locale/types/auth/index.ts`: add `phoneInvalid: string;` to the EXISTING `AuthLabels` interface (`:12`), placed next to `phoneRequired` (`:36`) and `emailInvalid` (`:35`). Do NOT create a new namespace (`Auth` handle stays at `shared/locale/namespaces/auth/auth.namespace.ts:4`).
     - `shared/locale/en/auth/index.ts`: add `phoneInvalid: "Please enter a valid phone number."` near `phoneRequired`.
@@ -187,7 +187,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
 
 ## Phase 2 — Backend Validation
 
-- [ ] 4. Cross-actor registration journey test (**TEST-FIRST — RED before Tasks 5–7 GREEN**) (REQ-6.4)
+- [x] 4. Cross-actor registration journey test (**TEST-FIRST — RED before Tasks 5–7 GREEN**) (REQ-6.4)
   - CREATE `test/workflows/auth/registration-phone.journey.test.ts` — NEW file, authored BEFORE the backend helper/schema wiring so the test drives the contract. Real services + real DB; committed fixtures in `beforeAll`; tracked hard-delete in `afterAll`; **NO `runInRollback`**; spy on any notification dispatch (never hit real channels). `test/workflows/auth/` is a NEW domain subdirectory — explicitly permitted by `test/workflows/AGENTS.md` rule 10 (`test/workflows/<domain>/<workflow>.test.ts`).
   - Actors cast (real roles, never monkey-patched): **Guest** (unauthenticated registrant), **Student/Teacher/Parent** (registrant roles), **Authenticated Admin**, **System/Backend** (validator). Authorization resolves honestly via real user roles.
   - Encode each step as `actor → action → expected shared-state change + denial`:
@@ -210,7 +210,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 4.IV **Instruction Verification** — read `test/workflows/AGENTS.md` + `.agents/instructions/tests.instructions.md` + root AGENTS.md.
   - _Requirements: REQ-6.4, REQ-4.4, REQ-9.1, REQ-9.2_
 
-- [ ] 5. Shared backend phone-validation helper — `backend/services/shared/phone-validation.helpers.ts` (REQ-4.1, REQ-5.2, REQ-9.1, REQ-9.3)
+- [x] 5. Shared backend phone-validation helper — `backend/services/shared/phone-validation.helpers.ts` (REQ-4.1, REQ-5.2, REQ-9.1, REQ-9.3)
   - CREATE `backend/services/shared/phone-validation.helpers.ts` exporting `validatePhoneField(value: string, locale: string): ApiFieldErrorType | null` built on `phoneSchema` from `@/shared/lib/phone`:
     - Register it on the live barrel `backend/services/shared/index.ts` (currently `export * from "./recitation-catalog.service"; export * from "./user-provisioning.helpers";`) by adding `export * from "./phone-validation.helpers";` so consumers import `validatePhoneField` from `@/backend/services/shared` — NOT a deep path.
     - `const parsed = phoneSchema.safeParse(value);`
@@ -227,7 +227,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 5.IV **Instruction Verification** — read `backend/services/AGENTS.md`, `backend/AGENTS.md`, root AGENTS.md, `backend.instructions.md`.
   - _Requirements: REQ-4.1, REQ-4.5, REQ-5.2, REQ-9.1, REQ-9.3, REQ-9.4, REQ-9.5_
 
-- [ ] 6. Wire shared helper into registration — `backend/services/auth/registration.service.ts` (REQ-4.2)
+- [x] 6. Wire shared helper into registration — `backend/services/auth/registration.service.ts` (REQ-4.2)
   - EXTEND internal `validateInput(input, locale)` (`:199-247`): REPLACE the phone check at `:213-215` (which emits `{ field: "phone", code: "PHONE_REQUIRED", message: t.phoneRequired }`) with a call to `validatePhoneField(input.phone, locale)`; if it returns non-null, push it into `entries`. Preserve the existing throw at `:244-246` (`throw new ValidationError(entries[0].message, entries)`) and every OTHER field check unchanged.
   - Do NOT change `registerUser(input, locale, outerTx?)` (`:80`) or `createAdminUser(input, locale, outerTx?)` (`:134`) signatures — both funnel through `validateInput`, so both inherit the new phone validation automatically.
   - Import `validatePhoneField` from `@/backend/services/shared` (the barrel registered in Task 5; the helper is shared by auth + admin).
@@ -240,7 +240,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 6.IV **Instruction Verification** — read `backend/services/AGENTS.md`, `backend/AGENTS.md`, root AGENTS.md, `backend.instructions.md`.
   - _Requirements: REQ-4.2, REQ-4.5, REQ-9.1, REQ-9.3, REQ-9.4, REQ-9.5_
 
-- [ ] 7. Wire shared helper into admin create/update; verify onboarding inheritance (REQ-4.3, REQ-4.4, REQ-9.1, REQ-9.2)
+- [x] 7. Wire shared helper into admin create/update; verify onboarding inheritance (REQ-4.3, REQ-4.4, REQ-9.1, REQ-9.2)
   - `backend/services/admin/user-management.helpers.ts`:
     - **Real signatures (do not invent):** `validateCreateInput(input: AdminCreateUserSubmitInput, locale: string): void` (`:147`) and `validateUpdatePatch(patch: AdminUserUpdateDbPatch, locale: string): void` (`:207`). `AdminUpdateUserPatch` and `AdminRegistrationSubmitInput` are the WRONG types here.
     - REPLACE the inline phone block in `validateCreateInput` (`:147`; phone `:163-167` → `PHONE_REQUIRED` / `PHONE_TOO_LONG` with `tErrors.validation`) with `validatePhoneField(input.phone, locale)` (now also yields `PHONE_INVALID` via `auth.phoneInvalid`, D5).
@@ -259,7 +259,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
 
 ## Phase 3 — Frontend Component
 
-- [ ] 8. Reusable `PhoneInput` component — `frontend/components/ui/PhoneInput.tsx` (REQ-2.1, REQ-2.2, REQ-2.3)
+- [x] 8. Reusable `PhoneInput` component — `frontend/components/ui/PhoneInput.tsx` (REQ-2.1, REQ-2.2, REQ-2.3)
   - CREATE `frontend/components/ui/PhoneInput.tsx` as a FLAT file (matching the `frontend/components/ui/fieldError.ts` / `focusRing.ts` convention — no folder, no barrel).
   - `export const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(function PhoneInput(props, ref) { ... });` with an explicit `Readonly<PhoneInputProps>` prop interface (REQ-2.1), mirroring the `PasswordField` precedent at `frontend/components/AuthFormShared.tsx:77-153` (explicit prop interface wrapping a MUI `TextField`):
     - `label?: string` (OPTIONAL — the admin create/edit/onboarding sites render their OWN external `AdminDialogFieldLabel` above the field, so `PhoneInput` must not force a label) · `value?: string` · `onChange?: React.ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>` (matches MUI `TextField`'s change handler AND RHF's `register` output) · `onBlur?: React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>` · `startAdornment?: React.ReactNode` (the register field carries a `PhoneIcon` `startAdornment` at `RegisterIdentityFields.tsx:79-82`) · `name?: string` · `required?: boolean` · `fullWidth?: boolean` (default `true`) · `error?: boolean` · `helperText?: React.ReactNode` · `autoComplete?: string` (default `"tel"`) · `disabled?: boolean` · `id?: string` · `"aria-invalid"?: boolean | "false" | "true" | "grammar" | "spelling"` · `inputRef?: React.Ref<HTMLInputElement>`
@@ -279,7 +279,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 8.IV **Instruction Verification** — read `frontend/AGENTS.md`, root AGENTS.md, `frontend.instructions.md` (printed by `sub-loop.ts`).
   - _Requirements: REQ-2.1, REQ-2.2, REQ-2.3, REQ-6.5, REQ-9.1_
 
-- [ ] 9. Storybook story — `frontend/stories/ui/PhoneInput.stories.tsx` (REQ-2.4)
+- [x] 9. Storybook story — `frontend/stories/ui/PhoneInput.stories.tsx` (REQ-2.4)
   - CREATE `frontend/stories/ui/PhoneInput.stories.tsx` with `title: "Form/PhoneInput"` and a default meta `component: PhoneInput`. Stories: Default (empty, spread-style props), Required, WithValue (controlled `+201234567890`), ErrorState (`error` + helper text "Please enter a valid phone number."), Disabled, RTL context wrapper (renders correctly LTR inside an RTL container).
   - Match the existing stories house style (`frontend/stories/ui/*`); use MUI `Stack` with `sx` spacing; no hardcoded colors; no `console.*`.
   - [ ] 9.QL **Quality Loop** on `frontend/stories/ui/PhoneInput.stories.tsx`
@@ -292,7 +292,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
 
 ## Phase 4 — Frontend Integration
 
-- [ ] 10. Registration form integration — `frontend/views/auth/register/RegisterIdentityFields.tsx` (REQ-3.1, REQ-5.2)
+- [x] 10. Registration form integration — `frontend/views/auth/register/RegisterIdentityFields.tsx` (REQ-3.1, REQ-5.2)
   - REPLACE the raw phone `TextField` at `:69-85` with `<PhoneInput label={t.phone} startAdornment={<PhoneIcon ... />} ... />` from `@/frontend/components/ui/PhoneInput` (preserve the existing `PhoneIcon` `startAdornment` at `:79-82` via the new `startAdornment` prop); spread the RHF field `{...register("phone", { required: t.phoneRequired, validate: v => (isValidPhone(v) ? true : t.phoneInvalid) })}` — mirroring the email analogy at `:49-68` (`validate: v => (isValidEmailShape(v) ? true : t.emailInvalid)`).
   - Import `isValidPhone` from `@/shared/lib/phone` (shared predicate — the frontend's advisory copy of the server rule; server remains authoritative, REQ-9.1).
   - `t.phoneInvalid` is the NEW key (Task 3) read off the existing `AuthLabels` object already threaded into this component as the `t` prop (`RegisterIdentityFieldsProps.t`) — the parent register form sources it via `const t = useAppTranslation(Auth)` (namespace HANDLE `Auth` imported from `@/shared/locale/namespaces/auth`; NEVER the string `"Auth"`). `t.phoneRequired` remains in the `required` rule. Do NOT change `REGISTER_FIELD_PATHS` (`registerFormUtils.ts:20-29` keeps `"phone"`), the values map (`:63-72`), or the `isValidEmailShape` re-export (`:15`).
@@ -305,7 +305,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 10.IV **Instruction Verification** — read `frontend/views/AGENTS.md`, `frontend/AGENTS.md`, root AGENTS.md, `frontend.instructions.md`.
   - _Requirements: REQ-3.1, REQ-3.5, REQ-5.2, REQ-5.3, REQ-9.1_
 
-- [ ] 11. Admin create-user dialog integration — `frontend/views/admin/users/dialogs/CreateUserFormGrid.tsx` (REQ-3.2)
+- [x] 11. Admin create-user dialog integration — `frontend/views/admin/users/dialogs/CreateUserFormGrid.tsx` (REQ-3.2)
   - **This surface is CONTROLLED — it is NOT react-hook-form.** The component owns no `useForm`/`register`/`validate`; it receives `labels: AdminUsersLabels`, `form: CreateUserFormState`, `setForm: Dispatch<SetStateAction<CreateUserFormState>>`, and `fieldErrors: Record<string, string>` (see the `:38-43` props interface). Do NOT introduce RHF here.
   - REPLACE the phone `TextField` at `:79-89` with controlled `<PhoneInput value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} error={phoneError} helperText={phoneErrorText} aria-invalid={phoneError} />`; remove the now-redundant inline `slotProps={{ htmlInput: { dir: "ltr" } }}` (the component supplies it internally, REQ-2.2). KEEP the existing external `AdminDialogFieldLabel` row at `:78` (that is why `PhoneInput.label` is optional).
   - Client validation is COMPUTED from the shared predicate, not registered: `const phoneClientError = form.phone.length > 0 && !isValidPhone(form.phone);` then `phoneError = Boolean(fieldErrors.phone) || phoneClientError` and `phoneErrorText = fieldErrors.phone ?? (phoneClientError ? labels.createDialog.phoneInvalid : " ")`. Import `isValidPhone` from `@/shared/lib/phone`; read the message from the EXISTING `labels.createDialog.phoneInvalid` (Task 3, `AdminUsers` namespace — no hook is needed because `labels` is already a prop).
@@ -319,7 +319,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 11.IV **Instruction Verification** — read `frontend/views/AGENTS.md`, `frontend/AGENTS.md`, root AGENTS.md, `frontend.instructions.md`.
   - _Requirements: REQ-3.2, REQ-3.5, REQ-9.1_
 
-- [ ] 12. Admin edit-user dialog integration — `frontend/views/admin/users/dialogs/EditUserFormFields.tsx` (REQ-3.3)
+- [x] 12. Admin edit-user dialog integration — `frontend/views/admin/users/dialogs/EditUserFormFields.tsx` (REQ-3.3)
   - **This surface is CONTROLLED — it is NOT react-hook-form.** The component receives `labels: AdminUsersLabels`, `form: EditUserFormState`, `setForm`, `formError`, `fieldErrors` (see the `:32-38` props interface). Do NOT introduce RHF here.
   - REPLACE the phone `TextField` at `:63-75` with controlled `<PhoneInput value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} error={phoneError} helperText={phoneErrorText} aria-invalid={phoneError} />`; remove the inline `slotProps={{ htmlInput: { dir: "ltr" } }}` (component-supplied). KEEP the existing external `AdminDialogFieldLabel` row at `:64`.
   - Client validation is COMPUTED from the shared predicate: `const phoneClientError = form.phone.length > 0 && !isValidPhone(form.phone);` then `phoneError = Boolean(fieldErrors.phone) || phoneClientError` and `phoneErrorText = fieldErrors.phone ?? (phoneClientError ? labels.editDialog.phoneInvalid : " ")`. Import `isValidPhone` from `@/shared/lib/phone`; message from the EXISTING `labels.editDialog.phoneInvalid` (Task 3, `AdminUsers` namespace).
@@ -332,7 +332,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 12.IV **Instruction Verification** — read `frontend/views/AGENTS.md`, `frontend/AGENTS.md`, root AGENTS.md, `frontend.instructions.md`.
   - _Requirements: REQ-3.3, REQ-3.5, REQ-9.1, REQ-9.2_
 
-- [ ] 13. Student onboarding integration — `frontend/views/admin/students/onboarding/OnboardStudentProfileSection.tsx` (REQ-3.4)
+- [x] 13. Student onboarding integration — `frontend/views/admin/students/onboarding/OnboardStudentProfileSection.tsx` (REQ-3.4)
   - **This surface is CONTROLLED and renders its identity fields in a loop.** All four identity fields are rendered by `identityFields.map(field => ...)` at `:110-127` (the data array is declared at `:73-100`; the phone entry is `:87-93` with `errorKey: "phone"` and `ltr: true`). The `:87-93` lines are the DATA ARRAY, not the JSX — do NOT treat this as a plain single-`TextField` replacement.
   - BRANCH INSIDE THE MAP on the phone row: `field.errorKey === "phone"` → render the controlled `<PhoneInput value={form.phone} onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))} disabled={submitting} error={phoneError} helperText={phoneErrorText} aria-invalid={phoneError} />`; every other `errorKey` keeps the existing `<TextField>` branch. (Alternatively hoist the phone row OUT of the loop — but keep the label row and grid placement identical.) Remove the `ltr: true` handling for phone (component-supplied) only if the phone row leaves the generic TextField path.
   - Client validation is COMPUTED from the shared predicate (import `isValidPhone` from `@/shared/lib/phone`): `const phoneClientError = form.phone.length > 0 && !isValidPhone(form.phone);` then `phoneError = Boolean(fieldErrors.phone) || phoneClientError` and `phoneErrorText = fieldErrors.phone ?? (phoneClientError ? t.fields.phoneInvalid : " ")`. `t` is the existing `useAppTranslation(StudentOnboarding)` handle at `:69` (namespace HANDLE, never the string); `t.fields.phoneInvalid` is the NEW `StudentOnboarding` key (Task 3).
@@ -348,7 +348,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
 
 ## Phase 5 — Tests, Wire & Journey Consolidation
 
-- [ ] 14. Backend service validation tests (4-tier consolidation) (REQ-6.2)
+- [x] 14. Backend service validation tests (4-tier consolidation) (REQ-6.2)
   - CONSOLIDATE/EXPAND the colocated backend tests for phone validation:
     - `backend/services/auth/registration.service.test.ts` — phone branches via `registerUser` and `createAdminUser` (both funnel through `validateInput`, Task 6).
     - `backend/services/admin/user-management.helpers.test.ts` — `validateCreateInput` / `validateUpdatePatch` phone branches + the onboarding-inheritance assertion (Task 7).
@@ -363,7 +363,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 14.IV **Instruction Verification** — read `backend/services/AGENTS.md`, `backend/AGENTS.md`, `backend/db/test/AGENTS.md`, root AGENTS.md, `backend.instructions.md`, `tests.instructions.md`.
   - _Requirements: REQ-6.2, REQ-9.2, REQ-9.3_
 
-- [ ] 15. GraphQL wire test — `frontend/graphql/test/auth/*.test.ts` (REQ-6.3)
+- [x] 15. GraphQL wire test — `frontend/graphql/test/auth/*.test.ts` (REQ-6.3)
   - AUTHOR/EXTEND the auth-domain GraphQL wire test (locate the existing file under `frontend/graphql/test/auth/` — verify the exact path first; do NOT create a duplicate suite). Setup via `setupTestServerLifecycle()` + execute via `testClient` from `@/test/helpers`; REUSE the existing documents in `frontend/graphql/sharedDocuments/auth/auth.documents.ts` wherever possible (registration + admin create/update mutations already exist).
   - **Codegen scope (D7 clarified):** the SDL does NOT change, so `bun run generate:gqlSchema` is NOT needed. `bun codegen` regenerates TypeScript from DOCUMENTS + schema — only run it if a genuinely NEW GraphQL document/selection was added to `auth.documents.ts`; a pure reuse of existing documents requires NO codegen step.
   - Assert: sending an invalid phone through the registration mutation (`RegisterUserInput`) returns a GraphQL error whose `extensions.fields[]` contains `{ field: "phone", code: "PHONE_INVALID" }`; missing phone → `PHONE_REQUIRED`; 17-char → `PHONE_TOO_LONG`. Mirror for `AdminCreateUserInput` (admin token) with an invalid phone → `PHONE_INVALID`; and the admin update mutation too-long → `PHONE_TOO_LONG`.
@@ -377,7 +377,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
   - [ ] 15.IV **Instruction Verification** — read `frontend/graphql/AGENTS.md`, `frontend/AGENTS.md`, `backend/graphql/AGENTS.md`, root AGENTS.md, `frontend.instructions.md`, `tests.instructions.md`.
   - _Requirements: REQ-6.3, REQ-9.1, REQ-9.3, REQ-9.4_
 
-- [ ] 16. Final quality gate + traceability + deferred-items enforcement
+- [x] 16. Final quality gate + traceability + deferred-items enforcement
   - **Zero-dependency proof (D3):** `git diff --stat package.json bun.lock` vs the Task 0 baseline commit → EMPTY (no `@hookform/resolvers`, no `libphonenumber`).
   - **Zero-SDL proof (D7):** `git diff --stat frontend/graphql/generated/schema.graphql` → EMPTY (no regen/codegen artifacts changed).
   - **No-shim / no-cross-layer proof:** `rg "@/backend" frontend/components frontend/views/auth frontend/views/admin | rg -v "test"` → 0 unexpected hits; `rg "@/frontend|@/backend|@/app" shared/lib/phone.ts` → 0.
@@ -396,7 +396,7 @@ The GitHub issue #229 has **no milestone label**. This plan is assigned to `mile
 
 ## Phase 6 — Knowledge Propagation
 
-- [ ] 17. Knowledge propagation + outcome + progress close-out (REQ-7.2, REQ-7.3, REQ-8.1, REQ-8.2)
+- [x] 17. Knowledge propagation + outcome + progress close-out (REQ-7.2, REQ-7.3, REQ-8.1, REQ-8.2)
   - **REQ-8.1 — canonical doc:** CREATE `docs/validation/phone-validation.md` (create the `docs/validation/` directory if absent) consolidating:
     - Why: a single shared phone contract across layers; the E.164 decision and `PHONE_MAX_LENGTH = 16` vs the `varchar(20)` column (`users.ts:17`).
     - Pattern: `shared/lib/phone.ts` (schema + predicate + normalize), the machine-code `message` convention, `backend/services/shared/phone-validation.helpers.ts` mapping code → localized `ApiFieldErrorType`, `frontend/components/ui/PhoneInput.tsx` (props, bidi `dir:"ltr"`, aria-live), and the two frontend validation modes — RHF inline `validate` (register) and controlled `isValidPhone` error computation (admin/onboarding) — with no `@hookform/resolvers`.

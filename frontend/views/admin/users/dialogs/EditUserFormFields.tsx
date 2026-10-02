@@ -18,9 +18,11 @@
 import { Alert, Box, Stack, TextField } from "@mui/material";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { CountrySelector } from "@/frontend/components/ui/CountrySelector";
+import { PhoneInput } from "@/frontend/components/ui/PhoneInput";
 import { AdminDialogFieldLabel } from "@/frontend/views/admin/users/dialogs";
 import { AdminUserGenderSelect } from "@/frontend/views/admin/users/ui";
 import type { CountryCode } from "@/shared/constants/countries";
+import { isValidPhone } from "@/shared/lib/phone";
 import { useAppLocale } from "@/shared/locale";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
@@ -56,6 +58,14 @@ export function EditUserFormFields({
   fieldErrors,
 }: EditUserFormFieldsProps): ReactNode {
   const locale = useAppLocale();
+  // An empty phone is never sent to the server — `EditUserDialog` maps `""`
+  // to `undefined` in its patch (`form.phone || undefined`), so the key is
+  // omitted and the stored number is left untouched — hence only a
+  // non-empty value must satisfy the shared phone rule. A server-projected
+  // field error always wins over the local format hint.
+  const phoneClientError = form.phone.length > 0 && !isValidPhone(form.phone);
+  const phoneError = Boolean(fieldErrors.phone) || phoneClientError;
+  const phoneErrorText = fieldErrors.phone ?? (phoneClientError ? labels.editDialog.phoneInvalid : " ");
   return (
     <Stack spacing={2}>
       {formError && <Alert severity="error">{formError}</Alert>}
@@ -67,21 +77,19 @@ export function EditUserFormFields({
           value={form.fullName}
           onChange={e => setForm({ ...form, fullName: e.target.value })}
           error={!!fieldErrors.fullName}
-          helperText={fieldErrors.fullName}
+          helperText={fieldErrors.fullName ?? " "}
           aria-invalid={!!fieldErrors.fullName}
         />
       </Box>
       <Box>
         <AdminDialogFieldLabel htmlFor={EDIT_PHONE_ID} text={labels.editDialog.phone} />
-        <TextField
+        <PhoneInput
           id={EDIT_PHONE_ID}
-          fullWidth
           value={form.phone}
           onChange={e => setForm({ ...form, phone: e.target.value })}
-          error={!!fieldErrors.phone}
-          helperText={fieldErrors.phone}
-          aria-invalid={!!fieldErrors.phone}
-          slotProps={{ htmlInput: { dir: "ltr" } }}
+          error={phoneError}
+          helperText={phoneErrorText}
+          aria-invalid={phoneError}
         />
       </Box>
       <Box>
@@ -98,6 +106,7 @@ export function EditUserFormFields({
           // explains what the stored country drives (same grammar as the
           // create dialog) so the swap from free text stays self-explaining.
           helperText={fieldErrors.country ?? labels.editDialog.countryHelper}
+          aria-invalid={!!fieldErrors.country}
         />
       </Box>
       <AdminUserGenderSelect
@@ -121,7 +130,7 @@ export function EditUserFormFields({
           // active UI locale instead of always rendering English.
           slotProps={{ htmlInput: { lang: locale } }}
           error={!!fieldErrors.dateOfBirth}
-          helperText={fieldErrors.dateOfBirth}
+          helperText={fieldErrors.dateOfBirth ?? " "}
           aria-invalid={!!fieldErrors.dateOfBirth}
         />
       </Box>

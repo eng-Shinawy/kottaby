@@ -12,6 +12,7 @@ export const studentOnboardingEn: StudentOnboardingLabels = {
     fullName: "Full name",
     email: "Email",
     phone: "Phone",
+    phoneInvalid: "Please enter a valid phone number.",
     password: "Initial password",
     showPassword: "Show password",
     hidePassword: "Hide password",

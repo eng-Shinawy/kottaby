@@ -14,30 +14,36 @@ import {
   PersonAddAltOutlined as TeacherApplicantIcon,
 } from "@mui/icons-material";
 import { Box, Button } from "@mui/material";
-import type { SxProps, Theme } from "@mui/material/styles";
+import type { Theme } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import { AdminDialogFieldLabel, type CreateUserDialogRole } from "@/frontend/views/admin/users/dialogs";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 const CREATE_ROLE_LABEL_ID = "admin-users-create-role-label";
 
-/** Segmented-role button styling — selected segment is an elevated paper
+/** Segmented-role button styling — selected segment is a success-tinted
  *  pill with a 2px success border and a soft card shadow; unselected renders
  *  fully transparent inside the track (the transparent border keeps segment
- *  height stable across states). */
-function roleSegmentSx(selected: boolean): SxProps<Theme> {
-  return theme => ({
+ *  height stable across states). The tinted fill (not bare paper) keeps the
+ *  selected state unambiguous in dark mode, where `background.paper` reads
+ *  DARKER than the `surfaceContainerHigh` track and the pill visually sinks. */
+function roleSegmentSx(selected: boolean) {
+  return (theme: Theme) => ({
     flex: 1,
     minWidth: 0,
     minHeight: 54,
     borderRadius: "8px",
     fontWeight: selected ? 600 : 500,
     color: selected ? theme.palette.success.main : theme.palette.text.secondary,
-    backgroundColor: selected ? theme.palette.background.paper : "transparent",
+    backgroundColor: selected
+      ? `color-mix(in srgb, ${theme.palette.success.main} 16%, ${theme.palette.background.paper})`
+      : "transparent",
     border: `2px solid ${selected ? theme.palette.success.main : "transparent"}`,
     boxShadow: selected ? theme.palette.shadow.card : "none",
     "&:hover": {
-      backgroundColor: selected ? theme.palette.background.paper : theme.palette.action.hover,
+      backgroundColor: selected
+        ? `color-mix(in srgb, ${theme.palette.success.main} 16%, ${theme.palette.background.paper})`
+        : theme.palette.action.hover,
     },
   });
 }
@@ -86,7 +92,21 @@ export function CreateUserRoleSegments({ labels, value, onChange }: CreateUserRo
             onClick={() => onChange(segment.value)}
             aria-pressed={value === segment.value}
             startIcon={segment.icon}
-            sx={roleSegmentSx(value === segment.value)}
+            sx={[
+              roleSegmentSx(value === segment.value),
+              {
+                // Compact viewports stack icon over a wrapping label — the
+                // "Teacher Applicant" phrase cannot fit a ~90px row segment
+                // and silently clips; column composition keeps every locale's
+                // full label readable. Row layout (sm+) is untouched.
+                flexDirection: { xs: "column", sm: "row" },
+                gap: { xs: 0.25, sm: 1 },
+                fontSize: { xs: "0.75rem", sm: "0.875rem" },
+                whiteSpace: { xs: "normal", sm: "nowrap" },
+                textAlign: "center",
+                lineHeight: { xs: 1.2, sm: 1.75 },
+              },
+            ]}
           >
             {segment.label}
           </Button>

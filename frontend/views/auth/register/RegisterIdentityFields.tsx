@@ -8,7 +8,9 @@ import {
 import { TextField } from "@mui/material";
 import type { FieldErrors, UseControllerReturn, UseFormRegister } from "react-hook-form";
 import { CountrySelector } from "@/frontend/components/ui/CountrySelector";
+import { PhoneInput } from "@/frontend/components/ui/PhoneInput";
 import { countryFromValue, isValidEmailShape, type RegisterFormValues } from "@/frontend/views/auth/register";
+import { isValidPhone } from "@/shared/lib/phone";
 import type { AuthLabels } from "@/shared/locale/types/auth";
 
 interface RegisterIdentityFieldsProps {
@@ -77,22 +79,17 @@ export function RegisterIdentityFields({ register, errors, t, countryField }: Re
           formHelperText: { "aria-live": "polite" },
         }}
       />
-      <TextField
-        {...register("phone", { required: t.phoneRequired })}
+      <PhoneInput
+        {...register("phone", {
+          required: t.phoneRequired,
+          validate: value => (isValidPhone(value) ? true : t.phoneInvalid),
+        })}
         label={t.phone}
-        type="tel"
         required
-        fullWidth
-        autoComplete="tel"
+        startAdornment={<PhoneIcon fontSize="small" sx={{ mr: 1, color: "var(--mui-palette-action-active)" }} />}
         error={Boolean(errors.phone)}
         helperText={errors.phone?.message ?? " "}
         aria-invalid={Boolean(errors.phone)}
-        slotProps={{
-          input: {
-            startAdornment: <PhoneIcon fontSize="small" sx={{ mr: 1, color: "var(--mui-palette-action-active)" }} />,
-          },
-          formHelperText: { "aria-live": "polite" },
-        }}
       />
       <CountrySelector
         id="register-country"

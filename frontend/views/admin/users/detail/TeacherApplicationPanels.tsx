@@ -141,7 +141,7 @@ export function StatsPanel({ applicant, user, labels, formatDate }: StatsPanelPr
       <Box sx={{ minWidth: 0, textAlign: "start" }}>
         <DetailEyebrow>{labels.detail.applicantFields.cooldownState}</DetailEyebrow>
         <Box sx={{ mt: 0.75 }}>
-          <DetailTonalChip tone={stateChip.tone} label={stateChip.label} />
+          <DetailTonalChip tone={stateChip.tone} label={stateChip.label} title={stateChip.label} />
         </Box>
       </Box>
       <StatCell label={labels.detail.teacherApplication.submitted} value={formatDate(user.createdAt)} />

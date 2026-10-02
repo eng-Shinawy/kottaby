@@ -9,15 +9,18 @@
  *
  * Reuse discipline: the gender select is the shared `AdminUserGenderSelect`
  * (single source of the four option labels), the label rows are the shared
- * `AdminDialogFieldLabel`, and the initial credential is the extracted
- * `OnboardStudentCredentialField` (masked input + in-place reveal toggle);
- * the section's own copy comes from the `StudentOnboarding` namespace.
+ * `AdminDialogFieldLabel`, the initial credential is the extracted
+ * `OnboardStudentCredentialField` (masked input + in-place reveal toggle),
+ * and the phone row is the shared `PhoneInput` (tel semantics, an LTR-safe
+ * value on RTL pages, a reserved helper line); the section's own copy comes
+ * from the `StudentOnboarding` namespace.
  */
 
 import { PersonOutlined as PersonIcon } from "@mui/icons-material";
 import { Box, TextField } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material/styles";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { PhoneInput } from "@/frontend/components/ui/PhoneInput";
 import { OnboardStudentCredentialField } from "@/frontend/views/admin/students/onboarding/OnboardStudentCredentialField";
 import { OnboardStudentSectionHeading } from "@/frontend/views/admin/students/onboarding/OnboardStudentSectionHeading";
 import type {
@@ -26,6 +29,7 @@ import type {
 } from "@/frontend/views/admin/students/onboarding/onboardingDialog.types";
 import { AdminDialogFieldLabel } from "@/frontend/views/admin/users/dialogs";
 import { AdminUserGenderSelect } from "@/frontend/views/admin/users/ui";
+import { isValidPhone } from "@/shared/lib/phone";
 import { useAppTranslation } from "@/shared/locale/client";
 import { AdminUsers } from "@/shared/locale/namespaces/adminUsers";
 import { StudentOnboarding } from "@/shared/locale/namespaces/studentOnboarding";
@@ -50,14 +54,17 @@ export interface OnboardStudentProfileSectionProps {
   readonly fieldErrors: OnboardStudentFieldErrors;
 }
 
-/** One labeled simple identity field (the shared label+input pairing of the create-user grid). */
+/**
+ * One labeled simple identity field (the shared label+input pairing of the
+ * create-user grid). The phone row renders through the shared `PhoneInput`
+ * instead of the generic `TextField` branch below.
+ */
 interface IdentityField {
   readonly id: string;
   readonly label: string;
   readonly errorKey: "fullName" | "email" | "phone" | "country";
   readonly value: string;
   readonly inputType?: "email";
-  readonly ltr?: boolean;
 }
 
 export function OnboardStudentProfileSection({
@@ -89,7 +96,6 @@ export function OnboardStudentProfileSection({
       label: t.fields.phone,
       errorKey: "phone",
       value: form.phone,
-      ltr: true,
     },
     {
       id: PROFILE_COUNTRY_ID,
@@ -98,6 +104,13 @@ export function OnboardStudentProfileSection({
       value: form.country,
     },
   ];
+
+  // The phone row's validity: a projected server field error (localized on
+  // the wire) is authoritative over the instant client hint, which fires on
+  // the shared E.164 predicate only once something has been typed.
+  const phoneClientError = form.phone.length > 0 && !isValidPhone(form.phone);
+  const phoneError = Boolean(fieldErrors.phone) || phoneClientError;
+  const phoneErrorText = fieldErrors.phone ?? (phoneClientError ? t.fields.phoneInvalid : " ");
 
   return (
     <Box sx={{ display: "grid", gap: { xs: 2, sm: 3 } }}>
@@ -110,19 +123,31 @@ export function OnboardStudentProfileSection({
         {identityFields.map(field => (
           <Box key={field.id}>
             <AdminDialogFieldLabel htmlFor={field.id} text={field.label} required />
-            <TextField
-              id={field.id}
-              type={field.inputType}
-              fullWidth
-              value={field.value}
-              onChange={event => setForm(prev => ({ ...prev, [field.errorKey]: event.target.value }))}
-              required
-              disabled={submitting}
-              error={Boolean(fieldErrors[field.errorKey])}
-              helperText={fieldErrors[field.errorKey]}
-              aria-invalid={Boolean(fieldErrors[field.errorKey])}
-              slotProps={field.ltr ? { htmlInput: { dir: "ltr" } } : undefined}
-            />
+            {field.errorKey === "phone" ? (
+              <PhoneInput
+                id={field.id}
+                value={form.phone}
+                onChange={event => setForm(prev => ({ ...prev, phone: event.target.value }))}
+                required
+                disabled={submitting}
+                error={phoneError}
+                helperText={phoneErrorText}
+                aria-invalid={phoneError}
+              />
+            ) : (
+              <TextField
+                id={field.id}
+                type={field.inputType}
+                fullWidth
+                value={field.value}
+                onChange={event => setForm(prev => ({ ...prev, [field.errorKey]: event.target.value }))}
+                required
+                disabled={submitting}
+                error={Boolean(fieldErrors[field.errorKey])}
+                helperText={fieldErrors[field.errorKey] ?? " "}
+                aria-invalid={Boolean(fieldErrors[field.errorKey])}
+              />
+            )}
           </Box>
         ))}
         <AdminUserGenderSelect

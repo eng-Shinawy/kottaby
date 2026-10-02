@@ -6,13 +6,16 @@
  * (`countryCodeSchema`) instead of free-text checks — on BOTH write paths.
  * The create path requires a code; the update path BRIDGES (a dataset code
  * persists as the code + display-name pair, legacy free text keeps its
- * legacy shape). See `docs/admin/user-management.md`.
+ * legacy shape). Both write paths also enforce the shared E.164 phone gate
+ * (`validatePhoneField`) — missing / malformed / over-length numbers reject
+ * with the same localized field errors the public registration surface
+ * emits. See `docs/admin/user-management.md`.
  */
-import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import type { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { Gender } from "@/backend/enum/users/gender.enum";
 import { toUserRole, UserRole } from "@/backend/enum/users/user-role.enum";
 import { ValidationError } from "@/backend/lib/errors";
-import { isValidEmail } from "@/backend/services/shared";
+import { isValidEmail, validatePhoneField } from "@/backend/services/shared";
 import type {
   AdminCreateUserSubmitInput,
   AdminUpdateUserPatchInput,
@@ -24,7 +27,6 @@ import type {
 import { COUNTRIES } from "@/shared/constants/countries";
 import { countryCodeSchema, countrySeedToCode, isValidCountryCode } from "@/shared/lib/country-code";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
-import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 import type { AuthLabels } from "@/shared/locale/types/auth";
 
 /** Short lowercase entity label used on `audit_logs.entity_type`. */
@@ -32,102 +34,11 @@ const AUDIT_ENTITY_TYPE = "user";
 
 /** Field-length bounds mirroring the `users` schema column lengths. */
 const MAX_FULL_NAME_LENGTH = 255;
-const MAX_PHONE_LENGTH = 20;
 const MAX_COUNTRY_LENGTH = 100;
 const MIN_PASSWORD_LENGTH = 8;
 
 /** The `audit_logs.details` column ceiling — payloads are capped BEFORE insert. */
 const AUDIT_DETAILS_MAX_LENGTH = 2000;
-
-/**
- * Defensively projects the `changedFields` array out of a raw audit
- * `details` JSON string. Returns `null` for every non-conforming shape
- * (unparseable JSON, non-object root, missing key, non-array value, or a
- * fully-filtered non-string member set) — the timeline still renders the
- * action + actor + timestamp. Only string members survive; nothing is
- * echoed unvalidated (BOPLA discipline on read-back).
- */
-export function projectChangedFields(details: string | null): readonly string[] | null {
-  if (!details) return null;
-  try {
-    const parsed: unknown = JSON.parse(details);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
-    const candidate = (parsed as { changedFields?: unknown }).changedFields;
-    if (!Array.isArray(candidate)) return null;
-    const fields = candidate.filter((entry): entry is string => typeof entry === "string");
-    return fields.length > 0 ? fields : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Positive-integer day-count guard for caption payload members (null otherwise). */
-function captionDaysOf(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) return null;
-  return value;
-}
-
-/** Per-action override caption; a rejecting override appends its stamped cooldown length. */
-function overrideCaptionOf(record: Record<string, unknown>, labels: AdminUsersLabels["activity"]): string | null {
-  if (record.action === "certify") return labels.captionCertify;
-  if (record.action === "grant_re_evaluation") return labels.captionGrantReEvaluation;
-  if (record.action !== "reject") return null;
-  const days = captionDaysOf(record.cooldownDays);
-  return days === null ? labels.captionReject : `${labels.captionReject} · ${labels.captionCooldownDays(days)}`;
-}
-
-/**
- * Narrows an unknown parsed member to a plain object (arrays excluded).
- * The `no-unsafe-type-assertion`-compliant escape hatch (same `value is Type`
- * predicate pattern as `backend/db/client.ts`): the JSON.parse result is
- * runtime-validated here instead of trusted via an `as Record<string, unknown>`
- * cast, preserving the exact checks the previous assertion implicitly relied on.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Composes the human-readable caption for one recent-activity timeline
- * entry from its raw audit `details` JSON — the localized rendering of the
- * teacher-applicant lifecycle payloads (cooldown extension, evaluation
- * override) that carry no `changedFields` key.
- *
- * Recognized shapes (the audit writers' own contracts):
- *  - an Override row whose `action` is `certify` / `reject` /
- *    `grant_re_evaluation` → the per-action caption; a rejecting override
- *    additionally appends the stamped cooldown length when its
- *    `cooldownDays` is a positive integer.
- *  - an Adjust row whose `additionalDays` is a positive integer → the
- *    cooldown-extension caption.
- * Any other action type, malformed / truncated / non-object JSON, unknown
- * action values, or non-numeric day members degrade to `null` — the
- * timeline renders the action label + actor + timestamp regardless (BOPLA
- * on read-back: never echo unvalidated payload shapes). The `user`-entity
- * Update rows already surface their `changedFields` list, so they stay
- * captionless here.
- */
-export function composeActivityCaption(
-  details: string | null,
-  actionType: AuditActionType,
-  labels: AdminUsersLabels["activity"]
-): string | null {
-  if (!details) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(details);
-  } catch {
-    return null;
-  }
-  if (!isRecord(parsed)) return null;
-  const record = parsed;
-  if (actionType === AuditActionType.Override) return overrideCaptionOf(record, labels);
-  if (actionType === AuditActionType.Adjust) {
-    const days = captionDaysOf(record.additionalDays);
-    return days === null ? null : labels.captionCooldownExtended(days);
-  }
-  return null;
-}
 
 /**
  * Positive-safe-integer guard for IDs sourced from caller arguments.
@@ -222,10 +133,12 @@ export function validateCreateInput(input: AdminCreateUserSubmitInput, locale: s
   } else if (!isValidEmail(input.email)) {
     entries.push({ field: "email", code: "EMAIL_INVALID", message: tAuth.emailInvalid });
   }
-  if (!input.phone || input.phone.trim().length === 0) {
-    entries.push({ field: "phone", code: "PHONE_REQUIRED", message: tAuth.phoneRequired });
-  } else if (input.phone.length > MAX_PHONE_LENGTH) {
-    entries.push({ field: "phone", code: "PHONE_TOO_LONG", message: tErrors.validation });
+  // Phone is validated by the shared backend gate (required → too-long →
+  // invalid, in the schema's own check order), so the admin surface can
+  // never drift from the public registration rule.
+  const phoneError = validatePhoneField(input.phone, locale);
+  if (phoneError) {
+    entries.push(phoneError);
   }
   if (!input.password || input.password.length === 0) {
     entries.push({ field: "password", code: "PASSWORD_REQUIRED", message: tAuth.passwordRequired });
@@ -254,6 +167,32 @@ export function validateCreateInput(input: AdminCreateUserSubmitInput, locale: s
 }
 
 /**
+ * Resolves the shared phone-gate error for an update patch's phone member.
+ * Validation-by-shape: an absent key (`undefined`) and an empty /
+ * whitespace-only string both skip validation, so the required-phone error
+ * can never fire on the update path; only a non-empty string is parsed
+ * against the shared E.164 contract.
+ *
+ * This helper is write-agnostic — what each shape WRITES is decided
+ * downstream: `buildUpdatePatch` copies every non-`undefined` member
+ * verbatim and the repo applies it via `.set({ ...patch })`. Wire shapes
+ * (`AdminUpdateUserInput.phone` is nullable; `admin-users.mutation.ts`
+ * maps it with `input.phone ?? undefined`): a field omitted from the
+ * GraphQL variables — or an explicit wire `null`, which `?? undefined`
+ * normalizes to absent — is dropped by `buildUpdatePatch` and leaves the
+ * stored phone untouched; an explicit wire `""` (or whitespace-only
+ * string) survives the normalization and is stored verbatim, NOT cleared —
+ * the empty-trim guard above deliberately lets that admin-side shape
+ * through ungated. Only a non-empty string is validated here.
+ */
+function phonePatchError(patch: AdminUserUpdateDbPatch, locale: string): ApiFieldErrorType | null {
+  if (typeof patch.phone !== "string" || patch.phone.trim().length === 0) {
+    return null;
+  }
+  return validatePhoneField(patch.phone, locale);
+}
+
+/**
  * Validates the update-patch field bounds. Throws localized
  * `ValidationError` on any failure. Empty patch (no whitelisted field
  * present) rejects with `USER_PATCH_EMPTY` BEFORE any DB read.
@@ -262,16 +201,29 @@ export function validateCreateInput(input: AdminCreateUserSubmitInput, locale: s
  * columns inherit the nullable-without-notNull schema shape (so
  * `phone` / `country` / `dateOfBirth` may be `string | null | undefined`
  * even though the public input whitelist types them as `string?`). The
- * validators below treat `null` as the "clear the stored value" intent
- * — passing `null` through to the repo is valid; the guards only
- * reject malformed string values.
+ * write contract lives downstream — `buildUpdatePatch` copies every
+ * non-`undefined` member verbatim and the repo applies it with
+ * `.set({ ...patch })` — so: an absent key leaves the column untouched; a
+ * non-empty string persists verbatim after validation; an empty /
+ * whitespace-only `phone` string is stored verbatim, NOT cleared — a shape
+ * the GraphQL wire CAN deliver (`AdminUpdateUserInput.phone` is nullable
+ * and `admin-users.mutation.ts` maps it with `input.phone ?? undefined`,
+ * which passes `""` through and normalizes an explicit wire `null` to
+ * absent, so the patch never receives a wire `null` for `phone`). The
+ * guards only reject malformed string values — for `phone`, empty /
+ * whitespace strings pass ungated (deliberate admin-side semantics: stored
+ * verbatim, never cleared); `fullName` / `country` still reject empty
+ * strings as malformed; a `null` member — only `dateOfBirth` is typed to
+ * carry one (`string | null`) — is always valid here and clears the
+ * column on write.
  *
  * Field-payload projection: failed checks COLLECT into an `ApiFieldErrorType[]`
  * (field names match the edit-dialog form paths exactly — `fullName`, `phone`,
  * `country`, `gender`, `dateOfBirth`) and throw ONE `ValidationError` whose
- * top-level message stays the canonical `tErrors.validation` string while the
- * `fields` payload identifies the offending fields for inline helperText
- * projection (same contract as `validateCreateInput` above).
+ * top-level message is the FIRST entry's message (so a phone-only
+ * PHONE_INVALID failure throws `authTranslations.phoneInvalid`, not
+ * `errors.validation`) while the `fields` payload identifies the offending
+ * fields for inline helperText projection.
  */
 
 /**
@@ -311,8 +263,9 @@ export function validateUpdatePatch(patch: AdminUserUpdateDbPatch, locale: strin
       entries.push({ field: "fullName", code: "FULL_NAME_INVALID", message: tErrors.validation });
     }
   }
-  if (typeof patch.phone === "string" && patch.phone.length > MAX_PHONE_LENGTH) {
-    entries.push({ field: "phone", code: "PHONE_TOO_LONG", message: tErrors.validation });
+  const phoneError = phonePatchError(patch, locale);
+  if (phoneError) {
+    entries.push(phoneError);
   }
   collectCountryPatchEntries(patch, entries, tErrors.validation);
   if (patch.gender !== undefined && patch.gender !== null && !isValidGender(patch.gender)) {
@@ -393,7 +346,16 @@ export function buildCreateUserInsert(input: AdminCreateUserSubmitInput, passwor
 /**
  * Builds the whitelisted profile patch field-by-field (BOPLA — never a spread).
  * Only fields the caller supplied are included so the SET clause touches
- * just the changed columns. `updatedAt` is server-stamped inside the repo.
+ * just the changed columns: a key left `undefined` is omitted (the column
+ * is left untouched), while every present member is copied verbatim —
+ * values are never rewritten here; the repo stores them as-is via
+ * `.set({ ...patch })`, including the empty / whitespace-only strings the
+ * nullable `AdminUpdateUserInput` wire fields can deliver. The one member
+ * typed to carry an explicit `null` is `dateOfBirth` (`string | null`):
+ * copied verbatim, it clears the column downstream (SQL NULL). For the
+ * `string`-only members (`phone` included) the `admin-users.mutation.ts`
+ * resolver normalizes a wire `null` to absent (`input.x ?? undefined`), so
+ * no `null` member is ever produced from the GraphQL wire.
  *
  * Country bridge (mirrors `buildCreateUserInsert`'s pairing, with the READ-
  * side tolerance of `countrySeedToCode`): a caller value that resolves to a
@@ -404,6 +366,7 @@ export function buildCreateUserInsert(input: AdminCreateUserSubmitInput, passwor
  * legacy shape: raw text in `country` with the `countryCode` twin explicitly
  * cleared to `null`, so the row invariant "`countryCode` non-null ⟺
  * `country` is a dataset display name" holds on every write path.
+ * `updatedAt` is server-stamped inside the repo.
  */
 export function buildUpdatePatch(input: AdminUpdateUserPatchInput): AdminUserUpdateDbPatch {
   const patch: AdminUserUpdateDbPatch = {};

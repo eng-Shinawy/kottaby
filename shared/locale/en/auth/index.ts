@@ -23,6 +23,7 @@ export const authEn: AuthLabels = {
   emailRequired: "Email is required.",
   emailInvalid: "Please enter a valid email address.",
   phoneRequired: "Phone number is required.",
+  phoneInvalid: "Please enter a valid phone number.",
   passwordRequired: "Password is required.",
   passwordTooShort: "Password must be at least 8 characters.",
   countryRequired: "Country is required.",

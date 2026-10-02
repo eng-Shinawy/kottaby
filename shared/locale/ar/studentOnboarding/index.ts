@@ -12,6 +12,7 @@ export const studentOnboardingAr: StudentOnboardingLabels = {
     fullName: "الاسم الكامل",
     email: "البريد الإلكتروني",
     phone: "رقم الهاتف",
+    phoneInvalid: "يرجى إدخال رقم هاتف صحيح.",
     password: "كلمة المرور الأولية",
     showPassword: "إظهار كلمة المرور",
     hidePassword: "إخفاء كلمة المرور",

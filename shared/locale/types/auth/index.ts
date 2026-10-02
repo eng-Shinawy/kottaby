@@ -34,6 +34,7 @@ export interface AuthLabels {
   readonly emailRequired: string;
   readonly emailInvalid: string;
   readonly phoneRequired: string;
+  readonly phoneInvalid: string;
   readonly passwordRequired: string;
   readonly passwordTooShort: string;
   readonly countryRequired: string;

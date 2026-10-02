@@ -279,6 +279,8 @@ export interface AdminUsersLabels {
     readonly email: string;
     /** Field label for the phone input. */
     readonly phone: string;
+    /** Validation message for an invalid phone-number format. */
+    readonly phoneInvalid: string;
     /** Field label for the initial password input. */
     readonly password: string;
     /** Helper text under the initial-password input. */
@@ -314,6 +316,8 @@ export interface AdminUsersLabels {
     readonly fullName: string;
     /** Field label for the phone input. */
     readonly phone: string;
+    /** Validation message for an invalid phone-number format. */
+    readonly phoneInvalid: string;
     /** Field label for the country select. */
     readonly country: string;
     /** Helper text under the country select — what the stored value drives. */

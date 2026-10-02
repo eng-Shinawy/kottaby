@@ -162,14 +162,19 @@ export function DetailEyebrow({ children }: { readonly children: ReactNode }): R
 interface DetailTonalChipProps {
   readonly tone: DetailTone;
   readonly label: string;
+  /** Full copy for constrained cells that clip the pill — the native
+   *  tooltip carries the un-truncated value (e.g. "No cooldown" under a
+   *  squeezed stats-panel column). */
+  readonly title?: string;
 }
 
 /** Small pill chip painted from the tone lane's M3 container pair. */
-export function DetailTonalChip({ tone, label }: DetailTonalChipProps): ReactNode {
+export function DetailTonalChip({ tone, label, title }: DetailTonalChipProps): ReactNode {
   return (
     <Chip
       size="small"
       label={label}
+      title={title}
       sx={theme => {
         const colors = toneColors(theme, tone);
         return {

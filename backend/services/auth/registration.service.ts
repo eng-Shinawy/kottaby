@@ -3,8 +3,9 @@
  *
  * Responsibilities:
  *  1. Validate the public `RegistrationSubmitInput` (required fields, email
- *     shape, password ≥ 8 chars, country an ISO 3166-1 alpha-2 code from the
- *     shared dataset, role ∈ {student, teacher, parent}). Throws
+ *     shape, phone E.164 via the shared backend validator, password ≥ 8
+ *     chars, country an ISO 3166-1 alpha-2 code from the shared dataset,
+ *     role ∈ {student, teacher, parent}). Throws
  *     `ValidationError` with localized messages from
  *     `getServerTranslations(locale).authTranslations`.
  *  2. Hash the password via `hashPassword` BEFORE the transaction opens so
@@ -34,7 +35,12 @@ import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { hashPassword } from "@/backend/lib/auth/password";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { ConflictError, translateDbError, ValidationError } from "@/backend/lib/errors";
-import { createRoleChild, createStudentWithHandshakeRetry, isValidEmail } from "@/backend/services/shared";
+import {
+  createRoleChild,
+  createStudentWithHandshakeRetry,
+  isValidEmail,
+  validatePhoneField,
+} from "@/backend/services/shared";
 import { RecitationCatalogService } from "@/backend/services/shared/recitation-catalog.service";
 import { StudentTrialService } from "@/backend/services/students/student-trial.service";
 import type {
@@ -213,8 +219,11 @@ export namespace RegistrationService {
     } else if (!isValidEmail(input.email)) {
       entries.push({ field: "email", code: "EMAIL_INVALID", message: t.emailInvalid });
     }
-    if (!input.phone || input.phone.trim().length === 0) {
-      entries.push({ field: "phone", code: "PHONE_REQUIRED", message: t.phoneRequired });
+    // Shared phone gate — one call owns required/length/E.164-format and
+    // returns the localized field error; `null` means the value parses.
+    const phoneError = validatePhoneField(input.phone, locale);
+    if (phoneError) {
+      entries.push(phoneError);
     }
     if (!input.password || input.password.length === 0) {
       entries.push({ field: "password", code: "PASSWORD_REQUIRED", message: t.passwordRequired });

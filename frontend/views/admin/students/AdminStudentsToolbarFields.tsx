@@ -111,7 +111,9 @@ export function HighlightRecentToggle({ active, onToggle, labels }: HighlightRec
         onClick={onToggle}
         startIcon={<HighlightIcon />}
         sx={theme => ({
-          minHeight: 44,
+          // The 54px control token matches the toolbar's text buttons and
+          // selects so one wrapped row reads as a single aligned band.
+          minHeight: 54,
           flexShrink: 0,
           whiteSpace: "nowrap",
           color: active ? theme.palette.primary.main : theme.palette.text.secondary,
@@ -143,8 +145,8 @@ export function OnboardingHistoryButton({ labels, onClick }: OnboardingHistoryBu
         aria-label={labels.history.open}
         onClick={onClick}
         sx={theme => ({
-          minHeight: 44,
-          minWidth: 44,
+          minHeight: 54,
+          minWidth: 54,
           flexShrink: 0,
           color: theme.palette.text.secondary,
         })}
@@ -166,8 +168,9 @@ interface OnboardStudentButtonProps {
 
 /**
  * OnboardStudentButton — the toolbar's primary action (the direct student
- * onboarding entry): the contained primary button, 44px touch target,
- * nowrap label, extracted to keep the toolbar module inside its cap.
+ * onboarding entry): the contained primary button, 54px touch target
+ * (the toolbar's shared control height), nowrap label, extracted to keep
+ * the toolbar module inside its cap.
  */
 export function OnboardStudentButton({ label, onClick, disabled }: OnboardStudentButtonProps): ReactNode {
   return (
@@ -178,7 +181,7 @@ export function OnboardStudentButton({ label, onClick, disabled }: OnboardStuden
       disabled={disabled}
       sx={theme => ({
         borderRadius: "8px",
-        minHeight: 44,
+        minHeight: 54,
         flexShrink: 0,
         whiteSpace: "nowrap",
         bgcolor: theme.palette.primary.main,

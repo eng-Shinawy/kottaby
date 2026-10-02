@@ -72,10 +72,15 @@ interface AdminDialogFooterBandProps {
 }
 
 /**
- * Dialog footer band shared by the create/edit dialogs — Cancel (text) +
- * submit (contained primary, form submit) end-aligned (the flex direction
- * flips automatically under RTL), top hairline, paper background. The parent
- * `<form>` supplies the submit behavior, so this band renders no form logic.
+ * Dialog footer band shared by the create/edit dialogs — Cancel (outlined,
+ * equal-quality interactive control beside the contained primary) + submit
+ * (contained primary, form submit) end-aligned (the flex direction flips
+ * automatically under RTL), top hairline, paper background. The band is
+ * pinned (`position: sticky; bottom: 0`) to the scrolling paper so the
+ * submit CTA stays reachable on compact viewports where the form outgrows
+ * the dialog (mobile onboarding-length content) instead of scrolling out
+ * of view. The parent `<form>` supplies the submit behavior, so this band
+ * renders no form logic.
  */
 export function AdminDialogFooterBand({
   cancelLabel,
@@ -92,17 +97,12 @@ export function AdminDialogFooterBand({
         justifyContent: "flex-end",
         backgroundColor: theme.palette.background.paper,
         borderTop: `1px solid ${theme.palette.border.main}`,
+        position: "sticky",
+        bottom: 0,
+        zIndex: 1,
       })}
     >
-      <Button
-        onClick={onClose}
-        disabled={loading}
-        sx={theme => ({
-          minHeight: 54,
-          color: theme.palette.text.secondary,
-          "&:hover": { backgroundColor: theme.palette.action.hover },
-        })}
-      >
+      <Button variant="outlined" color="inherit" onClick={onClose} disabled={loading} sx={{ minHeight: 54 }}>
         {cancelLabel}
       </Button>
       <Button type="submit" variant="contained" disabled={loading} sx={{ minHeight: 54 }}>

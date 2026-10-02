@@ -102,16 +102,39 @@ export function FormDialogShell({
           {children}
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+      <DialogActions
+        sx={theme => ({
+          px: 3,
+          py: 2,
+          gap: 1,
+          // Sticky pin to the scrolling paper: on compact viewports the
+          // onboarding-length form scrolls under the actions instead of
+          // pushing the submit CTA out of reach. Paper bg + hairline keep
+          // the band legible over scrolled content.
+          position: "sticky",
+          bottom: 0,
+          zIndex: 1,
+          backgroundColor: theme.palette.background.paper,
+          borderTop: `1px solid ${theme.palette.border.main}`,
+        })}
+      >
         {submitHint ? (
           <Typography
             variant="caption"
-            sx={theme => ({ marginInlineEnd: "auto", color: theme.palette.text.disabled, alignSelf: "center" })}
+            sx={theme => ({
+              marginInlineEnd: "auto",
+              color: theme.palette.text.disabled,
+              alignSelf: "center",
+              // Keyboard-shortcut hints are desktop affordances — on compact
+              // touch viewports the caption wraps to two lines and unbalances
+              // the action pair, so it only renders on sm+.
+              display: { xs: "none", sm: "block" },
+            })}
           >
             {submitHint}
           </Typography>
         ) : null}
-        <Button variant="outlined" onClick={onClose} color="inherit" disabled={loading}>
+        <Button variant="outlined" onClick={onClose} color="inherit" disabled={loading} sx={{ minHeight: 54 }}>
           {labels.cancel}
         </Button>
         <Button
@@ -120,6 +143,7 @@ export function FormDialogShell({
           disabled={loading || submitDisabled}
           variant="contained"
           startIcon={loading ? <CircularProgress size={16} color="inherit" /> : null}
+          sx={{ minHeight: 54 }}
         >
           {loading ? labels.saving : labels.save}
         </Button>

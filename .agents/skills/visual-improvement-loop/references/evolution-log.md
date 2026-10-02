@@ -421,6 +421,34 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
 3. **MUI Autocomplete open-state rig**: synthetic `mousedown`/`focus`/`click()` via eval does NOT open the listbox; a real CDP `agent-browser click "input[role=combobox]"` does (verified `[role=listbox]` + option count pre/post shot). → promoted into `capture-protocol.md` (state-verified capture).
 4. **Inspector prompt contamination**: naming the feature/component in the inspector CONTEXT (e.g. "the CountrySelector is an MUI Autocomplete") made inspectors hallucinate a missing input on surfaces that legitimately render none (dashboard distribution panel, read-only detail view) — 3 phantom findings, all DOM-disproven. Rule: on non-form surfaces, describe the SURFACE, never the component contract. → promoted into `rubric.md` (prompts-must-state).
 5. **Zero-fix-wave runs are valid outcomes**: 30 captures, 8 findings, 8 DOM arbitrations, 0 genuine defects — the loop exits at Pass 1 with accepted-debt adjudication instead of manufacturing fixes for disproven findings. The per-file quality loop was correctly not run (no files touched).
+## 2026-10-02 — #229 phone-input plan visual run (trace 1a0f9957e29a9f25)
+
+1. **Orphaned Chrome daemons OOM the dev server mid-compile**: sandbox reaper/CDP hiccups leave every
+   crashed session's Chrome (~400MB each) alive; 3 instances + turbopack compile workers OOM-killed
+   `next-server` twice (dmesg `oom-kill … task=next-server`). Recovery ritual: `pkill -f chrome`,
+   `pkill -f agent-browser`, restart ONE daemon, and **curl-warm every route before opening the
+   browser** — compiles are browser-free; `--max-old-space-size` does NOT cap turbopack workers.
+   → promoted into `references/capture-protocol.md` (sandbox gotchas).
+2. **`rg -rln` foot-gun**: `-r` is REPLACE — `rg -rln "x"` silently rewrites matched output text to
+   "ln" and mangles analysis (read-only corruption). Use `-l -n`. → agent-ops knowledge; also logged
+   here because two different runs hit it.
+3. **MUI `Button`-label truncation inside segmented controls at compact widths**: fixed-width flex
+   segments clip long localized labels ("Teacher Applicant") with no ellipsis affordance; canonical
+   fix = compact-only column stack + `whiteSpace: normal` + caption size, sm+ untouched.
+   → promoted into `references/fix-patterns.md`.
+4. **Keyboard-hint captions in DialogActions unbalance the mobile action pair**: the "Ctrl + Enter…"
+   caption wraps to 2 lines at 390px while the buttons stay 54px — hide the hint below sm (touch
+   devices have no keyboard anyway). → promoted into `references/fix-patterns.md`.
+5. **Dark-mode segmented-control selected state**: `background.paper` selected fill reads DARKER than
+   the `surfaceContainerHigh` track (the pill visually sinks); canonical fix = success-tinted
+   `color-mix` fill so the selected pill pops in both schemes. → promoted into
+   `references/fix-patterns.md`.
+6. **Score-verdict caching across recapture rounds re-confirmed** (alias-cost: a full wasted loop
+   with stale verdicts printed as fresh) — clearing the verdict dir is mandatory between passes.
+7. **Sticky DialogActions (`position: sticky; bottom: 0` + paper bg + hairline) resolves the
+   "actions below the fold" finding class on long mobile form dialogs** without fullScreen
+   composition — works on the MUI paper scroll container, no JS. → promoted into
+   `references/fix-patterns.md` (mobile dialog row).
 
 ## 2026-10-02 — conversion plan confirm run (`ai/plans/milestone_1_core_domain_mvp/failed_applicant_student_record_conversion/confirm/visual-scoring-outcome.md`)
 

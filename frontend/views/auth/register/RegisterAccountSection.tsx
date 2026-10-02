@@ -77,7 +77,9 @@ export function RegisterAccountSection({
           />
           <PasswordStrengthMeter pw={passwordValue} t={t} />
         </Box>
-        <FormControl fullWidth error={Boolean(errors.gender)}>
+        {/* Gender is the section's only optional lone field — spanning the
+            full row keeps the grid rhythm even (no dangling half cell). */}
+        <FormControl fullWidth error={Boolean(errors.gender)} sx={{ gridColumn: { xs: "1 / -1", sm: "1 / -1" } }}>
           <InputLabel>{t.gender}</InputLabel>
           <Select<Gender | "">
             label={t.gender}
