@@ -75,6 +75,15 @@ styles (`letterSpacing`, `minHeight`, `textAlign`), `getBoundingClientRect` for 
 Range client-rects for bidi/line ordering, and the translation source for copy claims. Record the
 measurement in the outcome; a finding disproven by DOM evidence is dismissed, not accepted debt.
 
+## Contrast findings are computed, never eyeballed (added 2026-10-01)
+
+A VLM inspector invented "white text at ~2.8:1" on a copper CTA whose real pairing was near-black
+text at 7.94:1 — VLMs frequently misidentify BOTH the text color and the background of tinted
+buttons. Any color/contrast finding is a LEAD, not evidence: read `getComputedStyle`
+backgroundColor/color from the live DOM and compute the WCAG ratio (both palette modes — a
+dark-default app makes eyeballed light-mode claims doubly wrong) before accepting or dismissing.
+The finding that survives computation may point at the OTHER mode than the capture showed.
+
 ## Modal-capture arbitration (added 2026-09-23)
 
 Dialog/overlay captures attract modal-semantics delusions: inspectors score a modal DOWN for

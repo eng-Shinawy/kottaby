@@ -113,6 +113,7 @@ const ANONYMOUS_AUTH: AuthContextType = {
   error: null,
   login: () => Promise.resolve(false),
   logout: () => undefined,
+  updateSessionUser: () => undefined,
 };
 
 /** Harness: anonymous AuthContext + empty-mock Apollo client around the page. */

@@ -17,7 +17,12 @@
  *  - Tier 1 (branch/stmt, full-branch coverage on new logic): each method's
  *    happy path + every rejection branch (anonymous actor, non-admin actor,
  *    role-admin tamper, empty patch, each invalid field, user-not-found,
- *    already-deleted / not-deleted conflict, self-deactivation).
+ *    already-deleted / not-deleted conflict, self-deactivation) plus the
+ *    credential replacement (setUserPassword: hash-verify via
+ *    comparePassword, flag persisted in both directions, PASSWORD_REQUIRED /
+ *    PASSWORD_TOO_SHORT policy denials, deleted-actor strict-guard denial,
+ *    soft-deleted-target USER_NOT_FOUND denial with zero writes,
+ *    zero-audit-on-denial / one-audit-on-success).
  *  - Tier 2 (boundary): name length 1 / 255 / 256; pageSize 1 / 100 / 101;
  *    id 0 / negative / MAX_SAFE_INTEGER + 1 pre-DB reject.
  *  - Tier 3 (chaos / concurrency): concurrent `setUserDeleted` ×2 via
@@ -50,6 +55,7 @@ import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldo
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { Gender } from "@/backend/enum/users/gender.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
+import { comparePassword, hashPassword } from "@/backend/lib/auth/password";
 import {
   ConflictError,
   DomainError,
@@ -59,10 +65,15 @@ import {
   ValidationError,
 } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
-import { buildCreateUserInsert, validateCreateInput } from "@/backend/services/admin/user-management.helpers";
+import {
+  buildCreateUserInsert,
+  validateCreateInput,
+  validatePasswordPolicy,
+} from "@/backend/services/admin/user-management.helpers";
 import { AdminUserManagementService } from "@/backend/services/admin/user-management.service";
 import type {
   AdminCreateUserSubmitInput,
+  AdminSetUserPasswordSubmitInput,
   AdminUpdateUserPatchInput,
   DBTransaction,
   UserSelectType,
@@ -115,6 +126,16 @@ function asValidationError(error: Error): ValidationError {
 
 /** Domain log spy family share this stubbed signature. */
 type DomainLogSpy = ReturnType<typeof spyOn>;
+
+/**
+ * Type-guard: narrows a parsed `JSON.parse` result (captured as `unknown`
+ * at the call site — never asserted straight from `any`) to a plain object
+ * record. The `no-unsafe-type-assertion`-safe pattern used across the repo
+ * for audit `details` payload inspection.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Silences `logger.logDomainError` so test stdout stays compact. */
 function silenceDomainLog(): DomainLogSpy {
@@ -1609,6 +1630,345 @@ describe("AdminUserManagementService.updateUser", () => {
       const studentRow = await tx.select().from(students).where(eq(students.id, student.id)).limit(1);
       expect(studentRow[0]?.parentId).toBeNull();
     });
+  });
+});
+
+describe("AdminUserManagementService.setUserPassword", () => {
+  // ─── Tier 1: happy path + each rejection branch ─────────────────────────
+
+  test("happy path — flag true: new hash verifies via comparePassword, ONE audit row names credentials", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const student = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, student.id);
+      const newPassword = `NewSecret-${randomUUID().slice(0, 8)}`;
+      const input: AdminSetUserPasswordSubmitInput = { password: newPassword, mustChangePassword: true };
+
+      const result = await AdminUserManagementService.setUserPassword(student.id, input, admin.id, LOCALE, tx);
+
+      // The returned AdminUserDetail is password-stripped (structural Omit).
+      expect("passwordHash" in result).toBe(false);
+      expect(result.mustChangePassword).toBe(true);
+
+      // The stored hash is a REAL bcrypt hash of the new plaintext — the
+      // fixture stub was replaced (hash-before-persistence observable).
+      const userRows = await tx.select().from(users).where(eq(users.id, student.id)).limit(1);
+      const storedHash = userRows[0]?.passwordHash;
+      if (!storedHash) throw new Error("expected the user row to exist");
+      expect(await comparePassword(newPassword, storedHash)).toBe(true);
+      expect(await comparePassword(TEST_DEFAULT_CREDENTIAL, storedHash)).toBe(false);
+
+      // Exactly ONE audit row: Update on the target; details carry only the
+      // changed-field NAME + the flag — never the plaintext nor the hash.
+      const auditCount = await countAuditForEntity(tx, admin.id, AuditActionType.Update, student.id);
+      expect(auditCount).toBe(1);
+      const auditRows = await tx
+        .select()
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.actorId, admin.id),
+            eq(auditLogs.actionType, AuditActionType.Update),
+            eq(auditLogs.entityId, student.id)
+          )
+        )
+        .limit(1);
+      const rawDetails = auditRows[0]?.details;
+      if (typeof rawDetails !== "string") throw new Error("expected audit details to be present");
+      const details: unknown = JSON.parse(rawDetails);
+      if (!isRecord(details)) throw new Error("expected audit details to be a JSON object");
+      expect(details.changedFields).toEqual(["credentials"]);
+      expect(details.mustChangePassword).toBe(true);
+      expect(rawDetails).not.toContain(newPassword);
+      expect(rawDetails).not.toContain(storedHash);
+    });
+  });
+
+  test("happy path — flag false clears a prior pending-reset flag", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const student = await createTestUser(tx, { role: "student", mustChangePassword: true });
+      await createTestStudent(tx, student.id);
+      const input: AdminSetUserPasswordSubmitInput = {
+        password: `AnotherSecret-${randomUUID().slice(0, 8)}`,
+        mustChangePassword: false,
+      };
+
+      const result = await AdminUserManagementService.setUserPassword(student.id, input, admin.id, LOCALE, tx);
+
+      expect("passwordHash" in result).toBe(false);
+      expect(result.mustChangePassword).toBe(false);
+      const flagRows = await tx.select({ flag: users.mustChangePassword }).from(users).where(eq(users.id, student.id));
+      expect(flagRows[0]?.flag).toBe(false);
+      expect(await countAuditForEntity(tx, admin.id, AuditActionType.Update, student.id)).toBe(1);
+    });
+  });
+
+  test("empty password → ValidationError(PASSWORD_REQUIRED); zero writes, zero audit", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const student = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, student.id);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          student.id,
+          { password: "", mustChangePassword: false },
+          admin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.message).toContain(tAuth.passwordRequired);
+      const fields = asValidationError(error).fields;
+      if (fields?.length !== 1) throw new Error("expected exactly one field entry");
+      expect(fields[0].field).toBe("password");
+      expect(fields[0].code).toBe("PASSWORD_REQUIRED");
+
+      // Zero writes: the fixture hash + flag are untouched; zero audit rows.
+      const userRows = await tx.select().from(users).where(eq(users.id, student.id)).limit(1);
+      expect(userRows[0]?.mustChangePassword).toBe(false);
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+
+  test("whitespace-only password → ValidationError(PASSWORD_REQUIRED)", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const student = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, student.id);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          student.id,
+          { password: "   ", mustChangePassword: false },
+          admin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(ValidationError);
+      const fields = asValidationError(error).fields;
+      if (fields?.length !== 1) throw new Error("expected exactly one field entry");
+      expect(fields[0].code).toBe("PASSWORD_REQUIRED");
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+
+  test("7-char password → ValidationError(PASSWORD_TOO_SHORT); zero writes, zero audit", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const student = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, student.id);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          student.id,
+          { password: "Passw0r", mustChangePassword: false },
+          admin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.message).toContain(tAuth.passwordTooShort);
+      const fields = asValidationError(error).fields;
+      if (fields?.length !== 1) throw new Error("expected exactly one field entry");
+      expect(fields[0].field).toBe("password");
+      expect(fields[0].code).toBe("PASSWORD_TOO_SHORT");
+
+      // Zero writes: the fixture hash is untouched (no hash of the rejected
+      // plaintext ever landed) and zero audit rows exist.
+      const userRows = await tx.select().from(users).where(eq(users.id, student.id)).limit(1);
+      const storedHash = userRows[0]?.passwordHash;
+      if (!storedHash) throw new Error("expected the user row to exist");
+      expect(await comparePassword("Passw0r", storedHash)).toBe(false);
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+
+  test("user not found → NotFoundError(USER_NOT_FOUND); zero audit rows", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      silenceDomainLog();
+      const absentId = await absentUserId(tx);
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          absentId,
+          { password: `Irrelevant-${randomUUID().slice(0, 8)}`, mustChangePassword: false },
+          admin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(NotFoundError);
+      assertErrorCode(error, "USER_NOT_FOUND");
+      expect(error.message).toContain(tErrors.adminUsers.userNotFound);
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+
+  test("soft-deleted target → NotFoundError(USER_NOT_FOUND); zero writes (old credential still verifies), zero audit rows", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const student = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, student.id);
+      const oldPassword = `OldSecret-${randomUUID().slice(0, 8)}`;
+      const newPassword = `NewSecret-${randomUUID().slice(0, 8)}`;
+      // Soft-delete the target AND plant a REAL bcrypt hash of a known old
+      // credential first — the default fixture hash is a stub that verifies
+      // nothing, so the zero-write proof needs a hash the old plaintext
+      // genuinely matches.
+      await tx
+        .update(users)
+        .set({ passwordHash: await hashPassword(oldPassword), isDeleted: true, deletedAt: new Date() })
+        .where(eq(users.id, student.id));
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          student.id,
+          { password: newPassword, mustChangePassword: false },
+          admin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(NotFoundError);
+      assertErrorCode(error, "USER_NOT_FOUND");
+      expect(error.message).toContain(tErrors.adminUsers.userNotFound);
+
+      // ZERO writes: the savepoint rollback undid the guarded UPDATE — the
+      // stored hash still verifies the OLD credential (the rejected
+      // plaintext never landed) and the force-reset flag is untouched.
+      const userRows = await tx.select().from(users).where(eq(users.id, student.id)).limit(1);
+      const storedHash = userRows[0]?.passwordHash;
+      if (!storedHash) throw new Error("expected the user row to exist");
+      expect(await comparePassword(oldPassword, storedHash)).toBe(true);
+      expect(await comparePassword(newPassword, storedHash)).toBe(false);
+      expect(userRows[0]?.mustChangePassword).toBe(false);
+
+      // ZERO audit rows for the actor: the deleted-target throw precedes
+      // the audit insert, and the rollback discards the password write.
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+
+  test("invalid id (0) → ValidationError", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          0,
+          { password: `Irrelevant-${randomUUID().slice(0, 8)}`, mustChangePassword: false },
+          admin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.message).toContain(tErrors.validation);
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+
+  test("anonymous actor (id=0) → UnauthorizedError; zero audit rows", async () => {
+    await runInRollback(async tx => {
+      const target = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, target.id);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          target.id,
+          { password: `Irrelevant-${randomUUID().slice(0, 8)}`, mustChangePassword: false },
+          ANONYMOUS_ACTOR_ID,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(UnauthorizedError);
+      expect(error.message).toContain(tErrors.unauthorized);
+      expect(await countAuditRowsForActor(tx, ANONYMOUS_ACTOR_ID)).toBe(0);
+    });
+  });
+
+  test("non-admin actor → ForbiddenError; zero audit rows", async () => {
+    await runInRollback(async tx => {
+      const nonAdmin = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, nonAdmin.id);
+      const target = await createTestUser(tx, { role: "parent" });
+      await createTestParent(tx, target.id);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          target.id,
+          { password: `Irrelevant-${randomUUID().slice(0, 8)}`, mustChangePassword: false },
+          nonAdmin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(error.message).toContain(tErrors.forbidden);
+      expect(await countAuditRowsForActor(tx, nonAdmin.id)).toBe(0);
+    });
+  });
+
+  test("deleted admin actor → ForbiddenError (STRICT guard, not the relaxed CRUD gate)", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const student = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, student.id);
+      await tx.update(users).set({ isDeleted: true }).where(eq(users.id, admin.id));
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AdminUserManagementService.setUserPassword(
+          student.id,
+          { password: `Irrelevant-${randomUUID().slice(0, 8)}`, mustChangePassword: false },
+          admin.id,
+          LOCALE,
+          tx
+        )
+      );
+      expect(error).toBeInstanceOf(ForbiddenError);
+      expect(error.message).toContain(tErrors.accountDeleted);
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+});
+
+describe("validatePasswordPolicy — pure validator branch coverage", () => {
+  test("empty / whitespace-only → exactly one PASSWORD_REQUIRED entry with the localized auth copy", () => {
+    for (const rejected of ["", "   "]) {
+      const entries = validatePasswordPolicy(rejected, tAuth);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.field).toBe("password");
+      expect(entries[0]?.code).toBe("PASSWORD_REQUIRED");
+      expect(entries[0]?.message).toBe(tAuth.passwordRequired);
+    }
+  });
+
+  test("7-char boundary → exactly one PASSWORD_TOO_SHORT entry with the localized auth copy", () => {
+    const entries = validatePasswordPolicy("Passw0r", tAuth);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.field).toBe("password");
+    expect(entries[0]?.code).toBe("PASSWORD_TOO_SHORT");
+    expect(entries[0]?.message).toBe(tAuth.passwordTooShort);
+  });
+
+  test("8-char boundary (the shared minimum) and longer → policy satisfied (empty entries)", () => {
+    expect(validatePasswordPolicy("Passw0rd", tAuth)).toEqual([]);
+    expect(validatePasswordPolicy(`LongEnough-${randomUUID()}`, tAuth)).toEqual([]);
   });
 });
 

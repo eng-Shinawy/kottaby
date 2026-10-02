@@ -168,6 +168,7 @@ export interface AdminUserDetailRow {
   readonly fullName: string;
   readonly email: string;
   readonly phone: string | null;
+  readonly mustChangePassword: boolean;
   readonly role: RawUserRole;
   readonly dateOfBirth: string | null;
   readonly gender: RawGender;

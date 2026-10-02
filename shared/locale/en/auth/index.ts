@@ -70,4 +70,17 @@ export const authEn: AuthLabels = {
   rememberMe: "Remember me",
   loginMetaTitle: "Kottaby Academy — Sign in",
   registerMetaTitle: "Kottaby Academy — Create account",
+  changePassword: {
+    title: "Change your password",
+    description: "For security, you must set a new password before you can continue.",
+    currentPasswordLabel: "Current password",
+    newPasswordLabel: "New password",
+    confirmPasswordLabel: "Confirm new password",
+    submit: "Save new password",
+    mismatch: "Passwords do not match.",
+    success: "Password changed successfully! Redirecting to your dashboard...",
+    temporaryPasswordNotice:
+      "A temporary password was issued to this account. Set a new password of your own to continue.",
+    genericFailure: "Password change failed. Please try again.",
+  },
 };

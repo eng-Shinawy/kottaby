@@ -24,6 +24,7 @@
  * this module only DESCRIBES that row so callers route consistently.
  */
 
+import { CHANGE_PASSWORD_PAGE_PATH } from "@/frontend/lib/auth/changePasswordRoute";
 import type { ErrorMessageKey } from "@/shared/locale/types/errors";
 
 /**
@@ -192,6 +193,19 @@ export interface GraphQLErrorAction {
    * treated as success-equivalent, presented neutrally — NOT as a failure.
    */
   readonly duplicateSuccessEquivalent?: true;
+  /**
+   * Client redirect target for rows whose resolution is a navigation —
+   * `PASSWORD_CHANGE_REQUIRED` carries the forced-reset page. The map stays
+   * PURE: it only DESCRIBES the target; executing the navigation belongs to
+   * the seam consumer (`dispatchMappedGraphQLErrorActions` in
+   * `frontend/providers/apollo/utils/error-surface.ts` honors the payload
+   * ONCE per session — window-level navigation guarded against re-firing
+   * and against landing on the target itself; the same ownership split as
+   * the `auth-recovery` row, whose redirect the deduped refresh path owns).
+   * The payload keeps the target single-sourced so no consumer re-spells
+   * the path.
+   */
+  readonly redirectTo?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +246,28 @@ function mapPermissionRow(code: string, context: GraphQLErrorMappingContext): Gr
         tone: "error",
         retryable: false,
       });
+}
+
+/**
+ * PASSWORD_CHANGE_REQUIRED row: the forced-reset operation-gate denial
+ * (`backend/graphql/passwordChangeGate.ts` — a flagged caller invoked a root
+ * field outside the exemption allowlist). Mirrors the FORBIDDEN surface
+ * pairing (section fallback for queries, localized toast for mutations) with
+ * the row's OWN `errors`-namespace copy — never the generic `forbidden` text
+ * — so a mid-session gate denial is never silent. The action also carries
+ * `redirectTo` (see {@link GraphQLErrorAction.redirectTo}) describing the
+ * established client redirect to the forced-reset page, which the surface
+ * seam consumer honors once per session.
+ */
+function mapPasswordChangeRow(code: string, context: GraphQLErrorMappingContext): GraphQLErrorAction | null {
+  if (code !== "PASSWORD_CHANGE_REQUIRED") return null;
+  return withCorrelation(context, {
+    kind: context.contextKind === "query" ? "permission-fallback" : "toast",
+    messageKey: "passwordChangeRequired",
+    tone: "error",
+    retryable: false,
+    redirectTo: CHANGE_PASSWORD_PAGE_PATH,
+  });
 }
 
 /**
@@ -427,6 +463,8 @@ function mapMaskedInternalRow(code: string, context: GraphQLErrorMappingContext)
  * | UNAUTHORIZED (+legacy UNAUTHENTICATED, utils.ts trigger only) | any | auth-recovery (deduped refresh → logout/login on failure) |
  * | FORBIDDEN                                    | query              | permission-fallback (`forbidden`) |
  * | FORBIDDEN                                    | mutation           | toast (`forbidden`) |
+ * | PASSWORD_CHANGE_REQUIRED                     | query              | permission-fallback (`passwordChangeRequired`) + `redirectTo` forced-reset page |
+ * | PASSWORD_CHANGE_REQUIRED                     | mutation           | toast (`passwordChangeRequired`) + `redirectTo` forced-reset page |
  * | VALIDATION                                   | form + fields[]    | form-fields — `setError(field, { message })` per pair |
  * | VALIDATION                                   | otherwise          | toast (`validation`); pairs still attached for form-bound consumers |
  * | NOT_FOUND / `{ENTITY}_NOT_FOUND`             | any                | notice not-found (`notFound`) |
@@ -462,6 +500,7 @@ export function mapGraphQLErrorByCode(rawCode: string, context: GraphQLErrorMapp
   return (
     mapAuthRow(code, context) ??
     mapPermissionRow(code, context) ??
+    mapPasswordChangeRow(code, context) ??
     mapValidationRow(code, context) ??
     mapInlineNoticeRow(code, context) ??
     mapRubricEvaluationRow(code, context) ??

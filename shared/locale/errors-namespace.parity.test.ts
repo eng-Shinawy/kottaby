@@ -36,6 +36,11 @@
  *   6. RUBRIC-SCORING KEY PINS — the seven rubric-submission denials
  *      (five pre-DB validation rejections + two state-conflict rejections)
  *      are pinned in BOTH locales as flat, placeholder-free copy.
+ *   7. PASSWORD-SURFACE KEY PINS — the forced-reset gate deny
+ *      (passwordChangeRequired) and the two self-service change-password
+ *      validation rejects (currentPasswordInvalid, newPasswordSameAsCurrent)
+ *      are pinned in BOTH locales as flat, placeholder-free copy (emitted by
+ *      the Apollo gate plugin + the auth domain service, not by route.ts).
  *
  * ENVELOPE LOCALIZATION (rendering-path evidence): behavioral proof that the
  * transport rejection envelopes carry the LOCALIZED value (never a literal) is
@@ -408,6 +413,42 @@ describe("session-arbitration denial keys — flat domain additions on BOTH loca
     // additions (untyped holes) are prohibited by the ErrorsLabels contract.
     expect(Object.hasOwn(errorsEn, key)).toBe(true);
     expect(Object.hasOwn(errorsAr, key)).toBe(true);
+  });
+});
+
+// ─── Password-surface domain-service key pins ─────────────────────────────
+
+/**
+ * The `errors` keys minted for the password-governance surface: the
+ * forced-reset gate deny (FORBIDDEN / PASSWORD_CHANGE_REQUIRED, emitted by
+ * the Apollo operation-guard plugin) plus the two self-service
+ * change-password validation rejects (CURRENT_PASSWORD_INVALID,
+ * NEW_PASSWORD_SAME_AS_CURRENT, emitted by the auth domain service). The
+ * route-source discovery cannot see these consumers — they are pinned here
+ * in BOTH locales (removing a key from both maps simultaneously still
+ * fails).
+ */
+const PASSWORD_SURFACE_KEYS = ["passwordChangeRequired", "currentPasswordInvalid", "newPasswordSameAsCurrent"] as const;
+
+// ===========================================================================
+describe("password-surface service keys — pinned in BOTH locales", () => {
+  test.each([...PASSWORD_SURFACE_KEYS])("domain key `%s` resolves non-empty in BOTH ar and en maps", key => {
+    expect(nonEmptyLabelOf(errorsAr, key, "ar").length).toBeGreaterThan(0);
+    expect(nonEmptyLabelOf(errorsEn, key, "en").length).toBeGreaterThan(0);
+    // Key must be part of the COMPILE-TIME schema too — Reflect-only
+    // additions (untyped holes) are prohibited by the ErrorsLabels contract.
+    expect(Object.hasOwn(errorsEn, key)).toBe(true);
+    expect(Object.hasOwn(errorsAr, key)).toBe(true);
+  });
+
+  test("the three password-surface denials carry ZERO ICU placeholders in BOTH locales", () => {
+    // Each denial is flat copy consumed verbatim by the gate plugin / the
+    // change-password form's error mapping — no interpolated value may ever
+    // slip into either locale.
+    for (const key of PASSWORD_SURFACE_KEYS) {
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, key, "ar"))).toEqual([]);
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, key, "en"))).toEqual([]);
+    }
   });
 });
 

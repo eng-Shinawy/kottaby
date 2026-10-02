@@ -1,5 +1,7 @@
 import { gql, type TypedDocumentNode } from "@apollo/client";
 import type {
+  ChangeMyPasswordMutation,
+  ChangeMyPasswordMutationVariables,
   LoginMutation,
   LoginMutationVariables,
   LogoutMutation,
@@ -43,10 +45,12 @@ export const registerUserMutationDocument: TypedDocumentNode<RegisterUserMutatio
  * Selection includes `id` so Apollo cache normalization writes the user
  * into the same cache entry the `login` mutation produced. The selection
  * also includes the profile-page fields (`phone`, `country`, `gender`,
- * `locale`) and the read-only governance fields (`isDeleted`, `suspended`,
- * `isBlocked`) so the profile page can render full account info + status
- * badges + the language preference from a single `me` query (DASHBOARD-1,
- * R2-users-locale-b).
+ * `locale`), the read-only governance fields (`isDeleted`, `suspended`,
+ * `isBlocked`), and the forced-reset gate flag (`mustChangePassword`) so
+ * the profile page can render full account info + status badges + the
+ * language preference from a single `me` query (DASHBOARD-1) and the
+ * session user carries the forced-reset flag the `DashboardLayout`
+ * client redirect reads.
  */
 export const meQueryDocument: TypedDocumentNode<MeQuery> = gql`
   query Me {
@@ -63,6 +67,7 @@ export const meQueryDocument: TypedDocumentNode<MeQuery> = gql`
       isDeleted
       suspended
       isBlocked
+      mustChangePassword
     }
   }
 `;
@@ -99,6 +104,7 @@ export const loginMutationDocument: TypedDocumentNode<LoginMutation, LoginMutati
         isDeleted
         suspended
         isBlocked
+        mustChangePassword
       }
       accessToken
       refreshToken
@@ -135,6 +141,36 @@ export const updateMyLocaleMutationDocument: TypedDocumentNode<
       id
       email
       locale
+    }
+  }
+`;
+
+/**
+ * `changeMyPassword` mutation — the self-service credential change
+ * (forced-reset flow + voluntary changes). Authenticated-only: identity is
+ * derived server-side from the verified context, so the only variables are
+ * the current password (verified server-side before the write) and the
+ * replacement. The ONLY operation that clears the server-side forced
+ * password-change flag.
+ *
+ * Selection includes `id` FIRST so Apollo writes the returned user back
+ * into the same normalized cache entry the `me` / `login` documents
+ * produced (per `sharedDocuments/AGENTS.md` "id Field Requirement");
+ * `email` / `fullName` / `role` ride along to mirror the canonical
+ * `me`-shape payload and `mustChangePassword` echoes the flag clear so the
+ * client can proceed without a re-login.
+ */
+export const changeMyPasswordMutationDocument: TypedDocumentNode<
+  ChangeMyPasswordMutation,
+  ChangeMyPasswordMutationVariables
+> = gql`
+  mutation ChangeMyPassword($input: ChangeMyPasswordInput!) {
+    changeMyPassword(input: $input) {
+      id
+      email
+      fullName
+      role
+      mustChangePassword
     }
   }
 `;

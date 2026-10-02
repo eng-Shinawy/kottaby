@@ -49,8 +49,16 @@ type ActivityEntryFixture = AdminUserActivityQuery_adminUserActivity & {
   readonly __typename: "AdminUserActivityEntry";
 };
 
-/** Baseline identity + governance fields shared by both user variants. */
-function detailUser(roleSlices: Pick<DetailUserFixture, "applicant" | "teacher">): DetailUserFixture {
+/**
+ * Baseline identity + governance fields shared by every user variant —
+ * `roleSlices` picks the role-child snapshots, `overrides` re-spells the
+ * overridable governance slices (today: the forced-reset flag) so a fixture
+ * can produce a flagged user without duplicating the baseline.
+ */
+function detailUser(
+  roleSlices: Pick<DetailUserFixture, "applicant" | "teacher">,
+  overrides: Partial<Pick<DetailUserFixture, "mustChangePassword">> = {}
+): DetailUserFixture {
   return {
     __typename: "AdminUserDetail",
     id: DETAIL_USER_ID,
@@ -68,12 +76,14 @@ function detailUser(roleSlices: Pick<DetailUserFixture, "applicant" | "teacher">
     suspendedPeriodDays: null,
     isBlocked: false,
     blockedAt: null,
+    mustChangePassword: false,
     lastActiveAt: "2026-08-30T09:41:00.000Z",
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-28T15:22:00.000Z",
     student: null,
     parent: null,
     ...roleSlices,
+    ...overrides,
   };
 }
 
@@ -120,6 +130,25 @@ export const CERTIFIED_TEACHER_USER: DetailUserFixture = detailUser({
     averageRating: "4.9",
   },
 });
+
+/**
+ * Teacher flagged for a forced password reset (`mustChangePassword: true`)
+ * — the only fixture that can reach the `GovernanceCard` pending-reset
+ * branch and the `detail.mustChangePasswordLabel/Value` copy.
+ */
+export const PENDING_RESET_TEACHER_USER: DetailUserFixture = detailUser(
+  {
+    applicant: null,
+    teacher: {
+      __typename: "AdminTeacherSnapshot",
+      isApproved: true,
+      isEvaluator: false,
+      isOnline: false,
+      averageRating: null,
+    },
+  },
+  { mustChangePassword: true }
+);
 
 /** Two-row activity timeline so `RecentActivityCard` renders populated. */
 export const ACTIVITY_ENTRIES: readonly ActivityEntryFixture[] = [

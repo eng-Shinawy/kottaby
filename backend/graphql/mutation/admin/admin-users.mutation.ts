@@ -1,10 +1,11 @@
 /**
  * Admin user mutations — `adminCreateUser`, `adminUpdateUser`,
- * `adminSetUserDeleted`.
+ * `adminSetUserPassword`, `adminSetUserDeleted`.
  *
- * Contract (REQ-060 SDL):
+ * Contract (SDL + the credential surface):
  *  - `adminCreateUser(input: AdminCreateUserInput!): AdminUserDetail!`
  *  - `adminUpdateUser(id: Int!, input: AdminUpdateUserInput!): AdminUserDetail!`
+ *  - `adminSetUserPassword(id: Int!, input: AdminSetUserPasswordInput!): AdminUserDetail!`
  *  - `adminSetUserDeleted(id: Int!, deleted: Boolean!): AdminUserDetail!`
  *
  * authScopes (D10 — `$all` conjunction, MANDATORY):
@@ -31,6 +32,7 @@
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import {
   AdminCreateUserInput,
+  AdminSetUserPasswordInput,
   AdminUpdateUserInput,
   AdminUserDetailPothosObject,
 } from "@/backend/graphql/pothos/admin";
@@ -115,6 +117,36 @@ gqlSchemaBuilder.mutationField("adminUpdateUser", t =>
           country: input.country ?? undefined,
           gender: input.gender ?? undefined,
           dateOfBirth: input.dateOfBirth ?? undefined,
+        },
+        actorId,
+        ctx.locale
+      );
+    },
+  })
+);
+
+// Side-effect: register the `adminSetUserPassword` mutation field.
+gqlSchemaBuilder.mutationField("adminSetUserPassword", t =>
+  t.field({
+    type: AdminUserDetailPothosObject,
+    args: {
+      id: t.arg({ type: "Int", required: true }),
+      input: t.arg({ type: AdminSetUserPasswordInput, required: true }),
+    },
+    authScopes: {
+      $all: {
+        authenticated: true,
+        role: [UserRole.Admin],
+      },
+    },
+    resolve: async (_root, args, ctx) => {
+      const { id, actorId } = resolveAdminUserMutationTarget(ctx.user, args.id);
+      const { input } = args;
+      return AdminUserManagementService.setUserPassword(
+        id,
+        {
+          password: input.password,
+          mustChangePassword: input.mustChangePassword,
         },
         actorId,
         ctx.locale

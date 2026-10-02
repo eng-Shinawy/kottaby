@@ -94,4 +94,36 @@ export interface AuthLabels {
   /** Document titles for auth route metadata (generateMetadata) */
   readonly loginMetaTitle: string;
   readonly registerMetaTitle: string;
+  /**
+   * Forced self-service change-password page (`/change-password`) — the
+   * only surface a flagged user can act on, also reachable voluntarily.
+   * Rendered through the `Auth` namespace handle (the login form's
+   * namespace); server denials arrive via `errorsTranslations` keys.
+   */
+  readonly changePassword: {
+    /** Page title for the change-password page. */
+    readonly title: string;
+    /** Description line under the title explaining why the page is shown. */
+    readonly description: string;
+    /** Field label for the current-password input. */
+    readonly currentPasswordLabel: string;
+    /** Field label for the new-password input. */
+    readonly newPasswordLabel: string;
+    /** Field label for the confirm-new-password input. */
+    readonly confirmPasswordLabel: string;
+    /** Submit button label for the change-password form. */
+    readonly submit: string;
+    /** Inline validation error when new and confirm passwords disagree. */
+    readonly mismatch: string;
+    /** Success message shown after the password change commits. */
+    readonly success: string;
+    /** Notice explaining that a temporary password was issued to the user. */
+    readonly temporaryPasswordNotice: string;
+    /**
+     * Neutral form-level fallback for a field-less denial whose wire
+     * message is unusable (transport-level failure with no GraphQL message
+     * in the cause chain) — deliberately NOT the login-specific copy.
+     */
+    readonly genericFailure: string;
+  };
 }

@@ -329,6 +329,20 @@ export interface AdminUpdateUserPatchInput {
 }
 
 /**
+ * `AdminSetUserPasswordSubmitInput` — closed whitelist for the admin
+ * change-password surface. Exactly these two keys are accepted; the
+ * plaintext password is validated and hashed by the service BEFORE
+ * persistence and is never stored, logged, audited, or returned. `email`,
+ * `role`, `passwordHash`, governance fields, and timestamps are
+ * structurally unreachable through this shape — it is a NEW closed type,
+ * not an extension of the `AdminUpdateUserPatchInput` profile whitelist.
+ */
+export interface AdminSetUserPasswordSubmitInput {
+  readonly password: string;
+  readonly mustChangePassword: boolean;
+}
+
+/**
  * `AdminUserFiltersSubmitInput` — independent ANDed filters for the
  * directory listing. Absent or `null` members drop out at the service
  * layer (the directory falls back to the unfiltered listing rather than

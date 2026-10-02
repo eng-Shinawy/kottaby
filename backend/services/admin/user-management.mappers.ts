@@ -284,6 +284,7 @@ export function assembleDetail(row: AdminUserDetailRow, locale: string): AdminUs
     fullName: row.fullName,
     email: row.email,
     phone: row.phone,
+    mustChangePassword: row.mustChangePassword,
     role,
     dateOfBirth: normalizeDateOnly(row.dateOfBirth),
     gender: row.gender,

@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * DirectoryMutationDialogs — the create / edit / delete-reactivate dialog
- * block of the admin user directory, extracted from
- * `AdminUsersDirectoryContainer`.
+ * DirectoryMutationDialogs — the create / edit / change-password /
+ * delete-reactivate dialog block of the admin user directory, extracted
+ * from `AdminUsersDirectoryContainer`.
  *
  * Renders each dialog conditionally (`createOpen` / `editTarget` /
  * `deleteTarget` come from `useAdminUsersDirectory`) with the same
@@ -21,7 +21,12 @@
  */
 
 import type { ReactNode } from "react";
-import { CreateUserDialog, DeleteConfirmDialog, EditUserDialog } from "@/frontend/views/admin/users/dialogs";
+import {
+  ChangeUserPasswordDialog,
+  CreateUserDialog,
+  DeleteConfirmDialog,
+  EditUserDialog,
+} from "@/frontend/views/admin/users/dialogs";
 import type { useAdminUsersDirectory } from "@/frontend/views/admin/users/hooks";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
@@ -35,7 +40,7 @@ interface DirectoryMutationDialogsProps {
 export function DirectoryMutationDialogs({ labels, directory }: DirectoryMutationDialogsProps): ReactNode {
   // Destructured to plain consts so the truthiness checks below narrow the
   // targets inside the async submit/confirm closures (no `!` assertions).
-  const { createOpen, editTarget, deleteTarget } = directory;
+  const { createOpen, editTarget, changePasswordTarget, deleteTarget } = directory;
   return (
     <>
       {createOpen && (
@@ -68,6 +73,25 @@ export function DirectoryMutationDialogs({ labels, directory }: DirectoryMutatio
             await directory.updateUser({ variables: { id: editTarget.id, input } });
             directory.setEditTarget(null);
             directory.setSnackbarMessage(labels.snackbars.updated);
+          }}
+        />
+      )}
+
+      {changePasswordTarget && (
+        <ChangeUserPasswordDialog
+          key={changePasswordTarget.id}
+          labels={labels}
+          user={changePasswordTarget}
+          loading={directory.passwordLoading}
+          onClose={() => directory.setChangePasswordTarget(null)}
+          onSubmit={async input => {
+            // NO try/catch — rejections propagate into the dialog's submit
+            // handler for inline field-error projection (see
+            // ChangeUserPasswordDialog). The refetch of the current page is
+            // owned by the mutation's `refetchQueries`.
+            await directory.setUserPassword({ variables: { id: changePasswordTarget.id, input } });
+            directory.setChangePasswordTarget(null);
+            directory.setSnackbarMessage(labels.snackbars.passwordChanged);
           }}
         />
       )}

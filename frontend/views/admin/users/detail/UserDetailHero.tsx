@@ -8,7 +8,7 @@
  *  - 96px role-tinted `UserAvatar` + name (xl/700, single-line ellipsis).
  *  - The identity cluster (name + chip row + contact row + meta row) lives
  *    in `UserHeroIdentity`; the trailing action buttons (Edit /
- *    Deactivate-or-Reactivate) live in `UserHeroActions`.
+ *    Change password / Deactivate-or-Reactivate) live in `UserHeroActions`.
  *  - Chip row: `DirectoryRolePill`, then — when an applicant snapshot
  *    exists — the tonal `ApplicantStatusChip`, then the
  *    `DirectoryGovernanceLabel` (pill variant). This is the ONE place
@@ -29,7 +29,8 @@
  *  - Trailing actions: Certify (outlined `warning` → cold-start certify
  *    dialog, gated on role Teacher + applicant snapshot + not-yet-approved
  *    teacher + ungoverned account), Edit (contained `primary` → existing
- *    edit dialog) and Deactivate (outlined `error` → existing delete
+ *    edit dialog), Change password (outlined → the shared credential
+ *    dialog) and Deactivate (outlined `error` → existing delete
  *    dialog); for deleted users the slot renders Reactivate instead.
  *  - Optional flourish: a skewed alpha-primary wash clipped to the card's
  *    trailing edge (decorative, `aria-hidden`, behind content). The wash
@@ -56,12 +57,16 @@ interface UserDetailHeroProps {
   readonly user: DetailUser;
   readonly role: DirectoryRole;
   readonly governance: DirectoryGovernance;
-  readonly labels: Pick<AdminUsersLabels, "roleLabels" | "statusBadges" | "detail" | "certifyDialog">;
+  readonly labels: Pick<
+    AdminUsersLabels,
+    "roleLabels" | "statusBadges" | "detail" | "certifyDialog" | "changePasswordAction"
+  >;
   /** Locale-bound date-only formatter (`Intl.DateTimeFormat(dateStyle: "medium")`). */
   readonly formatDate: (raw: string | null | undefined) => string;
   /** Locale-bound relative-time formatter (`Intl.RelativeTimeFormat` ladder). */
   readonly formatRelative: (raw: string | null | undefined) => string;
   readonly onEdit: () => void;
+  readonly onChangePassword: () => void;
   readonly onDelete: () => void;
   readonly onCertify: () => void;
 }
@@ -74,6 +79,7 @@ export function UserDetailHero({
   formatDate,
   formatRelative,
   onEdit,
+  onChangePassword,
   onDelete,
   onCertify,
 }: UserDetailHeroProps): ReactNode {
@@ -124,7 +130,14 @@ export function UserDetailHero({
           formatDate={formatDate}
           formatRelative={formatRelative}
         />
-        <UserHeroActions labels={labels} user={user} onEdit={onEdit} onDelete={onDelete} onCertify={onCertify} />
+        <UserHeroActions
+          labels={labels}
+          user={user}
+          onEdit={onEdit}
+          onChangePassword={onChangePassword}
+          onDelete={onDelete}
+          onCertify={onCertify}
+        />
       </Stack>
     </Box>
   );

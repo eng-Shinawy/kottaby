@@ -98,6 +98,7 @@ const BACKEND_TEST_LAYER_PATHS = [
  */
 const TEARDOWN_ALLOWLIST_PATHS = [
   "test/helpers/db-cleanup.ts",
+  "test/workflows/admin/admin-password-reset.journey.test.ts",
   "test/workflows/admin/admin-session-governance.journey.test.ts",
   "test/workflows/admin/audit-completeness.journey.test.ts",
   "test/workflows/admin/audit-trail.journey.test.ts",

@@ -112,6 +112,9 @@ function makeStudentRegistrationInput(): RegistrationSubmitInput {
     email: `hs-lock-${crypto.randomUUID()}@test.local`,
     phone: "+10000000000",
     password: TEST_REGISTRATION_CREDENTIAL,
+    // ISO 3166-1 alpha-2 code — the registration service's validateInput
+    // gates `country` through countryCodeSchema (free text like "Egypt" is
+    // rejected with COUNTRY_CODE_INVALID).
     country: "EG",
     role: "student",
   };

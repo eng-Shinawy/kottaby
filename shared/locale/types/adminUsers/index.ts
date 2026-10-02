@@ -29,6 +29,11 @@ export interface AdminUsersLabels {
   readonly title: string;
   /** Detail page heading shown in the page header band. */
   readonly detailTitle: string;
+  /**
+   * "Change password" action label — the directory row kebab menu item
+   * beside Edit/Deactivate/Reactivate and the detail-page hero button.
+   */
+  readonly changePasswordAction: string;
 
   /** Table column headers shown in the admin user directory table. */
   readonly headers: {
@@ -323,6 +328,30 @@ export interface AdminUsersLabels {
     readonly cancel: string;
   };
 
+  /**
+   * Change-password dialog copy — the admin sets a user's password directly
+   * and may require a reset on next login. Flat strings only (this
+   * namespace's parity walker rejects function leaves).
+   */
+  readonly changePasswordDialog: {
+    /** Dialog title for the change-password dialog. */
+    readonly title: string;
+    /** Subtitle line under the title — states what submitting the dialog does. */
+    readonly subtitle: string;
+    /** Field label for the new-password input (show/hide). */
+    readonly newPasswordLabel: string;
+    /** Field label for the confirm-new-password input. */
+    readonly confirmPasswordLabel: string;
+    /** Checkbox label for the force-reset-on-next-login option. */
+    readonly mustChangePasswordLabel: string;
+    /** Helper text under the force-reset checkbox explaining its effect. */
+    readonly mustChangePasswordHelper: string;
+    /** Submit button label for the change-password dialog. */
+    readonly submit: string;
+    /** Cancel button label for the change-password dialog. */
+    readonly cancel: string;
+  };
+
   /** Soft-delete confirm dialog copy (deactivate semantics — the account is soft-deleted). */
   readonly deleteConfirm: {
     /** Dialog title for the soft-delete confirm dialog. */
@@ -550,6 +579,10 @@ export interface AdminUsersLabels {
     readonly suspendedAt: string;
     /** Field label for the block timestamp on the governance card. */
     readonly blockedAt: string;
+    /** Field label for the forced-reset flag on the governance card. */
+    readonly mustChangePasswordLabel: string;
+    /** Display value shown for the forced-reset flag while it is set. */
+    readonly mustChangePasswordValue: string;
     /** Field label for the account-creation timestamp on the profile card. */
     readonly memberSince: string;
     /** Field label for the last-active timestamp on the profile card. */
@@ -665,6 +698,8 @@ export interface AdminUsersLabels {
     readonly reactivated: string;
     /** Snackbar copy rendered after a successful cold-start teacher certification. */
     readonly certified: string;
+    /** Snackbar copy rendered after a successful admin password change. */
+    readonly passwordChanged: string;
   };
 
   /**

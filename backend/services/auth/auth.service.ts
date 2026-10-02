@@ -20,6 +20,20 @@
  *    updated user with `passwordHash` stripped. Throws `ValidationError`
  *    (localized `invalidLocale`) for a non-locale string and
  *    `UnauthorizedError` when the caller's row no longer exists.
+ *  - `changeMyPassword(userId, input, locale, tx?)` — the self-service
+ *    credential change. Verifies `input.currentPassword` against the stored
+ *    hash (constant-time bcrypt compare), rejects a no-op change
+ *    (new == current) and short/empty replacements via the shared password
+ *    policy, hashes the replacement BEFORE the transaction, then persists
+ *    the new hash and clears the force-reset flag (`mustChangePassword: false`)
+ *    in ONE write — a successful self-service change is the only operation
+ *    that clears a pending credential reset. Returns the updated user with
+ *    `passwordHash` stripped. Denials never disclose whether the identity
+ *    exists or is governed: a vanished caller row, a soft-deleted principal,
+ *    a wrong current password, and a credential rotated concurrently by an
+ *    admin (the write is fenced on the observed hash) all produce the SAME
+ *    single `CURRENT_PASSWORD_INVALID` shape (field-targeted, so the UI can
+ *    render it inline on the current-password field).
  *
  * i18n: all messages resolve through `getServerTranslations(locale)` — never
  * hardcoded strings, never `console.*` (uses `logger.logDomainError` for
@@ -41,12 +55,14 @@ import { db } from "@/backend/db";
 import { UserRepository } from "@/backend/db/repo";
 import { users } from "@/backend/db/schema/users/users";
 import { generateSessionId, signAccessToken, signRefreshToken, verifyRefreshToken } from "@/backend/lib/auth/jwt";
-import { comparePassword } from "@/backend/lib/auth/password";
+import { comparePassword, hashPassword } from "@/backend/lib/auth/password";
 import { isSuspensionActive } from "@/backend/lib/auth/suspension-window";
 import { ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { validatePasswordPolicy } from "@/backend/services/admin/user-management.helpers";
 import type {
   AuthSession,
+  ChangeMyPasswordSubmitInput,
   DBTransaction,
   RefreshResult,
   RegistrationReturnType,
@@ -297,6 +313,186 @@ export namespace AuthService {
       // Zero rows matched — the verified caller vanished between the context
       // build and the write. Unauthenticated, no existence oracle.
       throw new UnauthorizedError(t.unauthorized);
+    }
+    return stripPasswordHash(updated);
+  }
+
+  /**
+   * Self-service credential change — verifies the caller's current password
+   * and rotates the credential pair in one write.
+   *
+   * Sequence: identity load → governance fold (soft-deleted principal →
+   * same denial) + constant-time bcrypt compare of `input.currentPassword`
+   * against the stored hash → effective no-op guard (new == current, or the
+   * replacement still verifies against the observed hash — bcrypt consumes
+   * only the first 72 UTF-8 bytes of its input, so a look-alike differing
+   * solely beyond that boundary is the SAME live credential) → shared
+   * password policy on `input.newPassword` → `hashPassword` BEFORE the
+   * transaction opens (plaintext never enters the tx) → one
+   * `withTransaction` persisting the new hash and clearing the force-reset
+   * flag (`mustChangePassword: false`) through the FENCED write
+   * (`expectedCurrentHash` = the hash observed at identity load), followed
+   * by the in-transaction deleted-row guard: the written row is re-checked
+   * for `isDeleted` BEFORE the transaction commits, mirroring the admin
+   * path's post-write check — a governance soft delete commits only
+   * `is_deleted`/`deleted_at`/`updated_at` and never touches
+   * `password_hash`, so a deletion landing inside the proof window (after
+   * the identity read, before the fenced write) leaves the fence's WHERE
+   * satisfied and would otherwise rewrite a dead row's credential; the
+   * in-tx throw rolls the write back. A successful self-service change is
+   * the only operation that clears a pending credential reset. Returns the
+   * password-stripped updated user so the client can proceed without a
+   * re-login.
+   *
+   * The vanished-row case, the soft-deleted-principal case (folded at
+   * identity load AND re-checked on the written row inside the write
+   * transaction — the latter closes the mid-flight window where the delete
+   * commits after the read but before the fenced write), the
+   * wrong-current-password case, and the lost-race case (an admin rotation
+   * landed between the identity read and the fenced write, zero rows
+   * matched) all throw the SAME field-targeted `CURRENT_PASSWORD_INVALID`
+   * denial — the caller cannot probe whether an id exists, is governed, or
+   * was concurrently rotated (no existence / governance / race oracle);
+   * every denial path performs zero writes (the fenced miss rolls the
+   * savepoint/transaction back). Denials are logged via
+   * `logger.logDomainError` with `{ code, entity, entityId }` (ids + codes
+   * only — no credentials).
+   *
+   * @throws ValidationError  `CURRENT_PASSWORD_INVALID` (field
+   *     `currentPassword`) when the identity is gone, the principal is
+   *     soft-deleted (checked at identity load AND re-checked on the
+   *     written row inside the write transaction — a deletion committing
+   *     inside the proof window is rolled back before it can land), the
+   *     current password does not match, or the fenced write matched zero
+   *     rows (concurrent rotation — indistinguishable from a wrong
+   *     password by design); `NEW_PASSWORD_SAME_AS_CURRENT`
+   *     (field `newPassword`) on an effective no-op change — plaintext
+   *     equality OR a replacement that still verifies against the stored
+   *     hash (bcrypt's 72-byte input boundary); `PASSWORD_REQUIRED` /
+   *     `PASSWORD_TOO_SHORT` (field `password`) when the replacement
+   *     violates the shared credential policy.
+   */
+  export async function changeMyPassword(
+    userId: number,
+    input: ChangeMyPasswordSubmitInput,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<RegistrationReturnType> {
+    const t = getServerTranslations(locale);
+    const tErrors = t.errorsTranslations;
+
+    // Identity load — reuses the caller's transaction handle when one is
+    // supplied (the composed-write / test path) so the read shares the
+    // caller's snapshot; production passes no `outerTx` and the read takes
+    // the bare-read path. Same seam as the admin gates' actor read.
+    const user = await UserRepository.findById(userId, outerTx);
+
+    // Governance fold: a soft-deleted principal has no live credential to
+    // replace (same ground as the admin path's deleted-target denial) — a
+    // cheap boolean check on the already-loaded row, evaluated BEFORE the
+    // bcrypt compare and folded into the single denial below, so a deleted
+    // caller sees exactly what a wrong current password looks like (no
+    // governance oracle; identity is always the caller itself).
+    const callerIsDeleted = user?.isDeleted === true;
+
+    if (!user || callerIsDeleted || !(await comparePassword(input.currentPassword, user.passwordHash))) {
+      // Single denial shape: a vanished caller row, a soft-deleted
+      // principal, and a wrong current password are indistinguishable to
+      // the client (no existence / governance oracle). Zero writes.
+      logger.logDomainError("Failed changeMyPassword: identity or current password rejected", {
+        code: "CURRENT_PASSWORD_INVALID",
+        entity: "users",
+        entityId: userId,
+        locale,
+      });
+      throw new ValidationError("CURRENT_PASSWORD_INVALID", tErrors.currentPasswordInvalid, undefined, [
+        { field: "currentPassword", code: "CURRENT_PASSWORD_INVALID", message: tErrors.currentPasswordInvalid },
+      ]);
+    }
+
+    // Fence seed — the credential the caller just proved knowledge of. The
+    // write below only lands if THIS hash is still the stored one, so a
+    // concurrent admin rotation inside the proof window cannot be silently
+    // clobbered.
+    const observedPasswordHash = user.passwordHash;
+
+    if (
+      input.newPassword === input.currentPassword ||
+      (await comparePassword(input.newPassword, observedPasswordHash))
+    ) {
+      // An effective no-op "change" would silently clear the force-reset
+      // flag while leaving the temporary credential live. Plaintext
+      // equality alone cannot catch the boundary case: bcrypt consumes only
+      // the first 72 UTF-8 bytes of its input, so a replacement differing
+      // from the current credential solely beyond that boundary still
+      // verifies against the stored hash (the temporary password would
+      // keep authenticating after the flag cleared). Reject EVERY effective
+      // no-op — plaintext equality OR a replacement that still verifies
+      // against the observed hash — before hashing.
+      throw new ValidationError("NEW_PASSWORD_SAME_AS_CURRENT", tErrors.newPasswordSameAsCurrent, undefined, [
+        { field: "newPassword", code: "NEW_PASSWORD_SAME_AS_CURRENT", message: tErrors.newPasswordSameAsCurrent },
+      ]);
+    }
+
+    // Shared credential policy: empty / whitespace-only ⇒ PASSWORD_REQUIRED,
+    // below the shared minimum ⇒ PASSWORD_TOO_SHORT. The helper's field
+    // entries (`field: "password"`) flow through verbatim — the same shape
+    // every password-policy consumer projects for inline helperText.
+    const passwordFieldErrors = validatePasswordPolicy(input.newPassword, t.authTranslations);
+    if (passwordFieldErrors.length > 0) {
+      throw new ValidationError(passwordFieldErrors[0].message, passwordFieldErrors);
+    }
+
+    // Hash BEFORE the transaction opens — plaintext never enters the tx.
+    const passwordHash = await hashPassword(input.newPassword);
+
+    const updated = await withTransaction(outerTx, async tx => {
+      // Fenced write: `WHERE id = ? AND password_hash = <observed>` — the
+      // TOCTOU guard against a concurrent adminSetUserPassword landing in
+      // the compare/hash window.
+      const written = await UserRepository.updatePassword(userId, passwordHash, false, tx, observedPasswordHash);
+      // In-tx deleted-row guard — the self path's counterpart of the admin
+      // path's returned-row check (`setUserPassword`). A soft delete sets
+      // only `is_deleted`/`deleted_at`/`updated_at` — NEVER
+      // `password_hash` — so a governance deletion committing INSIDE the
+      // proof window (after the identity read, before this write) leaves
+      // the fenced WHERE fully satisfied and the UPDATE would otherwise
+      // rewrite a dead row's credential. Re-checking the RETURNING row
+      // HERE — inside the tx, pre-commit — and throwing rolls the write
+      // back (a check after `withTransaction` returns would be too late:
+      // the top-level transaction has already committed by then). Net
+      // effect: zero writes, and the SAME single denial — a mid-flight
+      // deletion stays indistinguishable from a wrong current password
+      // (identity is always the caller itself; no governance oracle).
+      if (written !== null && written.isDeleted === true) {
+        logger.logDomainError("Failed changeMyPassword: caller soft-deleted mid-flight (in-tx row check)", {
+          code: "CURRENT_PASSWORD_INVALID",
+          entity: "users",
+          entityId: userId,
+          locale,
+        });
+        throw new ValidationError("CURRENT_PASSWORD_INVALID", tErrors.currentPasswordInvalid, undefined, [
+          { field: "currentPassword", code: "CURRENT_PASSWORD_INVALID", message: tErrors.currentPasswordInvalid },
+        ]);
+      }
+      return written;
+    });
+    if (!updated) {
+      // The fenced write matched zero rows: the verified caller's row
+      // vanished, or its credential was rotated concurrently (admin
+      // override — the admin's rotation survives untouched). Zero rows
+      // touched; folded into the SAME single denial shape — no race oracle
+      // (the concurrent-rotation case is indistinguishable from a wrong
+      // current password by design).
+      logger.logDomainError("Failed changeMyPassword: credential fence rejected the write", {
+        code: "CURRENT_PASSWORD_INVALID",
+        entity: "users",
+        entityId: userId,
+        locale,
+      });
+      throw new ValidationError("CURRENT_PASSWORD_INVALID", tErrors.currentPasswordInvalid, undefined, [
+        { field: "currentPassword", code: "CURRENT_PASSWORD_INVALID", message: tErrors.currentPasswordInvalid },
+      ]);
     }
     return stripPasswordHash(updated);
   }

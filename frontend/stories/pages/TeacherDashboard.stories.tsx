@@ -46,6 +46,7 @@ const TEACHER_USER: AuthUser = {
   isDeleted: false,
   suspended: false,
   isBlocked: false,
+  mustChangePassword: false,
 };
 
 /** Stub auth context — the page only reads `user`; the actions stay inert. */
@@ -56,6 +57,7 @@ const STUB_AUTH: AuthContextType = {
   error: null,
   login: () => Promise.resolve(true),
   logout: () => {},
+  updateSessionUser: () => undefined,
 };
 
 type ApplicantProfileFixture = MyApplicantProfileQuery_myApplicantProfile & {

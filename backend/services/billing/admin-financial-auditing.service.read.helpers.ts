@@ -26,7 +26,7 @@ import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { NotFoundError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { assertActorAdminActive } from "@/backend/services/admin/admin-gate.helpers";
-import { resolvePageBounds } from "@/backend/services/admin/user-management.helpers";
+import { resolvePageBounds } from "@/backend/services/admin/user-management.query.helpers";
 import { ADMIN_WALLET_CURRENCY_LABEL } from "@/backend/services/billing/admin-financial-auditing.service.helpers";
 import type {
   AdminStudentPaymentPageReturnType,

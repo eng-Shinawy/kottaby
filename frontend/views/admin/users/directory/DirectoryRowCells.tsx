@@ -46,6 +46,21 @@ import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 /** Directory list-item row consumed by the cell components. */
 export type DirectoryUserItem = AdminUsersQuery["adminUsers"]["items"][number];
 
+/**
+ * Row-action handlers shared by the desktop table and the mobile
+ * card list — both delegate the identical per-user callbacks down to their
+ * row renderers (a single source keeps the two surfaces in lockstep).
+ */
+export interface DirectoryRowActions {
+  readonly onEdit: (user: DirectoryUserItem) => void;
+  readonly onChangePassword: (user: DirectoryUserItem) => void;
+  readonly onDelete: (user: DirectoryUserItem) => void;
+  /** Invoked after any row/card's copy-email action resolves (drives the snackbar). */
+  readonly onCopyEmail?: () => void;
+  /** When supplied, a filtered zero-match state gains a clear-filters CTA. */
+  readonly onClearFilters?: () => void;
+}
+
 /** Narrow label slice consumed by the row cells. */
 type RowCellLabels = Pick<
   AdminUsersLabels,
@@ -57,6 +72,7 @@ type RowCellLabels = Pick<
   | "filters"
   | "quickActions"
   | "editDialog"
+  | "changePasswordAction"
   | "deleteConfirm"
   | "reactivateConfirm"
 >;

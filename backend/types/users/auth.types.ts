@@ -20,6 +20,22 @@
 import type { RegistrationReturnType } from "@/backend/types/users/registration.types";
 
 /**
+ * Submit input for the self-service password change
+ * (`AuthService.changeMyPassword`).
+ *
+ * Closed two-key shape (property-mapped by callers — never a spread/echo of
+ * transport payloads). Both members are PLAINTEXT passwords: they exist only
+ * for the duration of the service call, are hashed before persistence, and
+ * are never stored, logged, audited, or returned by any layer.
+ */
+export interface ChangeMyPasswordSubmitInput {
+  /** The caller's current plaintext password — verified against the stored hash. */
+  readonly currentPassword: string;
+  /** The replacement plaintext password — policy-validated, then hashed. */
+  readonly newPassword: string;
+}
+
+/**
  * Full authenticated session — returned by `AuthService.login`.
  *
  * The `user` field mirrors `RegistrationReturnType` (`UserSelectType` with

@@ -11,6 +11,12 @@ Used by the visual-improvement-loop skill. All screenshots must land in `scratch
   page. The bounce is silent: the title guard passes, the URL is just not the one you asked for.
   Re-verify `location.pathname` in the same eval as the title guard.
 - App pages (dev server): authenticate via `bun run scripts/browser-login.ts --inject` — never type credentials into a login form; the AI layer redacts emails and the submission fails Email validation. If `--inject` errors on daemon startup, fall back to `agent-browser cookies set --curl .browser-auth/playwright.cookies.json --domain localhost`.
+- **Actor switching env keys:** `bun run` pre-loads `.env`; `dotenv` then no-ops for already-set
+  keys, so a per-actor env file reusing the admin's key names (`ADMIN_EMAIL`) silently logs EVERY
+  actor in as the admin. Pass distinct key names per actor via `--email-key/--password-key`.
+- **Shared-profile sessions:** agent-browser sessions under one scope share one cookie jar — a
+  "fresh session" inherits the previous actor. Sign out via UI (or overwrite cookies) and verify
+  in-page identity (topbar user text) after every login switch.
 - Storybook (`localhost:6006`): NO auth needed. Capture from the raw iframe URL, not the full manager UI:
   `http://localhost:6006/iframe.html?id=<story-id>&viewMode=story&globals=locale:en|ar`
 - **Sandbox/process-reaper environments:** background dev servers die between tool-run calls, and a
@@ -18,6 +24,11 @@ Used by the visual-improvement-loop skill. All screenshots must land in `scratch
   errors and stale page titles). Bundle server start + auth + all captures of one batch into a single
   foreground Bash call, and kill + fresh-start the server after every edit wave before recapturing.
   First launch may die silently — retry once.
+- **Scheme pinning (dark-default apps):** record the color scheme per batch alongside locale — guard
+  `document.documentElement.getAttribute('data-mui-color-scheme')` (or the app's equivalent) AND
+  `getComputedStyle(document.body).backgroundColor`. A dark-default app silently renders every
+  "light" capture dark; color/contrast judgments differ per scheme. Force-switch by setting BOTH the
+  storage key (e.g. localStorage `theme`) and its cookie mirror (e.g. `theme-mode`), then reload.
 - **Locale pinning:** apps with a default non-EN locale (cookie- or preference-driven) must have the
   locale explicitly pinned per batch (this app: `POST /api/set-locale` from the page context), and the
   precheck's `--expect-title` must match the pinned locale's title. Default-locale drift silently

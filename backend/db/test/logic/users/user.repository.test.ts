@@ -1,6 +1,6 @@
 /**
- * UserRepository locale tests — the `users.locale` column surface of the
- * D2 locale backend vertical.
+ * UserRepository tests — the `users.locale` column surface plus the
+ * credential-pair write (`updatePassword`) of the user repository.
  *
  * Per `backend/db/test/AGENTS.md` + `backend/db/test/logic/AGENTS.md`:
  *  - Write/transactional cases run inside `runInRollback`; `tx` is passed to
@@ -19,6 +19,12 @@
  * Coverage map:
  *  - Tier 1: updateLocale persists + returns the row (transactional branch);
  *    idempotent re-write; overwrite ar→en→ar; absent id → null.
+ *  - Tier 1b: updatePassword persists the rotated hash + force-reset flag
+ *    (both directions, idempotent re-write) and returns the FULL row
+ *    (passwordHash included — the service layer strips it); absent id → null;
+ *    optional `expectedCurrentHash` fence — matching hash writes, stale hash
+ *    matches zero rows (null) and writes nothing (the self-service TOCTOU
+ *    guard vs a concurrent admin rotation).
  *  - Tier 2: findLocalesByIds — mixed set (ar / en / unset / absent id) with
  *    every requested key present in the map; empty input → empty map, zero
  *    statements.
@@ -46,6 +52,18 @@ const committedFixtureIds: number[] = [];
 
 /** Test bcrypt hash stub (never used for verification). */
 const TEST_BCRYPT_STUB_HASH = "$2a$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUV1234567890ABCDEFGHIJKLMNOPQRSTUV";
+
+/** Rotated test bcrypt hash stub — distinct from the fixture default so a credential write is observable. */
+const TEST_BCRYPT_STUB_HASH_ROTATED = "$2b$12$pqrstuvwxyzABCDEFghijklmnopqrstuvWXYZ0123456789abcdefghijklmnopqrstuv";
+
+/**
+ * Resolves an id above the identity maximum — no user row can carry it inside
+ * the current transaction, making it the not-found probe for write paths.
+ */
+async function absentUserIdOf(tx: DBTransaction): Promise<number> {
+  const [maxRow] = await tx.select({ maxId: max(users.id) }).from(users);
+  return (maxRow?.maxId ?? 0) + 1_000_000;
+}
 
 /**
  * Inserts one committed user (with or without a locale) on the pool
@@ -145,6 +163,111 @@ describe("UserRepository.updateLocale — transactional write branch", () => {
       // fixture insert produced (tolerant >= comparison; equal timestamps are
       // legal when both happen within the same millisecond).
       expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(user.updatedAt.getTime());
+    });
+  });
+});
+
+describe("UserRepository.updatePassword — transactional write branch", () => {
+  test("persists the new hash + flag and returns the full updated row", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      const updated = await UserRepository.updatePassword(user.id, TEST_BCRYPT_STUB_HASH_ROTATED, true, tx);
+      if (!updated) throw new Error("expected the updated row");
+
+      expect(updated.id).toBe(user.id);
+      expect(updated.passwordHash).toBe(TEST_BCRYPT_STUB_HASH_ROTATED);
+      expect(updated.mustChangePassword).toBe(true);
+      // Repo-level rows carry passwordHash (service strips it) — pin that
+      // the returned row is the full DB row, not a safe projection.
+      expect(updated.passwordHash).not.toBe(user.passwordHash);
+
+      // The write is visible to the sibling read on the SAME transaction.
+      const reread = await UserRepository.findById(user.id, tx);
+      expect(reread?.passwordHash).toBe(TEST_BCRYPT_STUB_HASH_ROTATED);
+      expect(reread?.mustChangePassword).toBe(true);
+    });
+  });
+
+  test("persists the flag in both directions and is idempotent on re-write", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+      const flagged = await UserRepository.updatePassword(user.id, TEST_BCRYPT_STUB_HASH_ROTATED, true, tx);
+      const cleared = await UserRepository.updatePassword(user.id, TEST_BCRYPT_STUB_HASH_ROTATED, false, tx);
+      const again = await UserRepository.updatePassword(user.id, TEST_BCRYPT_STUB_HASH_ROTATED, false, tx);
+
+      expect(flagged?.mustChangePassword).toBe(true);
+      // The second call flips the flag true → false (the self-service path).
+      expect(cleared?.mustChangePassword).toBe(false);
+      // Re-writing the same flag matches the row again (no error, no drift).
+      expect(again?.mustChangePassword).toBe(false);
+      expect(again?.id).toBe(user.id);
+      const reread = await UserRepository.findById(user.id, tx);
+      expect(reread?.mustChangePassword).toBe(false);
+    });
+  });
+
+  test("returns null for an id that matches no user", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentUserIdOf(tx);
+      const updated = await UserRepository.updatePassword(absentId, TEST_BCRYPT_STUB_HASH_ROTATED, true, tx);
+      expect(updated).toBeNull();
+    });
+  });
+
+  test("fenced write succeeds when the expected current hash matches (fence re-arms to the rotated hash)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+
+      // The observed hash is still the stored one — the guarded UPDATE
+      // (`WHERE id = ? AND password_hash = ?`) matches and returns the FULL
+      // updated row.
+      const updated = await UserRepository.updatePassword(
+        user.id,
+        TEST_BCRYPT_STUB_HASH_ROTATED,
+        false,
+        tx,
+        user.passwordHash
+      );
+      if (!updated) throw new Error("expected the fenced write to match");
+      expect(updated.id).toBe(user.id);
+      expect(updated.passwordHash).toBe(TEST_BCRYPT_STUB_HASH_ROTATED);
+      expect(updated.mustChangePassword).toBe(false);
+
+      // The fence re-arms: the NEXT conditional write must now expect the
+      // ROTATED hash (the old one no longer matches), and it succeeds too.
+      const again = await UserRepository.updatePassword(
+        user.id,
+        TEST_BCRYPT_STUB_HASH,
+        true,
+        tx,
+        TEST_BCRYPT_STUB_HASH_ROTATED
+      );
+      if (!again) throw new Error("expected the re-armed fenced write to match");
+      expect(again.passwordHash).toBe(TEST_BCRYPT_STUB_HASH);
+      expect(again.mustChangePassword).toBe(true);
+    });
+  });
+
+  test("fenced write with a STALE expected hash returns null and writes nothing", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx);
+
+      // A hash that cannot match the stored credential (the signature of a
+      // concurrent rotation between the caller's read and the write):
+      // zero rows match → null, the same miss signal as an absent id.
+      const staleHash = "$2y$12$stalehashstalehashstalehashstalehashstalehashstalehashstaleha";
+      expect(staleHash).not.toBe(user.passwordHash);
+      const missed = await UserRepository.updatePassword(user.id, TEST_BCRYPT_STUB_HASH_ROTATED, false, tx, staleHash);
+      expect(missed).toBeNull();
+
+      // Zero writes: the stored credential + flag are byte-identical to the
+      // fixture — the fenced miss rolled back before touching the row.
+      const [row] = await tx
+        .select({ passwordHash: users.passwordHash, flag: users.mustChangePassword })
+        .from(users)
+        .where(eq(users.id, user.id));
+      expect(row?.passwordHash).toBe(user.passwordHash);
+      expect(row?.flag).toBe(false);
     });
   });
 });

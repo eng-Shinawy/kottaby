@@ -113,6 +113,7 @@ export function AdminUserDetailContainer({ userId }: AdminUserDetailContainerPro
         formatDate={detail.fmtDate}
         formatRelative={detail.fmtRelative}
         onEdit={detail.openEdit}
+        onChangePassword={() => detail.setChangePasswordTarget({ id: user.id, fullName: user.fullName })}
         onDelete={detail.openDelete}
         onCertify={() => detail.setCertifyTarget({ id: user.id, fullName: user.fullName, email: user.email })}
       />

@@ -124,6 +124,7 @@ const parentUser: UserSelectType = {
   email: "parent@test.local",
   phone: "+1234567890",
   passwordHash: "hash",
+  mustChangePassword: false,
   role: "parent",
   isDeleted: false,
   isBlocked: false,

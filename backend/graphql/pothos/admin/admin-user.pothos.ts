@@ -347,6 +347,19 @@ export const AdminUserDetailPothosObject = gqlSchemaBuilder
         nullable: true,
         resolve: parent => (parent.blockedAt ? parent.blockedAt.toISOString() : null),
       }),
+      /**
+       * Read-only governance flag — "require this credential to be replaced
+       * on next login". Written only by the admin credential mutation
+       * (`adminSetUserPassword`), cleared only by the self-service change
+       * path; no input type can mutate it. The column is `notNull` with a
+       * `false` server default, and the `?? false` keeps the resolver total
+       * (same shape as the sibling governance booleans above).
+       */
+      mustChangePassword: t.field({
+        type: "Boolean",
+        nullable: false,
+        resolve: parent => parent.mustChangePassword ?? false,
+      }),
       lastActiveAt: t.field({
         type: "String",
         nullable: true,
@@ -438,5 +451,25 @@ export const AdminUpdateUserInput = gqlSchemaBuilder.inputType("AdminUpdateUserI
     country: t.string({ required: false }),
     gender: t.field({ type: GenderPothosEnum, required: false }),
     dateOfBirth: t.string({ required: false }),
+  }),
+});
+
+/**
+ * `AdminSetUserPasswordInput` — the CLOSED credential-change input:
+ * EXACTLY two keys (`password`, `mustChangePassword`). It is a dedicated
+ * input type, deliberately NOT a widening of the closed five-field
+ * `AdminUpdateUserInput` profile whitelist above — credential changes carry
+ * their own audit semantics (`changedFields: ["credentials"]`), so folding
+ * them into the profile patch would blur the audit trail of every future
+ * `adminUpdateUser` row. The plaintext member exists only for the duration
+ * of the resolver call: the service hashes it before persistence, and it is
+ * never stored, logged, audited, or echoed. `passwordHash`, `email`, `role`,
+ * and every governance field are structurally unreachable through this
+ * shape.
+ */
+export const AdminSetUserPasswordInput = gqlSchemaBuilder.inputType("AdminSetUserPasswordInput", {
+  fields: t => ({
+    password: t.string({ required: true }),
+    mustChangePassword: t.boolean({ required: true }),
   }),
 });

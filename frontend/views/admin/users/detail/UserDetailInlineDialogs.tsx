@@ -1,25 +1,30 @@
 "use client";
 
 /**
- * UserDetailInlineDialogs — the inline edit / delete-reactivate / certify
- * dialogs of the admin user DETAIL page, extracted from
- * `AdminUserDetailContainer`.
+ * UserDetailInlineDialogs — the inline edit / change-password /
+ * delete-reactivate / certify dialogs of the admin user DETAIL page,
+ * extracted from `AdminUserDetailContainer`.
  *
  * Uses the SAME shared dialogs the directory invokes (`EditUserDialog` /
- * `DeleteConfirmDialog`) plus the certify dialog (`CertifyTeacherDialog` —
- * detail page only). The no-try/catch contract documented in those modules
- * holds: rejections propagate into each dialog's own submit / confirm
- * handler so VALIDATION field errors project inline,
- * USER_SELF_DEACTIVATION_FORBIDDEN keeps the delete dialog open with its
- * warning alert, and the TEACHER_* conflict codes project inside the
- * certify dialog. Only success closes the dialog, raises the success
- * snackbar, and refetches the activity timeline (the mutation appended an
- * audit row).
+ * `ChangeUserPasswordDialog` / `DeleteConfirmDialog`) plus the certify
+ * dialog (`CertifyTeacherDialog` — detail page only). The no-try/catch
+ * contract documented in those modules holds: rejections propagate into
+ * each dialog's own submit / confirm handler so VALIDATION field errors
+ * project inline, USER_SELF_DEACTIVATION_FORBIDDEN keeps the delete dialog
+ * open with its warning alert, and the TEACHER_* conflict codes project
+ * inside the certify dialog. Only success closes the dialog, raises the
+ * success snackbar, and refetches the activity timeline (the mutation
+ * appended an audit row).
  */
 
 import type { ReactNode } from "react";
 import type { AdminUserDetailQuery_adminUserDetail } from "@/frontend/graphql/generated/gql/graphql";
-import { CertifyTeacherDialog, DeleteConfirmDialog, EditUserDialog } from "@/frontend/views/admin/users/dialogs";
+import {
+  CertifyTeacherDialog,
+  ChangeUserPasswordDialog,
+  DeleteConfirmDialog,
+  EditUserDialog,
+} from "@/frontend/views/admin/users/dialogs";
 import type { useAdminUserDetail } from "@/frontend/views/admin/users/hooks";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
@@ -33,6 +38,10 @@ interface UserDetailInlineDialogsProps {
 
 export function UserDetailInlineDialogs({ labels, user, detail }: UserDetailInlineDialogsProps): ReactNode {
   const isReactivate = user.isDeleted ?? false;
+  // Destructured so the truthiness check below narrows the target inside the
+  // async submit closure (no `!` assertions) — same pattern as
+  // `DirectoryMutationDialogs`.
+  const { changePasswordTarget } = detail;
   return (
     <>
       {detail.editOpen && (
@@ -47,6 +56,28 @@ export function UserDetailInlineDialogs({ labels, user, detail }: UserDetailInli
             await detail.updateUser({ variables: { id: user.id, input } });
             detail.setEditOpen(false);
             detail.setSnackbarMessage(labels.snackbars.updated);
+            // The mutation appended an audit row — refresh the timeline.
+            void detail.refetchActivity();
+          }}
+        />
+      )}
+
+      {changePasswordTarget && (
+        <ChangeUserPasswordDialog
+          key={changePasswordTarget.id}
+          labels={labels}
+          user={changePasswordTarget}
+          loading={detail.passwordLoading}
+          onClose={() => detail.setChangePasswordTarget(null)}
+          onSubmit={async input => {
+            // NO try/catch — rejections propagate into the dialog's submit
+            // handler for inline field-error projection (see
+            // ChangeUserPasswordDialog). The returned detail fragment merges
+            // into the cache (mustChangePassword flips the pending-reset
+            // indicator); only the audit-timeline refetch is needed here.
+            await detail.setUserPassword({ variables: { id: changePasswordTarget.id, input } });
+            detail.setChangePasswordTarget(null);
+            detail.setSnackbarMessage(labels.snackbars.passwordChanged);
             // The mutation appended an audit row — refresh the timeline.
             void detail.refetchActivity();
           }}

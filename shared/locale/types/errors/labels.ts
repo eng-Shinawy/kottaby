@@ -123,6 +123,25 @@ export interface ErrorsLabels {
   readonly tokenExpired: string;
   /** "You do not have permission to access this page." — role-mismatch deny. */
   readonly forbiddenRole: string;
+  /**
+   * Forced-reset gate deny for `FORBIDDEN` + code `PASSWORD_CHANGE_REQUIRED`
+   * — a flagged caller invoked a root field outside the exemption allowlist.
+   * Static copy only; no ICU placeholder, no identifiers.
+   */
+  readonly passwordChangeRequired: string;
+  /**
+   * Self-service password-change reject for
+   * `ValidationError("CURRENT_PASSWORD_INVALID", …)` — the submitted current
+   * password failed hash verification. Static copy only; no ICU placeholder,
+   * no identifiers.
+   */
+  readonly currentPasswordInvalid: string;
+  /**
+   * No-op change reject for `ValidationError("NEW_PASSWORD_SAME_AS_CURRENT", …)`
+   * — defense against a "change" that silently clears the forced-reset flag.
+   * Static copy only; no ICU placeholder, no identifiers.
+   */
+  readonly newPasswordSameAsCurrent: string;
   readonly planCatalog: PlanCatalogErrorsLabels;
   /** Lesson-catalog domain failures (lookup miss, title validation, plan gating, empty patch). */
   readonly lessonCatalog: LessonCatalogErrorsLabels;

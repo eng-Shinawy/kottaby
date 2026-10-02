@@ -236,6 +236,7 @@ const SESSION_GOVERNANCE_LEG = [
 const USER_LIFECYCLE_LEG = [
   "adminCreateUser",
   "adminUpdateUser",
+  "adminSetUserPassword",
   "adminSetUserDeleted",
   "adminSetUserSuspended",
   "adminSetUserBlocked",
@@ -537,6 +538,24 @@ const censusRunners: Record<string, CensusRunner> = {
     const updated = await AdminUserManagementService.updateUser(targetStudentId, patch, adminA.userId, LOCALE);
     expect(updated.fullName).toBe(renamedFullName);
     record(executed, entry, AuditActionType.Update, targetStudentId, { changedFields: ["fullName"] });
+  },
+
+  adminSetUserPassword: async (entry, executed) => {
+    // ONE execution — the credential rotation mints exactly ONE Update row
+    // whose details carry the credentials field-set + the flag (never the
+    // password or its hash). The flag direction is the flagged one, so the
+    // minted details pin `mustChangePassword: true`.
+    const credentialed = await AdminUserManagementService.setUserPassword(
+      targetStudentId,
+      { password: TARGET_CREDENTIAL, mustChangePassword: true },
+      adminA.userId,
+      LOCALE
+    );
+    expect(credentialed.mustChangePassword).toBe(true);
+    record(executed, entry, AuditActionType.Update, targetStudentId, {
+      changedFields: ["credentials"],
+      mustChangePassword: true,
+    });
   },
 
   adminSetUserDeleted: async (entry, executed) => {
@@ -1546,8 +1565,9 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     executedActions.push(...legActions);
 
     // Zero-missing oracle: whole-table delta equals the executions — no row
-    // lost, no phantom row minted.
-    expect(legActions).toHaveLength(11);
+    // lost, no phantom row minted (the credential rotation adds the ONE
+    // credentials Update row to the eleven toggle/rename executions).
+    expect(legActions).toHaveLength(12);
     expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
     expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
   });
@@ -2142,6 +2162,16 @@ describe("Audit-trail completeness journey — execute every admin action, prove
         field: "adminUpdateUser",
         call: actorId =>
           AdminUserManagementService.updateUser(targetStudentId, { fullName: `${runPrefix} Denied` }, actorId, LOCALE),
+      },
+      {
+        field: "adminSetUserPassword",
+        call: actorId =>
+          AdminUserManagementService.setUserPassword(
+            targetStudentId,
+            { password: TARGET_CREDENTIAL, mustChangePassword: true },
+            actorId,
+            LOCALE
+          ),
       },
       {
         field: "adminSetUserDeleted",

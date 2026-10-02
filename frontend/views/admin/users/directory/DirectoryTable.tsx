@@ -27,6 +27,7 @@ import { Card, Skeleton, Table, TableBody, TableCell, TableHead, TableRow } from
 import type { ReactNode } from "react";
 import {
   DirectoryEmptyState,
+  type DirectoryRowActions,
   type DirectoryUserItem,
   DirectoryUserRow,
   type RowCellLabels,
@@ -34,17 +35,11 @@ import {
 import { DIRECTORY_SKELETON_KEYS } from "@/frontend/views/admin/users/utils";
 import { useAppLocale } from "@/shared/locale";
 
-interface DirectoryTableProps {
+interface DirectoryTableProps extends DirectoryRowActions {
   readonly labels: RowCellLabels;
   readonly items: readonly DirectoryUserItem[];
   readonly loading: boolean;
   readonly hasFilters: boolean;
-  readonly onEdit: (user: DirectoryUserItem) => void;
-  readonly onDelete: (user: DirectoryUserItem) => void;
-  /** Invoked after any row's copy-email action resolves (drives the snackbar). */
-  readonly onCopyEmail?: () => void;
-  /** When supplied, a filtered zero-match state gains a clear-filters CTA. */
-  readonly onClearFilters?: () => void;
   /** Footer slot rendered inside the card (the `DirectoryPagination` bar). */
   readonly pagination?: ReactNode;
 }
@@ -52,7 +47,7 @@ interface DirectoryTableProps {
 const COLUMN_COUNT = 7;
 
 export function DirectoryTable(props: DirectoryTableProps): ReactNode {
-  const { labels, items, loading, hasFilters, onEdit, onDelete, onCopyEmail, onClearFilters } = props;
+  const { labels, items, loading, hasFilters, onEdit, onChangePassword, onDelete, onCopyEmail, onClearFilters } = props;
   const locale = useAppLocale();
   return (
     <Card
@@ -112,6 +107,7 @@ export function DirectoryTable(props: DirectoryTableProps): ReactNode {
               locale={locale}
               striped={index % 2 === 1}
               onEdit={onEdit}
+              onChangePassword={onChangePassword}
               onDelete={onDelete}
               onCopyEmail={onCopyEmail}
             />

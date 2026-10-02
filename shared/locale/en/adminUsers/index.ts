@@ -8,6 +8,7 @@ function formatEnglishCooldownDays(count: number): string {
 export const adminUsersEn: AdminUsersLabels = {
   title: "Users",
   detailTitle: "User details",
+  changePasswordAction: "Change password",
   headers: {
     name: "Name",
     email: "Email",
@@ -147,6 +148,17 @@ export const adminUsersEn: AdminUsersLabels = {
     submit: "Save changes",
     cancel: "Cancel",
   },
+  changePasswordDialog: {
+    title: "Change password",
+    subtitle:
+      "Sets a new password for this user. The change takes effect immediately and is recorded in the audit log.",
+    newPasswordLabel: "New password",
+    confirmPasswordLabel: "Confirm new password",
+    mustChangePasswordLabel: "Require the user to change this password on next login",
+    mustChangePasswordHelper: "While this is on, the user can only sign in and set a new password — nothing else.",
+    submit: "Set password",
+    cancel: "Cancel",
+  },
   deleteConfirm: {
     title: "Deactivate User?",
     message: "This user will immediately lose access and this action will be recorded in the audit log.",
@@ -249,6 +261,8 @@ export const adminUsersEn: AdminUsersLabels = {
     deletedAt: "Deleted at",
     suspendedAt: "Suspended at",
     blockedAt: "Blocked at",
+    mustChangePasswordLabel: "Password reset pending",
+    mustChangePasswordValue: "Required on next login",
     memberSince: "Member Since",
     lastActiveLabel: "Last Active",
     profileReadonlyNote: "Email and role are managed by system flows and cannot be edited here.",
@@ -322,6 +336,7 @@ export const adminUsersEn: AdminUsersLabels = {
     deleted: "User deleted.",
     reactivated: "User reactivated.",
     certified: "Teacher certified.",
+    passwordChanged: "Password changed.",
   },
   activity: {
     title: "Recent activity",

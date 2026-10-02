@@ -4,6 +4,7 @@ import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 export const adminUsersAr: AdminUsersLabels = {
   title: "المستخدمون",
   detailTitle: "تفاصيل المستخدم",
+  changePasswordAction: "تغيير كلمة المرور",
   headers: {
     name: "الاسم",
     email: "البريد الإلكتروني",
@@ -143,6 +144,17 @@ export const adminUsersAr: AdminUsersLabels = {
     submit: "حفظ التغييرات",
     cancel: "إلغاء",
   },
+  changePasswordDialog: {
+    title: "تغيير كلمة المرور",
+    subtitle: "يعيّن هذا الإجراء كلمة مرور جديدة لهذا المستخدم. يسري التغيير فوراً ويُسجَّل في سجل التدقيق.",
+    newPasswordLabel: "كلمة المرور الجديدة",
+    confirmPasswordLabel: "تأكيد كلمة المرور الجديدة",
+    mustChangePasswordLabel: "إلزام المستخدم بتغيير هذه الكلمة عند تسجيل الدخول التالي",
+    mustChangePasswordHelper:
+      "ما دام هذا الخيار مفعّلاً، لا يستطيع المستخدم إلا تسجيل الدخول وتعيين كلمة مرور جديدة — ولا شيء غير ذلك.",
+    submit: "تعيين كلمة المرور",
+    cancel: "إلغاء",
+  },
   deleteConfirm: {
     title: "تعطيل المستخدم؟",
     message: "سيُفقد هذا الحساب الوصول فورًا وستُسجل هذه العملية في سجل التدقيق.",
@@ -241,6 +253,8 @@ export const adminUsersAr: AdminUsersLabels = {
     deletedAt: "تاريخ الحذف",
     suspendedAt: "تاريخ الإيقاف",
     blockedAt: "تاريخ الحظر",
+    mustChangePasswordLabel: "إعادة تعيين كلمة المرور معلّقة",
+    mustChangePasswordValue: "مطلوبة عند تسجيل الدخول التالي",
     memberSince: "عضو منذ",
     lastActiveLabel: "آخر نشاط",
     profileReadonlyNote: "يُدار البريد الإلكتروني والدور عبر تدفقات النظام ولا يمكن تعديلهما من هنا.",
@@ -314,6 +328,7 @@ export const adminUsersAr: AdminUsersLabels = {
     deleted: "تم حذف المستخدم.",
     reactivated: "تمت إعادة تفعيل المستخدم.",
     certified: "تم اعتماد المعلم.",
+    passwordChanged: "تم تغيير كلمة المرور.",
   },
   activity: {
     title: "النشاط الأخير",

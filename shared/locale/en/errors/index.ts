@@ -19,6 +19,9 @@ export const errorsEn: ErrorsLabels = {
   accountSuspended: "This account is suspended.",
   tokenExpired: "Your session has expired. Please sign in again.",
   forbiddenRole: "You do not have permission to access this page.",
+  passwordChangeRequired: "You must change your password before you can perform this action.",
+  currentPasswordInvalid: "The current password is incorrect.",
+  newPasswordSameAsCurrent: "The new password must be different from the current password.",
   planCatalog: {
     planNotFound: "Subscription plan not found.",
     planAlreadyInactive: "Plan is already inactive.",

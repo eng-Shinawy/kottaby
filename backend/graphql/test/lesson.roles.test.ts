@@ -131,6 +131,7 @@ function mockUser(role?: UserRole, userId = 100): UserSelectType | null {
     countryCode: "EG",
     gender: "male",
     dateOfBirth: "1990-01-01",
+    mustChangePassword: false,
     role,
     isDeleted: false,
     suspended: false,

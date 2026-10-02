@@ -76,6 +76,7 @@ const baseUser: UserSelectType = {
   email: "child@test.local",
   phone: "+1234567890",
   passwordHash: "hash",
+  mustChangePassword: false,
   role: "student",
   isDeleted: false,
   isBlocked: false,

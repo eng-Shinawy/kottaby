@@ -14,6 +14,7 @@ import { ApolloServerPluginLandingPageLocalDefault } from "@apollo/server/plugin
 import type { GraphQLSchema } from "graphql";
 import type { Context } from "@/backend/graphql/gqlContextFactory";
 import { createGraphqlErrorsFinalizerPlugin } from "@/backend/graphql/graphqlErrorsFinalizer";
+import { createPasswordChangeGatePlugin } from "@/backend/graphql/passwordChangeGate";
 import { attachRawErrorHop } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 
@@ -33,6 +34,16 @@ export function createApolloServer(schema: GraphQLSchema, engineOptions: ApolloE
   return new ApolloServer({
     schema,
     plugins: [
+      // Forced-reset operation gate — the server-authoritative fence for
+      // callers whose account row carries the forced password-change flag.
+      // Runs at `didResolveOperation` (before any resolver): a flagged
+      // caller's operation is denied unless EVERY root field it can execute
+      // (fragment spreads flattened) sits on the closed exempt-root-field
+      // allowlist. Denial: FORBIDDEN-family error, code
+      // `PASSWORD_CHANGE_REQUIRED`, localized via the request locale; reads
+      // the DB-backed `ctx.user` only (zero extra queries). See
+      // backend/graphql/passwordChangeGate.ts for the full contract.
+      createPasswordChangeGatePlugin(),
       // THE single error-finalization registration site.
       // `finalizeGraphqlErrors` runs exactly once per execution result at
       // `willSendResponse`, BEFORE serialization: DomainError pass-through

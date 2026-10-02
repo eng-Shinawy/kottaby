@@ -373,6 +373,11 @@ input AdminSessionRescheduleInput {
   startedAt: DateTime!
 }
 
+input AdminSetUserPasswordInput {
+  mustChangePassword: Boolean!
+  password: String!
+}
+
 type AdminStudentAcademicDetail {
   homeworkPage: AdminAcademicHomeworkPage!
   needsAttention: AdminAcademicAttentionFlag
@@ -563,6 +568,7 @@ type AdminUserDetail {
   isBlocked: Boolean
   isDeleted: Boolean
   lastActiveAt: String
+  mustChangePassword: Boolean!
   parent: AdminParentSnapshot
   phone: String
   role: UserRole!
@@ -730,6 +736,11 @@ input CancelSubscriptionInput {
 
   """ID of the active subscription row to cancel."""
   subscriptionId: ID!
+}
+
+input ChangeMyPasswordInput {
+  currentPassword: String!
+  newPassword: String!
 }
 
 """
@@ -1037,6 +1048,7 @@ type Mutation {
   adminRescheduleSession(input: AdminSessionRescheduleInput!): Session!
   adminSetUserBlocked(blocked: Boolean!, id: Int!): AdminUserDetail!
   adminSetUserDeleted(deleted: Boolean!, id: Int!): AdminUserDetail!
+  adminSetUserPassword(id: Int!, input: AdminSetUserPasswordInput!): AdminUserDetail!
   adminSetUserSuspended(id: Int!, periodDays: Int, suspended: Boolean!): AdminUserDetail!
 
   """
@@ -1060,6 +1072,11 @@ type Mutation {
   Cancel one of the caller's scheduled/started sessions (either participant) and release the held fee to its original lane. Non-participants and nonexistent ids are indistinguishable SESSION_NOT_FOUND denials.
   """
   cancelSession(id: ID!, reason: String): Session!
+
+  """
+  Verifies the caller's current password, replaces it, and clears the forced-reset flag, returning the updated password-stripped user. Self-scoped — identity is derived from the verified context, never from arguments; the only path that clears `mustChangePassword`.
+  """
+  changeMyPassword(input: ChangeMyPasswordInput!): User!
 
   """
   Complete one of the caller's started sessions (teacher-only; certification is re-asserted inside the guarded UPDATE).
@@ -2208,6 +2225,7 @@ type User {
   isBlocked: Boolean!
   isDeleted: Boolean!
   locale: AppLocale
+  mustChangePassword: Boolean!
   phone: String
 
   """

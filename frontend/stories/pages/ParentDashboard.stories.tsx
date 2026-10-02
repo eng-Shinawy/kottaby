@@ -44,6 +44,7 @@ const PARENT_USER: AuthUser = {
   isDeleted: false,
   suspended: false,
   isBlocked: false,
+  mustChangePassword: false,
 };
 
 interface ParentDashboardHarnessProps {
@@ -62,6 +63,7 @@ function ParentDashboardHarness({ user, isLoading, mocks }: Readonly<ParentDashb
       error: null,
       login: () => Promise.resolve(false),
       logout: () => undefined,
+      updateSessionUser: () => undefined,
     }),
     [user, isLoading]
   );

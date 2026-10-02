@@ -525,6 +525,7 @@ function mockInProcessUser(role: UserRole, userId: number): UserSelectType {
     countryCode: "EG",
     gender: "male",
     dateOfBirth: "1990-01-01",
+    mustChangePassword: false,
     role,
     isDeleted: false,
     suspended: false,

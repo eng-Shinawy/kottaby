@@ -49,6 +49,7 @@ export function DirectoryResults({ labels, directory, onCopyEmail, onClearFilter
         loading={directory.loading}
         hasFilters={directory.hasFilters}
         onEdit={directory.setEditTarget}
+        onChangePassword={directory.setChangePasswordTarget}
         onDelete={directory.setDeleteTarget}
         onCopyEmail={onCopyEmail}
         onClearFilters={onClearFilters}
@@ -70,6 +71,7 @@ export function DirectoryResults({ labels, directory, onCopyEmail, onClearFilter
         loading={directory.loading}
         hasFilters={directory.hasFilters}
         onEdit={directory.setEditTarget}
+        onChangePassword={directory.setChangePasswordTarget}
         onDelete={directory.setDeleteTarget}
         onCopyEmail={onCopyEmail}
         onClearFilters={onClearFilters}

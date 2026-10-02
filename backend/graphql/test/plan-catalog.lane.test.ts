@@ -40,6 +40,7 @@ function buildAdminContext(): Context {
     countryCode: "EG",
     gender: "male" as const,
     dateOfBirth: "1990-01-01",
+    mustChangePassword: false,
     role: "admin" as const,
     isDeleted: false,
     suspended: false,

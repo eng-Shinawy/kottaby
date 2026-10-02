@@ -35,6 +35,7 @@ export function teacherUser(): MeUserFixture {
     isDeleted: false,
     suspended: false,
     isBlocked: false,
+    mustChangePassword: false,
   };
 }
 

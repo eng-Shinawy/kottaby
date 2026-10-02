@@ -157,6 +157,7 @@ const FROZEN_MUTATION_FIELDS = [
   "adminRescheduleSession",
   "adminSetUserBlocked",
   "adminSetUserDeleted",
+  "adminSetUserPassword",
   "adminSetUserSuspended",
   "adminStopBroadcast",
   "adminUpdateUser",
@@ -164,6 +165,7 @@ const FROZEN_MUTATION_FIELDS = [
   "bookEvaluationSession",
   "cancelParentLinkRequest",
   "cancelSession",
+  "changeMyPassword",
   "completeSession",
   "confirmSessionCompletion",
   "createLesson",
@@ -457,7 +459,7 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     }
   });
 
-  test("Mutation root is EXACTLY the refreshed frozen 54-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
+  test("Mutation root is EXACTLY the refreshed frozen 56-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });

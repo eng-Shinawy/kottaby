@@ -5,7 +5,9 @@
  * reads the httpOnly `access_token` cookie — the redirect-loop fix), and
  * optionally checks the caller's role against a whitelist. Redirects to
  * `/login?redirect=<currentPath>` for anonymous callers, or the caller's
- * ROLE-SPECIFIC dashboard for role-mismatched callers.
+ * ROLE-SPECIFIC dashboard for role-mismatched callers. Unless the page
+ * opts out via `allowMustChangePassword`, a caller flagged for a forced
+ * password reset is fenced to `/change-password` before the role check.
  *
  * Usage in a Server Component page:
  * ```ts
@@ -28,6 +30,7 @@ import { redirect } from "next/navigation";
 import type { UserRole } from "@/backend/enum/users/user-role.enum";
 import { getServerUserContext } from "@/backend/lib/auth/server-auth";
 import type { RegistrationReturnType } from "@/backend/types";
+import { CHANGE_PASSWORD_PAGE_PATH } from "@/frontend/lib/auth/changePasswordRoute";
 import { roleDashboardPath } from "@/frontend/lib/auth/roleDashboardRoute";
 
 /** Options for `withPageAuth`. */
@@ -44,6 +47,15 @@ export interface WithPageAuthOptions {
    * current path. Pass `""` to omit the `?redirect=` param entirely.
    */
   readonly redirectTo?: string;
+  /**
+   * Forced-reset exemption — reserved for the top-level `/change-password`
+   * page itself. When `true`, a caller whose account row carries the
+   * forced password-change flag is NOT redirected (the page IS the fence
+   * target); every other page keeps the default `false`, which fences a
+   * flagged user into `/change-password` after the authentication check and
+   * before the role check.
+   */
+  readonly allowMustChangePassword?: boolean;
 }
 
 /** Result of a successful `withPageAuth` check — the verified user context. */
@@ -57,12 +69,30 @@ export interface WithPageAuthResult {
 }
 
 /**
- * SSR page guard — verifies authentication + optional role fit.
+ * Pure decision for the forced-reset page redirect — true when an
+ * authenticated caller is flagged for a password change and the page has not
+ * opted out via `allowMustChangePassword`. Extracted so the fence branch is
+ * unit-testable without the SSR harness; `withPageAuth` consumes it verbatim.
+ */
+export function shouldRedirectToChangePassword(
+  user: Pick<RegistrationReturnType, "mustChangePassword"> | null | undefined,
+  allowMustChangePassword: boolean | undefined
+): boolean {
+  if (allowMustChangePassword === true) {
+    return false;
+  }
+  return user?.mustChangePassword === true;
+}
+
+/**
+ * SSR page guard — verifies authentication + forced-reset fence + optional
+ * role fit.
  *
  * @returns `{ user, role, userId }` for authenticated callers (or
  *     role-matched if `roles` is supplied). Redirects to
- *     `/login?redirect=<path>` for anonymous callers, or the caller's
- *     role-specific dashboard for role-mismatched callers.
+ *     `/login?redirect=<path>` for anonymous callers, to `/change-password`
+ *     for flagged callers (unless `allowMustChangePassword` is set), or to
+ *     the caller's role-specific dashboard for role-mismatched callers.
  */
 export async function withPageAuth(options?: WithPageAuthOptions): Promise<WithPageAuthResult> {
   const ctx = await getServerUserContext();
@@ -84,6 +114,16 @@ export async function withPageAuth(options?: WithPageAuthOptions): Promise<WithP
     const redirectTo = options?.redirectTo ?? "";
     const loginPath = redirectTo ? `/login?redirect=${encodeURIComponent(redirectTo)}` : "/login";
     redirect(loginPath);
+  }
+
+  // Forced-reset fence — AFTER authentication, BEFORE the role check, so a
+  // flagged caller is fenced into /change-password regardless of role. The
+  // flag rides the SAME cached `getServerUserContext()` row the anonymous
+  // check just read (react.cache dedupes per request — no extra DB
+  // round-trip), and it is DB truth, not a token claim, so an admin-set
+  // flag takes effect on the very next navigation.
+  if (shouldRedirectToChangePassword(ctx.user, options?.allowMustChangePassword)) {
+    redirect(CHANGE_PASSWORD_PAGE_PATH);
   }
 
   // Role check — OR semantics over the supplied role set.

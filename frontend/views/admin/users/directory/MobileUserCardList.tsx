@@ -19,6 +19,7 @@ import { Card, Stack } from "@mui/material";
 import type { ReactNode } from "react";
 import {
   DirectoryEmptyState,
+  type DirectoryRowActions,
   type DirectoryUserItem,
   MobileUserCard,
   type RowCellLabels,
@@ -26,21 +27,15 @@ import {
 import { DIRECTORY_SKELETON_KEYS } from "@/frontend/views/admin/users/utils";
 import { useAppLocale } from "@/shared/locale";
 
-interface MobileUserCardListProps {
+interface MobileUserCardListProps extends DirectoryRowActions {
   readonly labels: RowCellLabels;
   readonly items: readonly DirectoryUserItem[];
   readonly loading: boolean;
   readonly hasFilters: boolean;
-  readonly onEdit: (user: DirectoryUserItem) => void;
-  readonly onDelete: (user: DirectoryUserItem) => void;
-  /** Invoked after any card's copy-email action resolves (drives the snackbar). */
-  readonly onCopyEmail?: () => void;
-  /** When supplied, a filtered zero-match state gains a clear-filters CTA. */
-  readonly onClearFilters?: () => void;
 }
 
 export function MobileUserCardList(props: MobileUserCardListProps): ReactNode {
-  const { labels, items, loading, hasFilters, onEdit, onDelete, onCopyEmail, onClearFilters } = props;
+  const { labels, items, loading, hasFilters, onEdit, onChangePassword, onDelete, onCopyEmail, onClearFilters } = props;
   const locale = useAppLocale();
   return (
     <Stack
@@ -81,6 +76,7 @@ export function MobileUserCardList(props: MobileUserCardListProps): ReactNode {
           user={user}
           locale={locale}
           onEdit={onEdit}
+          onChangePassword={onChangePassword}
           onDelete={onDelete}
           onCopyEmail={onCopyEmail}
         />

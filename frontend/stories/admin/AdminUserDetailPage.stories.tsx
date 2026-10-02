@@ -8,6 +8,7 @@ import {
   DETAIL_USER_ID,
   detailMock,
   LOADING_MOCKS,
+  PENDING_RESET_TEACHER_USER,
   PENDING_TEACHER_USER,
 } from "@/frontend/stories/admin/AdminUserDetailPage.fixtures";
 import { DashboardStoryFrame, StoryApolloProvider } from "@/frontend/stories/lib/storyHarness";
@@ -60,6 +61,15 @@ export const PendingTeacher: Story = {
 /** Certified teacher evaluator — no Certify button (already approved). */
 export const CertifiedTeacher: Story = {
   args: { mocks: [detailMock(CERTIFIED_TEACHER_USER), activityMock()] },
+};
+
+/**
+ * Teacher flagged for a forced password reset (`mustChangePassword: true`)
+ * — the GovernanceCard renders the "password reset pending" row and the
+ * hero keeps the Change password affordance (the flag does not gate it).
+ */
+export const PendingPasswordReset: Story = {
+  args: { mocks: [detailMock(PENDING_RESET_TEACHER_USER), activityMock()] },
 };
 
 /** Never-resolving detail query — the `UserDetailLoading` skeleton branch. */

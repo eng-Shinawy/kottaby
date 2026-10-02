@@ -8,8 +8,9 @@
  *  - Exposes `id` (Int — Apollo cache normalization), `email`, `fullName`,
  *    `role`, plus the profile-page fields (`phone`, `country`, `gender`,
  *    `locale`) and the read-only governance fields (`isDeleted`,
- *    `suspended`, `isBlocked`). The `passwordHash` field is structurally
- *    omitted from `RegistrationReturnType` so it can never leak.
+ *    `suspended`, `isBlocked`, `mustChangePassword`). The `passwordHash`
+ *    field is structurally omitted from `RegistrationReturnType` so it can
+ *    never leak.
  *
  * Additional fields (relationships, computed props) may be added on this same
  * object in future tickets — GraphQL's selection mechanism lets clients
@@ -88,5 +89,36 @@ export const UserPothosObject = gqlSchemaBuilder.objectRef<RegistrationReturnTyp
     isBlocked: t.boolean({
       resolve: parent => parent.isBlocked ?? false,
     }),
+    // Read-only credential-governance flag — "require this credential to be
+    // replaced on next login". Written only by the admin credential
+    // mutation, cleared only by the self-service change path — clients
+    // cannot mutate it through any input type. The column is `notNull` with
+    // a `false` server default; the `?? false` mirrors the sibling
+    // governance booleans above so the resolver stays total.
+    mustChangePassword: t.boolean({
+      resolve: parent => parent.mustChangePassword ?? false,
+    }),
+  }),
+});
+
+/**
+ * Closed self-service credential input — the argument surface of the
+ * `changeMyPassword` mutation. EXACTLY two required fields; the shape
+ * is structurally final, so `passwordHash`, `email`, `role`, the locale
+ * preference, and every governance field (incl. `mustChangePassword` itself)
+ * are unreachable through it — the flag clears ONLY through the service's
+ * verified write path, never through client input.
+ *
+ * BOPLA discipline: identity is NEVER an input member — the resolver derives
+ * it exclusively from the verified context (`ctx.user.id`), so a caller can
+ * only ever target its own row. Both members are PLAINTEXT credentials: they
+ * exist only for the duration of the service call, are verified/hashed
+ * (`comparePassword` → `hashPassword`) before persistence, and are never
+ * stored, logged, audited, or echoed back.
+ */
+export const ChangeMyPasswordInput = gqlSchemaBuilder.inputType("ChangeMyPasswordInput", {
+  fields: t => ({
+    currentPassword: t.string({ required: true }),
+    newPassword: t.string({ required: true }),
   }),
 });

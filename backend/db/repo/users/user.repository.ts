@@ -12,7 +12,7 @@
  *    repository methods surface raw Drizzle errors; the service layer maps
  *    `23505` → `ConflictError` via `translateDbError`.
  */
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { queryDb } from "@/backend/db";
 import { users } from "@/backend/db/schema/users/users";
 import type { DBQueryExecutor, DBTransaction, UserInsertType, UserSelectType } from "@/backend/types";
@@ -49,6 +49,7 @@ export namespace UserRepository {
     // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
     const result = await queryDb<UserSelectType>(
       `SELECT id, full_name AS "fullName", email, phone, password_hash AS "passwordHash",
+              must_change_password AS "mustChangePassword",
               role, date_of_birth AS "dateOfBirth", gender, country,
               country_code AS "countryCode", locale,
               is_deleted AS "isDeleted", deleted_at AS "deletedAt",
@@ -82,6 +83,7 @@ export namespace UserRepository {
     // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path).
     const result = await queryDb<UserSelectType>(
       `SELECT id, full_name AS "fullName", email, phone, password_hash AS "passwordHash",
+              must_change_password AS "mustChangePassword",
               role, date_of_birth AS "dateOfBirth", gender, country,
               country_code AS "countryCode", locale,
               is_deleted AS "isDeleted", deleted_at AS "deletedAt",
@@ -135,6 +137,48 @@ export namespace UserRepository {
     tx: DBTransaction
   ): Promise<UserSelectType | null> {
     const [row] = await tx.update(users).set({ locale }).where(eq(users.id, userId)).returning();
+    return row ?? null;
+  }
+
+  /**
+   * Updates one user's credential pair (password hash + force-reset flag) —
+   * a guarded single `UPDATE … WHERE id = ? RETURNING *` on the supplied
+   * transaction.
+   *
+   * The caller MUST hash the plaintext password BEFORE calling this method
+   * (same contract as `create` — the repository never sees plaintext, only
+   * the finished hash). The force-reset flag is persisted exactly as given:
+   * `true` marks a credential the user must replace, `false` clears the
+   * mark. `updated_at` re-stamps automatically via the column's `$onUpdate`
+   * hook.
+   *
+   * Optional optimistic fence: when `expectedCurrentHash` is supplied, the
+   * WHERE predicate gains `AND password_hash = $expectedCurrentHash` — the
+   * write only lands if the stored credential is still the one the caller
+   * observed when it authorized the change. Zero matched rows (concurrent
+   * rotation between the caller's read and this write) yield `null`, the
+   * same miss signal as an absent id; the service tier disambiguates (and
+   * may deliberately NOT disambiguate, keeping a single client-facing
+   * denial shape). Admin override paths omit the fence entirely.
+   *
+   * @returns The updated FULL row (passwordHash included — service layers
+   *          must strip it before exposure; it never reaches GraphQL), or
+   *          `null` when zero rows matched — absent id, or a fenced write
+   *          whose expected hash no longer matches (the service layer
+   *          decides what that means).
+   */
+  export async function updatePassword(
+    userId: number,
+    passwordHash: string,
+    mustChangePassword: boolean,
+    tx: DBTransaction,
+    expectedCurrentHash?: string
+  ): Promise<UserSelectType | null> {
+    const where =
+      expectedCurrentHash === undefined
+        ? eq(users.id, userId)
+        : and(eq(users.id, userId), eq(users.passwordHash, expectedCurrentHash));
+    const [row] = await tx.update(users).set({ passwordHash, mustChangePassword }).where(where).returning();
     return row ?? null;
   }
 

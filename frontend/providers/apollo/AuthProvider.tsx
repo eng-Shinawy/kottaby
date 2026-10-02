@@ -1,8 +1,8 @@
 "use client";
 
 import { useApolloClient } from "@apollo/client/react";
-import { type ReactNode, useMemo, useState } from "react";
-import { AuthContext, type AuthContextType } from "@/frontend/context/AuthContext";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { AuthContext, type AuthContextType, type AuthUser } from "@/frontend/context/AuthContext";
 import { useNetworkConnectivity } from "@/frontend/hooks/connectivity";
 import { useAuthLogin } from "@/frontend/providers/apollo/useAuthLogin";
 import { useAuthLogout } from "@/frontend/providers/apollo/useAuthLogout";
@@ -36,6 +36,14 @@ interface AuthProviderProps {
  *    into the next session), and navigates to `/login`. The server-side
  *    cookie clear is fire-and-forget — even if it fails, the client state
  *    is reset (the cookies will expire on their own TTL).
+ *  - `updateSessionUser(patch)`: merges a server-authoritative partial user
+ *    payload into the React-state `user` snapshot (no-op against a `null`
+ *    session). The self-service password change feeds it the
+ *    `changeMyPassword` result so the client snapshot mirrors the cleared
+ *    `mustChangePassword` flag immediately — the DashboardLayout
+ *    forced-reset mirror reads this snapshot, and a stale `true` would
+ *    bounce the just-changed user back to `/change-password` when the
+ *    role dashboard mounts.
  *
  * Cold-start recovery: the refresh token is held in React memory only
  * (per `docs/auth/REDIRECT_LOOP_FIX.md` — never persisted to localStorage
@@ -71,6 +79,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = useAuthLogin(apolloClient, updateAuthToken, setUser, setError);
   const logout = useAuthLogout(apolloClient, clearAuthData, setUser, setError);
 
+  // Session-snapshot sync: merge a server-authoritative partial user into
+  // the React-state `user`. Stable identity (no external inputs) so
+  // consumers can list it in their own callback deps. The null guard keeps
+  // the patch a no-op against an anonymous session (nothing to merge into).
+  const updateSessionUser = useCallback((patch: Partial<AuthUser>) => {
+    setUser(currentUser => (currentUser ? { ...currentUser, ...patch } : currentUser));
+  }, []);
+
   const value = useMemo<AuthContextType>(
     () => ({
       user,
@@ -79,8 +95,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       error,
       login,
       logout,
+      updateSessionUser,
     }),
-    [user, isLoading, error, login, logout]
+    [user, isLoading, error, login, logout, updateSessionUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

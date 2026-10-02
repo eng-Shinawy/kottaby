@@ -98,6 +98,13 @@ export const ADMIN_ACTION_CENSUS: readonly AdminActionCensusEntry[] = [
     kind: "wired",
   },
   {
+    mutationField: "adminSetUserPassword",
+    serviceEntry: "AdminUserManagementService.setUserPassword",
+    expectedActionTypes: [AuditActionType.Update],
+    expectedEntityType: "user",
+    kind: "wired",
+  },
+  {
     mutationField: "adminSetUserDeleted",
     serviceEntry: "AdminUserManagementService.setUserDeleted",
     expectedActionTypes: [AuditActionType.Delete, AuditActionType.Reactivate],

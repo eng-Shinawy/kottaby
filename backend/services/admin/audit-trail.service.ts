@@ -46,7 +46,8 @@ import { type AuditTrailEntryRow, AuditTrailRepository, type NormalizedAuditTrai
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { ValidationError } from "@/backend/lib/errors";
 import { assertActorAdmin, toAuditActionType } from "@/backend/services/admin/admin-gate.helpers";
-import { isPositiveSafeInteger, resolvePageBounds } from "@/backend/services/admin/user-management.helpers";
+import { isPositiveSafeInteger } from "@/backend/services/admin/user-management.helpers";
+import { resolvePageBounds } from "@/backend/services/admin/user-management.query.helpers";
 import type {
   AdminAuditLogEntryReturnType,
   AdminAuditLogPageReturnType,

@@ -286,6 +286,8 @@ function buildOnboardInput(overrides: Partial<AdminOnboardStudentSubmitInput> = 
     phone: "+20100444000",
     password: ONBOARDED_CREDENTIAL,
     gender: undefined,
+    // ISO 3166-1 alpha-2 code — validateCreateInput gates `country` through
+    // countryCodeSchema (free text like "Egypt" is rejected).
     country: "EG",
     parentId: null,
     planId: 0,

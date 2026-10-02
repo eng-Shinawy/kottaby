@@ -44,6 +44,7 @@ const ADMIN_USER: AuthUser = {
   isDeleted: false,
   suspended: false,
   isBlocked: false,
+  mustChangePassword: false,
 };
 
 function authValue(overrides: Partial<AuthContextType>): AuthContextType {
@@ -54,6 +55,7 @@ function authValue(overrides: Partial<AuthContextType>): AuthContextType {
     error: null,
     login: () => Promise.resolve(false),
     logout: () => undefined,
+    updateSessionUser: () => undefined,
     ...overrides,
   };
 }

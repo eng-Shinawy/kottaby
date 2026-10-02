@@ -11,6 +11,9 @@
  *    as a pill only in the hero; no 3× chip duplication).
  *  - SUSPENDED / BLOCKED / DELETED render Yes/No via the localized
  *    `booleanValues`.
+ *  - A `mustChangePassword` flag appends the "password reset pending"
+ *    governance cell (label + pending value — the credential was set by an
+ *    admin and the user has not replaced it yet).
  *  - `suspendedAt` / `blockedAt` / `deletedAt` rows are appended ONLY when
  *    the corresponding timestamp is set.
  *  - Every grid row except the last carries a subtle `divider` hairline
@@ -113,6 +116,13 @@ export function GovernanceCard({ user, governance, labels, formatTimestamp }: Go
       value: <GovernanceValue>{booleanLabel(user.isDeleted, labels.detail.booleanValues)}</GovernanceValue>,
     },
   ];
+  if (user.mustChangePassword) {
+    cellDefs.push({
+      key: "mustChangePassword",
+      eyebrow: labels.detail.mustChangePasswordLabel,
+      value: <GovernanceValue>{labels.detail.mustChangePasswordValue}</GovernanceValue>,
+    });
+  }
   if (user.suspendedAt) {
     cellDefs.push({
       key: "suspendedAt",

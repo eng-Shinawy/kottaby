@@ -52,7 +52,7 @@ import { ValidationError } from "@/backend/lib/errors";
 import { assertActorAdmin } from "@/backend/services/admin/admin-guards.helpers";
 import { buildExportEnvelope, EXPORT_MAX_ROWS } from "@/backend/services/admin/directory-export.helpers";
 import { mapApplicantDirectoryRow } from "@/backend/services/admin/teacher-applicant-directory.mappers";
-import { resolvePageBounds } from "@/backend/services/admin/user-management.helpers";
+import { resolvePageBounds } from "@/backend/services/admin/user-management.query.helpers";
 import type {
   AdminApplicantExportEnvelopeReturnType,
   AdminApplicantFiltersSubmitInput,

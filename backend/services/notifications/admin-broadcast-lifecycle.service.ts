@@ -34,7 +34,7 @@ import { ConflictError, NotFoundError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { assertActorAdmin } from "@/backend/services/admin/admin-gate.helpers";
 import { AuditService } from "@/backend/services/admin/audit.service";
-import { resolvePageBounds } from "@/backend/services/admin/user-management.helpers";
+import { resolvePageBounds } from "@/backend/services/admin/user-management.query.helpers";
 import {
   AUDIT_ENTITY_TYPE,
   BROADCAST_RELATED_ENTITY_TYPE,

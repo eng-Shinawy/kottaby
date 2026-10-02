@@ -1087,12 +1087,13 @@ describe("AdminUserManagementService — Tier 4 static source scans (BOPLA / BFL
 
   test("withTransaction single boundary per mutation", () => {
     // Each mutation has exactly ONE `withTransaction(outerTx, ...)` call.
-    // The service has 2 mutations (createUser, updateUser) → 2 calls; the
-    // helpers own the three governance axes → 3 calls (5 total).
+    // The service has 3 mutations (createUser, updateUser, setUserPassword)
+    // → 3 calls; the helpers own the three governance axes → 3 calls
+    // (6 total).
     // Scan CODE only — JSDoc cites `withTransaction(outerTx, …)` as
     // documentation in the pipeline comments.
     const serviceMatches = serviceCodeOnly.match(/withTransaction\(/g) ?? [];
-    expect(serviceMatches).toHaveLength(2);
+    expect(serviceMatches).toHaveLength(3);
     const helpersMatches = helpersCodeOnly.match(/withTransaction\(/g) ?? [];
     expect(helpersMatches).toHaveLength(3);
   });
@@ -1229,7 +1230,7 @@ describe("D11 — AuthService.login auth-consumption proofs (committed fixtures)
           email: activeEmail,
           phone: "+10000000000",
           password,
-          country: "EG",
+          country: "EG", // ISO alpha-2 — registration validateInput gates via countryCodeSchema
           role: "student",
         },
         LOCALE,
@@ -1243,7 +1244,7 @@ describe("D11 — AuthService.login auth-consumption proofs (committed fixtures)
           email: lapsedEmail,
           phone: "+10000000000",
           password,
-          country: "EG",
+          country: "EG", // ISO alpha-2 — registration validateInput gates via countryCodeSchema
           role: "student",
         },
         LOCALE,
@@ -1257,7 +1258,7 @@ describe("D11 — AuthService.login auth-consumption proofs (committed fixtures)
           email: blockedEmail,
           phone: "+10000000000",
           password,
-          country: "EG",
+          country: "EG", // ISO alpha-2 — registration validateInput gates via countryCodeSchema
           role: "student",
         },
         LOCALE,
@@ -1271,7 +1272,7 @@ describe("D11 — AuthService.login auth-consumption proofs (committed fixtures)
           email: deletedEmail,
           phone: "+10000000000",
           password,
-          country: "EG",
+          country: "EG", // ISO alpha-2 — registration validateInput gates via countryCodeSchema
           role: "student",
         },
         LOCALE,

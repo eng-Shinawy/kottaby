@@ -28,6 +28,13 @@
  *   6. REGISTRY WIRING — the `AdminUsers` handle is registered in
  *      `shared/locale/namespaces/index.ts` with the conventional `<ns>.<ns>`
  *      id and its getter resolves the composed bundle slice.
+ *   7. CHANGE-PASSWORD SURFACE PIN — every key of the `changePasswordDialog`
+ *      block plus the standalone `changePasswordAction`,
+ *      `detail.mustChangePasswordLabel`, `detail.mustChangePasswordValue`, and
+ *      `snackbars.passwordChanged` leaves is pinned under BOTH locales — a key
+ *      dropped from both maps simultaneously still fails this suite. All
+ *      twelve leaves are flat strings (no function leaves — the dialog block
+ *      adds none and none may ever be minted for this surface).
  *
  * Mirrors the structure of `shared/locale/handshakeCode-namespace.parity.test.ts`
  * (the sibling namespace gate), extended with a depth-first leaf walk for
@@ -115,6 +122,33 @@ const ACTION_CHIP_KEYS = [
   "actionOverride",
   "actionAdjust",
   "actionSuspend",
+] as const;
+
+/**
+ * Every leaf key the `changePasswordDialog` block must carry (8 slots) —
+ * dotted paths RELATIVE to the block root. Flat admin chrome copy only.
+ */
+const CHANGE_PASSWORD_DIALOG_LEAF_PATHS = [
+  "title",
+  "subtitle",
+  "newPasswordLabel",
+  "confirmPasswordLabel",
+  "mustChangePasswordLabel",
+  "mustChangePasswordHelper",
+  "submit",
+  "cancel",
+] as const;
+
+/**
+ * The four change-password leaves living OUTSIDE the dialog block — the
+ * directory/hero action label, the detail governance-card flag label + value,
+ * and the success snackbar. Dotted paths relative to the namespace root.
+ */
+const CHANGE_PASSWORD_FLAT_PATHS = [
+  "changePasswordAction",
+  "detail.mustChangePasswordLabel",
+  "detail.mustChangePasswordValue",
+  "snackbars.passwordChanged",
 ] as const;
 
 /** Locale-neutral null placeholder for copy slots with nothing to show. */
@@ -279,6 +313,49 @@ describe("auditTrail block — pinned under BOTH locales", () => {
     for (const path of ["table.noDetailsValue", "table.noEntityIdValue"] as const) {
       expect(leafValueOf(adminUsersAr.auditTrail, path, "ar")).toBe(NULL_PLACEHOLDER);
       expect(leafValueOf(adminUsersEn.auditTrail, path, "en")).toBe(NULL_PLACEHOLDER);
+    }
+  });
+});
+
+// ===========================================================================
+describe("change-password surface — pinned under BOTH locales", () => {
+  test("exact changePasswordDialog leaf-path set on BOTH locale sources (no key added, none dropped)", () => {
+    const pinned = [...CHANGE_PASSWORD_DIALOG_LEAF_PATHS].toSorted((a, b) => a.localeCompare(b));
+
+    expect(leafPathsOf(adminUsersAr.changePasswordDialog).toSorted((a, b) => a.localeCompare(b))).toEqual(pinned);
+    expect(leafPathsOf(adminUsersEn.changePasswordDialog).toSorted((a, b) => a.localeCompare(b))).toEqual(pinned);
+  });
+
+  test.each([...CHANGE_PASSWORD_DIALOG_LEAF_PATHS])(
+    "changePasswordDialog.%s resolves as a non-empty string in BOTH locales",
+    path => {
+      expect(leafValueOf(adminUsersAr.changePasswordDialog, path, "ar").length).toBeGreaterThan(0);
+      expect(leafValueOf(adminUsersEn.changePasswordDialog, path, "en").length).toBeGreaterThan(0);
+    }
+  );
+
+  test.each([...CHANGE_PASSWORD_FLAT_PATHS])(
+    "change-password leaf `%s` resolves as a non-empty string in BOTH locales",
+    path => {
+      expect(leafValueOf(adminUsersAr, path, "ar").length).toBeGreaterThan(0);
+      expect(leafValueOf(adminUsersEn, path, "en").length).toBeGreaterThan(0);
+    }
+  );
+
+  test("all twelve change-password leaves are flat strings — ZERO function leaves on the surface", () => {
+    const allLeafPaths = [
+      ...CHANGE_PASSWORD_DIALOG_LEAF_PATHS.map(path => `changePasswordDialog.${path}`),
+      ...CHANGE_PASSWORD_FLAT_PATHS,
+    ];
+    for (const [localeMap, localeName] of [
+      [adminUsersAr, "ar"],
+      [adminUsersEn, "en"],
+    ] as const) {
+      for (const path of allLeafPaths) {
+        // leafValueOf throws on any non-string node — a function leaf minted
+        // on this surface would fail the suite right here.
+        expect(leafValueOf(localeMap, path, localeName)).toBeDefined();
+      }
     }
   });
 });

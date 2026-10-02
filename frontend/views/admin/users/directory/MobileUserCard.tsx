@@ -48,8 +48,9 @@ interface MobileUserCardProps {
   readonly user: DirectoryUserItem;
   readonly locale: "ar" | "en";
   readonly onEdit: (user: DirectoryUserItem) => void;
+  readonly onChangePassword: (user: DirectoryUserItem) => void;
   readonly onDelete: (user: DirectoryUserItem) => void;
-  /** Invoked after the email copy resolves successfully (drives the snackbar). */
+  /** Invoked after any card's copy-email action resolves (drives the snackbar). */
   readonly onCopyEmail?: () => void;
 }
 
@@ -58,6 +59,7 @@ export function MobileUserCard({
   user,
   locale,
   onEdit,
+  onChangePassword,
   onDelete,
   onCopyEmail,
 }: MobileUserCardProps): ReactNode {
@@ -73,7 +75,13 @@ export function MobileUserCard({
           <Typography variant="caption" sx={theme => ({ color: theme.palette.text.secondary })}>
             {formatDirectoryRelativeTime(user.lastActiveAt, locale)}
           </Typography>
-          <DirectoryActionsMenu user={user} labels={labels} onEdit={onEdit} onDelete={onDelete} />
+          <DirectoryActionsMenu
+            user={user}
+            labels={labels}
+            onEdit={onEdit}
+            onChangePassword={onChangePassword}
+            onDelete={onDelete}
+          />
         </>
       }
       identity={

@@ -8,6 +8,7 @@
 import {
   BlockOutlined as BlockIcon,
   EditOutlined as EditIcon,
+  KeyOutlined as KeyIcon,
   MoreVertOutlined as MoreVertIcon,
   RefreshOutlined as RefreshIcon,
 } from "@mui/icons-material";
@@ -18,8 +19,12 @@ import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 interface DirectoryActionsMenuProps {
   readonly user: DirectoryUserItem;
-  readonly labels: Pick<AdminUsersLabels, "headers" | "editDialog" | "deleteConfirm" | "reactivateConfirm">;
+  readonly labels: Pick<
+    AdminUsersLabels,
+    "headers" | "editDialog" | "changePasswordAction" | "deleteConfirm" | "reactivateConfirm"
+  >;
   readonly onEdit: (user: DirectoryUserItem) => void;
+  readonly onChangePassword: (user: DirectoryUserItem) => void;
   readonly onDelete: (user: DirectoryUserItem) => void;
 }
 
@@ -28,9 +33,19 @@ interface DirectoryActionsMenuProps {
  * table rendered per row. The Deactivate item paints in the `error` lane;
  * for already-deleted rows the same slot becomes Reactivate (default
  * ink). Both wire straight into the container's existing dialog callbacks,
- * so the edit / soft-delete / reactivate flows are unchanged.
+ * so the edit / soft-delete / reactivate flows are unchanged. The Change
+ * password item sits beside Edit and opens the credential dialog without
+ * touching the row's governance state — and is HIDDEN for deleted rows,
+ * mirroring `adminSetUserPassword`'s deleted-target denial (no live
+ * credential to replace) so the menu never invites a doomed submit.
  */
-export function DirectoryActionsMenu({ user, labels, onEdit, onDelete }: DirectoryActionsMenuProps): ReactNode {
+export function DirectoryActionsMenu({
+  user,
+  labels,
+  onEdit,
+  onChangePassword,
+  onDelete,
+}: DirectoryActionsMenuProps): ReactNode {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const isReactivate = user.isDeleted;
   const close = () => setAnchorEl(null);
@@ -55,6 +70,20 @@ export function DirectoryActionsMenu({ user, labels, onEdit, onDelete }: Directo
           <EditIcon fontSize="small" sx={theme => ({ marginInlineEnd: 1.5, color: theme.palette.text.secondary })} />
           {labels.editDialog.title}
         </MenuItem>
+        {/* adminSetUserPassword rejects deleted targets (USER_NOT_FOUND — no
+            live credential to replace): the item collapses instead of
+            letting the admin fill two credentials into a doomed dialog. */}
+        {!isReactivate && (
+          <MenuItem
+            onClick={() => {
+              close();
+              onChangePassword(user);
+            }}
+          >
+            <KeyIcon fontSize="small" sx={theme => ({ marginInlineEnd: 1.5, color: theme.palette.text.secondary })} />
+            {labels.changePasswordAction}
+          </MenuItem>
+        )}
         <MenuItem
           onClick={() => {
             close();

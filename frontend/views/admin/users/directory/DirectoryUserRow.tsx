@@ -36,6 +36,7 @@ interface DirectoryUserRowProps {
   /** `true` paints the faint zebra tint on this row (odd body-row index). */
   readonly striped?: boolean;
   readonly onEdit: (user: DirectoryUserItem) => void;
+  readonly onChangePassword: (user: DirectoryUserItem) => void;
   readonly onDelete: (user: DirectoryUserItem) => void;
   /** Invoked after the identity cell's copy-email action resolves. */
   readonly onCopyEmail?: () => void;
@@ -47,6 +48,7 @@ export function DirectoryUserRow({
   locale,
   striped,
   onEdit,
+  onChangePassword,
   onDelete,
   onCopyEmail,
 }: DirectoryUserRowProps): ReactNode {
@@ -99,7 +101,13 @@ export function DirectoryUserRow({
         <DirectoryRelativeTime value={user.lastActiveAt} locale={locale} />
       </TableCell>
       <TableCell sx={theme => ({ textAlign: "end", color: theme.palette.text.secondary, paddingInlineEnd: 3 })}>
-        <DirectoryActionsMenu user={user} labels={labels} onEdit={onEdit} onDelete={onDelete} />
+        <DirectoryActionsMenu
+          user={user}
+          labels={labels}
+          onEdit={onEdit}
+          onChangePassword={onChangePassword}
+          onDelete={onDelete}
+        />
       </TableCell>
     </DirectoryBodyRow>
   );

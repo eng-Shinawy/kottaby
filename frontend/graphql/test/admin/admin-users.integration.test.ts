@@ -2,17 +2,18 @@
  * Admin user-management GraphQL permission-matrix integration suite.
  *
  * Phase 5.1 — full §3.4 permission matrix proven over the LIVE
- * Next.js dev server + real PostgreSQL rows, exercising all six admin
+ * Next.js dev server + real PostgreSQL rows, exercising all eight admin
  * operations through the shared TypedDocumentNodes the production UI
  * consumes.
  *
  * Tiers (per plan.md §3.4 + tasks.md 5.1):
- *  - Tier 1 anonymous → each of the six operations → UNAUTHORIZED.
+ *  - Tier 1 anonymous → each of the eight operations → UNAUTHORIZED.
  *  - Tier 2 student / parent / teacher(applicant+certified) → each of the
- *    six operations → FORBIDDEN (defense-in-depth at the service seam,
+ *    eight operations → FORBIDDEN (defense-in-depth at the service seam,
  *    beyond authScope).
- *  - Tier 3 admin happy paths on all six operations (directory list,
- *    detail fetch, overview stats, create, update, soft-delete + reactivate).
+ *  - Tier 3 admin happy paths on all eight operations (directory list,
+ *    detail fetch, overview stats, create, update, set-password,
+ *    soft-delete + reactivate).
  *  - Tier 4 transport-tamper probes:
  *      (a) admin createUser(role=admin) → ADMIN_ROLE_CREATION_FORBIDDEN
  *          (runtime role-pre-guard; RegisterPublicRole type union can't
@@ -67,6 +68,7 @@ import { AuditActionType, Gender, RegisterPublicRole, UserRole } from "@/fronten
 import {
   adminCreateUserMutationDocument,
   adminSetUserDeletedMutationDocument,
+  adminSetUserPasswordMutationDocument,
   adminUpdateUserMutationDocument,
   adminUserActivityQueryDocument,
   adminUserDetailQueryDocument,
@@ -251,7 +253,7 @@ function readErrorCode(body: unknown): string | undefined {
   return body.errors?.[0]?.extensions?.code;
 }
 
-/** The seven admin operations covered by the matrix — sanity-checked
+/** The eight admin operations covered by the matrix — sanity-checked
  * against future drift if the operation set changes. */
 const ADMIN_OPERATIONS = [
   "adminUsers",
@@ -260,6 +262,7 @@ const ADMIN_OPERATIONS = [
   "adminUserActivity",
   "adminCreateUser",
   "adminUpdateUser",
+  "adminSetUserPassword",
   "adminSetUserDeleted",
 ] as const;
 
@@ -286,7 +289,7 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
   });
 
   // ─── Tier 1: anonymous → each operation → UNAUTHORIZED ─────────────
-  describe("Tier 1 — anonymous caller denied across all seven operations", () => {
+  describe("Tier 1 — anonymous caller denied across all eight operations", () => {
     test("adminUsers (list) → UNAUTHORIZED; zero audit writes", async () => {
       const auditBefore = await countAllAuditRows();
       const result = await testClient.query({ query: adminUsersQueryDocument });
@@ -354,6 +357,19 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
       expect(await countAllAuditRows()).toBe(auditBefore);
     });
 
+    test("adminSetUserPassword → UNAUTHORIZED; zero audit writes", async () => {
+      const auditBefore = await countAllAuditRows();
+      const result = await testClient.mutate({
+        mutation: adminSetUserPasswordMutationDocument,
+        variables: {
+          id: 1,
+          input: { password: TEST_CREDENTIAL, mustChangePassword: true },
+        },
+      });
+      expectMutationError(result.error, "UNAUTHORIZED");
+      expect(await countAllAuditRows()).toBe(auditBefore);
+    });
+
     test("adminSetUserDeleted → UNAUTHORIZED; zero audit writes", async () => {
       const auditBefore = await countAllAuditRows();
       const result = await testClient.mutate({
@@ -364,13 +380,13 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
       expect(await countAllAuditRows()).toBe(auditBefore);
     });
 
-    test("the seven operations enumerated (drift guard)", () => {
-      expect(ADMIN_OPERATIONS).toHaveLength(7);
+    test("the eight operations enumerated (drift guard)", () => {
+      expect(ADMIN_OPERATIONS).toHaveLength(8);
     });
   });
 
   // ─── Tier 2: non-admin roles → each operation → FORBIDDEN ─────────
-  describe("Tier 2 — non-admin roles denied across all seven operations", () => {
+  describe("Tier 2 — non-admin roles denied across all eight operations", () => {
     const nonAdminRoles: ReadonlyArray<RegisterPublicRole> = [
       RegisterPublicRole.Student,
       RegisterPublicRole.Parent,
@@ -461,6 +477,21 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
         expect(await countAllAuditRows()).toBe(auditBefore);
       });
 
+      test(`${role} actor → adminSetUserPassword → FORBIDDEN; zero audit writes`, async () => {
+        const { accessToken } = await registerAndLogin(role);
+        const auditBefore = await countAllAuditRows();
+        const result = await testClient.mutate({
+          mutation: adminSetUserPasswordMutationDocument,
+          variables: {
+            id: 1,
+            input: { password: TEST_CREDENTIAL, mustChangePassword: true },
+          },
+          context: bearer(accessToken),
+        });
+        expectMutationError(result.error, "FORBIDDEN");
+        expect(await countAllAuditRows()).toBe(auditBefore);
+      });
+
       test(`${role} actor → adminSetUserDeleted → FORBIDDEN; zero audit writes`, async () => {
         const { accessToken } = await registerAndLogin(role);
         const auditBefore = await countAllAuditRows();
@@ -476,7 +507,7 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
   });
 
   // ─── Tier 3: admin happy paths + zero-leak gates ───────────────────
-  describe("Tier 3 — admin happy paths across all six operations + zero-leak gates", () => {
+  describe("Tier 3 — admin happy paths across all seven operations + zero-leak gates", () => {
     let adminActor: ActorBundle;
     let createdUserId: number;
 
@@ -710,6 +741,35 @@ describeGraphqlSuite("Admin user-management GraphQL permission matrix", () => {
       });
       expectMutationError(result.error, "USER_NOT_FOUND");
       expect(await countAllAuditRows()).toBe(auditBefore);
+    });
+
+    // Deliberately LAST in Tier 3: the timeline test above pins the matrix
+    // user's audit trail to exactly four rows (create/update/delete/
+    // reactivate), so the credential rotation runs after that assertion.
+    // Reuses TEST_CREDENTIAL — the service re-hashes and persists it, which
+    // is exactly the audited write under probe (the flag flip is asserted
+    // through the echoed detail field).
+    test("admin → adminSetUserPassword rotates the credential; flag echoed; ONE audit row; no `passwordHash` leak", async () => {
+      const auditBefore = await countAllAuditRows();
+      const result = await testClient.mutate({
+        mutation: adminSetUserPasswordMutationDocument,
+        variables: {
+          id: createdUserId,
+          input: { password: TEST_CREDENTIAL, mustChangePassword: true },
+        },
+        context: bearer(adminActor.accessToken),
+      });
+      expect(result.error).toBeUndefined();
+      const detail = result.data?.adminSetUserPassword;
+      if (!detail) throw new Error("adminSetUserPassword returned no data");
+      expect(Object.keys(detail)[0]).toBe("id");
+      expect(detail.id).toBe(createdUserId);
+      expect(detail.role).toBe(UserRole.Student);
+      expect(detail.mustChangePassword).toBe(true);
+      // Zero-leak: the credential write's response carries no `passwordHash`.
+      expect(deepFindKey(result.data, "passwordHash")).toBe(false);
+      // Exactly ONE audit row emitted for the successful credential change.
+      expect(await countAllAuditRows()).toBe(auditBefore + 1);
     });
   });
 

@@ -61,6 +61,14 @@
  *    `authScopes: { $all: { authenticated: true, role: [UserRole.Admin] } }`
  *    conjunction verbatim (the `$all` is what makes the scope combine with
  *    AND semantics — a plain scope map would silently degrade to ANY).
+ *    The credential-rotation write carries the same treatment:
+ *    `adminSetUserPassword(id: Int!, input: AdminSetUserPasswordInput!):
+ *    AdminUserDetail!` is pinned arg-exact and carries the same EXACT `$all`
+ *    conjunction, and its closed `AdminSetUserPasswordInput` discloses
+ *    EXACTLY the two required credential members (`mustChangePassword:
+ *    Boolean!`, `password: String!`) — the closed `{ password,
+ *    mustChangePassword }` shape, pinned at the schema layer where the wire
+ *    tier's service-guard defense-in-depth cannot mask a scope relaxation.
  *  - **admin financial-auditing surface pins** — the three new
  *    financial-auditing queries and the three mutations carry the
  *    `$all` conjunction and sit at their lexicographic sorted positions
@@ -285,12 +293,29 @@ const ADMIN_USER_USER_QUERY_FIELDS = [
   "adminUsers",
 ] as const;
 /**
- * admin-user-management mutation trio — RECONCILED baseline drift
+ * admin-user-management mutation quartet — RECONCILED baseline drift
  * (the prior `PRE_3_1_MUTATION_FIELDS` inventory listed plan-catalog CRUD
  * but omitted the three admin-user writes that landed alongside it). The
- * admin-governance pair is pinned separately below.
+ * admin-governance pair is pinned separately below. `adminSetUserPassword`
+ * (the dedicated credential-rotation write, NOT a profile-patch member) is
+ * the fourth member of this surface's mutation set.
  */
-const ADMIN_USER_USER_MUTATION_FIELDS = ["adminCreateUser", "adminSetUserDeleted", "adminUpdateUser"] as const;
+const ADMIN_USER_USER_MUTATION_FIELDS = [
+  "adminCreateUser",
+  "adminSetUserDeleted",
+  "adminSetUserPassword",
+  "adminUpdateUser",
+] as const;
+/**
+ * Self-service credential write — the caller-scoped counterpart of the
+ * admin rotation above. Identity comes exclusively from the verified
+ * context (no target argument), the closed two-field `ChangeMyPasswordInput`
+ * is the only argument, and the field is the ONLY path that clears the
+ * `mustChangePassword` credential-governance flag. `authenticated`-scoped
+ * (every role owns its own credential), so it is deliberately absent from
+ * the public-operation allowlist.
+ */
+const SELF_SERVICE_CREDENTIAL_MUTATION_FIELDS = ["changeMyPassword"] as const;
 /**
  * admin-user-management vocabulary — RECONCILED baseline drift
  * (the governance-filter enum and the audit-action enum were never pinned
@@ -370,6 +395,14 @@ const ADMIN_USER_TYPE_NAMES = [
   "AdminUserStats",
   "AdminApplicantCooldownStats",
 ] as const;
+/**
+ * Credential-change inputs — the dedicated closed inputs of the two
+ * credential writers (admin rotation + self-service change). Both are
+ * deliberately SEPARATE from the profile-patch whitelist
+ * (`AdminUpdateUserInput`) so credential semantics never blur with profile
+ * semantics; each carries EXACTLY its two credential members.
+ */
+const CREDENTIAL_INPUT_TYPE_NAMES = ["AdminSetUserPasswordInput", "ChangeMyPasswordInput"] as const;
 // ─── Whole-platform analytics read — ONE admin root query (zero arguments, ──
 // ─── `$all`-gated; no anonymous surface, the allowlist stays byte-unchanged)─
 const PLATFORM_ANALYTICS_QUERY_FIELDS = ["adminPlatformAnalytics"] as const;
@@ -1118,7 +1151,7 @@ describe("HealthCheck object shape — four scalar fields, no id", () => {
 });
 
 describe("Surface freeze — pinned additions vs the baseline inventory", () => {
-  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user trio + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write)", () => {
+  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user quartet + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write)", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
@@ -1128,10 +1161,11 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
     // …and the ONLY additions are the quartet, the
     // dispute pair, the dual-confirmation mutation, the
-    // payout write, the RECONCILED admin-user-management trio
+    // payout write, the RECONCILED admin-user-management quartet
     // (shipped but never pinned — re-anchored here as a documented
-    // one-time reconciliation), the admin-governance pair (the
-    // sanctioned post-reconciliation addition), the
+    // one-time reconciliation; the credential-rotation write
+    // `adminSetUserPassword` completes the surface), the admin-governance
+    // pair (the sanctioned post-reconciliation addition), the
     // session-governance quartet (4.4 reconcile), the
     // session-report write, the subscription purchase write, the
     // RECONCILED verification-plan purchase write
@@ -1147,7 +1181,8 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // (`adminOnboardStudentWithOfflinePayment`), and the admin
     // applicant-cooldown extension write (`adminExtendApplicantCooldown`),
     // and the admin evaluation-override write
-    // (`adminOverrideApplicantEvaluation`).
+    // (`adminOverrideApplicantEvaluation`), and the self-service
+    // credential write (`changeMyPassword`).
     // All authScopes-gated — none is allowlist material; the
     // public-operation registry stays byte-unchanged.
     expect(names).toEqual(
@@ -1161,6 +1196,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...WALLET_MUTATION_FIELDS,
         ...ADMIN_USER_USER_MUTATION_FIELDS,
         ...ADMIN_GOVERNANCE_MUTATION_FIELDS,
+        ...SELF_SERVICE_CREDENTIAL_MUTATION_FIELDS,
         ...APPLICANT_COOLDOWN_MUTATION_FIELDS,
         ...APPLICANT_OVERRIDE_MUTATION_FIELDS,
         ...ADMIN_SESSION_GOVERNANCE_MUTATION_FIELDS,
@@ -1185,7 +1221,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
   });
 
   test("admin mutations sit at their SORTED positions as ONE contiguous block in the Mutation root inventory", () => {
-    // The nineteen admin-root mutations must appear in this exact
+    // The twenty admin-root mutations must appear in this exact
     // lexicographic order as ONE contiguous slice in the sorted Mutation
     // root inventory:
     //   adminBroadcastNotification < adminCancelSession <
@@ -1196,7 +1232,8 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     //   adminOnboardStudentWithOfflinePayment <
     //   adminOverrideApplicantEvaluation < adminReassignTeacher <
     //   adminRenewSubscription < adminRescheduleSession <
-    //   adminSetUserBlocked < adminSetUserDeleted < adminSetUserSuspended <
+    //   adminSetUserBlocked < adminSetUserDeleted <
+    //   adminSetUserPassword < adminSetUserSuspended <
     //   adminStopBroadcast < adminUpdateUser
     // — the session-governance quartet (4.4 reconcile)
     // interleaves the prior five-field admin-USER block between
@@ -1211,9 +1248,12 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // applicant-cooldown extension write shares the `adminExtend` prefix
     // with the subscription window-extend (the applicant vocabulary sorts
     // before the subscription one), landing directly after
-    // adminCreateUser, and the evaluation-override write lands directly
+    // adminCreateUser, the evaluation-override write lands directly
     // after adminOnboardStudentWithOfflinePayment (the `adminO` vocabulary:
-    // nboard < verride), so the contiguity pin stays anchored to the whole
+    // nboard < verride), and the credential-rotation write sorts between
+    // adminSetUserDeleted and adminSetUserSuspended (the `adminSetUser`
+    // vocabulary: Blocked < Deleted < Password < Suspended), so the
+    // contiguity pin stays anchored to the whole
     // admin block, exactly as the sorted live schema emits them.
     const names = Object.keys(graphQLSchema.getMutationType()?.getFields() ?? {}).toSorted((a, b) =>
       a.localeCompare(b)
@@ -1235,11 +1275,12 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
       "adminRescheduleSession",
       "adminSetUserBlocked",
       "adminSetUserDeleted",
+      "adminSetUserPassword",
       "adminSetUserSuspended",
       "adminStopBroadcast",
       "adminUpdateUser",
     ];
-    // Contiguous slice: the nineteen admin mutations MUST be adjacent in
+    // Contiguous slice: the twenty admin mutations MUST be adjacent in
     // the sorted Mutation root inventory (no non-admin field interleaves
     // between them).
     const firstIndex = names.indexOf(adminMutationNames[0] ?? "");
@@ -1345,7 +1386,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum + the credential-change input pair", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1368,6 +1409,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...WALLET_ENUMS,
         ...ADMIN_USER_TYPE_NAMES,
         ...ADMIN_USER_ENUMS,
+        ...CREDENTIAL_INPUT_TYPE_NAMES,
         ...ADMIN_SESSION_GOVERNANCE_TYPE_NAMES,
         ...PLATFORM_ANALYTICS_TYPE_NAMES,
         ...SUBSCRIPTION_PURCHASE_ENUMS,
@@ -2047,6 +2089,91 @@ describe("Users-locale surface (D2 backend vertical) — self-scoped locale pref
   });
 });
 
+describe("Users self-service credential surface — changeMyPassword SDL pins", () => {
+  const mutationType = graphQLSchema.getMutationType();
+
+  if (!mutationType) {
+    throw new Error("Schema must define a root Mutation type");
+  }
+
+  // Captured ONCE after the narrowing guard — direct lookups below never
+  // re-dereference a possibly-null root type.
+  const rootFields = mutationType.getFields();
+
+  /** Fail-fast field lookup for the self-service credential root field. */
+  function changeMyPasswordField() {
+    const field = rootFields.changeMyPassword;
+    if (!field) {
+      throw new Error("Mutation must register the `changeMyPassword` root field");
+    }
+    return field;
+  }
+
+  test("`changeMyPassword` returns User! with EXACTLY ONE required `input: ChangeMyPasswordInput!` arg", () => {
+    const field = changeMyPasswordField();
+    // The canonical `User` object — the same payload `me`/`login` return, so
+    // the client's Apollo cache normalizes the write into the existing entry.
+    expect(field.type.toString()).toBe("User!");
+    const argNames = field.args.map(arg => arg.name).toSorted((a, b) => a.localeCompare(b));
+    expect(argNames).toEqual(["input"]);
+    const inputArg = field.args[0];
+    if (!inputArg) throw new Error("expected the input argument");
+    // Required + non-null — exactly the SDL contract's `(input: ChangeMyPasswordInput!)`.
+    expect(inputArg.type.toString()).toBe("ChangeMyPasswordInput!");
+  });
+
+  test("`changeMyPassword` carries EXACTLY the `authenticated` scope (no role/permission/superAdmin)", () => {
+    const scopes = authScopesSnapshot(changeMyPasswordField());
+    expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated"]);
+    expect(scopes.authenticated).toBe(true);
+    // SEC: every authenticated role owns its own credential — no role
+    // material may participate in the scope decision.
+    expect("role" in scopes).toBe(false);
+    expect("permission" in scopes).toBe(false);
+    expect("superAdmin" in scopes).toBe(false);
+  });
+
+  test("`ChangeMyPasswordInput` discloses EXACTLY the two required String members (closed credential shape)", () => {
+    const inputType = graphQLSchema.getType("ChangeMyPasswordInput");
+
+    if (!(inputType instanceof GraphQLInputObjectType)) {
+      throw new Error("ChangeMyPasswordInput must be registered as a GraphQL input object type");
+    }
+
+    const fieldMap = inputType.getFields();
+    const fieldNames = Object.keys(fieldMap).toSorted((a, b) => a.localeCompare(b));
+    // Closed two-member shape — `passwordHash`, identity, and every
+    // governance/profile field is structurally unreachable through it.
+    expect(fieldNames).toEqual(["currentPassword", "newPassword"]);
+    expect(fieldMap.currentPassword?.type.toString()).toBe("String!");
+    expect(fieldMap.newPassword?.type.toString()).toBe("String!");
+  });
+
+  test("anonymous (context-free) in-process execution of changeMyPassword yields UNAUTHORIZED", async () => {
+    const result = await graphql({
+      schema: graphQLSchema,
+      source: `mutation { changeMyPassword(input: { currentPassword: "irrelevant", newPassword: "irrelevant2" }) { id } }`,
+      contextValue: {},
+    });
+    const errors = result.errors;
+    if (!errors) throw new Error("expected the anonymous credential mutation to fail");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.extensions?.code).toBe("UNAUTHORIZED");
+    expect(errors[0]?.path).toEqual(["changeMyPassword"]);
+  });
+
+  test("smuggled identity args die at validation BEFORE any resolver runs (zero identity-arg surface)", () => {
+    const smuggledUserId = validate(
+      graphQLSchema,
+      parse(
+        `mutation { changeMyPassword(input: { currentPassword: "irrelevant", newPassword: "irrelevant2" }, userId: 123) { id } }`
+      )
+    );
+    expect(smuggledUserId).toHaveLength(1);
+    expect(smuggledUserId[0]?.message).toContain('Unknown argument "userId"');
+  });
+});
+
 describe("admin-governance mutations — exact arg shapes + `$all` scope pins", () => {
   test("`adminSetUserBlocked` returns AdminUserDetail! with EXACTLY the two required args (blocked: Boolean!, id: Int!)", () => {
     const field = mutationField("adminSetUserBlocked");
@@ -2150,6 +2277,70 @@ describe("admin-governance mutations — exact arg shapes + `$all` scope pins", 
       expect(errors[0]?.extensions?.code).toBe("UNAUTHORIZED");
       expect(errors[0]?.path).toEqual([documents[index]?.path]);
     }
+  });
+});
+
+describe("admin credential-rotation surface — adminSetUserPassword SDL pins", () => {
+  test("`adminSetUserPassword` returns AdminUserDetail! with EXACTLY the two required args (id: Int!, input: AdminSetUserPasswordInput!)", () => {
+    const field = mutationField("adminSetUserPassword");
+    expect(field.type.toString()).toBe("AdminUserDetail!");
+    // The live sorted SDL emits args alphabetically — `id` precedes `input`.
+    // Both are required (NonNull) — a NULL target id or a NULL credential
+    // payload is a GRAPHQL_VALIDATION_FAILED before the resolver body runs.
+    const argsByName = new Map(field.args.map(arg => [arg.name, arg.type.toString()]));
+    expect(argsByName.get("id")).toBe("Int!");
+    expect(argsByName.get("input")).toBe("AdminSetUserPasswordInput!");
+    // No third arg smuggled in (BOPLA defense — the schema layer rejects
+    // any undeclared field argument before the resolver runs). The acting
+    // identity is session-sourced server-side (`ctx.user.id`), never a
+    // declared argument.
+    expect(field.args).toHaveLength(2);
+  });
+
+  test("`adminSetUserPassword` carries the EXACT `$all` conjunction — `{ authenticated: true, role: [UserRole.Admin] }`", () => {
+    // Same load-bearing `$all` pin as the governance pair above: a plain
+    // `{ authenticated, role }` map would combine the two scope checks with
+    // ANY semantics (either-or), silently letting a non-admin authenticated
+    // caller rotate another user's credential. The wire Tier-2 FORBIDDEN
+    // assertions are satisfied by the service-layer `assertActorAdminActive`
+    // guard regardless (defense-in-depth masks the schema regression), so
+    // ONLY this pin keeps the admin-only credential-rotation scope
+    // executable.
+    const scopes = authScopesSnapshot(mutationField("adminSetUserPassword"));
+    expect(scopes).toEqual({
+      $all: { authenticated: true, role: [UserRole.Admin] },
+    });
+    expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+    // Reflect.get keeps the read off the member-access position (no
+    // unsafe type assertion, no `any`).
+    const allScope: unknown = Reflect.get(scopes, "$all");
+    if (!isRecord(allScope)) throw new Error("expected record-shaped $all scope conjunction");
+    expect(Object.keys(allScope).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated", "role"]);
+    // SEC: the role set is EXACTLY `[UserRole.Admin]` — no sibling /
+    // teacher / parent / student read override silently smuggled in.
+    const roleSet: unknown = Reflect.get(allScope, "role");
+    expect(Array.isArray(roleSet)).toBe(true);
+    expect(roleSet).toEqual([UserRole.Admin]);
+  });
+
+  test("`AdminSetUserPasswordInput` discloses EXACTLY the two required credential members (mustChangePassword: Boolean!, password: String!)", () => {
+    const inputType = graphQLSchema.getType("AdminSetUserPasswordInput");
+
+    if (!(inputType instanceof GraphQLInputObjectType)) {
+      throw new Error("AdminSetUserPasswordInput must be registered as a GraphQL input object type");
+    }
+
+    const fieldMap = inputType.getFields();
+    const fieldNames = Object.keys(fieldMap).toSorted((a, b) => a.localeCompare(b));
+    // Closed two-member shape — `passwordHash`, identity, and
+    // every governance/profile field is structurally unreachable through it
+    // (credential semantics never blur with the `AdminUpdateUserInput`
+    // profile-patch whitelist; the plaintext member exists only for the
+    // duration of the resolver call — the service hashes it before
+    // persistence and never stores, logs, audits, or echoes it).
+    expect(fieldNames).toEqual(["mustChangePassword", "password"]);
+    expect(fieldMap.password?.type.toString()).toBe("String!");
+    expect(fieldMap.mustChangePassword?.type.toString()).toBe("Boolean!");
   });
 });
 

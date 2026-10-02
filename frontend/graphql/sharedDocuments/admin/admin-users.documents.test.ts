@@ -3,10 +3,10 @@
  *
  * Mirrors the `sharedDocuments/documents.contract.test.ts` discipline for the
  * admin-user domain: the directory, detail, stats and activity-timeline
- * consumers PLUS the create / update / soft-delete / suspend / block mutation
- * consumers all depend on these SHARED `TypedDocumentNode` documents, so drift
- * fails at this pure logic tier instead of surfacing as confusing wire
- * mismatches later:
+ * consumers PLUS the create / update / credential-set / soft-delete / suspend /
+ * block mutation consumers all depend on these SHARED `TypedDocumentNode`
+ * documents, so drift fails at this pure logic tier instead of surfacing as
+ * confusing wire mismatches later:
  *
  *   1. NAMED operations — every admin-user document is a single named
  *      operation whose GraphQL operation name matches its
@@ -64,6 +64,8 @@ import type {
   AdminSetUserBlockedMutation,
   AdminSetUserBlockedMutationVariables,
   AdminSetUserDeletedMutation,
+  AdminSetUserPasswordMutation,
+  AdminSetUserPasswordMutationVariables,
   AdminSetUserSuspendedMutation,
   AdminSetUserSuspendedMutationVariables,
   AdminUpdateUserMutation,
@@ -79,6 +81,7 @@ import {
   adminSetUserDeletedMutationDocument as adminDeleteViaBarrel,
   adminExtendApplicantCooldownMutationDocument as adminExtendCooldownViaBarrel,
   adminOverrideApplicantEvaluationMutationDocument as adminOverrideViaBarrel,
+  adminSetUserPasswordMutationDocument as adminSetPasswordViaBarrel,
   adminSetUserSuspendedMutationDocument as adminSuspendViaBarrel,
   adminUpdateUserMutationDocument as adminUpdateUserViaBarrel,
   adminUserDetailQueryDocument as adminUserDetailViaBarrel,
@@ -90,6 +93,7 @@ import {
   adminOverrideApplicantEvaluationMutationDocument,
   adminSetUserBlockedMutationDocument,
   adminSetUserDeletedMutationDocument,
+  adminSetUserPasswordMutationDocument,
   adminSetUserSuspendedMutationDocument,
   adminUpdateUserMutationDocument,
   adminUserActivityQueryDocument,
@@ -278,6 +282,16 @@ const ADMIN_USER_DOCUMENT_TABLE: readonly AdminUserDocumentRow[] = [
     idFirstSelections: [],
   },
   {
+    document: adminSetUserPasswordMutationDocument,
+    operationName: "AdminSetUserPassword",
+    channel: "mutation",
+    variables: ["id", "input"],
+    rootField: "adminSetUserPassword",
+    detailFragmentSpreads: ["adminSetUserPassword"],
+    listItemFragmentSpreads: [],
+    idFirstSelections: [],
+  },
+  {
     document: adminSetUserDeletedMutationDocument,
     operationName: "AdminSetUserDeleted",
     channel: "mutation",
@@ -362,9 +376,10 @@ describe("admin-user documents — named operations + channel + variables", () =
     const declared = ADMIN_USER_DOCUMENT_TABLE.flatMap(row => variableNames(operationOrThrow(row.document))).toSorted(
       (a, b) => a.localeCompare(b)
     );
-    // Six documents declare `$id: Int!` (adminUserDetail, adminUserActivity,
-    // adminUpdateUser, adminSetUserDeleted, adminSetUserSuspended,
-    // adminSetUserBlocked); adminCreateUser + adminUpdateUser each declare
+    // Seven documents declare `$id: Int!` (adminUserDetail,
+    // adminUserActivity, adminUpdateUser, adminSetUserPassword,
+    // adminSetUserDeleted, adminSetUserSuspended, adminSetUserBlocked);
+    // adminCreateUser + adminUpdateUser + adminSetUserPassword each declare
     // `$input`; the cooldown-extension mutation declares `$applicantId` +
     // `$additionalDays`; the override mutation declares `$applicantId` +
     // `$action` + `$cooldownDays`; the directory query declares
@@ -384,6 +399,8 @@ describe("admin-user documents — named operations + channel + variables", () =
       "id",
       "id",
       "id",
+      "id",
+      "input",
       "input",
       "input",
       "limit",
@@ -404,9 +421,9 @@ describe("admin-user documents — id + fragment-reuse shapes", () => {
   test("AdminUserDetailFields fragment selects id FIRST (Apollo cache normalization)", () => {
     // The shared fragment is the cache-normalization contract: it spreads
     // into EVERY detail-returning read + write (detail query, create /
-    // update / soft-delete / suspend / block mutations). The first field
-    // MUST be `id` so Apollo merges the post-mutation response into the
-    // SAME `AdminUserDetail:<id>` normalized entry — the detail page
+    // update / credential-set / soft-delete / suspend / block mutations). The
+    // first field MUST be `id` so Apollo merges the post-mutation response
+    // into the SAME `AdminUserDetail:<id>` normalized entry — the detail page
     // re-renders WITHOUT a refetch.
     for (const row of ADMIN_USER_DOCUMENT_TABLE) {
       if (row.detailFragmentSpreads.length === 0) {
@@ -460,11 +477,46 @@ describe("admin-user documents — id + fragment-reuse shapes", () => {
     ]);
   });
 
+  test("AdminUserDetailFields fragment field set (detail wire contract incl. the credential-set observables)", () => {
+    // Full top-level field-set pin: the detail surface carries the safe
+    // `users` columns, the governance booleans, and (since the credential-set
+    // mutation) the `mustChangePassword` flag — the pending-reset observable
+    // every detail-returning mutation's response re-renders WITHOUT a
+    // refetch. `passwordHash` must stay structurally absent.
+    const fragment = fragmentDefinition(adminUserDetailQueryDocument, "AdminUserDetailFields");
+    expect(fieldNames(fragment)).toEqual([
+      "id",
+      "fullName",
+      "email",
+      "phone",
+      "role",
+      "dateOfBirth",
+      "gender",
+      "country",
+      "isDeleted",
+      "deletedAt",
+      "suspended",
+      "suspendedAt",
+      "suspendedPeriodDays",
+      "isBlocked",
+      "blockedAt",
+      "mustChangePassword",
+      "lastActiveAt",
+      "createdAt",
+      "updatedAt",
+      "applicant",
+      "teacher",
+      "student",
+      "parent",
+    ]);
+  });
+
   test("detail-returning reads + writes spread the EXISTING AdminUserDetailFields fragment (no bespoke inline selection)", () => {
     // Fragment reuse is load-bearing: every detail-returning mutation must
     // spread `AdminUserDetailFields` (NOT inline-duplicate its fields). A
     // bespoke inline selection would desynchronize the post-mutation cache
-    // shape from the detail query shape.
+    // shape from the detail query shape — including the credential-set
+    // mutation's `mustChangePassword` echo.
     for (const row of ADMIN_USER_DOCUMENT_TABLE) {
       for (const path of row.detailFragmentSpreads) {
         const operation = operationOrThrow(row.document);
@@ -547,6 +599,7 @@ describe("admin-user documents — codegen binding + barrel parity", () => {
   test("top-level barrel re-exports the SAME document instances (cache-key safety)", () => {
     expect(adminCreateUserViaBarrel).toBe(adminCreateUserMutationDocument);
     expect(adminUpdateUserViaBarrel).toBe(adminUpdateUserMutationDocument);
+    expect(adminSetPasswordViaBarrel).toBe(adminSetUserPasswordMutationDocument);
     expect(adminDeleteViaBarrel).toBe(adminSetUserDeletedMutationDocument);
     expect(adminSuspendViaBarrel).toBe(adminSetUserSuspendedMutationDocument);
     expect(adminBlockViaBarrel).toBe(adminSetUserBlockedMutationDocument);
@@ -567,6 +620,10 @@ describe("admin-user documents — codegen binding + barrel parity", () => {
       adminUserActivityQueryDocument;
     const typedAdminCreateUser: TypedDocumentNode<AdminCreateUserMutation> = adminCreateUserMutationDocument;
     const typedAdminUpdateUser: TypedDocumentNode<AdminUpdateUserMutation> = adminUpdateUserMutationDocument;
+    const typedAdminSetUserPassword: TypedDocumentNode<
+      AdminSetUserPasswordMutation,
+      AdminSetUserPasswordMutationVariables
+    > = adminSetUserPasswordMutationDocument;
     const typedAdminSetUserDeleted: TypedDocumentNode<AdminSetUserDeletedMutation> =
       adminSetUserDeletedMutationDocument;
     const typedAdminSetUserSuspended: TypedDocumentNode<
@@ -594,6 +651,7 @@ describe("admin-user documents — codegen binding + barrel parity", () => {
     expect(typedAdminUserActivity.loc).toBeDefined();
     expect(typedAdminCreateUser.loc).toBeDefined();
     expect(typedAdminUpdateUser.loc).toBeDefined();
+    expect(typedAdminSetUserPassword.loc).toBeDefined();
     expect(typedAdminSetUserDeleted.loc).toBeDefined();
     expect(typedAdminSetUserSuspended.loc).toBeDefined();
     expect(typedAdminSetUserBlocked.loc).toBeDefined();

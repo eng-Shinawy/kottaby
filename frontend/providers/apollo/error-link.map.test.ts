@@ -36,6 +36,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { CombinedGraphQLErrors } from "@apollo/client";
 import { parse } from "graphql";
+import { CHANGE_PASSWORD_PAGE_PATH } from "@/frontend/lib/auth/changePasswordRoute";
 import { buildLoginHref } from "@/frontend/lib/safeRedirect";
 import {
   extractWireFieldErrors,
@@ -188,6 +189,28 @@ describe("mapGraphQLErrorByCode — pure branch table", () => {
     const action = mapped("FORBIDDEN", mutationContext);
     expect(action.kind).toBe("toast");
     expect(shownCopyOf(action)).toBe(labels.forbidden);
+  });
+
+  test("row PASSWORD_CHANGE_REQUIRED → permission-fallback + redirectTo (query context)", () => {
+    const action = mapped("PASSWORD_CHANGE_REQUIRED", queryContext);
+    expect(action.kind).toBe("permission-fallback");
+    expect(shownCopyOf(action)).toBe(labels.passwordChangeRequired);
+    expect(action.redirectTo).toBe(CHANGE_PASSWORD_PAGE_PATH);
+  });
+
+  test("row PASSWORD_CHANGE_REQUIRED → localized toast + redirectTo (mutation context)", () => {
+    const action = mapped("PASSWORD_CHANGE_REQUIRED", mutationContext);
+    expect(action.kind).toBe("toast");
+    expect(shownCopyOf(action)).toBe(labels.passwordChangeRequired);
+    expect(action.redirectTo).toBe(CHANGE_PASSWORD_PAGE_PATH);
+  });
+
+  test("no other mapping row carries a redirectTo payload", () => {
+    // One representative per remaining row family — the redirect payload is
+    // exclusively the PASSWORD_CHANGE_REQUIRED row's.
+    for (const code of ["VALIDATION", "NOT_FOUND", "CONFLICT", "RATE_LIMITED", "INTERNAL_SERVER_ERROR"]) {
+      expect(mapped(code, queryContext).redirectTo).toBeUndefined();
+    }
   });
 
   test("row VALIDATION + form + fields[] → form-fields setError pairs verbatim", () => {
@@ -572,6 +595,34 @@ describe("dispatchMappedGraphQLErrorActions — surface seam integration", () =>
       operationLike(QUERY_DOCUMENT)
     );
     expect(recording.actions).toHaveLength(0);
+    unregisterGraphQLErrorActionListener();
+  });
+
+  test("PASSWORD_CHANGE_REQUIRED honors redirectTo — loop-guarded, once per session", () => {
+    // 1) Already sitting on the forced-reset page: the copy publishes, but
+    //    the loop guard suppresses the navigation (no self-redirect).
+    installWindow(CHANGE_PASSWORD_PAGE_PATH);
+    const recording = recordActions();
+    const gatedContainer = () =>
+      combinedError([{ message: "gated", extensions: { code: "PASSWORD_CHANGE_REQUIRED" } }]);
+
+    dispatchMappedGraphQLErrorActions(gatedContainer(), operationLike(MUTATION_DOCUMENT, "CreateSession"));
+    expect(recording.actions.map(action => action.messageKey)).toEqual(["passwordChangeRequired"]);
+    expect(currentHref()).toBe(CHANGE_PASSWORD_PAGE_PATH);
+
+    // 2) Elsewhere in the app: the FIRST gated denial navigates to the
+    //    single-sourced forced-reset page (the mid-session navigation path).
+    globalScope.window = { location: { pathname: "/dashboard", search: "", href: "/dashboard" } };
+    dispatchMappedGraphQLErrorActions(gatedContainer(), operationLike(QUERY_DOCUMENT));
+    expect(currentHref()).toBe(CHANGE_PASSWORD_PAGE_PATH);
+
+    // 3) A later gated denial (another operation, another page) still
+    //    publishes its copy but NEVER re-navigates — honored once/session
+    //    (the /profile fake stays put; the earlier navigation is not repeated).
+    globalScope.window = { location: { pathname: "/profile", search: "", href: "/profile" } };
+    dispatchMappedGraphQLErrorActions(gatedContainer(), operationLike(MUTATION_DOCUMENT, "ToggleAvailability"));
+    expect(currentHref()).toBe("/profile");
+    expect(recording.actions).toHaveLength(3);
     unregisterGraphQLErrorActionListener();
   });
 });

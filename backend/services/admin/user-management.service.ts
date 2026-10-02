@@ -2,12 +2,17 @@
  * AdminUserManagementService — business-logic hub for the admin user-management
  * surface (Workflow 05 identity-and-governance core).
  *
- * The service orchestrates seven operations against the `users` directory:
+ * The service orchestrates eight operations against the `users` directory:
  *  - `listDirectory` — paginated directory with role-child headline projection.
  *  - `getUserDetail` — single-row detail with role-child snapshot assembly.
  *  - `createUser` — admin-provisioned user creation (student / teacher / parent
  *    roles only; `admin` is rejected via a runtime role pre-guard).
  *  - `updateUser` — whitelisted profile patch (five fields only).
+ *  - `setUserPassword` — admin-driven credential replacement (password
+ *    hashed BEFORE the tx; the force-reset flag persisted exactly as the
+ *    admin chose; soft-deleted targets denied `USER_NOT_FOUND` via the
+ *    in-transaction returned-row check; one `Update` audit row whose
+ *    details name only the `credentials` field-set + the flag).
  *  - `setUserDeleted` / `setUserSuspended` / `setUserBlocked` — governance
  *    mutations over the shared in-transaction pipeline
  *    (`runGovernanceMutation` in `user-governance.helpers.ts`: self-guard,
@@ -26,7 +31,8 @@
  *    rows and perform ZERO writes — the actor check happens BEFORE any
  *    transaction opens. Governance mutations use the STRICT variant
  *    (`assertActiveActorAdmin`, also rejecting governed actors); the
- *    legacy CRUD methods keep the relaxed variant per REQ-031.
+ *    legacy CRUD methods keep the relaxed variant, and the credential
+ *    mutation uses the strict `assertActorAdminActive` gate.
  *  - BOPLA: `createUser` and `updateUser` build their payloads field-by-field
  *    (never `{ ...input }` spreads) via `user-management.helpers.ts`;
  *    server-controlled fields are structurally absent from the input
@@ -57,33 +63,37 @@ import { hashPassword } from "@/backend/lib/auth/password";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { ConflictError, NotFoundError, translateDbError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { assertActorAdminActive } from "@/backend/services/admin/admin-gate.helpers";
 import { assertActorAdmin } from "@/backend/services/admin/admin-guards.helpers";
 import { AuditService } from "@/backend/services/admin/audit.service";
 import { setBlockedAxis, setDeletedAxis, setSuspendedAxis } from "@/backend/services/admin/user-governance.helpers";
+import { loadUserActivityTimeline } from "@/backend/services/admin/user-management.activity.helpers";
 import {
   buildAuditContract,
   buildCreateUserInsert,
   buildUpdatePatch,
-  composeActivityCaption,
   isPositiveSafeInteger,
-  normalizeFilters,
-  resolveActivityLimit,
-  resolveCountryBreakdownLimit,
-  resolvePageBounds,
   validateCreateInput,
+  validatePasswordPolicy,
   validateUpdatePatch,
 } from "@/backend/services/admin/user-management.helpers";
 import {
   assembleDetail,
   buildCountryBreakdown,
-  mapActivityRow,
   mapDirectoryRow,
   mapStatsRow,
 } from "@/backend/services/admin/user-management.mappers";
+import {
+  normalizeFilters,
+  resolveActivityLimit,
+  resolveCountryBreakdownLimit,
+  resolvePageBounds,
+} from "@/backend/services/admin/user-management.query.helpers";
 import { createRoleChild, createStudentWithHandshakeRetry } from "@/backend/services/shared";
 import type {
   AdminCooldownLifecycleStatsReturnType,
   AdminCreateUserSubmitInput,
+  AdminSetUserPasswordSubmitInput,
   AdminUpdateUserPatchInput,
   AdminUserActivityEntryReturnType,
   AdminUserCountryBreakdownReturnType,
@@ -255,30 +265,7 @@ export namespace AdminUserManagementService {
     // `undefined`/`null`/non-finite → default; finite values clamp 1..50.
     const resolvedLimit = resolveActivityLimit(limit);
 
-    const userExists = await AdminUserRepository.existsById(userId, outerTx);
-    if (!userExists) {
-      logger.logDomainError("Admin user activity lookup: user not found", {
-        code: "USER_NOT_FOUND",
-        entity: "user",
-        entityId: userId,
-      });
-      throw new NotFoundError(USER_ENTITY, tErrors.adminUsers.userNotFound);
-    }
-
-    const rows = await AdminUserRepository.getActivity(userId, resolvedLimit, outerTx);
-    // Locale-bound caption composition runs over the RAW details (the wire
-    // never carries them — BOPLA): applicant lifecycle rows surface a human
-    // caption, everything else stays captionless.
-    const activityLabels = getServerTranslations(locale).adminUsersTranslations.activity;
-    return rows.map(row => {
-      const entry = mapActivityRow(row);
-      // `Object.assign` builds the captioned entry (the no-map-spread-
-      // compliant form of `{ ...entry, caption }` — identical keys/values,
-      // one fresh object per row, the uncaptioned mapper output discarded).
-      return Object.assign({}, entry, {
-        caption: composeActivityCaption(row.details, entry.actionType, activityLabels),
-      });
-    });
+    return loadUserActivityTimeline(userId, locale, resolvedLimit, outerTx);
   }
 
   /**
@@ -437,6 +424,95 @@ export namespace AdminUserManagementService {
 
       const changedFields = Object.keys(dbPatch);
       await AuditService.createAuditLog(buildAuditContract(actorId, AuditActionType.Update, id, { changedFields }), tx);
+
+      return getUserDetail(id, locale, actorId, tx);
+    });
+  }
+
+  /**
+   * Admin-driven credential replacement for one user. The STRICT actor
+   * guard applies (`assertActorAdminActive` — a deleted / blocked /
+   * suspended admin actor is denied `FORBIDDEN`); there is deliberately NO
+   * self-guard on admin targets (admins are trusted peers on this
+   * surface — no stricter admin-target policy exists).
+   *
+   * Sequence: strict actor guard → id re-assertion (`VALIDATION`) →
+   * password policy via `validatePasswordPolicy` (empty / whitespace-only
+   * ⇒ `PASSWORD_REQUIRED`, shorter than the shared minimum ⇒
+   * `PASSWORD_TOO_SHORT`; one `ValidationError` whose top-level message is
+   * the first entry's localized `auth` copy and whose `fields` payload
+   * names the `password` field for inline helperText projection) →
+   * `hashPassword` BEFORE the transaction opens (the bcrypt cost stays
+   * outside the tx; plaintext never enters it) → one `withTransaction`:
+   * `UserRepository.updatePassword` (the single password-write home; the
+   * force-reset flag is persisted exactly as the admin chose) → `null` ⇒
+   * `NotFoundError("USER", …)`; a SOFT-DELETED target (the returned full
+   * row carries `isDeleted === true` — the guarded UPDATE's WHERE clause
+   * is id-only, so it still matches deleted rows) ⇒ the SAME
+   * `NotFoundError("USER", …)` thrown BEFORE the audit insert, the
+   * tx/savepoint rollback undoing the UPDATE itself (net effect ZERO
+   * writes + ZERO audit rows — no extra probe query, no check-then-write
+   * race window) → exactly ONE audit row
+   * (`AuditActionType.Update`, `details = { changedFields: ["credentials"],
+   * mustChangePassword }` — field NAMES + the flag only, NEVER the
+   * password or its hash) sharing the tx commit/rollback fate → post-write
+   * detail re-read (the returned `AdminUserDetail` is password-stripped by
+   * type). Every denial path emits ZERO audit rows and performs ZERO
+   * writes; denials are logged via `logger.logDomainError` with
+   * `{ code, entity, entityId }` (ids + codes only — no PII, no
+   * credentials).
+   */
+  export async function setUserPassword(
+    id: number,
+    input: AdminSetUserPasswordSubmitInput,
+    actorId: number,
+    locale: string,
+    outerTx?: DBTransaction
+  ): Promise<AdminUserDetailReturnType> {
+    await assertActorAdminActive(actorId, locale, outerTx);
+
+    const t = getServerTranslations(locale);
+    const tErrors = t.errorsTranslations;
+
+    if (!isPositiveSafeInteger(id)) {
+      throw new ValidationError(tErrors.validation);
+    }
+
+    const passwordFieldErrors = validatePasswordPolicy(input.password, t.authTranslations);
+    if (passwordFieldErrors.length > 0) {
+      throw new ValidationError(passwordFieldErrors[0].message, passwordFieldErrors);
+    }
+
+    // Hash BEFORE the transaction opens — plaintext never enters the tx.
+    const passwordHash = await hashPassword(input.password);
+
+    return withTransaction(outerTx, async tx => {
+      const written = await UserRepository.updatePassword(id, passwordHash, input.mustChangePassword, tx);
+      // Soft-deleted targets are outside this mutation's addressable set —
+      // a deleted user has no live credential to replace. The guarded
+      // UPDATE matches soft-deleted rows (its WHERE clause is id-only), so
+      // the returned FULL row is re-checked here and a deleted target is
+      // denied with the SAME NotFoundError as an absent id — thrown BEFORE
+      // the audit insert, the transaction/savepoint rollback undoing the
+      // UPDATE itself (net effect ZERO writes + ZERO audit rows; no extra
+      // probe query, no check-then-write race window).
+      if (written === null || written.isDeleted === true) {
+        logger.logDomainError(
+          written === null
+            ? "Admin user password set: user not found"
+            : "Admin user password set: target user is deleted",
+          { code: "USER_NOT_FOUND", entity: "user", entityId: id }
+        );
+        throw new NotFoundError(USER_ENTITY, tErrors.adminUsers.userNotFound);
+      }
+
+      await AuditService.createAuditLog(
+        buildAuditContract(actorId, AuditActionType.Update, id, {
+          changedFields: ["credentials"],
+          mustChangePassword: input.mustChangePassword,
+        }),
+        tx
+      );
 
       return getUserDetail(id, locale, actorId, tx);
     });

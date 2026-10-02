@@ -49,6 +49,7 @@ export const SAFE_USER_SELECT = {
   fullName: users.fullName,
   email: users.email,
   phone: users.phone,
+  mustChangePassword: users.mustChangePassword,
   role: users.role,
   dateOfBirth: users.dateOfBirth,
   gender: users.gender,

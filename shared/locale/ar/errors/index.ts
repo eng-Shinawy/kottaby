@@ -19,6 +19,9 @@ export const errorsAr: ErrorsLabels = {
   accountSuspended: "هذا الحساب موقوف.",
   tokenExpired: "انتهت جلستك. يرجى تسجيل الدخول مرة أخرى.",
   forbiddenRole: "ليست لديك صلاحية للوصول إلى هذه الصفحة.",
+  passwordChangeRequired: "يجب تغيير كلمة المرور قبل تنفيذ هذا الإجراء.",
+  currentPasswordInvalid: "كلمة المرور الحالية غير صحيحة.",
+  newPasswordSameAsCurrent: "يجب أن تختلف كلمة المرور الجديدة عن كلمة المرور الحالية.",
   planCatalog: {
     planNotFound: "خطة الاشتراك غير موجودة.",
     planAlreadyInactive: "الخطة غير مفعلة بالفعل.",

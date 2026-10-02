@@ -16,6 +16,7 @@ export const users = pgTable(
     email: varchar("email", { length: 255 }).notNull(),
     phone: varchar("phone", { length: 20 }),
     passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+    mustChangePassword: boolean("must_change_password").default(false).notNull(),
     role: userRole("role").notNull(),
     dateOfBirth: date("date_of_birth"),
     gender: gender("gender"),

@@ -11,12 +11,13 @@
  *    failure never blocks the detail surface, and it refetches after each
  *    successful inline mutation),
  *  - the inline mutations (`adminUpdateUser` / `adminSetUserDeleted` /
- *    `adminCertifyTeacherColdStart`) — the SAME whitelist operations the
- *    directory uses, plus the guarded cold-start certification; the returned
- *    post-write payloads merge into the `AdminUserDetail:<id>` normalized
- *    entity (id-first rule) so the detail query re-renders automatically,
- *  - the edit / delete / certify dialog open state and the success snackbar
- *    message.
+ *    `adminCertifyTeacherColdStart` / `adminSetUserPassword`) — the SAME
+ *    whitelist operations the directory uses, plus the guarded cold-start
+ *    certification; the returned post-write payloads merge into the
+ *    `AdminUserDetail:<id>` normalized entity (id-first rule) so the detail
+ *    query re-renders automatically,
+ *  - the edit / delete / certify / change-password dialog open state and the
+ *    success snackbar message.
  *
  * Presentation stays in `AdminUserDetailContainer` and the detail cards;
  * this module returns plain state — no JSX.
@@ -27,13 +28,14 @@ import { useMemo, useState } from "react";
 import {
   adminCertifyTeacherColdStartMutationDocument,
   adminSetUserDeletedMutationDocument,
+  adminSetUserPasswordMutationDocument,
   adminUpdateUserMutationDocument,
   adminUserActivityQueryDocument,
   adminUserDetailQueryDocument,
 } from "@/frontend/graphql/sharedDocuments/admin";
 import { useAppLocale } from "@/frontend/hooks/locale";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
-import type { AdminUserCertifyTarget } from "@/frontend/views/admin/users/dialogs";
+import type { AdminUserCertifyTarget, AdminUserChangePasswordTarget } from "@/frontend/views/admin/users/dialogs";
 import {
   ACTIVITY_TIMELINE_LIMIT,
   formatDirectoryRelativeTime,
@@ -87,11 +89,16 @@ export function useAdminUserDetail(userId: number) {
   // into the `AdminUserDetail:<id>` normalized entity, so no refetch is
   // needed (the activity timeline still refetches for the new audit row).
   const [certifyUser, { loading: certifyLoading }] = useMutation(adminCertifyTeacherColdStartMutationDocument);
+  // Credential set — same cache-merge semantics; the returned detail carries
+  // `mustChangePassword`, so the hero/governance indicator re-renders without
+  // a refetch (the activity timeline still refetches for the new audit row).
+  const [setUserPassword, { loading: passwordLoading }] = useMutation(adminSetUserPasswordMutationDocument);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [certifyState, setCertifyState] = useState<{ targetUser: AdminUserCertifyTarget | null }>({
     targetUser: null,
   });
+  const [changePasswordTarget, setChangePasswordTarget] = useState<AdminUserChangePasswordTarget | null>(null);
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
   const errorCode = error ? extractErrorCode(error) : null;
@@ -118,6 +125,10 @@ export function useAdminUserDetail(userId: number) {
     certifyLoading,
     certifyState,
     setCertifyTarget,
+    setUserPassword,
+    passwordLoading,
+    changePasswordTarget,
+    setChangePasswordTarget,
     editOpen,
     setEditOpen,
     deleteOpen,

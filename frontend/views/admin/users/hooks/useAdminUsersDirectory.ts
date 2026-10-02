@@ -9,10 +9,11 @@
  * wrappers from `createPageResettingFilterSetters`) and owns:
  *  - the `adminUsers` query (variables narrowed from the local filter unions
  *    to the GraphQL enums via `directoryConversions` — no `as` cast),
- *  - the create / update / soft-delete mutations, each refetching the
- *    current page via `refetchQueries` so the list stays honest without a
- *    manual reload,
- *  - the dialog targets (create / edit / delete) and the success snackbar.
+ *  - the create / update / soft-delete / credential-set mutations, each
+ *    refetching the current page via `refetchQueries` so the list stays
+ *    honest without a manual reload,
+ *  - the dialog targets (create / edit / delete / change-password) and the
+ *    success snackbar.
  *
  * Presentation stays in `AdminUsersDirectoryContainer` and its siblings; this
  * module returns plain state — no JSX.
@@ -20,29 +21,32 @@
 
 import { useMutation, useQuery } from "@apollo/client/react";
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 import type { AdminUsersQueryVariables } from "@/frontend/graphql/generated/gql/graphql";
 import {
   adminCreateUserMutationDocument,
   adminSetUserDeletedMutationDocument,
+  adminSetUserPasswordMutationDocument,
   adminUpdateUserMutationDocument,
   adminUserCountryBreakdownQueryDocument,
   adminUsersQueryDocument,
 } from "@/frontend/graphql/sharedDocuments/admin";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { parseUsersUrlState, serializeUsersUrlState } from "@/frontend/views/admin/directory-url-state";
+import type { DirectoryUserItem } from "@/frontend/views/admin/users/directory";
 import {
   COUNTRY_BREAKDOWN_CHIP_LIMIT,
   useCountryBreakdown,
 } from "@/frontend/views/admin/users/hooks/useCountryBreakdown";
 import {
+  buildDirectoryQueryVariables,
   createPageResettingFilterSetters,
   useDirectoryFilters,
 } from "@/frontend/views/admin/users/hooks/useDirectoryFilters";
 import { useDirectoryPageAndDialogs } from "@/frontend/views/admin/users/hooks/useDirectoryPageAndDialogs";
 import { useUsersUrlSync } from "@/frontend/views/admin/users/hooks/useUsersUrlSync";
-import { toApplicantStatus, toCooldownState, toGovernanceFilter, toUserRole } from "@/frontend/views/admin/users/utils";
 
-/** The three directory write mutations, all refetching the current page after success. */
+/** The four directory write mutations, all refetching the current page after success. */
 function useDirectoryMutations(variables: AdminUsersQueryVariables) {
   // Every completed write re-fetches the directory page (plus the country
   // breakdown facet — a create/delete can move a user between buckets) so
@@ -64,8 +68,21 @@ function useDirectoryMutations(variables: AdminUsersQueryVariables) {
     refetchQueries: refetchAfterWrite,
     awaitRefetchQueries: true,
   });
+  const [setUserPassword, { loading: passwordLoading }] = useMutation(adminSetUserPasswordMutationDocument, {
+    refetchQueries: refetchAfterWrite,
+    awaitRefetchQueries: true,
+  });
 
-  return { createUser, createLoading, updateUser, updateLoading, setDeleted, deleteLoading };
+  return {
+    createUser,
+    createLoading,
+    updateUser,
+    updateLoading,
+    setDeleted,
+    deleteLoading,
+    setUserPassword,
+    passwordLoading,
+  };
 }
 
 export function useAdminUsersDirectory() {
@@ -85,21 +102,7 @@ export function useAdminUsersDirectory() {
   const pageAndDialogs = useDirectoryPageAndDialogs(urlSeed.page, urlSeed.pageSize);
   const { page, pageSize } = pageAndDialogs;
 
-  const variables: AdminUsersQueryVariables = {
-    filters: {
-      // Narrow the local draft unions to the GraphQL-codegen enums via the
-      // runtime-validated converters (no `as unknown as ...` cast).
-      role: roleFilter ? toUserRole(roleFilter) : null,
-      governance: governanceFilter ? toGovernanceFilter(governanceFilter) : null,
-      applicantStatus: applicantStatusFilter ? toApplicantStatus(applicantStatusFilter) : null,
-      cooldownState: cooldownStateFilter ? toCooldownState(cooldownStateFilter) : null,
-      cooldownExpiringSoon: cooldownExpiringSoon || null,
-      country: countryFilter || null,
-      search: searchDebounced || null,
-    },
-    page: page + 1,
-    pageSize,
-  };
+  const variables = buildDirectoryQueryVariables(filters, page, pageSize);
 
   const { data, previousData, loading, error, refetch } = useQuery(adminUsersQueryDocument, {
     variables,
@@ -107,6 +110,12 @@ export function useAdminUsersDirectory() {
   });
   const countryFacet = useCountryBreakdown();
   const mutations = useDirectoryMutations(variables);
+
+  // The change-password dialog target lives beside the credential mutation
+  // it drives (the create / edit / delete targets live in
+  // `useDirectoryPageAndDialogs`). It is cleared on close — no navigation,
+  // no partial write on dismissal.
+  const [changePasswordTarget, setChangePasswordTarget] = useState<DirectoryUserItem | null>(null);
 
   // `errorPolicy: "none"` (the default) drops `data` to undefined when a
   // refetch fails; `previousData` keeps the last good page visible instead
@@ -155,6 +164,8 @@ export function useAdminUsersDirectory() {
     ...createPageResettingFilterSetters(filters, pageAndDialogs.setPage),
     ...pageAndDialogs,
     ...mutations,
+    changePasswordTarget,
+    setChangePasswordTarget,
     items,
     totalCount,
     countryBuckets: countryFacet.countryBuckets,

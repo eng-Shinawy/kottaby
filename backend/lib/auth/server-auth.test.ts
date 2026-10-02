@@ -70,6 +70,7 @@ function mockUserRow(overrides: Partial<UserSelectType> = {}): UserSelectType {
     email: "[EMAIL_REDACTED]",
     fullName: "John Doe",
     passwordHash: "hash",
+    mustChangePassword: false,
     role: UserRole.Student,
     isDeleted: false,
     isBlocked: false,

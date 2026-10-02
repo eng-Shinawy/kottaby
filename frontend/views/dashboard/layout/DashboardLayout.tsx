@@ -5,7 +5,9 @@ import { useTheme } from "@mui/material/styles";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 import { NotificationRealtimeToastHost } from "@/frontend/components/ui/NotificationRealtimeToastHost";
+import type { AuthUser } from "@/frontend/context/AuthContext";
 import { useAuth } from "@/frontend/hooks/auth";
+import { CHANGE_PASSWORD_PAGE_PATH } from "@/frontend/lib/auth/changePasswordRoute";
 import { buildLoginHref } from "@/frontend/lib/safeRedirect";
 import { DashboardAppBar } from "@/frontend/views/dashboard/layout";
 import { DashboardSidebar } from "@/frontend/views/dashboard/nav";
@@ -13,6 +15,18 @@ import { Dashboard, useAppTranslation } from "@/shared/locale";
 
 interface DashboardLayoutProps {
   readonly children: ReactNode;
+}
+
+/**
+ * Structural read of the forced-reset flag on the client session user.
+ *
+ * The flag rides the shared auth documents (`me` + `login` user selections
+ * both select `mustChangePassword`), so `AuthUser` carries it as a plain
+ * boolean and this predicate reads it directly — non-`true` (including a
+ * stale session payload from before the flag was set) is not flagged.
+ */
+function hasForcedPasswordResetFlag(user: AuthUser | null): boolean {
+  return user?.mustChangePassword === true;
 }
 
 /**
@@ -54,7 +68,7 @@ interface DashboardLayoutProps {
  */
 export function DashboardLayout({ children }: Readonly<DashboardLayoutProps>): ReactNode {
   const t = useAppTranslation(Dashboard);
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const muiTheme = useTheme();
@@ -79,6 +93,20 @@ export function DashboardLayout({ children }: Readonly<DashboardLayoutProps>): R
       router.replace(buildLoginHref(pathname));
     }
   }, [isAuthenticated, isLoading, router, pathname]);
+
+  // Forced-reset mirror: when the session has resolved and the user is
+  // flagged for a password change, replace the current dashboard route with
+  // the top-level /change-password page. The target is outside the
+  // (dashboard) group so this redirect cannot loop; the SSR withPageAuth
+  // fence and the server-authoritative Apollo operation guard remain the
+  // enforcement boundaries — this effect is the immediate UX mirror that
+  // fires before any page navigation completes.
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    if (hasForcedPasswordResetFlag(user)) {
+      router.replace(CHANGE_PASSWORD_PAGE_PATH);
+    }
+  }, [isAuthenticated, isLoading, router, user]);
 
   // While the session is loading, render a centered loading state — avoids
   // flashing the dashboard chrome for the brief moment before the redirect

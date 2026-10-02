@@ -69,4 +69,16 @@ export const authAr: AuthLabels = {
   rememberMe: "تذكرني",
   loginMetaTitle: "أكاديمية درافت — تسجيل الدخول",
   registerMetaTitle: "أكاديمية درافت — إنشاء حساب",
+  changePassword: {
+    title: "غيّر كلمة المرور",
+    description: "لأسباب أمنية، يجب تعيين كلمة مرور جديدة قبل المتابعة.",
+    currentPasswordLabel: "كلمة المرور الحالية",
+    newPasswordLabel: "كلمة المرور الجديدة",
+    confirmPasswordLabel: "تأكيد كلمة المرور الجديدة",
+    submit: "حفظ كلمة المرور الجديدة",
+    mismatch: "كلمتا المرور غير متطابقتين.",
+    success: "تم تغيير كلمة المرور بنجاح! جاري التحويل إلى لوحة التحكم...",
+    temporaryPasswordNotice: "تم إصدار كلمة مرور مؤقتة لهذا الحساب. عيّن كلمة مرور جديدة خاصة بك للمتابعة.",
+    genericFailure: "فشل تغيير كلمة المرور. يرجى المحاولة مرة أخرى.",
+  },
 };

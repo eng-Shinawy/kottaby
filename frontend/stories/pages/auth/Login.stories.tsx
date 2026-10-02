@@ -24,6 +24,7 @@ const ANONYMOUS_CONTEXT: AuthContextType = {
   error: null,
   login: async () => true,
   logout: () => {},
+  updateSessionUser: () => undefined,
 };
 
 /** Rejection shaped like the Apollo GraphQL error `extractErrorCode` parses. */

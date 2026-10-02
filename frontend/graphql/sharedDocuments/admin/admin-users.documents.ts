@@ -1,5 +1,6 @@
 /**
  * Admin user GraphQL documents — directory, detail, create, update,
+ * credential set (with optional force-reset-on-next-login),
  * soft-delete/reactivate, applicant-cooldown extension, applicant
  * evaluation override.
  *
@@ -22,6 +23,8 @@ import type {
   AdminSetUserBlockedMutation,
   AdminSetUserBlockedMutationVariables,
   AdminSetUserDeletedMutation,
+  AdminSetUserPasswordMutation,
+  AdminSetUserPasswordMutationVariables,
   AdminSetUserSuspendedMutation,
   AdminSetUserSuspendedMutationVariables,
   AdminUpdateUserMutation,
@@ -79,6 +82,7 @@ const ADMIN_USER_DETAIL_FIELDS = gql`
     suspendedPeriodDays
     isBlocked
     blockedAt
+    mustChangePassword
     lastActiveAt
     createdAt
     updatedAt
@@ -273,6 +277,25 @@ export const adminUpdateUserMutationDocument: TypedDocumentNode<AdminUpdateUserM
   ${ADMIN_USER_DETAIL_FIELDS}
   mutation AdminUpdateUser($id: Int!, $input: AdminUpdateUserInput!) {
     adminUpdateUser(id: $id, input: $input) {
+      ...AdminUserDetailFields
+    }
+  }
+`;
+
+/**
+ * Credential-set mutation — the admin sets a user's password and may flag it
+ * for a forced change on next login. Returns the post-write detail (the
+ * `mustChangePassword` selection rides the shared detail fragment), which
+ * Apollo merges into the `AdminUserDetail:<id>` normalized entity so the
+ * detail surface re-renders the pending-reset state without a refetch.
+ */
+export const adminSetUserPasswordMutationDocument: TypedDocumentNode<
+  AdminSetUserPasswordMutation,
+  AdminSetUserPasswordMutationVariables
+> = gql`
+  ${ADMIN_USER_DETAIL_FIELDS}
+  mutation AdminSetUserPassword($id: Int!, $input: AdminSetUserPasswordInput!) {
+    adminSetUserPassword(id: $id, input: $input) {
       ...AdminUserDetailFields
     }
   }

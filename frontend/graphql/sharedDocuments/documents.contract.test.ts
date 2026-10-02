@@ -50,6 +50,8 @@ import type {
   BookEvaluationSessionMutationVariables,
   CancelSessionMutation,
   CancelSessionMutationVariables,
+  ChangeMyPasswordMutation,
+  ChangeMyPasswordMutationVariables,
   CompleteSessionMutation,
   CompleteSessionMutationVariables,
   CreateSessionMutation,
@@ -95,6 +97,7 @@ import {
   adminSessionsQueryDocument,
 } from "@/frontend/graphql/sharedDocuments/admin/admin-session-governance.documents";
 import {
+  changeMyPasswordMutationDocument,
   loginMutationDocument,
   logoutMutationDocument,
   meQueryDocument,
@@ -195,6 +198,13 @@ const DOCUMENT_CONTRACT_TABLE: readonly DocumentContractRow[] = [
     channel: "mutation",
     variables: ["locale"],
     objectSelections: ["updateMyLocale"],
+  },
+  {
+    document: changeMyPasswordMutationDocument,
+    operationName: "ChangeMyPassword",
+    channel: "mutation",
+    variables: ["input"],
+    objectSelections: ["changeMyPassword"],
   },
   {
     document: refreshTokenMutationDocument,
@@ -477,6 +487,8 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     const typedRecitation: TypedDocumentNode<RecitationReadingsQuery> = recitationReadingsQueryDocument;
     const typedUpdateMyLocale: TypedDocumentNode<UpdateMyLocaleMutation, UpdateMyLocaleMutationVariables> =
       updateMyLocaleMutationDocument;
+    const typedChangeMyPassword: TypedDocumentNode<ChangeMyPasswordMutation, ChangeMyPasswordMutationVariables> =
+      changeMyPasswordMutationDocument;
 
     // The session lifecycle documents (compile-time proof that every
     // `Session` selection conforms to the generated operation types).
@@ -556,6 +568,7 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     expect(typedAdminSessionReassign.loc).toBeDefined();
     expect(typedAdminSessionJoin.loc).toBeDefined();
     expect(typedUpdateMyLocale.loc).toBeDefined();
+    expect(typedChangeMyPassword.loc).toBeDefined();
     expect(typedMyTeacherEvaluations.loc).toBeDefined();
     expect(typedSubmitTeacherEvaluation.loc).toBeDefined();
     expect(typedBookEvaluationSession.loc).toBeDefined();

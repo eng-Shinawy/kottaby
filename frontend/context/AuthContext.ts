@@ -26,6 +26,14 @@ export type AuthContextType = {
   readonly error: string | null;
   readonly login: (credentials: AuthCredentials, redirectUrl?: string | null) => Promise<boolean>;
   readonly logout: () => void;
+  /**
+   * Merges a server-authoritative partial user payload (e.g. the
+   * `changeMyPassword` mutation result echoing the cleared
+   * `mustChangePassword` flag) into the React-state session snapshot.
+   * No-op while the session user is `null` — an anonymous session has no
+   * user to patch.
+   */
+  readonly updateSessionUser: (patch: Partial<AuthUser>) => void;
 };
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

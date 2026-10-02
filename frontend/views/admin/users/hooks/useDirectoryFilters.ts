@@ -11,12 +11,17 @@
 
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
+import type { AdminUsersQueryVariables } from "@/frontend/graphql/generated/gql/graphql";
 import { parseUsersUrlState } from "@/frontend/views/admin/directory-url-state";
-import type {
-  DirectoryApplicantStatus,
-  DirectoryCooldownState,
-  DirectoryGovernance,
-  DirectoryRole,
+import {
+  type DirectoryApplicantStatus,
+  type DirectoryCooldownState,
+  type DirectoryGovernance,
+  type DirectoryRole,
+  toApplicantStatus,
+  toCooldownState,
+  toGovernanceFilter,
+  toUserRole,
 } from "@/frontend/views/admin/users/utils";
 import type { CountryCode } from "@/shared/constants/countries";
 import { countrySeedToCode } from "@/shared/lib/country-code";
@@ -116,5 +121,55 @@ export function createPageResettingFilterSetters(
       filters.setSearchInput(value);
       setPage(0);
     },
+  };
+}
+
+/** The raw filter draft fields the query-variables builder consumes. */
+type DirectoryFilterFields = Pick<
+  ReturnType<typeof useDirectoryFilters>,
+  | "roleFilter"
+  | "governanceFilter"
+  | "applicantStatusFilter"
+  | "cooldownStateFilter"
+  | "cooldownExpiringSoon"
+  | "countryFilter"
+  | "searchDebounced"
+>;
+
+/**
+ * Builds the `adminUsers` query variables from the raw filter unions + page
+ * state: the local draft unions narrow to the GraphQL enums via the
+ * runtime-validated converters (no `as` cast), the 0-based page offsets to
+ * the 1-based wire page, and every empty string collapses to `null` (the
+ * forgiving read rule at the query boundary).
+ */
+export function buildDirectoryQueryVariables(
+  filters: DirectoryFilterFields,
+  page: number,
+  pageSize: number
+): AdminUsersQueryVariables {
+  const {
+    roleFilter,
+    governanceFilter,
+    applicantStatusFilter,
+    cooldownStateFilter,
+    cooldownExpiringSoon,
+    countryFilter,
+    searchDebounced,
+  } = filters;
+  return {
+    filters: {
+      // Narrow the local draft unions to the GraphQL-codegen enums via the
+      // runtime-validated converters (no `as unknown as ...` cast).
+      role: roleFilter ? toUserRole(roleFilter) : null,
+      governance: governanceFilter ? toGovernanceFilter(governanceFilter) : null,
+      applicantStatus: applicantStatusFilter ? toApplicantStatus(applicantStatusFilter) : null,
+      cooldownState: cooldownStateFilter ? toCooldownState(cooldownStateFilter) : null,
+      cooldownExpiringSoon: cooldownExpiringSoon || null,
+      country: countryFilter || null,
+      search: searchDebounced || null,
+    },
+    page: page + 1,
+    pageSize,
   };
 }

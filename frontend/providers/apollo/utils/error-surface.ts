@@ -81,6 +81,69 @@ function toMappedSurfaceAction(
   });
 }
 
+// ---------------------------------------------------------------------------
+// `redirectTo` consumer — the seam side of the pure map's redirect payloads.
+//
+// `GraphQLErrorAction.redirectTo` is DESCRIBED by the pure mapping
+// (`error-link.map.ts`) and EXECUTED here — the same ownership split as the
+// `auth-recovery` row (described in the map, driven by `./auth-recovery`).
+// Today only the `PASSWORD_CHANGE_REQUIRED` row carries the payload (the
+// forced-reset page, single-sourced via `CHANGE_PASSWORD_PAGE_PATH`): when a
+// mid-session gate denial reaches a flagged user, the SSR `withPageAuth`
+// fence cannot fire again without a full reload and the `DashboardLayout`
+// mirror reads a session snapshot that login/`me` populated — so THIS is the
+// client navigation path that lands them on the one page they can act on.
+// ---------------------------------------------------------------------------
+
+/**
+ * Dedupes repeat navigations when several gated operations fail in one burst
+ * (mirrors `isRedirectingToLogin` in `./auth-recovery`): the target is
+ * honored ONCE per browser session; later denials keep surfacing their
+ * localized copy but never re-navigate.
+ */
+let hasHonoredRedirectTarget = false;
+
+/**
+ * Honors ONE mapped action's `redirectTo` payload. At most once per session,
+ * and never while the page is already sitting on the target (loop guard —
+ * `changeMyPassword` itself is gate-exempt server-side, but a denial
+ * surfacing on `/change-password` must not navigate onto itself). The
+ * navigation uses the same mechanism the UNAUTHENTICATED recovery uses
+ * (`window.location.href` — the link layer has no React tree access).
+ */
+function honorActionRedirectTo(action: GraphQLErrorAction, meta: GraphQLErrorActionMeta): void {
+  const target = action.redirectTo;
+  if (typeof target !== "string" || target.length === 0) return;
+
+  if (hasHonoredRedirectTarget) {
+    logErrorSurfaceEvent("redirectTo suppressed — honored once already this session", {
+      operationName: meta.operationName,
+      to: target,
+    });
+    return;
+  }
+
+  const pathname = globalThis.window.location.pathname;
+  // Loop guard — a target that always begins with "/" (the route-constant
+  // convention) also matches via endsWith on any localized prefix.
+  if (pathname === target || pathname.endsWith(target)) {
+    logErrorSurfaceEvent("redirectTo suppressed — already on the target page", {
+      operationName: meta.operationName,
+      pathname,
+      to: target,
+    });
+    return;
+  }
+
+  hasHonoredRedirectTarget = true;
+  logErrorSurfaceEvent("redirectTo: navigating to the mapped target", {
+    operationName: meta.operationName,
+    from: pathname,
+    to: target,
+  });
+  globalThis.window.location.href = target;
+}
+
 /**
  * Maps each GraphQL error item through the pure mapping table and publishes
  * the resulting actions to the registered surface listener.
@@ -95,6 +158,10 @@ function toMappedSurfaceAction(
  *    `false` here; VALIDATION actions still carry their `fieldErrors` pairs
  *    so form-bound consumers can convert them into `setError(field, …)` calls
  *    instead of toasting the fallback copy.
+ *  - A mapped action's `redirectTo` payload (today: the
+ *    `PASSWORD_CHANGE_REQUIRED` forced-reset page) is honored HERE, after
+ *    the surface publish — once per session, loop-guarded (see
+ *    {@link honorActionRedirectTo}).
  */
 export function dispatchMappedGraphQLErrorActions(
   error: unknown,
@@ -140,6 +207,12 @@ export function dispatchMappedGraphQLErrorActions(
         errorName: listenerError instanceof Error ? listenerError.name : "unknown",
       });
     }
+
+    // The row's `redirectTo` payload is honored HERE — the established seam
+    // consumer — AFTER the surface publish so the localized copy gets first
+    // crack (navigation itself is asynchronous). A listener failure never
+    // blocks the navigation: the denial is real regardless of UI health.
+    honorActionRedirectTo(action, meta);
   }
 
   if (publishedCount > 0) {

@@ -12,7 +12,11 @@ import type { PaletteOptions } from "@mui/material/styles";
  *  - text.primary `#1A2B45` on background.default `#FAF6EF` → ~14:1
  *  - text.secondary `#4A5A75` on background.default → ~7:1
  *  - onPrimary `#FFFFFF` on primary.main `#1E3A5F` → ~9:1
- *  - onSecondary `#FFFFFF` on secondary.main `#B87333` → ~4.6:1
+ *  - onSecondary `#FFFFFF` on secondary.main `#B87333` → ~3.8:1 (NOT AA —
+ *    fails the 4.5:1 text floor; measured, superseding the earlier ~4.6:1
+ *    claim which was arithmetically wrong). AA-safe copper pairing for text:
+ *    `#FFFFFF` on secondary.dark `#8B5520` → ~6.1:1 — the pairing the auth
+ *    CTA (`AuthSubmitButton`) uses.
  */
 export const lightPalette: PaletteOptions = {
   // Standard MUI Text Palette

@@ -35,12 +35,12 @@ const reducedMotionSx = {
  * that were duplicated across both forms.
  */
 
-/** Shared header block: icon badge + title + subtitle. */
+/** Shared header block: icon badge + title + optional subtitle. */
 export function AuthFormHeader({
   icon,
   title,
   subtitle,
-}: Readonly<{ icon: ReactNode; title: string; subtitle: string }>): ReactNode {
+}: Readonly<{ icon: ReactNode; title: string; subtitle?: string }>): ReactNode {
   return (
     <Stack spacing={1} sx={{ mb: 4 }}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
@@ -64,9 +64,11 @@ export function AuthFormHeader({
           <Typography variant="h5" component="h1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
             {title}
           </Typography>
-          <Typography variant="body2" sx={{ color: "var(--mui-palette-text-secondary)" }}>
-            {subtitle}
-          </Typography>
+          {subtitle ? (
+            <Typography variant="body2" sx={{ color: "var(--mui-palette-text-secondary)" }}>
+              {subtitle}
+            </Typography>
+          ) : null}
         </Stack>
       </Stack>
     </Stack>
@@ -180,7 +182,12 @@ export function AuthSubmitButton({
         border: "none",
         cursor: loading || disabled ? "not-allowed" : "pointer",
         opacity: loading || disabled ? 0.6 : 1,
-        background: "var(--mui-palette-secondary-main)",
+        // WCAG AA text floor (4.5:1): white on light-mode `secondary.main`
+        // (#B87333) is only ~3.8:1. The CTA therefore rides `secondary.dark`
+        // — light mode: #FFFFFF on #8B5520 → ~6.1:1; dark mode: #1A0E05 on
+        // #B87333 → ~5.0:1. Both pass AA with the unchanged `onSecondary`
+        // text token; the hover glow below keeps the bright copper accent.
+        background: "var(--mui-palette-secondary-dark)",
         color: "var(--mui-palette-onSecondary)",
         // Theme-aware alpha suffix keeps the glow translucent — a solid var()
         // would resolve to the full-opacity accent and read as a heavy halo.
