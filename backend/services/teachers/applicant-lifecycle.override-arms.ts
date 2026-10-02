@@ -11,12 +11,18 @@
  * audit `details` it composed. The BFLA actor gate, the status-guard read,
  * the audit-row persistence and the notification emit remain with the
  * service orchestrator.
+ *
+ * One deliberate post-extraction delta: the CERTIFY arm additionally
+ * restores the `teacher` role of a previously converted (failed → student)
+ * applicant through the shared conversion seam (see `applyCertifyOverride`)
+ * — the same restore leg the rubric pass finalization composes.
  */
 import { ApplicantRepository, TeacherRepository } from "@/backend/db/repo";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { ConflictError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { isUniqueViolation } from "@/backend/services/shared";
+import { ApplicantConversionService } from "@/backend/services/teachers/applicant-conversion.service";
 import {
   COOLDOWN_EXTENSION_MAX_DAYS,
   COOLDOWN_EXTENSION_MIN_DAYS,
@@ -49,6 +55,12 @@ export interface OverrideArmContext {
  * caller's transaction alive for the elevate arm below — PostgreSQL aborts
  * a transaction on ANY statement error); a pre-existing row is elevated
  * with the LOCKED row's OWN evaluator flag, never a blind `false`.
+ *
+ * After the finalize matches, the `teacher` role of a previously converted
+ * (failed → student) applicant is restored on the SAME transaction through
+ * the shared conversion helper — the guarded `student` → `teacher` flip,
+ * a silent no-op for a never-converted applicant (already `teacher`). The
+ * historical `students` row is never touched.
  *
  * @returns The audit `details` the applied override composed.
  */
@@ -93,6 +105,14 @@ export async function applyCertifyOverride(
     });
     throw new ConflictError("APPLICANT_ALREADY_FINALIZED", t.applicantAlreadyFinalized);
   }
+
+  // The finalize has committed its authoritative pre-state; restore the
+  // teacher role of a previously converted (failed → student) applicant on
+  // the SAME transaction, mirroring the rubric pass finalization. A
+  // never-converted applicant is already `teacher`, so the guarded flip
+  // matches zero rows — the documented silent no-op. The historical
+  // `students` row is never touched.
+  await ApplicantConversionService.restoreTeacherRole(applicantId, tx);
 
   return {
     action: "certify",

@@ -206,3 +206,29 @@ The per-user locale preference can silently re-assert between capture batches (t
 switcher writes through to the account; the cookie API does not). Before EVERY batch:
 re-set the locale cookie AND re-verify the page's toolbar button aria-label marker —
 if the marker doesn't match the expected locale's label, the batch will marker-fail.
+
+## Harness branch-flip vs dev-server module graph (added 2026-10-02)
+
+- In harness-managed sandboxes the worktree can be force-checked-out to the default branch
+  between tool calls (confirm via `git reflog`: `checkout: moving from <work> to <default>`).
+  The running turbopack server then recompiles mutated modules from the WRONG branch content —
+  a functional pass can execute pre-feature code and produce plausible-but-wrong results.
+- Armor: pin the local default ref to the working merge (`git branch -f <default> <merge>`)
+  so a flip lands on identical content; assert `git branch --show-current` AND a content grep
+  of a feature-file immediately before critical mutations; purge `.next-dev` after any flip;
+  verify the actor's fresh token claims (`role`/`sub`) after every re-login.
+
+## External DB work = one server-stopped window (added 2026-10-02)
+
+- Corollary to the PGlite single-writer rule: a dir held by the dev server and opened
+  externally mid-run (fixture, seed, probe) can wedge BOTH processes — later opens abort at
+  `_checkReady` (`RuntimeError: Aborted()`), and after the wedge only a fresh long-lived server
+  reliably recovers the dir. Do ALL external DB work in ONE server-stopped window; never
+  interleave server-up captures with server-down probes.
+
+## VLM-CLI quota + pixel arbitration (added 2026-10-02)
+
+- ~30 `z-ai vision` calls in quick succession trigger 429 — space calls out or add backoff.
+- For "element is clipped" claims, a PIL pixel-bbox scan of the capture (match the element's
+  distinctive color, compare bbox margins to the DOM rect) is decisive and immune to the
+  crop-edge tangency misreads VLMs make; prefer it over another VLM round.

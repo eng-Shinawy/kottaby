@@ -227,8 +227,9 @@ retargeted to match):
   semantically (wave-context reads join `users` on both legs).
 - Evaluation sessions are therefore first-class `session` rows with the applicant as
   the "student" leg — the applicant-as-student projection — without any widening: no
-  `student_session` row can ever be produced by this flow, and no `students` row is
-  ever created for an applicant.
+  `student_session` row can ever be produced by this flow, and this flow never
+  creates a `students` row for an applicant (the sole writer that adds one is the
+  fail-verdict conversion — `docs/teachers/applicant-student-conversion.md`).
 
 ## Related documents
 

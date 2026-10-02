@@ -340,7 +340,9 @@ export namespace TeacherRepository {
    * elevation of the same row cannot be overwritten blindly. The evaluator
    * flag is deliberately NOT rewritten — demotion withdraws the
    * certification only; a pre-existing evaluator keeps their evaluator
-   * status (no role flips happen anywhere in the override flow).
+   * status (the demotion itself performs no role flip; the override
+   * flow's certify arm separately restores the `teacher` role via the
+   * conversion service).
    *
    * The intended caller is the admin-override REJECTION direction (the
    * manual rejection of a certified applicant): best-effort by contract —

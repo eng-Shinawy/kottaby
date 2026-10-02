@@ -42,9 +42,14 @@
  *     locale, with the realtime publish deferred past the commit boundary
  *     this call owns.
  *     The override SUPERSEDES the automated algorithm; the two-source split
- *     still holds — the `users` table is never touched and no role flips
- *     (the teacher-row demote is the ONLY teacher-table write, and only on
- *     reject).
+ *     still holds for the override's OWN writes — the override never touches
+ *     the `users` table directly, and the teacher-row demote is the ONLY
+ *     teacher-table write (reject only). The certify direction additionally
+ *     composes the conversion seam: a previously converted (failed →
+ *     student) applicant has their `teacher` role restored through the
+ *     shared `ApplicantConversionService.restoreTeacherRole` guarded flip
+ *     on the override's transaction (a silent no-op for a never-converted
+ *     applicant).
  *
  * Disciplines enforced here:
  *  - Captured-now: wall clock is read ONCE per invocation; every cooldown
@@ -61,11 +66,14 @@
  *  - Writes are confined to the delegated re-application increment, the
  *    admin cooldown extension (+ its audit row), and the admin evaluation
  *    override (+ its audit row); no locks; no governance-field contact and
- *    no `users`-table write — the cooldown decision reads
- *    `applicants.cooldown_until` ONLY, every cooldown write touches only
- *    that column, and the override's teacher-table writes are the
- *    insert-or-elevate certify arm and the reject-direction demotion
- *    (never a role flip).
+ *    no `users`-table write apart from the certification restore path —
+ *    the cooldown decision reads `applicants.cooldown_until` ONLY, every
+ *    cooldown write touches only that column, and the override's
+ *    teacher-table writes are the insert-or-elevate certify arm and the
+ *    reject-direction demotion. The restore flips a previously converted
+ *    applicant's role back to `teacher` via the shared conversion service
+ *    (`ApplicantConversionService.restoreTeacherRole`) on the override's
+ *    own transaction.
  *  - All user-facing strings resolve through
  *    `getServerTranslations(locale)` (one-arg bundle + property access);
  *    no hardcoded messages, no `console.*`.
@@ -448,8 +456,11 @@ export namespace ApplicantLifecycleService {
    *    OWN evaluator flag (a blind `false` would demote a pre-existing
    *    evaluator), exactly the `finalizeRubricPass` composition; the
    *    applicant is then finalized (`passed`, cooldown cleared) via
-   *    `finalizeOnCertification`. The `users` table is never touched and
-   *    no role flips.
+   *    `finalizeOnCertification`, and a previously converted (failed →
+   *    student) applicant has their `teacher` role restored through the
+   *    shared conversion helper on the SAME transaction (the guarded
+   *    `student` → `teacher` flip — a silent no-op for a never-converted
+   *    applicant; the historical `students` row is untouched).
    *  - `reject`   — a `passed` applicant is manually rejected: the teacher
    *    row is demoted (`is_approved=false` — the ONLY teacher-table write,
    *    best-effort: a missing/already-unapproved row is a no-op), the

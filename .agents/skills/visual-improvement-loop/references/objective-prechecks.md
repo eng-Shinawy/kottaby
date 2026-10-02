@@ -87,3 +87,12 @@ JSON.stringify({
   `document.body.scrollHeight`, then measure the last content card's `getBoundingClientRect().bottom`
   gap to `window.innerHeight`. A positive gap (≥ token spacing) proves the fold-crop misperception —
   the page scrolls normally and the finding is dismissed, never "fixed" with extra padding.
+
+## Offscreen predicate vs visible scroll containers (added 2026-10-02)
+
+- The offscreen check skips elements clipped by `overflow: hidden|clip` ancestors, but still
+  fails deliberate horizontal chip/tab strips inside `overflowX: auto|scroll` containers
+  (observed: governance quick-filter chips on a 390px admin directory). DOM-arbitrate with
+  `scrollWidth > clientWidth` on the scroll ancestor: if it scrolls, the partial element at the
+  edge is the affordance, not bleed — dismiss the finding, never "fix" the strip. The script's
+  predicate should grow the same exemption.

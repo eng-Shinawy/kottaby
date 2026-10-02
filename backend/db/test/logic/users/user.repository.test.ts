@@ -35,12 +35,13 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { eq, max } from "drizzle-orm";
+import { eq, inArray, max } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { UserRepository } from "@/backend/db/repo";
 import { users } from "@/backend/db/schema/users/users";
 import { createTestUser } from "@/backend/db/test/entity-setup";
 import { runInRollback } from "@/backend/db/test/test-utils";
+import { UserRole } from "@/backend/enum/users/user-role.enum";
 import type { DBTransaction, UserSelectType } from "@/backend/types";
 
 /** Committed-fixture emails — unique per run so beforeAll never collides. */
@@ -351,5 +352,168 @@ describe("UserRepository raw-SQL read branch — locale must ride the explicit S
     expect(locales.size).toBe(2);
     expect(locales.get(withLocale.id)).toBe("ar");
     expect(locales.get(withoutLocale.id)).toBeNull();
+  });
+});
+
+/**
+ * `UserRepository.transitionRoleOnce` — the guarded single-statement role
+ * flip (`SET role = <to> WHERE id = ? AND role = <from>`, returning
+ * `rowcount > 0`).
+ *
+ * Per `backend/db/test/AGENTS.md`: every case runs inside `runInRollback`
+ * and `tx` is passed to EVERY repo call and direct Drizzle query. Fixtures
+ * come ONLY from `entity-setup.ts` (`createTestUser`), never seed data.
+ *
+ * Coverage map (4-tier):
+ *  - Tier 1 (branches): source role matches → row written, `true`; source
+ *    role mismatch → zero rows, `false`, row re-read unchanged.
+ *  - Tier 2 (boundaries): absent id → `false`; self-transition
+ *    (`fromRole == toRole`) on a matching row rewrites the same value and
+ *    returns `true`, on a non-matching row returns `false`.
+ *  - Tier 3 (chaos): the opposite-direction oscillation — convert
+ *    (`teacher`→`student`), restore (`student`→`teacher`, net effect
+ *    teacher), then replay the restore: the replay matches zero rows,
+ *    returns `false`, and the row stays put.
+ *  - Tier 4 (security): hostile ids (zero, negative, absent) match zero
+ *    rows and create/touch nothing; a wrong pinned source role cannot flip
+ *    an existing user (an `admin` is unreachable via the `teacher` pair);
+ *    a flip on one user never leaks to an unrelated user id.
+ */
+/** Reads one user's role back through the SAME transaction (module scope — captures nothing). */
+async function readRole(tx: DBTransaction, userId: number): Promise<UserSelectType["role"] | null> {
+  const [row] = await tx.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  return row?.role ?? null;
+}
+
+/** An id above the identity maximum — cannot exist during this transaction. */
+async function absentUserId(tx: DBTransaction): Promise<number> {
+  const [row] = await tx.select({ maxId: max(users.id) }).from(users);
+  return (row?.maxId ?? 0) + 1_000_000;
+}
+
+describe("UserRepository.transitionRoleOnce — guarded single-statement role flip", () => {
+  test("flips teacher → student and returns true when the source role matches", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: UserRole.Teacher });
+
+      const flipped = await UserRepository.transitionRoleOnce(user.id, UserRole.Teacher, UserRole.Student, tx);
+
+      expect(flipped).toBe(true);
+      // The target role is persisted verbatim (the closed pgEnum value).
+      expect(await readRole(tx, user.id)).toBe(UserRole.Student);
+    });
+  });
+
+  test("returns false and leaves the row unchanged when the stored role is not the source role", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: UserRole.Student });
+
+      const flipped = await UserRepository.transitionRoleOnce(user.id, UserRole.Teacher, UserRole.Student, tx);
+
+      expect(flipped).toBe(false);
+      // Re-read through the same tx — the guarded miss wrote nothing.
+      expect(await readRole(tx, user.id)).toBe(UserRole.Student);
+    });
+  });
+
+  test("returns false for an id that matches no user", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentUserId(tx);
+
+      const flipped = await UserRepository.transitionRoleOnce(absentId, UserRole.Teacher, UserRole.Student, tx);
+
+      expect(flipped).toBe(false);
+    });
+  });
+
+  test("a self-transition on a matching row rewrites the same role and returns true", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: UserRole.Teacher });
+
+      const flipped = await UserRepository.transitionRoleOnce(user.id, UserRole.Teacher, UserRole.Teacher, tx);
+
+      expect(flipped).toBe(true);
+      expect(await readRole(tx, user.id)).toBe(UserRole.Teacher);
+    });
+  });
+
+  test("a self-transition on a non-matching row returns false", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: UserRole.Student });
+
+      const flipped = await UserRepository.transitionRoleOnce(user.id, UserRole.Teacher, UserRole.Teacher, tx);
+
+      expect(flipped).toBe(false);
+      expect(await readRole(tx, user.id)).toBe(UserRole.Student);
+    });
+  });
+
+  test("opposite-direction oscillation: convert, restore, then the replayed restore misses", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: UserRole.Teacher });
+
+      // First call — the conversion direction applies.
+      const converted = await UserRepository.transitionRoleOnce(user.id, UserRole.Teacher, UserRole.Student, tx);
+      expect(converted).toBe(true);
+      expect(await readRole(tx, user.id)).toBe(UserRole.Student);
+
+      // Second call — the opposite direction applies too.
+      const restored = await UserRepository.transitionRoleOnce(user.id, UserRole.Student, UserRole.Teacher, tx);
+      expect(restored).toBe(true);
+      // Net effect after both calls: back to teacher.
+      expect(await readRole(tx, user.id)).toBe(UserRole.Teacher);
+
+      // Third call — replaying the just-applied direction now misses: the
+      // stored role no longer matches the pinned source role, so zero rows
+      // change and the row stays a teacher.
+      const replayed = await UserRepository.transitionRoleOnce(user.id, UserRole.Student, UserRole.Teacher, tx);
+      expect(replayed).toBe(false);
+      expect(await readRole(tx, user.id)).toBe(UserRole.Teacher);
+    });
+  });
+
+  test("hostile ids (zero, negative, absent) return false and touch nothing", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentUserId(tx);
+
+      expect(await UserRepository.transitionRoleOnce(0, UserRole.Teacher, UserRole.Student, tx)).toBe(false);
+      expect(await UserRepository.transitionRoleOnce(-1, UserRole.Teacher, UserRole.Student, tx)).toBe(false);
+      expect(await UserRepository.transitionRoleOnce(absentId, UserRole.Teacher, UserRole.Student, tx)).toBe(false);
+
+      // No row was created or moved for any hostile id.
+      const touched = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(inArray(users.id, [0, -1, absentId]));
+      expect(touched).toHaveLength(0);
+    });
+  });
+
+  test("a wrong pinned source role cannot flip an existing user", async () => {
+    await runInRollback(async tx => {
+      const admin = await createTestUser(tx, { role: UserRole.Admin });
+
+      // The predicate pins BOTH id and source role — an `admin` row is
+      // unreachable through the teacher→student pair even with the exact id.
+      const flipped = await UserRepository.transitionRoleOnce(admin.id, UserRole.Teacher, UserRole.Student, tx);
+
+      expect(flipped).toBe(false);
+      expect(await readRole(tx, admin.id)).toBe(UserRole.Admin);
+    });
+  });
+
+  test("a flip on one user never leaks to an unrelated user id", async () => {
+    await runInRollback(async tx => {
+      const applicant = await createTestUser(tx, { role: UserRole.Teacher });
+      // Same source role as the flipped user — if the id predicate were
+      // ever dropped, this row would flip too, so the assertion is sharp.
+      const unrelated = await createTestUser(tx, { role: UserRole.Teacher });
+
+      const flipped = await UserRepository.transitionRoleOnce(applicant.id, UserRole.Teacher, UserRole.Student, tx);
+      expect(flipped).toBe(true);
+
+      expect(await readRole(tx, unrelated.id)).toBe(UserRole.Teacher);
+      expect(await readRole(tx, applicant.id)).toBe(UserRole.Student);
+    });
   });
 });

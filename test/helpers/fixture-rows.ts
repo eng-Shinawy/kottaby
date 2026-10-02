@@ -9,12 +9,15 @@
  * database by convention (no cleanup).
  */
 
-import { eq } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/backend/db";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { session } from "@/backend/db/schema/classes/session";
+import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { admin } from "@/backend/db/schema/users/admin";
@@ -25,6 +28,7 @@ import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import type { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
+import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { hashPassword } from "@/backend/lib/auth/password";
 import { VERIFICATION_PLAN_TITLE } from "@/shared/constants/verification-plan.constants";
 
@@ -164,6 +168,58 @@ export async function insertActiveVerificationSubscription(userId: number): Prom
     .returning({ id: subscriptions.id });
   if (!row) throw new Error("subscription insert returned no rows");
   return row.id;
+}
+
+/**
+ * Applies the failed-rubric CONVERSION state (guarded role flip + `students`
+ * child row) to a registered teacher user — the post-conversion shape that
+ * production reaches only inside the rubric-finalization transaction (no
+ * public GraphQL surface performs it). The flip mirrors the repository's
+ * `transitionRoleOnce` guard (teacher→student, one row, else throw); the
+ * students row is the zeroed conversion shape (all balances 0, no parent)
+ * with ONE trial-lane credit so a wire booking can fund its hold through the
+ * real debit ladder. Returns the generated handshake code.
+ */
+export async function insertConvertedStudentState(userId: number): Promise<string> {
+  const [flipped] = await db
+    .update(users)
+    .set({ role: UserRole.Student })
+    .where(and(eq(users.id, userId), eq(users.role, UserRole.Teacher)))
+    .returning({ id: users.id });
+  if (!flipped) throw new Error("converted-student fixture: guarded role flip matched no teacher row");
+  const handshakeCode = `KSB-${randomBytes(4).toString("hex").toUpperCase()}`;
+  const [row] = await db
+    .insert(students)
+    .values({
+      id: userId,
+      handshakeCode,
+      balanceTrial: 1,
+      balanceHifz: 0,
+      balanceTajweed: 0,
+      balanceReviews: 0,
+      parentId: null,
+    })
+    .returning({ id: students.id });
+  if (!row) throw new Error("converted-student fixture: students insert returned no rows");
+  return handshakeCode;
+}
+
+/**
+ * Stamps an existing `applicants` row with the failed-finalization outcome
+ * (status `failed` + a FUTURE re-application cooldown) — the applicants shape
+ * that co-exists with a converted `students` row after a rubric fail. Row
+ * existence is guarded exactly like the promotion/demotion helpers. Returns
+ * the effective status.
+ */
+export async function failApplicantWithCooldown(userId: number, cooldownUntil: Date): Promise<string> {
+  const [row] = await db
+    .update(applicants)
+    .set({ status: ApplicantStatus.Failed, cooldownUntil })
+    .where(eq(applicants.id, userId))
+    .returning({ status: applicants.status });
+  if (!row) throw new Error("applicant cooldown stamp returned no rows (applicants row missing?)");
+  if (row.status === null) throw new Error("applicant cooldown stamp returned a null status");
+  return row.status;
 }
 
 /**

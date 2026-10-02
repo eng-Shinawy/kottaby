@@ -385,8 +385,10 @@ All three are registered in the typed env snapshot registry; `resetPaymentGatewa
   from the ACTIVE catalog by the shared title constant (`"New Teacher Verification & Evaluation
   Plan"`, 5 sessions) — no plan id ever crosses the wire; identity comes from the session. The
   pipeline deltas that make applicant purchases representable on this schema: `student_payments.student_id`
-  is NULLABLE (a verification payment's owner is the subscription's generic `user_id` — there is
-  no `students` row for an applicant), the payment junction insert is deliberately skipped, the
+  is NULLABLE (a verification payment's owner is the subscription's generic `user_id` — a
+  first-time verification applicant holds no `students` row; a re-purchaser converted by a
+  prior fail verdict does, and the activation probe below resolves lane credit either way),
+  the payment junction insert is deliberately skipped, the
   applicant status flip (`pending|failed → in_evaluation`) commits atomically inside the purchase
   transaction, and activation SKIPS the lane credit when the purchaser is an applicant (students
   row present → credit exactly as before; neither row → the existing corruption abort). The

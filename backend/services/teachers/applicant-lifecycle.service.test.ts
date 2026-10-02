@@ -52,7 +52,10 @@
  *    split — read back via a direct test query, never via the service);
  *    the admin evaluation-override block covers all three directions —
  *    certify (cold insert certified / elevate preserving the evaluator
- *    flag / terminal / missing-row), reject (demote + guarded flip +
+ *    flag / converted-applicant `teacher`-role restore with the `students`
+ *    row kept byte-identical / restore-leg tx wiring through the conversion
+ *    helper / never-converted silent no-op / terminal / missing-row),
+ *    reject (demote + guarded flip +
  *    stamped cooldown / best-effort no-op demote / non-passed deny /
  *    bounds deny), grant re-evaluation (guarded clearance / no-cooldown
  *    deny / terminal deny), the non-admin BFLA denial with zero writes,
@@ -64,19 +67,27 @@ import { and, eq, sql } from "drizzle-orm";
 import { ApplicantRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
+import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
-import { createTestApplicant, createTestTeacherRow, createTestUser } from "@/backend/db/test/entity-setup";
+import {
+  createTestApplicant,
+  createTestStudent,
+  createTestTeacherRow,
+  createTestUser,
+} from "@/backend/db/test/entity-setup";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldown-state.enum";
 import { AdminApplicantOverrideAction } from "@/backend/enum/teachers/applicant-override-action.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
+import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { DomainError, ForbiddenError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { NotificationEngine } from "@/backend/services/notifications/notification-engine.service";
+import { ApplicantConversionService } from "@/backend/services/teachers/applicant-conversion.service";
 import {
   ApplicantLifecycleService,
   deriveCooldownState,
@@ -1501,6 +1512,12 @@ async function readTeacherRow(tx: DBTransaction, userId: number) {
   return rows[0] ?? null;
 }
 
+/** Independent students-row read-back oracle — direct Drizzle select, not via the service. */
+async function readStudentRow(tx: DBTransaction, userId: number) {
+  const rows = await tx.select().from(students).where(eq(students.id, userId));
+  return rows[0] ?? null;
+}
+
 describe("ApplicantLifecycleService.overrideApplicantEvaluation", () => {
   // ─── Tier 1: certify — cold insert, elevate, terminal, bounds ─────
 
@@ -1593,6 +1610,142 @@ describe("ApplicantLifecycleService.overrideApplicantEvaluation", () => {
       expect(teacherRow?.isApproved).toBe(true);
       expect(teacherRow?.isEvaluator).toBe(true);
       expect((await readApplicantRow(tx, applicant.id))?.status).toBe(ApplicantStatus.Passed);
+    });
+  });
+
+  test("certify a CONVERTED (failed → student) applicant restores users.role to teacher and keeps the students row byte-identical as history", async () => {
+    await runInRollback(async tx => {
+      // The post-conversion pre-state: the account sits on the `student`
+      // role and the conversion's zeroed role-child row carries its fresh
+      // handshake code — exactly what `finalizeRubricFail` leaves behind.
+      const applicant = await createTestUser(tx, { role: UserRole.Student });
+      const historicalStudentRow = await createTestStudent(tx, applicant.id);
+      const admin = await createTestUser(tx, { role: UserRole.Admin });
+      const activeCooldown = new Date(Date.now() + FUTURE_COOLDOWN_OFFSET_MS);
+      await createTestApplicant(tx, applicant.id, {
+        status: ApplicantStatus.Failed,
+        cooldownUntil: activeCooldown,
+      });
+
+      const logSpy = silenceDomainLog();
+      try {
+        await ApplicantLifecycleService.overrideApplicantEvaluation(
+          applicant.id,
+          AdminApplicantOverrideAction.Certify,
+          null,
+          admin.id,
+          "en",
+          tx
+        );
+
+        // The restore leg: the account is a teacher again — the converted
+        // applicant is NOT left stuck on the student surface after the
+        // terminal certification (which blocks re-entry to the rubric path).
+        expect((await readUserRow(tx, applicant.id))?.role).toBe(UserRole.Teacher);
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      // Historical preservation: the students row survives byte-identical —
+      // the restore never regenerates the handshake code nor the balances.
+      const studentRowAfter = await readStudentRow(tx, applicant.id);
+      expect(studentRowAfter).toEqual(historicalStudentRow);
+      expect(studentRowAfter?.id).toBe(applicant.id);
+      expect(studentRowAfter?.handshakeCode).toBe(historicalStudentRow.handshakeCode);
+      expect(studentRowAfter?.balanceHifz).toBe(0);
+      expect(studentRowAfter?.balanceTajweed).toBe(0);
+      expect(studentRowAfter?.balanceReviews).toBe(0);
+      expect(studentRowAfter?.balanceTrial).toBe(0);
+      expect(studentRowAfter?.parentId).toBeNull();
+
+      // Shipped finalize semantics ONLY — nothing else moved on the
+      // applicants row (status + cooldown are the finalize's own write;
+      // the attempt counters form the audit trail and must survive).
+      const persisted = await readApplicantRow(tx, applicant.id);
+      expect(persisted?.status).toBe(ApplicantStatus.Passed);
+      expect(persisted?.cooldownUntil).toBeNull();
+      expect(persisted?.verificationAttempts).toBe(0);
+      expect(persisted?.lastAttemptAt).toBeNull();
+
+      // The arm's own teacher write unit: inserted directly certified.
+      const teacherRow = await readTeacherRow(tx, applicant.id);
+      expect(teacherRow?.isApproved).toBe(true);
+      expect(teacherRow?.isEvaluator).toBe(false);
+    });
+  });
+
+  test("certify a NEVER-CONVERTED applicant is unaffected by the restore leg — the role is already teacher, the guarded flip misses silently, and no students row is minted", async () => {
+    await runInRollback(async tx => {
+      const applicant = await createTestUser(tx, { role: UserRole.Teacher });
+      const admin = await createTestUser(tx, { role: UserRole.Admin });
+      await createTestApplicant(tx, applicant.id, { status: ApplicantStatus.Failed, cooldownUntil: null });
+
+      const logSpy = silenceDomainLog();
+      try {
+        await ApplicantLifecycleService.overrideApplicantEvaluation(
+          applicant.id,
+          AdminApplicantOverrideAction.Certify,
+          null,
+          admin.id,
+          "en",
+          tx
+        );
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      // The zero-row guarded miss was discarded silently — no throw, the
+      // role never moved, and the restore minted no role-child row.
+      expect((await readUserRow(tx, applicant.id))?.role).toBe(UserRole.Teacher);
+      expect(await readStudentRow(tx, applicant.id)).toBeNull();
+      expect((await readApplicantRow(tx, applicant.id))?.status).toBe(ApplicantStatus.Passed);
+      expect((await readTeacherRow(tx, applicant.id))?.isApproved).toBe(true);
+    });
+  });
+
+  test("the restore leg joins the override transaction through the shared conversion helper (pinned call + same executor as the finalize)", async () => {
+    await runInRollback(async tx => {
+      const applicant = await createTestUser(tx, { role: UserRole.Student });
+      await createTestStudent(tx, applicant.id);
+      const admin = await createTestUser(tx, { role: UserRole.Admin });
+      await createTestApplicant(tx, applicant.id, { status: ApplicantStatus.Failed });
+
+      // Pass-through spies: record the wiring while the real writes run.
+      // The orchestrator wraps the runInRollback tx in a SAVEPOINT
+      // (`withTransaction`), so the unit-of-work identity check is against
+      // the finalize's executor — the restore must receive the SAME
+      // transaction handle the certification write uses, never its own.
+      const finalizeSpy = spyOn(ApplicantRepository, "finalizeOnCertification");
+      const restoreSpy = spyOn(ApplicantConversionService, "restoreTeacherRole");
+      const logSpy = silenceDomainLog();
+      try {
+        await ApplicantLifecycleService.overrideApplicantEvaluation(
+          applicant.id,
+          AdminApplicantOverrideAction.Certify,
+          null,
+          admin.id,
+          "en",
+          tx
+        );
+
+        expect(restoreSpy).toHaveBeenCalledTimes(1);
+        expect(finalizeSpy).toHaveBeenCalledTimes(1);
+        const restoreCall = restoreSpy.mock.calls[0];
+        const finalizeCall = finalizeSpy.mock.calls[0];
+        if (!restoreCall || !finalizeCall) throw new Error("expected both spies to record their calls");
+        const [restoreId, restoreTx] = restoreCall;
+        const finalizeTx = finalizeCall[1];
+        if (!finalizeTx) throw new Error("expected the finalize executor to be recorded");
+        expect(restoreId).toBe(applicant.id);
+        expect(restoreTx).toBe(finalizeTx);
+
+        // The restore ran for real on that shared unit of work.
+        expect((await readUserRow(tx, applicant.id))?.role).toBe(UserRole.Teacher);
+      } finally {
+        restoreSpy.mockRestore();
+        finalizeSpy.mockRestore();
+        logSpy.mockRestore();
+      }
     });
   });
 

@@ -1,12 +1,14 @@
 # Evaluation Rubric Scoring (≥80 Per-Evaluation Threshold)
 
 > Contract doc for the evaluator-facing rubric submission flow and the five-evaluator
-> finalization that writes the applicant verdict.
+> finalization that writes the applicant verdict (and, on FAIL, the atomic
+> applicant → student conversion — `docs/teachers/applicant-student-conversion.md`).
 > Sibling docs: `docs/teachers/evaluation-loop-booking.md` (how the five evaluation
 > sessions were booked and completed), `docs/teachers/applicant-lifecycle.md` (the
 > `applicants` status machine this flow finalizes), `docs/teachers/student-evaluation-submission.md`
-> (the `evaluations` table's other writer), and `docs/teachers/verification-plan-purchase.md`
-> (the purchase that opens the cycle and, after a failure, the re-purchase the cooldown gates).
+> (the `evaluations` table's other writer), `docs/teachers/verification-plan-purchase.md`
+> (the purchase that opens the cycle and, after a failure, the re-purchase the cooldown gates),
+> and `docs/teachers/applicant-student-conversion.md` (the conversion the FAIL verdict applies).
 
 **Domain:** Teachers / applicant evaluation rubric scoring & finalization
 **Status:** Implemented and verified
@@ -22,13 +24,15 @@ trigger for the verdict**: inside that submission's own transaction, the flow re
 cycle's quorum and, at exactly 5 scored submissions, finalizes the applicant — `passed`
 (mints or elevates the teacher row, flips `applicants.status` to `passed`) or `failed`
 (stamps `applicants.status='failed'` + `cooldown_until` from the primary weakness area's
-duration). Below the quorum, a submission returns alone: the row is stored, the applicant
+duration, then atomically converts the applicant to a `student` — see the conversion
+contract). Below the quorum, a submission returns alone: the row is stored, the applicant
 stays `in_evaluation`, nothing else changes.
 
 No money moves anywhere in this flow, no wallet rows exist (the loop was prepaid), and
-the flow writes ONLY to `evaluations`, `teacher` (PASS certification), and the two
-lifecycle columns on `applicants` (`status`, `cooldown_until`). It never touches
-`users.suspended*`, never creates a `students` row, and never flips a role.
+the flow writes ONLY to `evaluations`, `teacher` (PASS certification), `students` +
+`users.role` (the FAIL conversion — `docs/teachers/applicant-student-conversion.md`),
+and the two lifecycle columns on `applicants` (`status`, `cooldown_until`). It never
+touches `users.suspended*`.
 
 **Surfaces** (no new routes — the evaluator acts from the existing sessions list):
 
@@ -157,13 +161,26 @@ account-governance boundary — is specified in `docs/teachers/applicant-cooldow
    verdict — a rejected in-tx notification emit rolls the verdict back with it).
 
 Result state on PASS: `teacher` row (`is_approved=true`, `is_evaluator=false` unless it
-pre-existed as an evaluator), `applicants.status='passed'`, `cooldown_until` NULL.
+pre-existed as an evaluator), `applicants.status='passed'`, `cooldown_until` NULL, and
+`users.role` restored to `teacher` — the certification finalization applies the guarded
+`student` → `teacher` flip (a never-converted applicant is already `teacher`: silent
+no-op), and any `students` row left by a prior conversion is preserved untouched as
+historical data (`docs/teachers/applicant-student-conversion.md`).
 
 **FAIL** — any score < 80: derive the primary failure area (above) → compute the cooldown
-→ ONE guarded `transitionToFailed`. No `teacher` row, no `students` row, no
-`users.suspended*` write, no role flip — the failed applicant keeps the student-class
-privileges documented in the lifecycle doc, and re-entry is the re-purchase flow's job
-after the cooldown.
+→ ONE guarded `transitionToFailed` → then, in the SAME transaction, the atomic
+applicant → student conversion: a `students` role-child row on the shared PK (zeroed
+balances, no parent linkage, a fresh unique `KSB-` handshake code) plus the guarded
+`users.role` flip `teacher` → `student`. No `teacher` row, no `users.suspended*` write.
+The `applicants` row is untouched by the conversion itself — `status='failed'` and the
+stamped cooldown stand as the verdict wrote them, so the `students` record co-exists
+with the applicant row (the lifecycle doc's co-existence contract). The conversion makes
+the student-class privileges real: the account IS a student while it serves the cooldown
+(subscribe + attend are authorization-reachable), and re-entry is the re-purchase flow's
+job after the cooldown. A conversion failure rolls the whole verdict transaction back
+(fail-closed); a replayed finalization is a safe no-op. Full contract — atomicity,
+idempotency, re-certification restoration, token self-heal, deferred boundaries:
+`docs/teachers/applicant-student-conversion.md`.
 
 ## Notifications — receipt discipline
 
@@ -215,7 +232,9 @@ registered there.
 Reused codes with established meanings: `VALIDATION` (malformed ids), `SESSION_NOT_FOUND`
 (unknown/foreign/mistyped/prior-cycle session and read pairs — oracle-safe),
 `TEACHER_NOT_CERTIFIED`, `APPLICANT_NOT_IN_EVALUATION`, `EVALUATION_ALREADY_SUBMITTED`
-(both the pre-check and the `23505` map), plus the scope-level `UNAUTHORIZED`/`FORBIDDEN`.
+(both the pre-check and the `23505` map), plus the scope-level `UNAUTHORIZED`/`FORBIDDEN`
+and `HANDSHAKE_EXHAUSTED` — the conversion's handshake-retry exhaustion, which rolls the
+whole verdict transaction back (see the conversion contract's error table).
 
 ## The two write paths on the `evaluations` table
 
@@ -241,6 +260,9 @@ debris, which the NULL-distinct unique semantics leave inert for write-once arbi
 
 ## Related documents
 
+- `docs/teachers/applicant-student-conversion.md` — the atomic applicant → student
+  conversion the FAIL verdict applies in this same transaction, and the pass-path
+  role restoration.
 - `docs/teachers/applicant-lifecycle.md` — the `applicants` state machine this flow
   finalizes; the strict-`>` cooldown read and the failed-applicant privilege rules.
 - `docs/teachers/evaluation-loop-booking.md` — the booking leg (5 credits, 5 distinct

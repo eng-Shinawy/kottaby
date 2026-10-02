@@ -2,9 +2,11 @@ export { countUsersByIds, deleteSessionsByParticipantUserIds, deleteUsersByIds }
 export * from "./expect-mutation-error";
 export {
   demoteApplicantToPending,
+  failApplicantWithCooldown,
   insertActiveVerificationSubscription,
   insertAdminUserWithChildRow,
   insertCertifiedTeacherRow,
+  insertConvertedStudentState,
   insertEvaluatorTeacherRow,
   insertSessionRow,
   promoteApplicantToEvaluation,

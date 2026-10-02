@@ -64,6 +64,7 @@ import { ConflictError, NotFoundError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { NotificationEngine } from "@/backend/services/notifications/notification-engine.service";
 import { isUniqueViolation } from "@/backend/services/shared";
+import { ApplicantConversionService } from "@/backend/services/teachers/applicant-conversion.service";
 import { expandCooldownTemplate } from "@/backend/services/teachers/applicant-lifecycle.service";
 import type {
   DBTransaction,
@@ -337,7 +338,11 @@ function resolveFinalizationCooldownUntil(area: RubricWeaknessArea, now: Date): 
  * pre-existing evaluator. The applicant row is then finalized
  * (`passed`, cooldown cleared); a zero-row finalize means a concurrent
  * finalization won, and the typed conflict rolls the whole transaction
- * back (exactly one verdict ever commits).
+ * back (exactly one verdict ever commits). The verdict commits with the
+ * `teacher` role restored for a previously converted account: the guarded
+ * `student` → `teacher` flip runs on the SAME transaction after the
+ * finalize and is a silent no-op for a never-converted applicant (already
+ * `teacher`). The historical `students` row is never touched.
  */
 async function finalizeRubricPass(applicantUserId: number, tx: DBTransaction, t: ErrorsTranslations): Promise<void> {
   try {
@@ -371,6 +376,11 @@ async function finalizeRubricPass(applicantUserId: number, tx: DBTransaction, t:
     logAlreadyFinalized(applicantUserId);
     throw new ConflictError("APPLICANT_ALREADY_FINALIZED", t.applicantAlreadyFinalized);
   }
+  // The pass verdict has committed its authoritative pre-state; restore the
+  // teacher role of a previously converted account on the SAME transaction.
+  // A never-converted applicant is already `teacher`, so the guarded flip
+  // matches zero rows — the documented silent no-op.
+  await ApplicantConversionService.restoreTeacherRole(applicantUserId, tx);
 }
 
 /**
@@ -378,8 +388,13 @@ async function finalizeRubricPass(applicantUserId: number, tx: DBTransaction, t:
  * `failed` and stamps the cooldown instant verbatim, with the
  * `in_evaluation` pre-state folded into the predicate — a concurrent
  * finalization matching zero rows surfaces the typed conflict and rolls
- * the whole transaction back. NOTHING else is written: no suspension
- * fields, no role-child rows, no role flips.
+ * the whole transaction back (no suspension fields are written). Only once
+ * that guarded write has matched does the finalization convert the
+ * applicant to a `student` in the SAME transaction: a zeroed `students`
+ * role-child row with a fresh unique handshake code plus the guarded
+ * `teacher` → `student` role flip, atomic with the verdict — a conversion
+ * failure rolls the verdict back. The `applicants` row is untouched by the
+ * conversion itself (the guarded write above is its only writer here).
  */
 async function finalizeRubricFail(
   applicantUserId: number,
@@ -392,6 +407,10 @@ async function finalizeRubricFail(
     logAlreadyFinalized(applicantUserId);
     throw new ConflictError("APPLICANT_ALREADY_FINALIZED", t.applicantAlreadyFinalized);
   }
+  // The guarded verdict write is the per-applicant concurrency guard: the
+  // conversion runs only for the ONE finalization that matched, on the SAME
+  // transaction — any conversion failure rolls the verdict back with it.
+  await ApplicantConversionService.convertToStudent(applicantUserId, tx, t);
 }
 
 /**

@@ -421,3 +421,33 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
 3. **MUI Autocomplete open-state rig**: synthetic `mousedown`/`focus`/`click()` via eval does NOT open the listbox; a real CDP `agent-browser click "input[role=combobox]"` does (verified `[role=listbox]` + option count pre/post shot). → promoted into `capture-protocol.md` (state-verified capture).
 4. **Inspector prompt contamination**: naming the feature/component in the inspector CONTEXT (e.g. "the CountrySelector is an MUI Autocomplete") made inspectors hallucinate a missing input on surfaces that legitimately render none (dashboard distribution panel, read-only detail view) — 3 phantom findings, all DOM-disproven. Rule: on non-form surfaces, describe the SURFACE, never the component contract. → promoted into `rubric.md` (prompts-must-state).
 5. **Zero-fix-wave runs are valid outcomes**: 30 captures, 8 findings, 8 DOM arbitrations, 0 genuine defects — the loop exits at Pass 1 with accepted-debt adjudication instead of manufacturing fixes for disproven findings. The per-file quality loop was correctly not run (no files touched).
+
+## 2026-10-02 — conversion plan confirm run (`ai/plans/milestone_1_core_domain_mvp/failed_applicant_student_record_conversion/confirm/visual-scoring-outcome.md`)
+
+1. **Harness branch-flip poisons the dev-server module graph**: the sandbox force-checks out the
+   default branch between tool calls; turbopack then recompiles mutated modules from the WRONG
+   branch. Functional verification ran a rubric submission against main's pre-plan code — verdict
+   committed with NO conversion (plausible-but-wrong behavior, caught only by a DB probe +
+   `git show main:<file>` signature check). Armor: pin the local default ref to the working merge
+   (`git branch -f <default> <merge>`) so a flip lands on identical content, assert
+   `git branch --show-current` + a content grep immediately before critical mutations, purge
+   `.next-dev` after any flip, and re-verify the actor's token claims after every re-login.
+   → promoted into `capture-protocol.md` (sandbox gotchas).
+2. **PGlite external-open wedge**: a data dir held by the dev server and opened externally mid-run
+   (fixture/seed/probe) can wedge BOTH processes — later opens abort at `_checkReady`
+   (`RuntimeError: Aborted()`), and after the wedge only a fresh long-lived server recovers the
+   dir. Corollary to the existing single-writer rule: do ALL external DB work (fixtures, probes)
+   in ONE server-stopped window; never interleave server-up captures with server-down probes.
+   → promoted into `capture-protocol.md` (DB-provider gotcha).
+3. **VLM-CLI quota**: ~30 `z-ai vision` calls in quick succession return 429; the inspector runner
+   needs inter-call spacing/backoff, and pixel-level PIL bbox scans are the cheaper decisive
+   arbitration for "element is clipped" claims (a crop-edge tangency misread VLM verdict was
+   disproven by a blue-pixel bbox scan matching the DOM rect to the pixel).
+   → promoted into `capture-protocol.md` (VLM-CLI inspector mode).
+4. **Precheck offscreen predicate over-fails on scroll containers**: a deliberate horizontal chip
+   strip (`overflow-x:auto`, sw 404 > cw 326) fails the offscreen gate on mobile even though
+   nothing is visually clipped. The predicate should exempt elements inside VISIBLE scroll
+   containers, not just hidden/clip ancestors. → promoted into `objective-prechecks.md`.
+5. **Zero-fix-wave confirm run**: 28 captures, 6 findings, 6 DOM/pixel arbitrations, 0 genuine
+   defects — the loop exits at Pass 1 with accepted-debt adjudication per the rubric plateau
+   clause (matches the 2026-09-30 issue_230 data point).

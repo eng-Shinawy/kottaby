@@ -61,6 +61,7 @@ import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { session } from "@/backend/db/schema/classes/session";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
+import { students } from "@/backend/db/schema/students/students";
 import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { evaluations } from "@/backend/db/schema/teachers/evaluations";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
@@ -69,6 +70,7 @@ import {
   createTestApplicant,
   createTestPlan,
   createTestSession,
+  createTestStudent,
   createTestSubscription,
   createTestTeacherRow,
   createTestUser,
@@ -80,9 +82,11 @@ import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { RubricWeaknessArea } from "@/backend/enum/teachers/rubric-weakness-area.enum";
+import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { NotificationEngine } from "@/backend/services/notifications/notification-engine.service";
+import { ApplicantConversionService } from "@/backend/services/teachers/applicant-conversion.service";
 import { expandCooldownTemplate } from "@/backend/services/teachers/applicant-lifecycle.service";
 import { EvaluationRubricService } from "@/backend/services/teachers/evaluation-rubric.service";
 import type {
@@ -99,6 +103,7 @@ import {
   RUBRIC_NOTES_MAX_LENGTH,
   TAJWEED_COOLDOWN_DAYS,
 } from "@/shared/constants/evaluation-rubric.constants";
+import { HANDSHAKE_CODE_PATTERN } from "@/shared/constants/handshake-code.constants";
 import {
   VERIFICATION_PLAN_SESSION_COUNT,
   VERIFICATION_PLAN_TITLE,
@@ -379,6 +384,16 @@ async function readApplicantRow(executor: DBTransaction, userId: number): Promis
 async function readTeacherRow(executor: DBTransaction, userId: number) {
   const [row] = await executor.select().from(teacher).where(eq(teacher.id, userId));
   return row ?? null;
+}
+
+async function readStudentRow(executor: DBTransaction, userId: number) {
+  const [row] = await executor.select().from(students).where(eq(students.id, userId));
+  return row ?? null;
+}
+
+async function readUserRole(executor: DBTransaction, userId: number) {
+  const [row] = await executor.select({ role: users.role }).from(users).where(eq(users.id, userId));
+  return row?.role ?? null;
 }
 
 async function readStoredEvaluation(tx: DBTransaction, evaluationId: number) {
@@ -1278,6 +1293,190 @@ describe("EvaluationRubricService — submission pipeline (runInRollback)", () =
       );
       expect(corruptError).toBeInstanceOf(ValidationError);
       expectDomainDenial(corruptError, "APPLICANT_STATUS_CORRUPT", t().applicantStatusCorrupt);
+    });
+  });
+
+  // ── Conversion wiring: the verdict's role-child effects ────────────────
+
+  test("FAIL finalization conversion — the failed applicant gains a zeroed students row and the student role while the applicants verdict stands", async () => {
+    await runInRollback(async tx => {
+      const { applicantUserId } = await createVerificationApplicant(tx);
+      await fillScoredCycle(tx, applicantUserId, [
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+      ]);
+      const fifthEvaluator = await createCertifiedEvaluator(tx);
+      const fifthSession = await insertEvaluationSession(tx, fifthEvaluator, applicantUserId);
+
+      const before = Date.now();
+      const fifth = await submitRubric(tx, fifthEvaluator, fifthSession.id, {
+        score: 70,
+        weaknessArea: RubricWeaknessArea.Hifz,
+      });
+      const after = Date.now();
+
+      expect(fifth.applicantStatus).toBe(ApplicantStatus.Failed);
+
+      // The conversion's role-child row: shared PK, zeroed balances, no
+      // parent linkage, fresh unique handshake code.
+      const studentRows = await tx.select().from(students).where(eq(students.id, applicantUserId));
+      expect(studentRows).toHaveLength(1);
+      const studentRow = studentRows[0];
+      if (!studentRow) {
+        throw new Error("expected the converted student row");
+      }
+      expect(studentRow.id).toBe(applicantUserId);
+      expect(studentRow.balanceHifz).toBe(0);
+      expect(studentRow.balanceTajweed).toBe(0);
+      expect(studentRow.balanceReviews).toBe(0);
+      expect(studentRow.balanceTrial).toBe(0);
+      expect(studentRow.parentId).toBeNull();
+      expect(studentRow.handshakeCode).toMatch(HANDSHAKE_CODE_PATTERN);
+
+      // The guarded flip: the account IS a student now.
+      expect(await readUserRole(tx, applicantUserId)).toBe(UserRole.Student);
+
+      // The applicants verdict stands untouched: failed with the exact
+      // cooldown the guarded write stamped — the two rows co-exist on the
+      // same shared PK.
+      const applicantRow = await readApplicantRow(tx, applicantUserId);
+      expect(applicantRow?.status).toBe(ApplicantStatus.Failed);
+      expectCooldownExactly(applicantRow?.cooldownUntil ?? null, HIFZ_COOLDOWN_DAYS, before, after);
+      expectZeroLogCalls();
+    });
+  });
+
+  test("PASS finalization after a prior conversion — the teacher role is restored and the historical students row survives byte-identical", async () => {
+    await runInRollback(async tx => {
+      // The prior conversion, fixture-shaped: a student-role account whose
+      // students row already exists (the fail verdict's committed effect).
+      const { applicantUserId } = await createVerificationApplicant(tx, {}, { role: UserRole.Student });
+      const studentRowBefore = await createTestStudent(tx, applicantUserId);
+
+      await fillScoredCycle(tx, applicantUserId, [
+        { score: 80, weaknessArea: null },
+        { score: 80, weaknessArea: null },
+        { score: 80, weaknessArea: null },
+        { score: 80, weaknessArea: null },
+        { score: 80, weaknessArea: null },
+      ]);
+
+      expect((await readApplicantRow(tx, applicantUserId))?.status).toBe(ApplicantStatus.Passed);
+      expect(await readUserRole(tx, applicantUserId)).toBe(UserRole.Teacher);
+
+      // The shipped pass path minted the certified teacher row...
+      const teacherRow = await readTeacherRow(tx, applicantUserId);
+      expect(teacherRow?.isApproved).toBe(true);
+      expect(teacherRow?.isEvaluator).toBe(false);
+
+      // ...and the historical students row is preserved byte-identical.
+      expect(await readStudentRow(tx, applicantUserId)).toEqual(studentRowBefore);
+      expectZeroLogCalls();
+    });
+  });
+
+  test("PASS finalization for a never-converted applicant — the teacher role stands and no students row appears", async () => {
+    await runInRollback(async tx => {
+      const { applicantUserId } = await createVerificationApplicant(tx);
+      await fillScoredCycle(tx, applicantUserId, [
+        { score: 82, weaknessArea: null },
+        { score: 82, weaknessArea: null },
+        { score: 82, weaknessArea: null },
+        { score: 82, weaknessArea: null },
+        { score: 82, weaknessArea: null },
+      ]);
+
+      expect((await readApplicantRow(tx, applicantUserId))?.status).toBe(ApplicantStatus.Passed);
+      expect(await readUserRole(tx, applicantUserId)).toBe(UserRole.Teacher);
+      expect(await readStudentRow(tx, applicantUserId)).toBeNull();
+      expectZeroLogCalls();
+    });
+  });
+
+  test("injected conversion failure — the verdict rolls back atomically: no failed status, no students row, the finalizing submission withdrawn", async () => {
+    await runInRollback(async tx => {
+      const { applicantUserId } = await createVerificationApplicant(tx);
+      await fillScoredCycle(tx, applicantUserId, [
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+      ]);
+      const fifthEvaluator = await createCertifiedEvaluator(tx);
+      const fifthSession = await insertEvaluationSession(tx, fifthEvaluator, applicantUserId);
+
+      // The retry-exhaustion shape the shared provisioning helper surfaces —
+      // injected at the conversion seam to drive the fail-closed rollback.
+      const conversionSpy = spyOn(ApplicantConversionService, "convertToStudent").mockImplementation(async () => {
+        throw new ConflictError("HANDSHAKE_EXHAUSTED", t().adminUsers.handshakeExhausted);
+      });
+
+      const error = await expectRepoError(() =>
+        submitRubric(tx, fifthEvaluator, fifthSession.id, { score: 79, weaknessArea: RubricWeaknessArea.Tajweed })
+      );
+
+      // Exactly one conversion attempt fired — the guarded verdict write had
+      // already matched (the conversion runs only after the guard passed).
+      // Asserted BEFORE the restore: mockRestore also clears the call log.
+      expect(conversionSpy).toHaveBeenCalledTimes(1);
+      conversionSpy.mockRestore();
+
+      expectDomainDenial(error, "HANDSHAKE_EXHAUSTED", t().adminUsers.handshakeExhausted);
+
+      // The whole verdict transaction rolled back: the applicants row is NOT
+      // left failed, no students row exists, the role was never flipped, and
+      // the finalizing submission itself was withdrawn.
+      const applicantRow = await readApplicantRow(tx, applicantUserId);
+      expect(applicantRow?.status).toBe(ApplicantStatus.InEvaluation);
+      expect(applicantRow?.cooldownUntil).toBeNull();
+      expect(await readStudentRow(tx, applicantUserId)).toBeNull();
+      expect(await readUserRole(tx, applicantUserId)).toBe(UserRole.Teacher);
+      expect(await countEvaluationsFor(tx, applicantUserId)).toBe(4);
+      expect(await readNotificationRowsFor(tx, applicantUserId)).toHaveLength(0);
+    });
+  });
+
+  test("losing rival never re-runs the conversion — the in-evaluation gate and the guarded verdict write arbitrate, and a conversion replay is the one-row no-op", async () => {
+    await runInRollback(async tx => {
+      const { applicantUserId } = await createVerificationApplicant(tx);
+      await fillScoredCycle(tx, applicantUserId, [
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+        { score: 100, weaknessArea: null },
+      ]);
+      const fifthEvaluator = await createCertifiedEvaluator(tx);
+      const fifthSession = await insertEvaluationSession(tx, fifthEvaluator, applicantUserId);
+      const fifth = await submitRubric(tx, fifthEvaluator, fifthSession.id, {
+        score: 60,
+        weaknessArea: RubricWeaknessArea.Tajweed,
+      });
+      expect(fifth.applicantStatus).toBe(ApplicantStatus.Failed);
+      expect(await readStudentRow(tx, applicantUserId)).not.toBeNull();
+      expect(await readUserRole(tx, applicantUserId)).toBe(UserRole.Student);
+
+      // A second submission for the SAME applicant: the in-evaluation gate
+      // denies it long before any conversion write could run (the conversion
+      // is unreachable without passing the verdict guards).
+      const rivalSpy = spyOn(ApplicantConversionService, "convertToStudent");
+      const rivalEvaluator = await createCertifiedEvaluator(tx);
+      const rivalSession = await insertEvaluationSession(tx, rivalEvaluator, applicantUserId);
+      const rivalError = await expectRepoError(() =>
+        submitRubric(tx, rivalEvaluator, rivalSession.id, { score: 100, weaknessArea: null })
+      );
+      // Asserted BEFORE the restore: mockRestore also clears the call log.
+      expect(rivalSpy).toHaveBeenCalledTimes(0);
+      rivalSpy.mockRestore();
+      expectDomainDenial(rivalError, "APPLICANT_NOT_IN_EVALUATION", t().applicantNotInEvaluation);
+
+      // A direct in-tx replay of the conversion itself: the probe finds the
+      // surviving row, the insert is skipped, the guarded flip matches zero
+      // rows — exactly ONE students row and the role stays student.
+      await ApplicantConversionService.convertToStudent(applicantUserId, tx, t());
+      expect(await tx.$count(students, eq(students.id, applicantUserId))).toBe(1);
+      expect(await readUserRole(tx, applicantUserId)).toBe(UserRole.Student);
     });
   });
 });

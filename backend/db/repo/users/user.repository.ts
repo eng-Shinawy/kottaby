@@ -15,6 +15,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { queryDb } from "@/backend/db";
 import { users } from "@/backend/db/schema/users/users";
+import type { UserRole } from "@/backend/enum/users/user-role.enum";
 import type { DBQueryExecutor, DBTransaction, UserInsertType, UserSelectType } from "@/backend/types";
 import type { AppLocale } from "@/shared/locale/AppLocale";
 
@@ -278,5 +279,52 @@ export namespace UserRepository {
       names.set(row.id, row.fullName);
     }
     return names;
+  }
+
+  /**
+   * Flips one user's `role` from `fromRole` to `toRole` in ONE guarded
+   * atomic UPDATE on the supplied transaction:
+   * `SET role = <toRole> WHERE id = <userId> AND role = <fromRole>`.
+   *
+   * The expected source role is folded into the WHERE predicate — there is
+   * no read-then-write window, so a stale read can never replay a transition
+   * the row has already left, and under concurrent writers the row lock
+   * serializes the statements: exactly one flip wins and the loser matches
+   * zero rows. The predicate pins BOTH the id and the expected source role,
+   * so an id alone can never move a row whose stored role differs from the
+   * caller's expectation (defense-in-depth behind the service tier, which
+   * derives the id server-side).
+   *
+   * A zero-row match returns `false` and is a SIGNAL, never an error: the
+   * user is absent, or their stored role is no longer `fromRole` (the
+   * transition already happened — replaying it is a safe no-op). Deciding
+   * what `false` means is a service-layer decision, not a repository one.
+   * A self-transition (`fromRole == toRole`) on a row currently storing that
+   * role matches and rewrites the same value.
+   *
+   * `tx` is REQUIRED (last parameter): the flip commits — or rolls back —
+   * atomically with the surrounding writes of the caller's transaction.
+   * `updated_at` re-stamps automatically via the column's `$onUpdate` hook.
+   * Parameterized always; the id and both role members are bound values,
+   * never concatenated; no prepared statement (writes are excluded —
+   * `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns `true` when the guarded predicate matched and the role was
+   *          written, `false` when it matched zero rows.
+   */
+  export async function transitionRoleOnce(
+    userId: number,
+    fromRole: UserRole,
+    toRole: UserRole,
+    tx: DBTransaction
+  ): Promise<boolean> {
+    // Single guarded statement — the expected source role IS the WHERE
+    // predicate, so a stale read can never replay an illegal transition.
+    const rows = await tx
+      .update(users)
+      .set({ role: toRole })
+      .where(and(eq(users.id, userId), eq(users.role, fromRole)))
+      .returning({ id: users.id });
+    return rows.length > 0;
   }
 }
