@@ -762,3 +762,148 @@ describe("TeacherRepository.updateAverageRating (the cached-rating write)", () =
     expect(repoUpdateAverageRatingSource()).toContain(".returning()");
   });
 });
+
+describe("TeacherRepository.decertifyOnce (the paid re-evaluation de-certification)", () => {
+  // The de-certification arbiter signals a miss by returning `null` (the
+  // guarded UPDATE's zero-row miss signal), so this suite has no throwing
+  // paths to probe — `expectRepoError` is reserved for the raw-CHECK probe
+  // pattern and there is never a `rejects.toThrow` inside `runInRollback`.
+
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("flips a certified teacher to de-certified and returns the FULL updated row", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+
+      const row = await TeacherRepository.decertifyOnce(user.id, tx);
+
+      expect(row).not.toBeNull();
+      if (!row) throw new Error("expected the updated teacher row");
+      expect(row.id).toBe(user.id);
+      expect(row.isApproved).toBe(false);
+      // Independent persisted-state oracle (same tx — read-your-writes).
+      const [persisted] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(persisted?.isApproved).toBe(false);
+    });
+  });
+
+  test("returns null for a nonexistent teacher id", async () => {
+    await runInRollback(async tx => {
+      const missingId = await absentTeacherId(tx);
+
+      const row = await TeacherRepository.decertifyOnce(missingId, tx);
+
+      expect(row).toBeNull();
+    });
+  });
+
+  // ─── Tier 2: boundary / honest failure ──────────────────────────────
+
+  test("matches ZERO rows for an already-decertified teacher (a rival order won, nothing changes)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, false);
+
+      const row = await TeacherRepository.decertifyOnce(user.id, tx);
+
+      expect(row).toBeNull();
+      const [persisted] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(persisted?.isApproved).toBe(false);
+    });
+  });
+
+  test("matches ZERO rows for a DB-level NULL is_approved row (NULL never satisfies the certified guard)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, null);
+
+      const row = await TeacherRepository.decertifyOnce(user.id, tx);
+
+      expect(row).toBeNull();
+      const [persisted] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(persisted?.isApproved).toBeNull();
+    });
+  });
+
+  test("the flip withdraws the approval only (isEvaluator and the rating survive untouched)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTeacherRowFixture(tx, user.id, { isEvaluator: true, averageRating: "4.25" });
+
+      const row = await TeacherRepository.decertifyOnce(user.id, tx);
+
+      expect(row?.isApproved).toBe(false);
+      expect(row?.isEvaluator).toBe(true);
+      expect(row?.averageRating).toBe("4.25");
+    });
+  });
+
+  // ─── Tier 3: concurrent de-certification (the arbiter) ──────────────
+  // Real-Postgres gated: the guarded UPDATE's row lock is only observable
+  // across independent connections (PGlite is single-connection WASM).
+  const testOnRealPostgres = isPgliteProvider() ? test.skip : test;
+
+  testOnRealPostgres(
+    "two concurrent orders de-certify the same certified teacher: exactly one winner, one zero-row loser",
+    async () => {
+      const teacherUserId = await createCommittedTeacher(true);
+
+      // Two INDEPENDENT transactions race the same guarded UPDATE. The row
+      // lock serializes them: the loser re-evaluates the WHERE predicate on
+      // the committed post-flip row, matches zero rows, and resolves null.
+      const settled = await Promise.allSettled([
+        db.transaction(tx => TeacherRepository.decertifyOnce(teacherUserId, tx)),
+        db.transaction(tx => TeacherRepository.decertifyOnce(teacherUserId, tx)),
+      ]);
+
+      expect(settled).toHaveLength(2);
+      const rows = settled.map(outcome => {
+        if (outcome.status !== "fulfilled") {
+          throw new Error("expected both racing transactions to resolve without error");
+        }
+        return outcome.value;
+      });
+      // Order-independent: exactly one winner, exactly one zero-row loser.
+      expect(rows.filter(row => row !== null)).toHaveLength(1);
+      expect(rows.filter(row => row === null)).toHaveLength(1);
+      const winner = rows.find(row => row !== null);
+      expect(winner?.id).toBe(teacherUserId);
+      expect(winner?.isApproved).toBe(false);
+
+      // Final committed state is consistent — flipped exactly once.
+      const [final] = await db.select().from(teacher).where(eq(teacher.id, teacherUserId));
+      expect(final?.isApproved).toBe(false);
+    }
+  );
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  const DECERTIFY_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
+  const decertifyRepoSource = readFileSync(DECERTIFY_REPO_FILE, "utf8");
+
+  /** The decertifyOnce slice of the repository source (the static pin target). */
+  function decertifySource(): string {
+    const start = decertifyRepoSource.indexOf("export async function decertifyOnce(");
+    return decertifyRepoSource.slice(start, decertifyRepoSource.indexOf("\n  }\n", start));
+  }
+
+  test("source: REQUIRED-tx writer riding the ONE guarded is_approved=true→false statement", () => {
+    expect(decertifySource()).toContain("export async function decertifyOnce(");
+    expect(decertifySource()).toContain("id: number");
+    expect(decertifySource()).toContain("tx: DBTransaction");
+    // Single-writer discipline: the re-evaluation entry point shares the
+    // existing guarded statement instead of minting a second one.
+    expect(decertifySource()).toContain("return demoteToUncertified(id, tx);");
+    expect(decertifySource().includes("db.update")).toBe(false);
+    // Exactly ONE `is_approved = false` write target exists in the repo.
+    expect(decertifyRepoSource.match(/isApproved: false/g)).toHaveLength(1);
+  });
+
+  test("source: no i18n, no logger, no console, no plan-artifact references", () => {
+    expect(decertifySource().includes("getServerTranslations")).toBe(false);
+    expect(decertifySource().includes("logger")).toBe(false);
+    expect(decertifySource().includes("console.")).toBe(false);
+    expect(/REQ-\d|DEV2|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(decertifyRepoSource)).toBe(false);
+  });
+});

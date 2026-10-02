@@ -125,6 +125,21 @@ const ACTION_CHIP_KEYS = [
 ] as const;
 
 /**
+ * Mandated inventory of the admin-ordered re-evaluation affordance (the
+ * `orderReEvaluation` block) — 8 slots.
+ */
+const ORDER_RE_EVALUATION_LEAF_PATHS = [
+  "action",
+  "dialogTitle",
+  "reasonLabel",
+  "reasonRequiredHint",
+  "feeExplanation",
+  "confirm",
+  "cancel",
+  "successToast",
+] as const;
+
+/**
  * Every leaf key the `changePasswordDialog` block must carry (8 slots) —
  * dotted paths RELATIVE to the block root. Flat admin chrome copy only.
  */
@@ -432,6 +447,36 @@ describe("placeholder-name sets are IDENTICAL across ar/en per auditTrail key", 
       const arNames = icuPlaceholdersOf(leafValueOf(adminUsersAr.auditTrail, path, "ar"));
       const enNames = icuPlaceholdersOf(leafValueOf(adminUsersEn.auditTrail, path, "en"));
       expect(enNames).toEqual(arNames);
+    }
+  });
+});
+
+// ===========================================================================
+describe("orderReEvaluation block — pinned under BOTH locales + amount-free fee copy", () => {
+  test("exact leaf-path set on BOTH locale sources (no key added, none dropped)", () => {
+    const pinned = [...ORDER_RE_EVALUATION_LEAF_PATHS].toSorted((a, b) => a.localeCompare(b));
+
+    expect(leafPathsOf(adminUsersAr.orderReEvaluation).toSorted((a, b) => a.localeCompare(b))).toEqual(pinned);
+    expect(leafPathsOf(adminUsersEn.orderReEvaluation).toSorted((a, b) => a.localeCompare(b))).toEqual(pinned);
+  });
+
+  test.each([...ORDER_RE_EVALUATION_LEAF_PATHS])(
+    "orderReEvaluation.%s resolves as a non-empty string in BOTH locales",
+    path => {
+      expect(leafValueOf(adminUsersAr.orderReEvaluation, path, "ar").length).toBeGreaterThan(0);
+      expect(leafValueOf(adminUsersEn.orderReEvaluation, path, "en").length).toBeGreaterThan(0);
+    }
+  );
+
+  test("feeExplanation carries NO hardcoded amount or currency figures in EITHER locale", () => {
+    // Pricing is server-owned: the copy explains the deduction generically
+    // ("the re-evaluation fee") — a digit anywhere would hardcode the
+    // provisional product-owned fee into shipped UI copy.
+    for (const [localeMap, localeName] of [
+      [adminUsersAr.orderReEvaluation, "ar"],
+      [adminUsersEn.orderReEvaluation, "en"],
+    ] as const) {
+      expect(/\d/.test(leafValueOf(localeMap, "feeExplanation", localeName))).toBe(false);
     }
   });
 });

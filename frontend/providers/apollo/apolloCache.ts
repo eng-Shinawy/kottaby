@@ -147,6 +147,15 @@ const apolloCacheTypePolicies: NonNullable<InMemoryCacheConfig["typePolicies"]> 
   PaymentCheckout: {
     keyFields: false,
   },
+  // Admin-ordered re-evaluation receipt — the sanctioned id-less mutation
+  // payload (no `id` by design: `teacherId` is the subject anchor). Read
+  // back inline under the `adminOrderTeacherReEvaluation` mutation field
+  // and replaced wholesale on every refetch; a standalone cache key would
+  // be meaningless (same discipline as `PurchaseSubscriptionPayload`
+  // above).
+  TeacherReEvaluationOrder: {
+    keyFields: false,
+  },
   // Admin analytics-dashboard snapshot family — scalar-only sections of
   // the single `adminPlatformAnalytics` read model with no `id` anywhere
   // in the aggregate (see `frontend/graphql/generated/schema.graphql`),

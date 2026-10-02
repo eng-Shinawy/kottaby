@@ -207,6 +207,36 @@ switcher writes through to the account; the cookie API does not). Before EVERY b
 re-set the locale cookie AND re-verify the page's toolbar button aria-label marker —
 if the marker doesn't match the expected locale's label, the batch will marker-fail.
 
+## Branch-stable work in flip-prone sandboxes (added 2026-10-01)
+
+The sandbox harness can flip the MAIN checkout's branch back to the default between tool
+calls (reflog tell: `checkout: moving from <branch> to main` seconds after yours). Never
+hold branch state in the main checkout for a visual run:
+
+- Create a dedicated worktree: `git worktree add /home/z/<slug> <branch>` — its HEAD is
+  immune to the main checkout's flips. Re-verify `git branch --show-current` in the
+  worktree before every `git add`/`commit`/`push` anyway.
+- node_modules cannot be symlinked (sandbox ban): hardlink-copy
+  `cp -al <main>/node_modules <worktree>/node_modules` — zero extra disk, `.bin` survives.
+- A hardlink-copied node_modules may carry ONLY the musl SWC binding on a glibc host:
+  turbopack then dies ("Turbopack is not supported on this platform ... WASM bindings").
+  Fix by installing the matching native tarball, e.g.
+  `curl -sL https://registry.npmjs.org/@next/swc-linux-x64-gnu/-/swc-linux-x64-gnu-<next-version>.tgz`
+  untarred into `node_modules/@next/swc-linux-x64-gnu`.
+- Do NOT fall back to `next dev --webpack` for repos whose tsconfig declares `paths`
+  WITHOUT `baseUrl`: turbopack resolves those aliases relative to the tsconfig, webpack's
+  jsconfig-paths plugin does not, and every `@/*` import 500s with module-not-found.
+
+## Re-inspection context rule (added 2026-10-01)
+
+Every re-inspection pass (round ≥ 2) must inline the arbitration ledger in the inspector
+prompt: the DOM-verified facts ("title is start-aligned", "helper text right-aligned",
+"submit is contained primary", "toast fully on-screen") as DO-NOT-RE-REPORT items, plus a
+fixture-content disclaimer ("user-typed name/email/free-text is content, not UI copy").
+Context-loaded re-inspections shed the noise class in one round; an inspector that still
+contradicts recorded DOM evidence is re-dismissed on the same measurement (rubric's
+contradiction signature), not "fixed".
+
 ## Orphaned-Chrome OOM spiral (added 2026-10-02)
 
 - Every `agent-browser session id` call issued after a daemon crash/CDP drop can leave the previous

@@ -158,4 +158,7 @@ export const errorsAr: ErrorsLabels = {
   rubricWeaknessInvalid: "يجب أن يكون مجال الضعف إما التجويد أو الحفظ.",
   rubricSessionNotCompleted: "جلسة التقييم هذه لم تكتمل بعد.",
   applicantAlreadyFinalized: "تم إصدار القرار النهائي لهذا الطلب بالفعل.",
+  applicantNotAwaitingReEvaluation: "المعلم المحدد ليس في حالة تسمح بإعادة التقييم.",
+  reEvaluationReasonRequired: "سبب إعادة التقييم مطلوب ولا يمكن تركه فارغاً.",
+  reEvaluationReasonTooLong: "سبب إعادة التقييم يجب ألا يتجاوز 229 حرفاً.",
 };

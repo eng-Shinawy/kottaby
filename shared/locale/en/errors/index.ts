@@ -161,4 +161,7 @@ export const errorsEn: ErrorsLabels = {
   rubricWeaknessInvalid: "The weakness area must be Tajweed or Hifz.",
   rubricSessionNotCompleted: "This evaluation session is not completed yet.",
   applicantAlreadyFinalized: "The application was already finalized.",
+  applicantNotAwaitingReEvaluation: "This teacher is not awaiting a re-evaluation.",
+  reEvaluationReasonRequired: "A reason is required to order a re-evaluation.",
+  reEvaluationReasonTooLong: "The re-evaluation reason must be 229 characters or fewer.",
 };

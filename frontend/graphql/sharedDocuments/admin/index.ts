@@ -8,6 +8,7 @@
  */
 export * from "./academic-tracking.documents";
 export * from "./admin-finance.documents";
+export * from "./admin-re-evaluation.documents";
 export * from "./admin-session-governance.documents";
 export * from "./admin-student-onboarding.documents";
 export * from "./admin-students.documents";

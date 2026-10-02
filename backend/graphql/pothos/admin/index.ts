@@ -8,6 +8,7 @@
  */
 export * from "./academic-tracking.pothos";
 export * from "./admin-finance.pothos";
+export * from "./admin-re-evaluation.pothos";
 export * from "./admin-student-onboarding.pothos";
 export * from "./admin-students.pothos";
 export * from "./admin-teacher-applicants.pothos";

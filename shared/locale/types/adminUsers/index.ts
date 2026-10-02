@@ -410,6 +410,41 @@ export interface AdminUsersLabels {
     readonly cancel: string;
   };
   /**
+   * Admin-ordered paid re-evaluation copy on the admin user DETAIL page —
+   * the hero affordance for a CERTIFIED teacher (`adminOrderTeacherReEvaluation`),
+   * its confirm dialog (title, the MANDATORY reason field label + required
+   * hint, the fee-deduction explanation, shared confirm/cancel labels), and
+   * the mutation-success toast.
+   *
+   * Fee discipline: `feeExplanation` describes the
+   * deduction TRUTHFULLY but generically — the copy must NEVER hardcode an
+   * amount or currency (pricing is server-owned; the server-returned
+   * receipt carries the real figures). The parity suite pins the
+   * amount-free discipline.
+   */
+  readonly orderReEvaluation: {
+    /** Hero action button label — opens the order-re-evaluation dialog. */
+    readonly action: string;
+    /** Dialog title for the order-re-evaluation dialog. */
+    readonly dialogTitle: string;
+    /** Field label for the mandatory reason input inside the dialog. */
+    readonly reasonLabel: string;
+    /** Helper text under the reason input — required + audit-recorded. */
+    readonly reasonRequiredHint: string;
+    /**
+     * Fee-deduction explanation — states that the re-evaluation fee is
+     * deducted from the teacher's own wallet and that ordering
+     * de-certifies the account for the fresh evaluation cycle. NO amount.
+     */
+    readonly feeExplanation: string;
+    /** Confirm button label for the order-re-evaluation dialog. */
+    readonly confirm: string;
+    /** Cancel button label for the order-re-evaluation dialog. */
+    readonly cancel: string;
+    /** Snackbar copy rendered after a successful order. */
+    readonly successToast: string;
+  };
+  /**
    * Inline governance action copy on the admin user detail page — the
    * suspend / unsuspend / block / unblock action labels, the four confirm
    * dialog title/message pairs, the suspension-period field label and

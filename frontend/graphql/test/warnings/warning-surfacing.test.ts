@@ -373,6 +373,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "adminExtendSubscription",
   "adminJoinSession",
   "adminOnboardStudentWithOfflinePayment",
+  "adminOrderTeacherReEvaluation",
   "adminOverrideApplicantEvaluation",
   "adminReassignTeacher",
   "adminRenewSubscription",

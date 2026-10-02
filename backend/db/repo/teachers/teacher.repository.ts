@@ -375,6 +375,40 @@ export namespace TeacherRepository {
   }
 
   /**
+   * De-certifies a currently-certified teacher for the duration of a paid
+   * re-evaluation: the `is_approved = true` precondition is folded into the
+   * WHERE clause of ONE guarded UPDATE, so the predicate and the mutation
+   * are one statement and a concurrent re-certification of the same row
+   * cannot be overwritten blindly.
+   *
+   * This is the re-evaluation order's named entry point for the
+   * certification flip. It rides the SAME single `is_approved = true →
+   * false` guarded statement as `demoteToUncertified` — one write shape per
+   * flag direction, never a second statement minted for a second caller.
+   * What differs is the contract reading of the miss signal: for the
+   * re-evaluation order the row lock serializes concurrent orders, so
+   * exactly one writer flips the row and a zero-row result is the arbiter's
+   * MISS SIGNAL, never an error — the teacher row is absent, or the teacher
+   * is already de-certified (a concurrent order won) — and the caller maps
+   * the miss to its domain conflict. The evaluator flag is deliberately NOT
+   * rewritten: de-certification withdraws the teaching approval only; a
+   * pre-existing evaluator keeps their evaluator status.
+   *
+   * `tx` is REQUIRED (no standalone branch): the write exists solely inside
+   * the caller's order transaction — the flip commits with that transaction
+   * or not at all.
+   *
+   * Parameterized always; the id is bound, never concatenated; no prepared
+   * statement (writes are excluded — `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns The updated teacher row, or `null` when zero rows matched (row
+   *          absent or already de-certified — the caller owns the semantics).
+   */
+  export async function decertifyOnce(id: number, tx: DBTransaction): Promise<TeacherSelectType | null> {
+    return demoteToUncertified(id, tx);
+  }
+
+  /**
    * Lists the admin teacher directory: `teacher` rows INNER JOINed to their
    * `users` accounts on the shared PK, filtered by the normalized filter
    * chain, ordered newest-account-first (deterministic `created_at DESC,

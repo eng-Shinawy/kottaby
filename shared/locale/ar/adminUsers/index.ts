@@ -179,6 +179,17 @@ export const adminUsersAr: AdminUsersLabels = {
     confirm: "اعتماد المعلم",
     cancel: "إلغاء",
   },
+  orderReEvaluation: {
+    action: "طلب إعادة تقييم",
+    dialogTitle: "طلب إعادة تقييم للمعلم",
+    reasonLabel: "سبب إعادة التقييم",
+    reasonRequiredHint: "السبب مطلوب ويُسجَّل مع الطلب في سجل التدقيق.",
+    feeExplanation:
+      "يؤدي طلب إعادة التقييم إلى خصم رسم إعادة التقييم من رصيد محفظة هذا المعلم نفسه، ويُلغى اعتماد الحساب طوال دورة التقييم الجديدة.",
+    confirm: "طلب إعادة تقييم",
+    cancel: "إلغاء",
+    successToast: "تم طلب إعادة التقييم.",
+  },
   governanceActions: {
     title: "إجراءات الحوكمة",
     suspendAction: "إيقاف",

@@ -183,6 +183,17 @@ export const adminUsersEn: AdminUsersLabels = {
     confirm: "Certify teacher",
     cancel: "Cancel",
   },
+  orderReEvaluation: {
+    action: "Order re-evaluation",
+    dialogTitle: "Order teacher re-evaluation",
+    reasonLabel: "Reason for re-evaluation",
+    reasonRequiredHint: "A reason is required; it is recorded with the order in the audit trail.",
+    feeExplanation:
+      "Ordering a re-evaluation deducts the re-evaluation fee from this teacher's own wallet balance, and the account is de-certified for the duration of the fresh evaluation cycle.",
+    confirm: "Order re-evaluation",
+    cancel: "Cancel",
+    successToast: "Re-evaluation ordered.",
+  },
   governanceActions: {
     title: "Governance actions",
     suspendAction: "Suspend",

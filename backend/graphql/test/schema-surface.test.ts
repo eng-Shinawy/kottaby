@@ -928,6 +928,24 @@ const APPLICANT_COOLDOWN_ENUMS = ["ApplicantCooldownState"] as const;
 const APPLICANT_OVERRIDE_MUTATION_FIELDS = ["adminOverrideApplicantEvaluation"] as const;
 const APPLICANT_OVERRIDE_ENUMS = ["AdminApplicantOverrideAction"] as const;
 
+/**
+ * Admin-ordered paid re-evaluation surface — the teacher-wallet-deduction
+ * write (`adminOrderTeacherReEvaluation`): the order debits the fee from
+ * the subject teacher's wallet, de-certifies the teacher, re-opens the
+ * applicant into the five-session loop, and appends one `override` audit
+ * row — all inside the service's single transaction. The two scalar args
+ * (`teacherId: ID!`, `reason: String!`) suffice — NO input object exists
+ * (there is no wire fee argument; the fee is server-owned). The receipt is
+ * the id-less `TeacherReEvaluationOrder` value object (five non-null
+ * members; the frontend registers it with `keyFields: false`). Auth-gated
+ * with the `authScopes: { $all: { authenticated: true, role:
+ * [UserRole.Admin] } }` conjunction — declared as the INLINED literal (the
+ * same shape `adminOnlyAuthScopes` shares; mutations inline it so the audit
+ * census drift scanner can classify the gate statically).
+ */
+const TEACHER_RE_EVALUATION_MUTATION_FIELDS = ["adminOrderTeacherReEvaluation"] as const;
+const TEACHER_RE_EVALUATION_TYPE_NAMES = ["TeacherReEvaluationOrder"] as const;
+
 // ─── Schema walk helpers ─────────────────────────────────────────────────────
 
 /** All named SDL type names, introspection builtins + spec scalars excluded, sorted deterministically. */
@@ -1151,7 +1169,7 @@ describe("HealthCheck object shape — four scalar fields, no id", () => {
 });
 
 describe("Surface freeze — pinned additions vs the baseline inventory", () => {
-  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user quartet + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write)", () => {
+  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user quartet + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write)", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
@@ -1181,8 +1199,11 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // (`adminOnboardStudentWithOfflinePayment`), and the admin
     // applicant-cooldown extension write (`adminExtendApplicantCooldown`),
     // and the admin evaluation-override write
-    // (`adminOverrideApplicantEvaluation`), and the self-service
-    // credential write (`changeMyPassword`).
+    // (`adminOverrideApplicantEvaluation`), the self-service
+    // credential write (`changeMyPassword`), and the admin-ordered paid
+    // re-evaluation write (`adminOrderTeacherReEvaluation` — the
+    // teacher-wallet-deduction surface; the two scalar args suffice, no
+    // input object).
     // All authScopes-gated — none is allowlist material; the
     // public-operation registry stays byte-unchanged.
     expect(names).toEqual(
@@ -1199,6 +1220,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...SELF_SERVICE_CREDENTIAL_MUTATION_FIELDS,
         ...APPLICANT_COOLDOWN_MUTATION_FIELDS,
         ...APPLICANT_OVERRIDE_MUTATION_FIELDS,
+        ...TEACHER_RE_EVALUATION_MUTATION_FIELDS,
         ...ADMIN_SESSION_GOVERNANCE_MUTATION_FIELDS,
         ...SUBSCRIPTION_PURCHASE_MUTATION_FIELDS,
         ...VERIFICATION_PLAN_MUTATION_FIELDS,
@@ -1230,6 +1252,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     //   adminExtendApplicantCooldown < adminExtendSubscription <
     //   adminJoinSession <
     //   adminOnboardStudentWithOfflinePayment <
+    //   adminOrderTeacherReEvaluation <
     //   adminOverrideApplicantEvaluation < adminReassignTeacher <
     //   adminRenewSubscription < adminRescheduleSession <
     //   adminSetUserBlocked < adminSetUserDeleted <
@@ -1250,10 +1273,12 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // before the subscription one), landing directly after
     // adminCreateUser, the evaluation-override write lands directly
     // after adminOnboardStudentWithOfflinePayment (the `adminO` vocabulary:
-    // nboard < verride), and the credential-rotation write sorts between
+    // nboard < verride), the credential-rotation write sorts between
     // adminSetUserDeleted and adminSetUserSuspended (the `adminSetUser`
-    // vocabulary: Blocked < Deleted < Password < Suspended), so the
-    // contiguity pin stays anchored to the whole
+    // vocabulary: Blocked < Deleted < Password < Suspended), and the paid
+    // re-evaluation write slots directly between the onboarding and
+    // override writes (nboard < rder < verride), so the contiguity pin
+    // stays anchored to the whole
     // admin block, exactly as the sorted live schema emits them.
     const names = Object.keys(graphQLSchema.getMutationType()?.getFields() ?? {}).toSorted((a, b) =>
       a.localeCompare(b)
@@ -1269,6 +1294,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
       "adminExtendSubscription",
       "adminJoinSession",
       "adminOnboardStudentWithOfflinePayment",
+      "adminOrderTeacherReEvaluation",
       "adminOverrideApplicantEvaluation",
       "adminReassignTeacher",
       "adminRenewSubscription",
@@ -1386,7 +1412,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum + the credential-change input pair", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum + the credential-change input pair + the id-less re-evaluation order receipt object", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1438,6 +1464,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...ADMIN_STUDENT_ONBOARDING_TYPE_NAMES,
         ...APPLICANT_COOLDOWN_ENUMS,
         ...APPLICANT_OVERRIDE_ENUMS,
+        ...TEACHER_RE_EVALUATION_TYPE_NAMES,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -2827,6 +2854,57 @@ describe("Admin financial row/page object shapes — exact field sets + per-fiel
   });
 });
 
+describe("Admin-ordered re-evaluation surface — exact signature + `$all` scope pin + receipt shape", () => {
+  test("`adminOrderTeacherReEvaluation` returns TeacherReEvaluationOrder! with EXACTLY the two required scalar args (no input object)", () => {
+    const field = mutationField("adminOrderTeacherReEvaluation");
+    expect(field.type.toString()).toBe("TeacherReEvaluationOrder!");
+    const argsByName = new Map(field.args.map(arg => [arg.name, arg.type.toString()]));
+    expect(argsByName.get("teacherId")).toBe("ID!");
+    expect(argsByName.get("reason")).toBe("String!");
+    expect(field.args).toHaveLength(2);
+  });
+
+  test("the field carries the EXACT `$all` administrator conjunction (BFLA — no accidental public exposure)", () => {
+    const scopes = authScopesSnapshot(mutationField("adminOrderTeacherReEvaluation"));
+    expect(scopes).toEqual({
+      $all: { authenticated: true, role: [UserRole.Admin] },
+    });
+    expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+    const allScope: unknown = Reflect.get(scopes, "$all");
+    if (!isRecord(allScope)) throw new Error("expected record-shaped $all scope conjunction");
+    const roleSet: unknown = Reflect.get(allScope, "role");
+    expect(roleSet).toEqual([UserRole.Admin]);
+    // Admin-only also means NOT allowlist material: the operation never
+    // ships on the anonymous public-operation surface.
+    expect(PUBLIC_OPERATIONS.has("adminOrderTeacherReEvaluation")).toBe(false);
+  });
+
+  test("TeacherReEvaluationOrder exposes EXACTLY the five non-null receipt members (id-less embedded value object)", () => {
+    const orderType = graphQLSchema.getType("TeacherReEvaluationOrder");
+    if (!(orderType instanceof GraphQLObjectType)) {
+      throw new Error("TeacherReEvaluationOrder must be registered as a GraphQL object type");
+    }
+    const fields = orderType.getFields();
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "amountCharged",
+      "currency",
+      "reEvaluationStartedAt",
+      "teacherId",
+      "walletBalance",
+    ]);
+    expect(fields.amountCharged?.type.toString()).toBe("String!");
+    expect(fields.currency?.type.toString()).toBe("String!");
+    expect(fields.walletBalance?.type.toString()).toBe("String!");
+    // The cycle anchor is the ISO-8601 String contract (not a DateTime
+    // scalar — pinned exactly as the surface declares it).
+    expect(fields.reEvaluationStartedAt?.type.toString()).toBe("String!");
+    expect(fields.teacherId?.type.toString()).toBe("ID!");
+    // Id-less receipt — `teacherId` is the subject anchor, the frontend
+    // registers the type with `keyFields: false`.
+    expect(Object.hasOwn(fields, "id")).toBe(false);
+  });
+});
+
 describe("Parent portal session-target read — exact deep-link shape + `$all` scope pins", () => {
   const queryType = graphQLSchema.getQueryType();
 
@@ -3398,5 +3476,15 @@ describe("Codegen sync — committed SDL is byte-identical to the built schema",
     // artifact — at the exact arg shape the resolver binds.
     expect(committedSdl).toContain("studentProgress(studentId: Int!): StudentProgress!");
     expect(committedSdl).toContain("type StudentProgress {");
+    // …and the admin-ordered paid re-evaluation surface (the
+    // teacher-wallet-deduction write + its id-less receipt object) is
+    // really inside the committed artifact — at the exact sorted arg
+    // shape the resolver binds (the live sorted SDL emits the args
+    // alphabetically: `reason` precedes `teacherId`), mirroring the
+    // `adjustTeacherWallet` pin above.
+    expect(committedSdl).toContain(
+      "adminOrderTeacherReEvaluation(reason: String!, teacherId: ID!): TeacherReEvaluationOrder!"
+    );
+    expect(committedSdl).toContain("type TeacherReEvaluationOrder {");
   });
 });

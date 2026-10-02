@@ -405,6 +405,35 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
 4. **pgEnum VALUES need committed SQL migrations**: drizzle schema arrays cover only the push path; fresh migrate-path CI DBs miss new enum values. Drop an idempotent `backend/db/migration/*.sql` (guard-then-ALTER pattern of migration 7) and verify with a direct enum-space query on a rebuilt dir.
 5. **Verify-clean-dir step**: CI's trailing "Working directory modified by checks" failure means a check writes (biome `--write`) — run every writing check locally and commit its diff before pushing.
 
+## 2026-10-01 — admin-ordered re-evaluation visual run (plan #273, trace 1a0f726ad5a097f5)
+
+- Sandbox harness flips the MAIN checkout's branch between tool calls (reflog shows `checkout:
+  moving from <branch> to main` seconds after yours). Branch-locked visual work is only stable in
+  a dedicated `git worktree`; hardlink-copy node_modules with `cp -al` (symlinks banned); the
+  worktree's HEAD is immune to the flip. Re-verify `git branch --show-current` before every git
+  write regardless. → landed: `references/capture-protocol.md` (new worktree section).
+- A worktree's hardlink-copied node_modules carries ONLY the musl SWC binding on this glibc host —
+  turbopack dies with "Turbopack is not supported on this platform"; the webpack fallback then
+  fails module resolution repo-wide because the tsconfig uses `paths` WITHOUT `baseUrl`
+  (turbopack resolves it, webpack's plugin does not). Fix: download the matching
+  `@next/swc-linux-x64-gnu@<exact next version>` tarball into node_modules and stay on turbopack.
+  → landed: `references/capture-protocol.md` (worktree section).
+- MUI v9 DialogActions applies an 8px `marginInlineStart` to `:not(:first-of-type)` children.
+  A stacked `flexDirection: column-reverse` xs footer inherits it — the full-width primary arm
+  skews 8px (measured 4px after centering) off the outlined arm's edge. Zero it in the xs arm
+  when stacking full-width actions; `gap` alone spaces the column. → landed:
+  `references/fix-patterns.md` (new row "Mobile dialog footer label fold / stacked-arm skew").
+- Re-inspection passes given an explicit arbitration context ("DOM-verified facts — do NOT
+  re-report" + fixture-content is not UI copy) shed the noise class in one round (31/36 →
+  36/36 READY, zero new real findings). One inspector still contradicted recorded DOM evidence
+  (helper-text alignment) — re-dismissed on the same measurement; contradiction on unchanged
+  pixels stays the noise signature. → landed: `references/capture-protocol.md`
+  (re-inspection context rule).
+- Verdict caching caveat observed again mid-run: round-2 recaptures require deleting the prior
+  round's verdict files for the recaptured shot names or the scorer silently skips them
+  (reinforces the 2026-09-28 promotion; idempotent runners must key on BOTH shot mtime and
+  verdict presence).
+
 ## 2026-10-01 — admin password reset plan visual loop (`ai/plans/milestone_3_parent_portal_admin_governance/admin_can_t_change_users_password-admin_password_reset/outcome/16-visual-scoring-outcome.md`)
 
 1. **Scheme-aware captures (dark-default app)**: the app defaults to DARK (`initialTheme ?? "dark"`); the first batch was dark-scheme without the orchestrator noticing, and every contrast judgment in the pass silently referred to dark pixels. Pin AND RECORD the scheme per batch like locale — guard on `document.documentElement.getAttribute('data-mui-color-scheme')` + `getComputedStyle(document.body).backgroundColor`. Force-switch = set localStorage `theme` AND `theme-mode` cookie, then reload. → promote into capture-protocol (locale-pinning section).

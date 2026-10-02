@@ -2,12 +2,14 @@
 
 /**
  * UserDetailInlineDialogs — the inline edit / change-password /
- * delete-reactivate / certify dialogs of the admin user DETAIL page,
- * extracted from `AdminUserDetailContainer`.
+ * delete-reactivate / certify / order-re-evaluation dialogs of the admin
+ * user DETAIL page, extracted from `AdminUserDetailContainer`.
  *
  * Uses the SAME shared dialogs the directory invokes (`EditUserDialog` /
  * `ChangeUserPasswordDialog` / `DeleteConfirmDialog`) plus the certify
- * dialog (`CertifyTeacherDialog` — detail page only). The no-try/catch
+ * dialog (`CertifyTeacherDialog` — detail page only) and the paid
+ * re-evaluation order dialog (`OrderReEvaluationDialog` — certified
+ * teachers only). The no-try/catch
  * contract documented in those modules holds: rejections propagate into
  * each dialog's own submit / confirm handler so VALIDATION field errors
  * project inline, USER_SELF_DEACTIVATION_FORBIDDEN keeps the delete dialog
@@ -24,6 +26,7 @@ import {
   ChangeUserPasswordDialog,
   DeleteConfirmDialog,
   EditUserDialog,
+  OrderReEvaluationDialog,
 } from "@/frontend/views/admin/users/dialogs";
 import type { useAdminUserDetail } from "@/frontend/views/admin/users/hooks";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
@@ -100,6 +103,32 @@ export function UserDetailInlineDialogs({ labels, user, detail }: UserDetailInli
             await detail.certifyUser({ variables: { userId: targetUser.id, makeEvaluator } });
             detail.setCertifyTarget(null);
             detail.setSnackbarMessage(labels.snackbars.certified);
+            // The mutation appended an audit row — refresh the timeline.
+            void detail.refetchActivity();
+          }}
+        />
+      )}
+
+      {detail.reEvaluationState.targetUser && (
+        <OrderReEvaluationDialog
+          labels={labels}
+          targetUser={detail.reEvaluationState.targetUser}
+          loading={detail.reEvaluationLoading}
+          onResolve={async reason => {
+            const targetUser = detail.reEvaluationState.targetUser;
+            if (reason === null || !targetUser) {
+              detail.setReEvaluationTarget(null);
+              return;
+            }
+            // NO try/catch — rejections propagate into the dialog's confirm
+            // handler: the denial codes (`WALLET_INSUFFICIENT_FUNDS`,
+            // `TEACHER_NOT_CERTIFIED`, `APPLICANT_NOT_AWAITING_RE_EVALUATION`,
+            // `VALIDATION`) project as the inline warning alert and the
+            // dialog STAYS OPEN. The hook refetches the affected caches on
+            // success (the id-less receipt cannot auto-merge).
+            await detail.orderReEvaluation({ teacherId: targetUser.id, reason });
+            detail.setReEvaluationTarget(null);
+            detail.setSnackbarMessage(labels.orderReEvaluation.successToast);
             // The mutation appended an audit row — refresh the timeline.
             void detail.refetchActivity();
           }}

@@ -21,6 +21,8 @@ export const applicants = pgTable("applicants", {
   verificationAttempts: integer("verification_attempts").default(0),
   lastAttemptAt: timestamp("last_attempt_at"),
   cooldownUntil: timestamp("cooldown_until"),
+  /** Re-evaluation cycle anchor — NULL means the applicant has never been ordered a paid re-evaluation. */
+  reEvaluationStartedAt: timestamp("re_evaluation_started_at"),
   status: varchar("status", { length: 50 }).default("pending"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

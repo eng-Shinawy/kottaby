@@ -317,6 +317,15 @@ export const ADMIN_ACTION_CENSUS: readonly AdminActionCensusEntry[] = [
     kind: "wired",
   },
 
+  // ── Admin-ordered re-evaluation (TeacherReEvaluationService) ───────────────
+  {
+    mutationField: "adminOrderTeacherReEvaluation",
+    serviceEntry: "TeacherReEvaluationService.orderReEvaluation",
+    expectedActionTypes: [AuditActionType.Override],
+    expectedEntityType: "teacher",
+    kind: "wired",
+  },
+
   // ── Deferred producers (ledger-backed future surfaces) ─────────────────────
   {
     mutationField: "(future) adminResetUserPassword",

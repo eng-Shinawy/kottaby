@@ -1027,6 +1027,7 @@ type Mutation {
   """
   adminJoinSession(input: AdminSessionJoinInput!): Session!
   adminOnboardStudentWithOfflinePayment(input: AdminOnboardStudentOfflineInput!): AdminOnboardStudentResult!
+  adminOrderTeacherReEvaluation(reason: String!, teacherId: ID!): TeacherReEvaluationOrder!
   adminOverrideApplicantEvaluation(action: AdminApplicantOverrideAction!, applicantId: Int!, cooldownDays: Int): ApplicantProfile!
 
   """
@@ -2157,6 +2158,23 @@ type TeacherDisputeCase {
   report: SessionReport
   session: Session!
   studentName: String
+}
+
+type TeacherReEvaluationOrder {
+  """The re-evaluation fee charged, as a verbatim decimal string."""
+  amountCharged: String!
+
+  """The currency the fee was charged in."""
+  currency: String!
+
+  """The instant the re-evaluation cycle started (ISO-8601)."""
+  reEvaluationStartedAt: String!
+
+  """The subject teacher's user id (the wallet the fee was charged from)."""
+  teacherId: ID!
+
+  """The wallet balance after the charge, as a verbatim decimal string."""
+  walletBalance: String!
 }
 
 type TeacherTransaction {

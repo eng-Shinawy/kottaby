@@ -66,12 +66,13 @@ describe("ApplicantRepository.extendCooldownOnce", () => {
 
       expect(row).not.toBeNull();
       if (!row) throw new Error("expected the updated applicant row");
-      // RETURNING * — exactly the canonical seven select columns.
+      // RETURNING * — exactly the canonical eight select columns.
       expect(Object.keys(row).toSorted((a, b) => a.localeCompare(b))).toEqual([
         "cooldownUntil",
         "createdAt",
         "id",
         "lastAttemptAt",
+        "reEvaluationStartedAt",
         "status",
         "updatedAt",
         "verificationAttempts",

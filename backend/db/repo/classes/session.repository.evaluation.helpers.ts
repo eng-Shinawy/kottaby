@@ -30,26 +30,31 @@
  *    the cycle window, and a `null` mean.
  */
 
-import { and, count, desc, eq, gte, isNull, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { PoolClient, QueryResultRow } from "pg";
 import { queryDb } from "@/backend/db";
 import { plans } from "@/backend/db/schema/billing/plans";
 import { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import { session } from "@/backend/db/schema/classes/session";
+import { applicants } from "@/backend/db/schema/teachers/applicants";
 import { evaluations } from "@/backend/db/schema/teachers/evaluations";
 import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
+import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import type { DBQueryExecutor, DBTransaction, SessionSelectType } from "@/backend/types";
 import { VERIFICATION_PLAN_TITLE } from "@/shared/constants/verification-plan.constants";
 
 /**
  * `EvaluationCycleWindow` — the raw cycle-projection shape returned by
- * `resolveCurrentEvaluationCycle`: the `startDate` of the applicant's
- * newest ACTIVE verification subscription (`null` = no active cycle — the
- * loop is closed) plus that subscription's id. The service layer derives
+ * `resolveCurrentEvaluationCycle`: the instant the applicant's current
+ * evaluation cycle began plus the id of the ACTIVE verification
+ * subscription backing it. A purchased cycle carries both members; a
+ * re-evaluation cycle carries the re-open anchor as `cycleStart` with
+ * `activeSubscriptionId: null` (no subscription purchase backs it). A
+ * fully closed loop carries `cycleStart: null`. The service layer derives
  * the entitlement math from the window; this module only reads it.
  */
 export interface EvaluationCycleWindow {
@@ -142,22 +147,58 @@ async function runEvaluationRead<T extends QueryResultRow>(
 }
 
 /**
- * Active-verification-cycle probe: resolves the applicant's CURRENT
- * evaluation cycle window — the newest ACTIVE `subscriptions` row owned by
- * the applicant whose plan is the verification plan (resolved by its
- * pinned title), read as `{ cycleStart, activeSubscriptionId }` with the
- * `start_date DESC, id DESC` deterministic tiebreak. Pure read: it never
- * gates or influences a write; a `null` cycleStart means no active cycle.
+ * Evaluation-cycle probe: resolves the applicant's CURRENT evaluation cycle
+ * window. The RE-EVALUATION ANCHOR arm runs FIRST: an applicant currently
+ * `in_evaluation` carrying a non-null `re_evaluation_started_at` anchor is
+ * inside a paid re-evaluation, and the anchor instant is the cycle start —
+ * `activeSubscriptionId: null` (no subscription purchase backs it). This
+ * arm takes precedence REGARDLESS of any active verification subscription:
+ * a paid re-evaluation loop's entitlements are anchored to its own cycle
+ * start, so a still-active (usually expired-but-lingering) verification
+ * subscription from the applicant's original loop must never shadow the
+ * anchor and re-open the previous cycle's bookings. First-time applicants —
+ * `in_evaluation` with a NULL anchor (the fresh-loop entry shape stamped by
+ * the normal lifecycle transition) — resolve through the SECOND arm: the
+ * newest ACTIVE `subscriptions` row owned by the applicant whose plan is
+ * the verification plan (resolved by its pinned title), read as
+ * `{ cycleStart, activeSubscriptionId }` with the `start_date DESC, id
+ * DESC` deterministic tiebreak. Every other shape — a never-re-evaluated
+ * applicant, one outside the loop, an absent row — falls through to the
+ * closed-cycle default. Pure read: it never gates or influences a write;
  * `tx` is REQUIRED: the cycle decision must observe the caller
  * transaction's own writes.
  *
  * @returns The cycle window; `{ cycleStart: null, activeSubscriptionId:
- *          null }` when no active verification subscription exists.
+ *          null }` when neither a re-evaluation anchor nor an active
+ *          verification subscription applies.
  */
 export async function resolveCurrentEvaluationCycle(
   applicantUserId: number,
   tx: DBTransaction
 ): Promise<EvaluationCycleWindow> {
+  // ANCHOR arm FIRST — a paid re-evaluation re-opens the loop WITHOUT a new
+  // verification purchase: the anchor stamped on the applicants row at
+  // re-open time is the cycle start. The guard is folded into the WHERE
+  // predicate (in the loop AND anchored), and the anchor outranks any active
+  // verification subscription so the paid loop resolves ITS OWN cycle.
+  const applicantRows = await tx
+    .select({ reEvaluationStartedAt: applicants.reEvaluationStartedAt })
+    .from(applicants)
+    .where(
+      and(
+        eq(applicants.id, applicantUserId),
+        eq(applicants.status, ApplicantStatus.InEvaluation),
+        isNotNull(applicants.reEvaluationStartedAt)
+      )
+    )
+    .limit(1);
+  const reEvaluationStartedAt = applicantRows[0]?.reEvaluationStartedAt;
+  if (reEvaluationStartedAt) {
+    return { cycleStart: reEvaluationStartedAt, activeSubscriptionId: null };
+  }
+  // Subscription arm — a purchased verification cycle (fresh loops): an
+  // active subscription on the verification plan owns the cycle whenever no
+  // paid re-evaluation anchor applies.
   const rows = await tx
     .select({
       activeSubscriptionId: subscriptions.id,
@@ -174,12 +215,17 @@ export async function resolveCurrentEvaluationCycle(
     )
     .orderBy(desc(subscriptions.startDate), desc(subscriptions.id))
     .limit(1);
-  return rows[0] ?? { activeSubscriptionId: null, cycleStart: null };
+  const activeSubscription = rows[0];
+  if (activeSubscription) {
+    return activeSubscription;
+  }
+  return { activeSubscriptionId: null, cycleStart: null };
 }
 
 /**
  * Per-cycle aggregate: counts the applicant's evaluation bookings inside
- * one purchased cycle in ONE table pass — the non-cancelled count (credits
+ * one resolved cycle (purchased verification or paid re-evaluation alike)
+ * in ONE table pass — the non-cancelled count (credits
  * consumed by live or completed bookings), the completed count, and the
  * DISTINCT evaluator ids of the non-cancelled rows (the distinctness
  * memory). The cycle is the half-open creation window

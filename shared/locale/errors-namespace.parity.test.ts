@@ -260,11 +260,17 @@ describe("applicant-lifecycle service keys — pinned in BOTH locales", () => {
     const pinned = new Set<string>(APPLICANT_LIFECYCLE_KEYS);
     const bookingPinned = new Set<string>(EVALUATION_BOOKING_KEYS);
     const rubricPinned = new Set<string>(EVALUATION_RUBRIC_SCORING_KEYS);
+    const reEvaluationPinned = new Set<string>(RE_EVALUATION_ORDER_KEYS);
     for (const key of Object.keys(errorsAr)) {
-      // The evaluation-booking governance denial and the rubric finalization
-      // denial each live in their own pinned inventories below — the
-      // lifecycle pin stays exclusive to its own keys.
-      if (key.startsWith("applicant") && !bookingPinned.has(key) && !rubricPinned.has(key)) {
+      // The evaluation-BOOKING governance denial, the rubric finalization
+      // denial, and the paid re-evaluation denials each live in their own
+      // pinned inventories — the lifecycle pin stays exclusive to its keys.
+      if (
+        key.startsWith("applicant") &&
+        !bookingPinned.has(key) &&
+        !rubricPinned.has(key) &&
+        !reEvaluationPinned.has(key)
+      ) {
         expect(pinned.has(key)).toBe(true);
       }
     }
@@ -416,6 +422,24 @@ describe("session-arbitration denial keys — flat domain additions on BOTH loca
   });
 });
 
+// ─── Admin-ordered re-evaluation key pins ─────────────────────────────
+
+/**
+ * The `errors` keys minted for the admin-ordered re-evaluation flow: the
+ * subject-eligibility denial (the applicant is not in the `passed` stage,
+ * so no paid re-evaluation can be ordered) and the two pre-DB reason
+ * validation rejects (missing/whitespace-only, over the 229-character
+ * bound). Like the pins above, these are consumed by the domain
+ * service through `getServerTranslations(locale).errorsTranslations`, so
+ * the route-source discovery cannot see them — they are pinned here in
+ * BOTH locales (removing a key from both maps simultaneously still fails).
+ */
+const RE_EVALUATION_ORDER_KEYS = [
+  "applicantNotAwaitingReEvaluation",
+  "reEvaluationReasonRequired",
+  "reEvaluationReasonTooLong",
+] as const;
+
 // ─── Password-surface domain-service key pins ─────────────────────────────
 
 /**
@@ -429,6 +453,36 @@ describe("session-arbitration denial keys — flat domain additions on BOTH loca
  * fails).
  */
 const PASSWORD_SURFACE_KEYS = ["passwordChangeRequired", "currentPasswordInvalid", "newPasswordSameAsCurrent"] as const;
+
+// ===========================================================================
+describe("admin-ordered re-evaluation keys — pinned in BOTH locales", () => {
+  test.each([...RE_EVALUATION_ORDER_KEYS])("domain key `%s` resolves non-empty in BOTH ar and en maps", key => {
+    expect(nonEmptyLabelOf(errorsAr, key, "ar").length).toBeGreaterThan(0);
+    expect(nonEmptyLabelOf(errorsEn, key, "en").length).toBeGreaterThan(0);
+    // Key must be part of the COMPILE-TIME schema too — Reflect-only
+    // additions (untyped holes) are prohibited by the ErrorsLabels contract.
+    expect(Object.hasOwn(errorsEn, key)).toBe(true);
+    expect(Object.hasOwn(errorsAr, key)).toBe(true);
+  });
+
+  test("the re-evaluation denials carry ZERO ICU placeholders in BOTH locales", () => {
+    // Each denial is flat copy consumed verbatim by the admin dialog's error
+    // mapping — no interpolated value may ever slip into either locale.
+    for (const key of RE_EVALUATION_ORDER_KEYS) {
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsAr, key, "ar"))).toEqual([]);
+      expect(icuPlaceholdersOf(nonEmptyLabelOf(errorsEn, key, "en"))).toEqual([]);
+    }
+  });
+
+  test("the Arabic re-evaluation leaves are genuine RTL Arabic script", () => {
+    // RTL sanity: each Arabic leaf must actually contain Arabic-script
+    // characters (no accidentally English-only copy in the ar map).
+    const arabicScript = /[\u0600-\u06FF]/;
+    for (const key of RE_EVALUATION_ORDER_KEYS) {
+      expect(arabicScript.test(nonEmptyLabelOf(errorsAr, key, "ar"))).toBe(true);
+    }
+  });
+});
 
 // ===========================================================================
 describe("password-surface service keys — pinned in BOTH locales", () => {

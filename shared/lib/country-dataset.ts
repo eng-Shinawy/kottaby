@@ -19,7 +19,7 @@
 import { COUNTRIES, type CountryCode } from "@/shared/constants/countries";
 import type { AppLocale } from "@/shared/locale/AppLocale";
 
-/** Type guard: whether a wire code is in the shared dataset's vocabulary. */
+/** Type guard: whether a wire code is in the shared dataset's vocabulary (module-private — the dataset helpers are the public surface). */
 function isCountryCode(code: string): code is CountryCode {
   return code in COUNTRIES;
 }

@@ -112,12 +112,13 @@ describe("ApplicantRepository.transitionToInEvaluation", () => {
 
       expect(row).not.toBeNull();
       if (!row) throw new Error("expected the updated applicant row");
-      // RETURNING * — exactly the canonical seven select columns.
+      // RETURNING * — exactly the canonical eight select columns.
       expect(Object.keys(row).toSorted((a, b) => a.localeCompare(b))).toEqual([
         "cooldownUntil",
         "createdAt",
         "id",
         "lastAttemptAt",
+        "reEvaluationStartedAt",
         "status",
         "updatedAt",
         "verificationAttempts",
@@ -239,6 +240,24 @@ describe("ApplicantRepository.transitionToInEvaluation", () => {
     });
   });
 
+  test("clears a stale re-evaluation anchor left by an earlier paid re-evaluation (a normal re-entry never inherits the paid cycle)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      const staleAnchor = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
+      await createTestApplicant(tx, user.id, { status: ApplicantStatus.Failed, reEvaluationStartedAt: staleAnchor });
+
+      const row = await ApplicantRepository.transitionToInEvaluation(user.id, tx);
+
+      // The normal (non-paid) loop entry resets the anchor to NULL so the
+      // cycle resolver opens the FRESH purchased-verification cycle, never
+      // the stale paid one. The paid re-entry (reopenForReEvaluation) is the
+      // only writer that sets the anchor.
+      expect(row?.status).toBe(ApplicantStatus.InEvaluation);
+      expect(row?.reEvaluationStartedAt).toBeNull();
+      expect((await readApplicantRow(tx, user.id))?.reEvaluationStartedAt).toBeNull();
+    });
+  });
+
   // ─── Tier 3: repeat + concurrent transitions ────────────────────────
 
   test("a repeat transition inside ONE transaction is a zero-row no-op (row already flipped)", async () => {
@@ -342,12 +361,13 @@ describe("ApplicantRepository.transitionToFailed", () => {
 
       expect(row).not.toBeNull();
       if (!row) throw new Error("expected the updated applicant row");
-      // RETURNING * — exactly the canonical seven select columns.
+      // RETURNING * — exactly the canonical eight select columns.
       expect(Object.keys(row).toSorted((a, b) => a.localeCompare(b))).toEqual([
         "cooldownUntil",
         "createdAt",
         "id",
         "lastAttemptAt",
+        "reEvaluationStartedAt",
         "status",
         "updatedAt",
         "verificationAttempts",
@@ -528,12 +548,13 @@ describe("ApplicantRepository.findForBookingGate", () => {
 
       expect(locked).not.toBeNull();
       if (!locked) throw new Error("expected the locked applicant row");
-      // Full-row read — exactly the canonical seven select columns.
+      // Full-row read — exactly the canonical eight select columns.
       expect(Object.keys(locked).toSorted((a, b) => a.localeCompare(b))).toEqual([
         "cooldownUntil",
         "createdAt",
         "id",
         "lastAttemptAt",
+        "reEvaluationStartedAt",
         "status",
         "updatedAt",
         "verificationAttempts",

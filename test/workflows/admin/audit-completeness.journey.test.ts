@@ -12,7 +12,9 @@
  * reject — and both adjustment verbs are exercised through the reason-bearing
  * manual adjustment; the subscription-admin quartet mints its pinned
  * Update/Suspend/Create/Override rows through extend, cancel, renew, and a
- * prorated downgrade); non-admin and anonymous actors are denied every action
+ * prorated downgrade; the admin-ordered re-evaluation leg debits the
+ * certified subject's wallet for the paid loop re-entry); non-admin and
+ * anonymous actors are denied every action
  * and mint nothing.
  *
  * Per `test/workflows/AGENTS.md`:
@@ -61,6 +63,7 @@ import {
   createTestApplicant,
   createTestPlan,
   createTestSubscription,
+  createTestTeacherRow,
   createTestUser,
   createTestWallet,
 } from "@/backend/db/test/entity-setup";
@@ -95,6 +98,7 @@ import { SessionAdminGovernanceService } from "@/backend/services/classes/sessio
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
 import { AdminBroadcastService } from "@/backend/services/notifications/admin-broadcast.service";
 import { ApplicantLifecycleService } from "@/backend/services/teachers/applicant-lifecycle.service";
+import { TeacherReEvaluationService } from "@/backend/services/teachers/teacher-re-evaluation.service";
 import type {
   AdminAuditLogEntryReturnType,
   AdminAuditTrailFiltersSubmitInput,
@@ -177,6 +181,10 @@ const FINANCE_ADJUST_CREDIT = "25.00";
 /** The admin-supplied reject reason + adjustment reason (run-unique free text). */
 const FINANCE_REJECT_REASON = `${runPrefix} insufficient documentation`;
 const FINANCE_ADJUST_REASON = `${runPrefix} goodwill credit`;
+/** The teacher re-evaluation leg's pinned fee — the shared RE_EVALUATION_FEE constant, asserted verbatim. */
+const TEACHER_RE_EVALUATION_FEE = "100.00";
+/** The admin-supplied re-evaluation order reason (run-unique free text). */
+const TEACHER_RE_EVALUATION_REASON = `${runPrefix} certification review`;
 
 /** The subscription-admin leg's extend day count (whole days, positive). */
 const SUBSCRIPTION_EXTEND_DAYS = 7;
@@ -264,6 +272,8 @@ const SUBSCRIPTION_ADMIN_LEG = [
 const APPLICANT_COOLDOWN_LEG = ["adminExtendApplicantCooldown"] as const;
 /** Applicant evaluation override — the grant direction mints one Override row over the applicant anchor. */
 const APPLICANT_OVERRIDE_LEG = ["adminOverrideApplicantEvaluation"] as const;
+/** Admin-ordered re-evaluation — the paid loop re-entry mints one Override row over the teacher anchor. */
+const TEACHER_RE_EVALUATION_LEG = ["adminOrderTeacherReEvaluation"] as const;
 
 /**
  * The cooldown-governance leg's deterministic base: a FUTURE stored cooldown
@@ -469,6 +479,9 @@ let planChangedSubscriptionId = 0;
 let cooldownApplicantId = 0;
 /** The applicant-override leg's anchor: a failed applicant carrying the preset in-force cooldown. */
 let overrideApplicantId = 0;
+/** The teacher re-evaluation leg's anchors: the dedicated certified subject teacher + its funded wallet. */
+let reEvaluationTeacherId = 0;
+let reEvaluationWalletId = 0;
 
 /** Row-count oracles — captured after the cast commit, restored by teardown. */
 let auditBaseline = 0;
@@ -488,6 +501,8 @@ let financeWalletId = 0;
 let financeTeacherId = 0;
 /** The `teacher_transaction` rows minted by the finance legs (untracked teardown). */
 const financeLedgerTxnIds: number[] = [];
+/** The `teacher_transaction` row minted by the re-evaluation leg's fee debit (untracked teardown). */
+const reEvalLedgerTxnIds: number[] = [];
 
 /** The System fixture lane's backdated adjustment stamp (millisecond-precise). */
 let fixtureAdjustAt = new Date(0);
@@ -1151,6 +1166,42 @@ const censusRunners: Record<string, CensusRunner> = {
       to: null,
     });
   },
+
+  adminOrderTeacherReEvaluation: async (entry, executed) => {
+    // One service execution mints ONE Override row over the teacher anchor:
+    // the fee debit (one withdrawal/completed ledger row), the guarded
+    // de-certification, and the guarded loop re-open commit with it. The
+    // details' balance and cycle anchor come off the receipt — the same
+    // values the service staged into the audit row — so the details contract
+    // is exact.
+    const receipt = await TeacherReEvaluationService.orderReEvaluation(
+      adminA.userId,
+      { teacherId: reEvaluationTeacherId, reason: TEACHER_RE_EVALUATION_REASON },
+      LOCALE
+    );
+    expect(receipt.teacherId).toBe(reEvaluationTeacherId);
+    expect(receipt.amountCharged).toBe(TEACHER_RE_EVALUATION_FEE);
+    expect(receipt.currency).toBe("EGP");
+    expect(receipt.walletBalance).toBe("400.00");
+    // The fee's ledger row is append-only (DELETE-blocked): resolve it by its
+    // wallet pointer and sweep it in `afterAll` under the sanctioned
+    // suspension wrapper — never registered in the tracked registry.
+    const ledgerRows = await db
+      .select({ id: teacherTransaction.id })
+      .from(teacherTransaction)
+      .where(eq(teacherTransaction.walletId, reEvaluationWalletId));
+    if (ledgerRows.length !== 1 || !ledgerRows[0]) {
+      throw new Error("re-evaluation leg: expected exactly one fee ledger row on the subject wallet");
+    }
+    reEvalLedgerTxnIds.push(ledgerRows[0].id);
+    record(executed, entry, AuditActionType.Override, reEvaluationTeacherId, {
+      action: "re_evaluation_ordered",
+      amount: receipt.amountCharged,
+      walletId: reEvaluationWalletId,
+      balanceAfter: receipt.walletBalance,
+      reEvaluationStartedAt: receipt.reEvaluationStartedAt.toISOString(),
+    });
+  },
 };
 
 /**
@@ -1418,6 +1469,30 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       overrideApplicantId = overrideApplicantUser.id;
       tracked.register(users, overrideApplicantId);
       tracked.register(applicants, overrideApplicantId);
+
+      // The teacher re-evaluation leg's fixture: a DEDICATED certified teacher
+      // (the leg de-certifies its subject) carrying a funded wallet (the fee
+      // debit needs real headroom) and a `passed` applicant row (the guarded
+      // re-open's pre-state). Directly inserted real rows — the sanctioned
+      // fixture-level pattern; the certification intake is not under test
+      // here. Zero audit rows are minted here, so the runner's service
+      // execution stays the leg's only producer footprint. The wallet is
+      // registered (children-first teardown); the fee's `teacher_transaction`
+      // row is swept in `afterAll` under the immutability-trigger suspension
+      // instead.
+      const reEvaluationTeacherUser = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, reEvaluationTeacherUser.id, { isApproved: true });
+      const reEvaluationWallet = await createTestWallet(tx, reEvaluationTeacherUser.id, {
+        balance: "500.00",
+        totalEarning: "500.00",
+      });
+      await createTestApplicant(tx, reEvaluationTeacherUser.id, { status: ApplicantStatus.Passed });
+      reEvaluationTeacherId = reEvaluationTeacherUser.id;
+      reEvaluationWalletId = reEvaluationWallet.id;
+      tracked.register(users, reEvaluationTeacherId);
+      tracked.register(teacher, reEvaluationTeacherId);
+      tracked.register(wallet, reEvaluationWalletId);
+      tracked.register(applicants, reEvaluationTeacherId);
     });
 
     // Row-count oracles: whole-table baselines the legs assert deltas against.
@@ -1477,13 +1552,15 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     }
 
     // Financial-auditing ledger teardown: the `teacher_transaction` rows the
-    // finance legs minted are DELETE-blocked (append-only trigger), so they
-    // are hard-deleted FIRST under the sanctioned suspension wrapper — never
-    // registered in the tracked registry. The belt-and-braces actor/entity
-    // audit sweep above already drained their audit rows.
-    if (financeLedgerTxnIds.length > 0) {
+    // finance legs and the re-evaluation leg's fee debit minted are
+    // DELETE-blocked (append-only trigger), so they are hard-deleted FIRST
+    // under the sanctioned suspension wrapper — never registered in the
+    // tracked registry. The belt-and-braces actor/entity audit sweep above
+    // already drained their audit rows.
+    const ledgerTxnIds = [...financeLedgerTxnIds, ...reEvalLedgerTxnIds];
+    if (ledgerTxnIds.length > 0) {
       await withImmutabilityTriggersSuspended(["teacher_transaction"], () =>
-        db.delete(teacherTransaction).where(inArray(teacherTransaction.id, [...financeLedgerTxnIds]))
+        db.delete(teacherTransaction).where(inArray(teacherTransaction.id, ledgerTxnIds))
       );
     }
 
@@ -1508,8 +1585,10 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     // same-lane plans and two subscription rows + the direct-onboarding
     // leg's lane-bearing plan + the applicant-cooldown leg's failed
     // applicant (its users row + its applicants row) + the applicant-override
-    // leg's failed applicant (its users row + its applicants row).
-    expect(tracked.size).toBe(27);
+    // leg's failed applicant (its users row + its applicants row) + the
+    // teacher re-evaluation leg's certified subject (its users row, its
+    // teacher row, its funded wallet, and its passed applicants row).
+    expect(tracked.size).toBe(31);
 
     // The dispatch map covers every wired census row — a census row without
     // a runner would silently skip execution and fake completeness.
@@ -1526,6 +1605,7 @@ describe("Audit-trail completeness journey — execute every admin action, prove
       ...SUBSCRIPTION_ADMIN_LEG,
       ...APPLICANT_COOLDOWN_LEG,
       ...APPLICANT_OVERRIDE_LEG,
+      ...TEACHER_RE_EVALUATION_LEG,
     ];
     expect(legFields).toHaveLength(wiredFields.length);
     expect(legFields.toSorted((a, b) => a.localeCompare(b))).toEqual(
@@ -1729,6 +1809,56 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     expect(profile?.cooldownUntil).toBeNull();
     expect(profile?.cooldownState).toBe(ApplicantCooldownState.None);
     expect(profile?.canPurchaseVerification).toBe(true);
+  });
+
+  test("producer executes the teacher re-evaluation census rows through the real service path", async () => {
+    const auditBefore = await countAllAuditRows();
+    const legActions = await executeCensusRows(TEACHER_RE_EVALUATION_LEG);
+    executedActions.push(...legActions);
+
+    // One Override row over the teacher anchor — the paid order committed its
+    // fee debit and BOTH guarded flips with the trail row (the mapping-oracle
+    // test pins the byte-exact details; the read-back oracles below pin the
+    // side effects).
+    expect(legActions).toHaveLength(1);
+    expect(legActions.map(action => action.actionType)).toEqual([AuditActionType.Override]);
+    expect(legActions.map(action => action.entityType)).toEqual(["teacher"]);
+    expect(await countAllAuditRows()).toBe(auditBefore + legActions.length);
+    expect(await countAllAuditRows()).toBe(auditBaseline + executedActions.length);
+
+    // The order committed its own side effects with the trail row: the
+    // subject is de-certified and the applicant re-opened into the loop with
+    // a fresh cycle anchor.
+    const teacherRows = await db.select().from(teacher).where(eq(teacher.id, reEvaluationTeacherId)).limit(1);
+    expect(teacherRows[0]?.isApproved).toBe(false);
+
+    const applicantRows = await db.select().from(applicants).where(eq(applicants.id, reEvaluationTeacherId)).limit(1);
+    expect(applicantRows[0]?.status).toBe(ApplicantStatus.InEvaluation);
+    expect(applicantRows[0]?.reEvaluationStartedAt).not.toBeNull();
+
+    // The fee rode exactly ONE withdrawal/completed ledger row on the
+    // subject's own wallet (session-less, the composed description) — a
+    // deduction spends the balance, it never rewrites lifetime earnings.
+    expect(reEvalLedgerTxnIds).toHaveLength(1);
+    const ledgerTxnId = reEvalLedgerTxnIds[0];
+    if (!ledgerTxnId) {
+      throw new Error("re-evaluation leg: expected the fee's ledger row id");
+    }
+    const ledgerRows = await db
+      .select()
+      .from(teacherTransaction)
+      .where(eq(teacherTransaction.id, ledgerTxnId))
+      .limit(1);
+    expect(ledgerRows[0]?.walletId).toBe(reEvaluationWalletId);
+    expect(ledgerRows[0]?.sessionId).toBeNull();
+    expect(ledgerRows[0]?.amount).toBe(TEACHER_RE_EVALUATION_FEE);
+    expect(ledgerRows[0]?.type).toBe(TransactionType.Withdrawal);
+    expect(ledgerRows[0]?.status).toBe(TransactionStatus.Completed);
+    expect(ledgerRows[0]?.description).toBe(`Re-evaluation fee: ${TEACHER_RE_EVALUATION_REASON}`);
+
+    const walletRows = await db.select().from(wallet).where(eq(wallet.id, reEvaluationWalletId)).limit(1);
+    expect(walletRows[0]?.balance).toBe("400.00");
+    expect(walletRows[0]?.totalEarning).toBe("500.00");
   });
 
   test("producer executes the lesson-catalog census rows through the real service path", async () => {
@@ -2153,7 +2283,10 @@ describe("Audit-trail completeness journey — execute every admin action, prove
 
     // Every wired census action, invoked with valid-shaped input so each
     // denial is the authorization gate, never input validation.
-    const attempts: readonly { readonly field: string; readonly call: (actorId: number) => Promise<unknown> }[] = [
+    const attempts: readonly {
+      readonly field: string;
+      readonly call: (actorId: number) => Promise<unknown>;
+    }[] = [
       {
         field: "adminCreateUser",
         call: actorId => AdminUserManagementService.createUser(makeCreateUserInput("student"), actorId, LOCALE),
@@ -2374,6 +2507,15 @@ describe("Audit-trail completeness journey — execute every admin action, prove
             LOCALE
           ),
       },
+      {
+        field: "adminOrderTeacherReEvaluation",
+        call: actorId =>
+          TeacherReEvaluationService.orderReEvaluation(
+            actorId,
+            { teacherId: reEvaluationTeacherId, reason: TEACHER_RE_EVALUATION_REASON },
+            LOCALE
+          ),
+      },
     ];
 
     // The denial matrix names exactly the wired census rows — a shipped admin
@@ -2409,18 +2551,21 @@ describe("Audit-trail completeness journey — execute every admin action, prove
     // Anonymous callers carry no user row at all. Surfaces gated by
     // `assertActorAdmin` resolve the actor first and deny a missing row
     // with the unauthenticated class; the arbitration's governance gate
-    // classifies a missing actor as a permission failure instead, so each
+    // classifies a missing actor as a permission failure instead — each
     // attempt asserts the class its own gate throws.
     const anonymousErrors = await Promise.all(
       attempts.map(attempt => expectJourneyError(() => attempt.call(ANONYMOUS_ACTOR_ID)))
     );
     for (const [attemptIndex, error] of anonymousErrors.entries()) {
-      const attemptField = attempts[attemptIndex]?.field;
+      const attempt = attempts[attemptIndex];
+      if (!attempt) {
+        throw new Error(`anonymous wave: no attempt recorded at index ${attemptIndex}`);
+      }
       // Surfaces gated by `assertAdminGovernanceClean` (the arbitration AND
       // the session-governance suite) classify a missing actor as a
       // permission failure; `assertActorAdmin` surfaces deny with the
       // unauthenticated class instead.
-      const governanceGatedAttempt = [...DISPUTE_LEG, ...SESSION_GOVERNANCE_LEG].some(leg => leg === attemptField);
+      const governanceGatedAttempt = [...DISPUTE_LEG, ...SESSION_GOVERNANCE_LEG].some(leg => leg === attempt.field);
       expect(error).toBeInstanceOf(governanceGatedAttempt ? ForbiddenError : UnauthorizedError);
       expect(error.message).toContain(governanceGatedAttempt ? tErrors.forbidden : tErrors.unauthorized);
     }

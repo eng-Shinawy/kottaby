@@ -26,12 +26,15 @@
  *    Same technique as `frontend/views/students/dashboard/HandshakeCodeCard.tsx`.
  *  - Meta row: "Member Since: <createdAt>" + "Last Active: <relative>", the
  *    relative part painted in the success family (prototype's mint accent).
- *  - Trailing actions: Certify (outlined `warning` → cold-start certify
- *    dialog, gated on role Teacher + applicant snapshot + not-yet-approved
- *    teacher + ungoverned account), Edit (contained `primary` → existing
- *    edit dialog), Change password (outlined → the shared credential
- *    dialog) and Deactivate (outlined `error` → existing delete
- *    dialog); for deleted users the slot renders Reactivate instead.
+ *  - Trailing actions: the paid re-evaluation order (outlined `secondary`
+ *    → `OrderReEvaluationDialog`, gated on role Teacher + CERTIFIED teacher
+ *    row + ungoverned account — the certify slot's mirror image), Certify
+ *    (outlined `warning` → cold-start certify dialog, gated on role
+ *    Teacher + applicant snapshot + not-yet-approved teacher + ungoverned
+ *    account), Edit (contained `primary` → existing edit dialog), Change
+ *    password (outlined → the shared credential dialog) and Deactivate
+ *    (outlined `error` → existing delete dialog); for deleted users the
+ *    slot renders Reactivate instead.
  *  - Optional flourish: a skewed alpha-primary wash clipped to the card's
  *    trailing edge (decorative, `aria-hidden`, behind content). The wash
  *    lives inside a full-bleed clipping wrapper so its skew can never
@@ -59,7 +62,7 @@ interface UserDetailHeroProps {
   readonly governance: DirectoryGovernance;
   readonly labels: Pick<
     AdminUsersLabels,
-    "roleLabels" | "statusBadges" | "detail" | "certifyDialog" | "changePasswordAction"
+    "roleLabels" | "statusBadges" | "detail" | "certifyDialog" | "changePasswordAction" | "orderReEvaluation"
   >;
   /** Locale-bound date-only formatter (`Intl.DateTimeFormat(dateStyle: "medium")`). */
   readonly formatDate: (raw: string | null | undefined) => string;
@@ -69,6 +72,7 @@ interface UserDetailHeroProps {
   readonly onChangePassword: () => void;
   readonly onDelete: () => void;
   readonly onCertify: () => void;
+  readonly onOrderReEvaluation: () => void;
 }
 
 export function UserDetailHero({
@@ -82,6 +86,7 @@ export function UserDetailHero({
   onChangePassword,
   onDelete,
   onCertify,
+  onOrderReEvaluation,
 }: UserDetailHeroProps): ReactNode {
   const isDeleted = user.isDeleted ?? false;
   return (
@@ -137,6 +142,7 @@ export function UserDetailHero({
           onChangePassword={onChangePassword}
           onDelete={onDelete}
           onCertify={onCertify}
+          onOrderReEvaluation={onOrderReEvaluation}
         />
       </Stack>
     </Box>

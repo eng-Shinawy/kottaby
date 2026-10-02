@@ -111,7 +111,12 @@ import {
 // ─── .test.ts — the single sanctioned growth history) ────────────────────────
 
 /**
- * Root mutation fields — the refreshed 54-op baseline: the prior 53-op
+ * Root mutation fields — the refreshed 55-op baseline: the prior 54-op
+ * baseline + the admin-ordered paid re-evaluation write
+ * (`adminOrderTeacherReEvaluation` — the teacher-wallet-deduction surface;
+ * the subject pays the fee, the order is audited, and the teacher is
+ * de-certified for the loop re-entry). The prior 54-op baseline was the
+ * prior 53-op
  * baseline + the admin evaluation-override write
  * (`adminOverrideApplicantEvaluation` — shipped with the admin-override
  * child-ticket surface; re-anchored to the live schema as a documented
@@ -151,6 +156,7 @@ const FROZEN_MUTATION_FIELDS = [
   "adminExtendSubscription",
   "adminJoinSession",
   "adminOnboardStudentWithOfflinePayment",
+  "adminOrderTeacherReEvaluation",
   "adminOverrideApplicantEvaluation",
   "adminReassignTeacher",
   "adminRenewSubscription",
@@ -199,8 +205,8 @@ const FROZEN_MUTATION_FIELDS = [
 ] as const;
 
 /**
- * Root query fields — the refreshed 66-op baseline: the prior frozen
- * 65-op baseline + the sanctioned applicant-cooldown lifecycle read
+ * Root query fields — the refreshed 67-op baseline: the prior frozen
+ * 66-op baseline + the sanctioned applicant-cooldown lifecycle read
  * (`adminApplicantCooldownStats: AdminApplicantCooldownStats!` — the
  * admin-gated dashboard KPI read registering ZERO mutations; the pointer's
  * writer is internal-only).
@@ -459,12 +465,12 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     }
   });
 
-  test("Mutation root is EXACTLY the refreshed frozen 56-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
+  test("Mutation root is EXACTLY the refreshed frozen 57-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 67-op baseline (the prior 66-op baseline + the sanctioned users-by-country distribution read — `adminUserCountryBreakdown(limit: Int): AdminUserCountryBreakdown!`, a role-gated admin aggregate that registers ZERO mutations; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 67-op baseline (the prior 66-op baseline + the sanctioned applicant-cooldown lifecycle read (`adminApplicantCooldownStats: AdminApplicantCooldownStats!`, a role-gated read that registers ZERO mutations) + the sanctioned users-by-country distribution read — `adminUserCountryBreakdown(limit: Int): AdminUserCountryBreakdown!`, a role-gated admin aggregate that registers ZERO mutations; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -595,9 +601,12 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
       // `adminJoinSession` and `adminReassignTeacher`, the broadcast
       // stop write between `adminSetUserSuspended` and `adminUpdateUser`,
       // the applicant-cooldown extension write between
-      // `adminCreateUser` and `adminExtendSubscription`, and the
+      // `adminCreateUser` and `adminExtendSubscription`, the
       // evaluation-override write between
-      // `adminOnboardStudentWithOfflinePayment` and `adminReassignTeacher`.
+      // `adminOnboardStudentWithOfflinePayment` and `adminReassignTeacher`,
+      // and the admin-ordered paid re-evaluation write directly after
+      // `adminOnboardStudentWithOfflinePayment` (the `adminO` vocabulary:
+      // nboard < rder < verride).
       "adminCancelSubscription",
       "adminChangeSubscriptionPlan",
       "adminExtendApplicantCooldown",
@@ -606,6 +615,7 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
       "adminCertifyTeacherColdStart",
       "adminStopBroadcast",
       "adminOnboardStudentWithOfflinePayment",
+      "adminOrderTeacherReEvaluation",
       "adminOverrideApplicantEvaluation",
     ].toSorted((a, b) => a.localeCompare(b));
     expect(sorted.slice(bandStart, bandEnd + 1)).toEqual(expectedBandWindow);

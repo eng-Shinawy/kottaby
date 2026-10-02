@@ -16,15 +16,19 @@
  *    certification; the returned post-write payloads merge into the
  *    `AdminUserDetail:<id>` normalized entity (id-first rule) so the detail
  *    query re-renders automatically,
- *  - the edit / delete / certify / change-password dialog open state and the
- *    success snackbar message.
+ *  - the admin-ordered PAID re-evaluation order (`useOrderTeacherReEvaluation`)
+ *    — the one inline write whose id-less receipt cannot auto-merge, so the
+ *    hook refetches the affected caches (admin user detail + the teacher's
+ *    admin wallet view) after each success,
+ *  - the edit / delete / certify / change-password / order-re-evaluation
+ *    dialog open state and the success snackbar message.
  *
  * Presentation stays in `AdminUserDetailContainer` and the detail cards;
  * this module returns plain state — no JSX.
  */
 
 import { useMutation, useQuery } from "@apollo/client/react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   adminCertifyTeacherColdStartMutationDocument,
   adminSetUserDeletedMutationDocument,
@@ -33,33 +37,18 @@ import {
   adminUserActivityQueryDocument,
   adminUserDetailQueryDocument,
 } from "@/frontend/graphql/sharedDocuments/admin";
-import { useAppLocale } from "@/frontend/hooks/locale";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
-import type { AdminUserCertifyTarget, AdminUserChangePasswordTarget } from "@/frontend/views/admin/users/dialogs";
-import {
-  ACTIVITY_TIMELINE_LIMIT,
-  formatDirectoryRelativeTime,
-  formatTimestamp,
-} from "@/frontend/views/admin/users/utils";
+import type {
+  AdminUserCertifyTarget,
+  AdminUserChangePasswordTarget,
+  AdminUserReEvaluationTarget,
+} from "@/frontend/views/admin/users/dialogs";
+import { useOrderTeacherReEvaluation } from "@/frontend/views/admin/users/hooks/useOrderTeacherReEvaluation";
+import { useUserDetailFormatters } from "@/frontend/views/admin/users/hooks/useUserDetailFormatters";
+import { ACTIVITY_TIMELINE_LIMIT } from "@/frontend/views/admin/users/utils";
 
 export function useAdminUserDetail(userId: number) {
-  const locale = useAppLocale();
-  // Intl.DateTimeFormat instances are locale-bound; recreating per render is
-  // fine for ~10 timestamps per page. useMemo guards against re-creating
-  // for the same locale on every keystroke re-render.
-  const dateTimeFormatter = useMemo(
-    () => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
-    [locale]
-  );
-  const dateFormatter = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }), [locale]);
-  // Server timestamps (lastActiveAt, createdAt, updatedAt, deletedAt,
-  // suspendedAt, blockedAt, applicant.lastAttemptAt, applicant.cooldownUntil)
-  // arrive as ISO-8601 strings; `dateOfBirth` is a Drizzle `date` column —
-  // a calendar `YYYY-MM-DD` string the user reads as a date literal. Both
-  // share the same null-guard + NaN-guard + format pipeline.
-  const fmtTimestamp = (raw: string | null | undefined): string => formatTimestamp(raw, dateTimeFormatter);
-  const fmtDate = (raw: string | null | undefined): string => formatTimestamp(raw, dateFormatter);
-  const fmtRelative = (raw: string | null | undefined): string => formatDirectoryRelativeTime(raw, locale);
+  const { fmtTimestamp, fmtDate, fmtRelative } = useUserDetailFormatters();
 
   const { data, loading, error } = useQuery(adminUserDetailQueryDocument, {
     variables: { id: userId },
@@ -89,6 +78,11 @@ export function useAdminUserDetail(userId: number) {
   // into the `AdminUserDetail:<id>` normalized entity, so no refetch is
   // needed (the activity timeline still refetches for the new audit row).
   const [certifyUser, { loading: certifyLoading }] = useMutation(adminCertifyTeacherColdStartMutationDocument);
+  // Admin-ordered PAID re-evaluation — the id-less `TeacherReEvaluationOrder`
+  // receipt cannot auto-merge, so the hook refetches `AdminUserDetail` +
+  // `AdminTeacherWallet` on success; the runner's promise REJECTS on denial
+  // so the dialog stays open and maps the `extensions.code` locally.
+  const { orderReEvaluation, loading: reEvaluationLoading } = useOrderTeacherReEvaluation();
   // Credential set — same cache-merge semantics; the returned detail carries
   // `mustChangePassword`, so the hero/governance indicator re-renders without
   // a refetch (the activity timeline still refetches for the new audit row).
@@ -98,6 +92,9 @@ export function useAdminUserDetail(userId: number) {
   const [certifyState, setCertifyState] = useState<{ targetUser: AdminUserCertifyTarget | null }>({
     targetUser: null,
   });
+  const [reEvaluationState, setReEvaluationState] = useState<{ targetUser: AdminUserReEvaluationTarget | null }>({
+    targetUser: null,
+  });
   const [changePasswordTarget, setChangePasswordTarget] = useState<AdminUserChangePasswordTarget | null>(null);
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
@@ -105,6 +102,8 @@ export function useAdminUserDetail(userId: number) {
   const openEdit = () => setEditOpen(true);
   const openDelete = () => setDeleteOpen(true);
   const setCertifyTarget = (targetUser: AdminUserCertifyTarget | null) => setCertifyState({ targetUser });
+  const setReEvaluationTarget = (targetUser: AdminUserReEvaluationTarget | null) =>
+    setReEvaluationState({ targetUser });
 
   return {
     fmtTimestamp,
@@ -125,6 +124,10 @@ export function useAdminUserDetail(userId: number) {
     certifyLoading,
     certifyState,
     setCertifyTarget,
+    orderReEvaluation,
+    reEvaluationLoading,
+    reEvaluationState,
+    setReEvaluationTarget,
     setUserPassword,
     passwordLoading,
     changePasswordTarget,

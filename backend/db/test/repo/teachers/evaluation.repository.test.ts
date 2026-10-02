@@ -89,27 +89,33 @@
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { Pool } from "pg";
 import { db } from "@/backend/db";
-import { EvaluationRepository } from "@/backend/db/repo";
+import { EvaluationRepository, SessionRepository } from "@/backend/db/repo";
 import { session } from "@/backend/db/schema/classes/session";
 import { students } from "@/backend/db/schema/students/students";
 import { evaluations } from "@/backend/db/schema/teachers/evaluations";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
 import {
+  createTestApplicant,
   createTestEvaluation,
+  createTestPlan,
   createTestSession,
   createTestStudent,
+  createTestSubscription,
   createTestTeacherRow,
   createTestUser,
 } from "@/backend/db/test/entity-setup";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
+import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
+import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { RubricWeaknessArea } from "@/backend/enum/teachers/rubric-weakness-area.enum";
 import type {
   DBTransaction,
@@ -117,6 +123,7 @@ import type {
   EvaluationSelectType,
   SessionSelectType,
 } from "@/backend/types";
+import { VERIFICATION_PLAN_TITLE } from "@/shared/constants/verification-plan.constants";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
 /** PostgreSQL error code for `unique_violation`. */
@@ -1241,5 +1248,265 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
     expect(repoSource.includes("console.")).toBe(false);
     expect(repoSource.includes("export namespace EvaluationRepository")).toBe(true);
     expect(/REQ-\d|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(repoSource)).toBe(false);
+  });
+});
+
+/**
+ * Creates the pinned-title verification plan the resolver's primary arm
+ * matches on (`plans.title` is not unique — the title IS the pin).
+ */
+function createVerificationPlanRow(tx: DBTransaction) {
+  return createTestPlan(tx, { title: VERIFICATION_PLAN_TITLE });
+}
+
+/**
+ * Creates an applicant user + `applicants` row in the given lifecycle
+ * shape (status + optional re-evaluation anchor) and returns the user id.
+ */
+async function createApplicantFixture(
+  tx: DBTransaction,
+  status: ApplicantStatus,
+  reEvaluationStartedAt: Date | null
+): Promise<number> {
+  const user = await createTestUser(tx, { role: "teacher" });
+  await createTestApplicant(tx, user.id, { status, reEvaluationStartedAt });
+  return user.id;
+}
+
+describe("SessionRepository.resolveCurrentEvaluationCycle — the cycle arms", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("a re-evaluating applicant (no active subscription, non-null anchor) resolves the anchor as the cycle start", async () => {
+    await runInRollback(async tx => {
+      const anchor = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, anchor);
+
+      const window = await SessionRepository.resolveCurrentEvaluationCycle(applicantId, tx);
+
+      // The re-evaluation cycle is backed by NO subscription purchase.
+      expect(window.activeSubscriptionId).toBeNull();
+      expect(window.cycleStart).not.toBeNull();
+      expect(window.cycleStart?.getTime()).toBe(anchor.getTime());
+    });
+  });
+
+  test("an un-anchored in_evaluation applicant still resolves via the active verification subscription (the subscription arm)", async () => {
+    await runInRollback(async tx => {
+      // The fresh-loop entry shape: in_evaluation with a NULL anchor (a
+      // normal lifecycle entry always clears the anchor), holding an active
+      // verification purchase.
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, null);
+      const plan = await createVerificationPlanRow(tx);
+      const startedAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const subscription = await createTestSubscription(tx, applicantId, plan.id, { startDate: startedAt });
+
+      const window = await SessionRepository.resolveCurrentEvaluationCycle(applicantId, tx);
+
+      expect(window.activeSubscriptionId).toBe(subscription.id);
+      expect(window.cycleStart?.getTime()).toBe(startedAt.getTime());
+    });
+  });
+
+  test("the anchor arm wins precedence: a stamped anchor resolves the paid re-evaluation cycle even WITH an active verification subscription", async () => {
+    await runInRollback(async tx => {
+      const anchor = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, anchor);
+      const plan = await createVerificationPlanRow(tx);
+      const startedAt = new Date(Date.now() - 60 * 60 * 1000);
+      await createTestSubscription(tx, applicantId, plan.id, { startDate: startedAt });
+
+      const window = await SessionRepository.resolveCurrentEvaluationCycle(applicantId, tx);
+
+      // The paid re-evaluation loop resolves ITS OWN anchored cycle — a
+      // still-active verification subscription from the applicant's original
+      // loop must never shadow the anchor and re-open the previous cycle's
+      // bookings (that would strand the new loop EVALUATION_LOOP_COMPLETE).
+      expect(window.activeSubscriptionId).toBeNull();
+      expect(window.cycleStart?.getTime()).toBe(anchor.getTime());
+      expect(window.cycleStart?.getTime()).not.toBe(startedAt.getTime());
+    });
+  });
+
+  // ─── Tier 2: boundary / fall-through edges ──────────────────────────
+
+  test("an anchor-NULL in_evaluation applicant with no subscription resolves to the closed loop", async () => {
+    await runInRollback(async tx => {
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, null);
+
+      const window = await SessionRepository.resolveCurrentEvaluationCycle(applicantId, tx);
+
+      expect(window.cycleStart).toBeNull();
+      expect(window.activeSubscriptionId).toBeNull();
+    });
+  });
+
+  test("an expired verification subscription never shadows the re-evaluation anchor", async () => {
+    await runInRollback(async tx => {
+      const anchor = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, anchor);
+      const plan = await createVerificationPlanRow(tx);
+      await createTestSubscription(tx, applicantId, plan.id, {
+        status: SubscriptionStatus.Expired,
+        startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+        endDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      });
+
+      const window = await SessionRepository.resolveCurrentEvaluationCycle(applicantId, tx);
+
+      // Only an ACTIVE verification subscription opens a subscription-arm
+      // cycle; the expired purchase leaves the re-evaluation anchor in force.
+      expect(window.activeSubscriptionId).toBeNull();
+      expect(window.cycleStart?.getTime()).toBe(anchor.getTime());
+    });
+  });
+
+  test("an active subscription on a non-verification plan is not a verification cycle", async () => {
+    await runInRollback(async tx => {
+      const anchor = new Date(Date.now() - 12 * 60 * 60 * 1000);
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, anchor);
+      const genericPlan = await createTestPlan(tx, { title: `Student Plan ${randomUUID().slice(0, 8)}` });
+      await createTestSubscription(tx, applicantId, genericPlan.id);
+
+      const window = await SessionRepository.resolveCurrentEvaluationCycle(applicantId, tx);
+
+      // The plan-title pin holds: a live subscription that is not the
+      // verification plan never opens a cycle of its own.
+      expect(window.activeSubscriptionId).toBeNull();
+      expect(window.cycleStart?.getTime()).toBe(anchor.getTime());
+    });
+  });
+
+  test("a resolved re-evaluation cycle bounds the aggregate: a booking created exactly at the anchor counts, a prior-cycle booking does not", async () => {
+    await runInRollback(async tx => {
+      const anchor = new Date(Date.now() - 6 * 60 * 60 * 1000);
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, anchor);
+      const evaluatorId = await createExtraEvaluator(tx);
+
+      // Boundary equality: created_at == cycleStart is INSIDE the half-open
+      // window (>=); a pre-anchor row is prior-cycle history.
+      const boundaryBooking = await createTestSession(tx, evaluatorId, applicantId, {
+        sessionType: SessionType.TeacherEvaluation,
+        status: SessionStatus.Completed,
+        createdAt: new Date(anchor.getTime()),
+      });
+      await createTestSession(tx, evaluatorId, applicantId, {
+        sessionType: SessionType.TeacherEvaluation,
+        status: SessionStatus.Completed,
+        createdAt: new Date(anchor.getTime() - 60 * 60 * 1000),
+      });
+
+      const counts = await SessionRepository.countEvaluationBookingsInCycle(applicantId, anchor, tx);
+
+      expect(counts.booked).toBe(1);
+      expect(counts.completed).toBe(1);
+      expect(counts.evaluators).toEqual([evaluatorId]);
+      expect(boundaryBooking.createdAt.getTime()).toBe(anchor.getTime());
+    });
+  });
+
+  // ─── Tier 3: parallel booking inserts (committed fixtures) ──────────
+  // Real-Postgres gated: two independent transactions inserting against the
+  // same aggregate need multi-connection concurrency (PGlite is
+  // single-connection WASM). Fixtures are committed and registered for the
+  // module-level `afterAll` hard-delete (sessions → role-children → users;
+  // the applicant row cascades with its user).
+  const testOnRealPostgres = isPgliteProvider() ? test.skip : test;
+
+  testOnRealPostgres("the cycle aggregate stays stable under parallel booking inserts", async () => {
+    const fixture = await db.transaction(async tx => {
+      const anchor = new Date(Date.now() - 60 * 60 * 1000);
+      const applicantId = await createApplicantFixture(tx, ApplicantStatus.InEvaluation, anchor);
+      const evaluatorId = await createExtraEvaluator(tx);
+      committedUserIds.push(applicantId, evaluatorId);
+      return { applicantId, evaluatorId, anchor };
+    });
+
+    // Two INDEPENDENT transactions book evaluation sessions inside the same
+    // re-evaluation cycle; neither conflicts with the other's insert.
+    const settled = await Promise.allSettled([
+      db.transaction(tx =>
+        createTestSession(tx, fixture.evaluatorId, fixture.applicantId, {
+          sessionType: SessionType.TeacherEvaluation,
+          createdAt: new Date(fixture.anchor.getTime() + 1_000),
+        })
+      ),
+      db.transaction(tx =>
+        createTestSession(tx, fixture.evaluatorId, fixture.applicantId, {
+          sessionType: SessionType.TeacherEvaluation,
+          createdAt: new Date(fixture.anchor.getTime() + 2_000),
+        })
+      ),
+    ]);
+    for (const outcome of settled) {
+      if (outcome.status === "rejected") {
+        throw outcome.reason;
+      }
+    }
+    settled.forEach(outcome => {
+      if (outcome.status === "fulfilled") {
+        committedSessionIds.push(outcome.value.id);
+      }
+    });
+
+    // The post-commit aggregate over the anchor window counts BOTH rows
+    // exactly once each — no lost insert, no double count.
+    const counts = await db.transaction(tx =>
+      SessionRepository.countEvaluationBookingsInCycle(fixture.applicantId, fixture.anchor, tx)
+    );
+    expect(counts.booked).toBe(2);
+    expect(counts.completed).toBe(0);
+    expect(counts.evaluators).toEqual([fixture.evaluatorId]);
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  const HELPERS_FILE = join(import.meta.dir, "../../../repo/classes/session.repository.evaluation.helpers.ts");
+  const helpersSource = readFileSync(HELPERS_FILE, "utf8");
+
+  /** The resolveCurrentEvaluationCycle slice of the helpers source (the static pin target). */
+  function resolverSource(): string {
+    const start = helpersSource.indexOf("export async function resolveCurrentEvaluationCycle(");
+    return helpersSource.slice(start, helpersSource.indexOf("\n}\n", start));
+  }
+
+  /** The countEvaluationBookingsInCycle slice of the helpers source (the static pin target). */
+  function aggregateSource(): string {
+    const start = helpersSource.indexOf("export async function countEvaluationBookingsInCycle(");
+    return helpersSource.slice(start, helpersSource.indexOf("\n}\n", start));
+  }
+
+  test("source: the re-evaluation anchor arm is probed FIRST and the verification-subscription arm follows", () => {
+    const source = resolverSource();
+    const reEvaluationArmAt = source.indexOf(".from(applicants)");
+    const subscriptionArmAt = source.indexOf(".from(subscriptions)");
+    expect(reEvaluationArmAt).toBeGreaterThan(-1);
+    expect(subscriptionArmAt).toBeGreaterThan(reEvaluationArmAt);
+  });
+
+  test("source: the re-evaluation arm requires in_evaluation AND a non-null anchor, returning the anchor with no subscription", () => {
+    const source = resolverSource();
+    expect(source).toContain("eq(plans.title, VERIFICATION_PLAN_TITLE)");
+    expect(source).toContain("eq(subscriptions.status, SubscriptionStatus.Active)");
+    expect(source).toContain("eq(applicants.status, ApplicantStatus.InEvaluation)");
+    expect(source).toContain("isNotNull(applicants.reEvaluationStartedAt)");
+    expect(source).toContain("{ cycleStart: reEvaluationStartedAt, activeSubscriptionId: null }");
+    // Enum members only — no hardcoded vocabulary.
+    expect(/'(in_evaluation|active|teacher_evaluation)'/.test(source)).toBe(false);
+  });
+
+  test("source: the aggregate keeps counting teacher_evaluation bookings from the cycle start, unchanged", () => {
+    const source = aggregateSource();
+    expect(source).toContain("eq(session.sessionType, SessionType.TeacherEvaluation)");
+    expect(source).toContain("gte(session.createdAt, cycleStart)");
+    expect(source).toContain("tx: DBTransaction");
+  });
+
+  test("source: the helper observes the caller tx and carries no i18n/logger/console or plan-artifact references", () => {
+    expect(resolverSource()).toContain("tx: DBTransaction");
+    expect(helpersSource.includes(".prepare(")).toBe(false);
+    expect(helpersSource.includes("getServerTranslations")).toBe(false);
+    expect(helpersSource.includes("logger")).toBe(false);
+    expect(helpersSource.includes("console.")).toBe(false);
+    expect(/REQ-\d|DEV2|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(helpersSource)).toBe(false);
   });
 });

@@ -378,8 +378,18 @@ export namespace ApplicantRepository {
   }
 
   /**
-   * Moves an applicant into evaluation: sets `status` to `in_evaluation` and
-   * stamps `updated_at` in ONE guarded atomic UPDATE with `RETURNING *`.
+   * Moves an applicant into evaluation: sets `status` to `in_evaluation`,
+   * CLEARS any stale re-evaluation anchor (`re_evaluation_started_at` →
+   * NULL), and stamps `updated_at` in ONE guarded atomic UPDATE with
+   * `RETURNING *`.
+   *
+   * The anchor clear is the mirror-trap guard: a normal (non-paid) loop
+   * entry from `pending`/`failed` must never inherit an anchor left behind
+   * by an earlier paid re-evaluation (a failed-out one, for example), or the
+   * cycle resolver would open the STALE paid cycle instead of the fresh
+   * purchased-verification one. The paid re-entry (`reopenForReEvaluation`)
+   * is the only writer that ever SETS the anchor — a normal re-entry always
+   * resets it to NULL.
    *
    * The guard is the prior state folded into the WHERE predicate — the row
    * only matches while its stored status is still `pending` or `failed` (the
@@ -404,28 +414,60 @@ export namespace ApplicantRepository {
   ): Promise<ApplicantSelectType | null> {
     // Single guarded statement — the lifecycle pre-state IS the WHERE
     // predicate, so a stale read can never replay an illegal transition.
+    // The executor choice mirrors `listDirectory`: a supplied transaction
+    // runs on the caller's atomic flow, otherwise the global handle serves
+    // the standalone write.
     const evaluationWrite = {
       status: ApplicantStatus.InEvaluation,
+      reEvaluationStartedAt: null,
       updatedAt: sql`now()`,
     };
-    if (tx) {
-      // Transactional write — joins the caller's atomic purchase flow.
-      const [row] = await tx
-        .update(applicants)
-        .set(evaluationWrite)
-        .where(
-          and(eq(applicants.id, userId), inArray(applicants.status, [ApplicantStatus.Pending, ApplicantStatus.Failed]))
-        )
-        .returning();
-      return row ?? null;
-    }
-    // Standalone write — global db handle.
-    const [row] = await db
+    const [row] = await (tx ?? db)
       .update(applicants)
       .set(evaluationWrite)
       .where(
         and(eq(applicants.id, userId), inArray(applicants.status, [ApplicantStatus.Pending, ApplicantStatus.Failed]))
       )
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Re-opens a CERTIFIED applicant into the evaluation loop for a paid
+   * re-evaluation: sets `status` to `in_evaluation` and anchors the fresh
+   * re-evaluation cycle (`re_evaluation_started_at` → now()) in ONE guarded
+   * atomic UPDATE with `RETURNING *`.
+   *
+   * The guard is the certified pre-state folded into the WHERE predicate —
+   * the row only matches while its stored status is still `passed` (the
+   * guarded-transition shape `transitionToInEvaluation` uses, entered from
+   * the opposite end of the lifecycle). Under concurrent orders the row lock
+   * serializes the statements, so exactly one writer flips the row; the
+   * loser matches zero rows. A zero-row result is the MISS SIGNAL, never an
+   * error: it means the applicant is already `in_evaluation` (a concurrent
+   * order won), still `pending`/`failed` (never certified — there is no
+   * certification to suspend and re-open), or absent entirely — the service
+   * tier disambiguates which. A pre-existing anchor instant (an earlier
+   * re-evaluation) is simply overwritten: each re-open starts a NEW cycle.
+   *
+   * Parameterized always; the id and both status members are bound values,
+   * never concatenated; no prepared statement (writes are excluded —
+   * `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns The updated applicant row, or `null` when zero rows matched
+   *          the guarded predicate (see above — a silent no-op for callers).
+   */
+  export async function reopenForReEvaluation(userId: number, tx: DBTransaction): Promise<ApplicantSelectType | null> {
+    // Single guarded statement — the certified pre-state IS the WHERE
+    // predicate, so a stale read can never replay an illegal re-open.
+    const [row] = await tx
+      .update(applicants)
+      .set({
+        status: ApplicantStatus.InEvaluation,
+        reEvaluationStartedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(applicants.id, userId), eq(applicants.status, ApplicantStatus.Passed)))
       .returning();
     return row ?? null;
   }
@@ -499,23 +541,16 @@ export namespace ApplicantRepository {
    *          is still valid — the caller treats `false` as signal, not error).
    */
   export async function finalizeOnCertification(userId: number, tx?: DBTransaction): Promise<boolean> {
-    // Single-statement terminal write — no read-modify-write window.
+    // Single-statement terminal write — no read-modify-write window. The
+    // executor choice mirrors `listDirectory`: a supplied transaction runs
+    // on the caller's certification transaction, otherwise the global
+    // handle serves the standalone write.
     const finalizeWrite = {
       status: ApplicantStatus.Passed,
       cooldownUntil: null,
       updatedAt: sql`now()`,
     };
-    if (tx) {
-      // Transactional write — joins the caller's certification transaction.
-      const rows = await tx
-        .update(applicants)
-        .set(finalizeWrite)
-        .where(eq(applicants.id, userId))
-        .returning({ id: applicants.id });
-      return rows.length > 0;
-    }
-    // Standalone write — global db handle.
-    const rows = await db
+    const rows = await (tx ?? db)
       .update(applicants)
       .set(finalizeWrite)
       .where(eq(applicants.id, userId))

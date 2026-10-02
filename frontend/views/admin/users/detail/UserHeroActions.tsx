@@ -14,7 +14,11 @@
  * applicants additionally get the Certify button (outlined `warning` → the
  * cold-start `CertifyTeacherDialog`), gated on: role Teacher, an applicant
  * snapshot present, the teacher snapshot NOT approved, and the account not
- * deleted / blocked / suspended.
+ * deleted / blocked / suspended — the certified-teacher MIRROR of that
+ * slot is the paid re-evaluation action (outlined `secondary` → the
+ * `OrderReEvaluationDialog`), gated by
+ * `isOrderReEvaluationActionVisible` (role Teacher + certified teacher row
+ * + ungoverned account).
  */
 
 import {
@@ -23,20 +27,23 @@ import {
   EditOutlined as EditIcon,
   KeyOutlined as KeyIcon,
   RefreshOutlined as ReactivateIcon,
+  RateReviewOutlined as ReEvaluationIcon,
 } from "@mui/icons-material";
 import { Button, Stack } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import { type AdminUserDetailQuery_adminUserDetail, UserRole } from "@/frontend/graphql/generated/gql/graphql";
+import { isOrderReEvaluationActionVisible } from "@/frontend/views/admin/users/detail/reEvaluationActionGate.helpers";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 interface UserHeroActionsProps {
-  readonly labels: Pick<AdminUsersLabels, "detail" | "certifyDialog" | "changePasswordAction">;
+  readonly labels: Pick<AdminUsersLabels, "detail" | "certifyDialog" | "changePasswordAction" | "orderReEvaluation">;
   readonly user: AdminUserDetailQuery_adminUserDetail;
   readonly onEdit: () => void;
   readonly onChangePassword: () => void;
   readonly onDelete: () => void;
   readonly onCertify: () => void;
+  readonly onOrderReEvaluation: () => void;
 }
 
 export function UserHeroActions({
@@ -46,6 +53,7 @@ export function UserHeroActions({
   onChangePassword,
   onDelete,
   onCertify,
+  onOrderReEvaluation,
 }: UserHeroActionsProps): ReactNode {
   const isDeleted = user.isDeleted ?? false;
   // The Certify slot mirrors the backend mutation's guard rails: role Teacher
@@ -54,8 +62,22 @@ export function UserHeroActions({
   const isGoverned = isDeleted || (user.isBlocked ?? false) || (user.suspended ?? false);
   const showCertify =
     user.role === UserRole.Teacher && user.applicant !== null && user.teacher?.isApproved !== true && !isGoverned;
+  // The re-evaluation slot is the certified-teacher mirror (role + certified
+  // row + ungoverned) — the gating matrix lives in the test-locked helper.
+  const showOrderReEvaluation = isOrderReEvaluationActionVisible(user);
   return (
     <Stack spacing={1.5} sx={{ flexShrink: 0, marginInlineStart: { md: "auto" } }}>
+      {showOrderReEvaluation && (
+        <Button
+          variant="outlined"
+          color="secondary"
+          startIcon={<ReEvaluationIcon />}
+          onClick={onOrderReEvaluation}
+          sx={{ whiteSpace: "nowrap", flexShrink: 0, minWidth: 168 }}
+        >
+          {labels.orderReEvaluation.action}
+        </Button>
+      )}
       {showCertify && (
         <Button
           variant="outlined"

@@ -388,6 +388,12 @@ export interface ErrorsLabels {
   readonly rubricSessionNotCompleted: string;
   /** Conflict reject — the guarded finalization write matched no in-flight application (a concurrent verdict already committed) → ConflictError("APPLICANT_ALREADY_FINALIZED", …). */
   readonly applicantAlreadyFinalized: string;
+  /** Subject-state reject — the teacher's application is not in the passed stage, so no paid re-evaluation can be ordered → ConflictError("APPLICANT_NOT_AWAITING_RE_EVALUATION", …). */
+  readonly applicantNotAwaitingReEvaluation: string;
+  /** Pre-DB validation reject — an admin-ordered re-evaluation cannot be submitted without a reason → ValidationError. */
+  readonly reEvaluationReasonRequired: string;
+  /** Pre-DB validation reject — an admin-ordered re-evaluation reason exceeds the 229-character bound → ValidationError. */
+  readonly reEvaluationReasonTooLong: string;
 }
 
 export type ErrorMessageKey = {

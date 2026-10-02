@@ -109,6 +109,7 @@ const TEARDOWN_ALLOWLIST_PATHS = [
   "test/workflows/helpers/journey-cleanup.ts",
   "test/workflows/notifications/broadcast-retraction.journey.test.ts",
   "test/workflows/sessions/post-confirmation-dispute.journey.test.ts",
+  "test/workflows/teachers/admin-ordered-re-evaluation.journey.test.ts",
 ] as const;
 
 /** Production files that MUST be inside the scanned corpus (anti-blind-spot sentinels). */

@@ -194,7 +194,7 @@ function buildRegistrationUserValues(email: string): UserInsertType {
     passwordHash: FIXTURE_BCRYPT_STUB_HASH,
     role: "student",
     gender: null,
-    country: "Egypt",
+    country: "EG",
     isDeleted: false,
     deletedAt: null,
     suspended: false,

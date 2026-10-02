@@ -7,8 +7,9 @@
  * Queries, mutations, locale-bound formatters, and dialog/snackbar state
  * live in `useAdminUserDetail`; the loading / not-found branches live in
  * `userDetailStates` (`UserDetailLoading` / `UserDetailNotFound`); the
- * inline edit / delete-reactivate dialogs live in `UserDetailInlineDialogs`;
- * timestamp plumbing lives in `userDetailFormatters`.
+ * inline edit / delete-reactivate / certify / order-re-evaluation dialogs
+ * live in `UserDetailInlineDialogs`; timestamp plumbing lives in
+ * `userDetailFormatters`.
  *
  * Renders the prototype structure: a back-to-directory link row, the
  * full-width `UserDetailHero` (identity + inline actions), then a 2-column
@@ -116,6 +117,9 @@ export function AdminUserDetailContainer({ userId }: AdminUserDetailContainerPro
         onChangePassword={() => detail.setChangePasswordTarget({ id: user.id, fullName: user.fullName })}
         onDelete={detail.openDelete}
         onCertify={() => detail.setCertifyTarget({ id: user.id, fullName: user.fullName, email: user.email })}
+        onOrderReEvaluation={() =>
+          detail.setReEvaluationTarget({ id: user.id, fullName: user.fullName, email: user.email })
+        }
       />
 
       <Box
