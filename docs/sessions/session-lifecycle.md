@@ -170,6 +170,8 @@ The lane column is resolved from a module-private frozen `{ HeldBalanceLane → 
 
 `teacher.is_online` defaults `false` and NO surface to set it exists yet. Asserting availability in this slice would make ALL bookings impossible. The lifecycle therefore asserts **certification only** (INV-S5) and records the `is_online` assertion + teacher-directory wiring as deferred item **D3**. Consequence: the directory is not shipped in this slice either — no session-creation UI route exists (D4); `createSession` is exercised by tests/journeys and consumed by the future directory. When the directory lands, revisit the teacher-target oracle note in §7 if the public-data contract changes.
 
+> **Implementation reference (manual toggle — D3 partial resolution):** the manual-toggle writer sub-item of D3 has now shipped — `setTeacherAvailability(isOnline: Boolean!)` is the teacher-owned writer on `teacher.is_online`, canonically documented in [`docs/teachers/teacher-availability.md`](../teachers/teacher-availability.md) (INV-A1 certification + INV-A2 in-session gates apply directionally on Available, skipped on Unavailable). The directory-wiring sub-item of D3 remains deferred (INV-A3, owned by the Teacher Directory Browse ticket); `createSession` continues to assert certification only (INV-S5) until the directory ships.
+
 ## 9. Battle-Tested Gotchas — What NOT to Repeat
 
 Each of these was found or proven during this slice's review waves; all are load-bearing.

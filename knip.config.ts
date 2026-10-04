@@ -76,7 +76,6 @@ const config: KnipConfig = {
     //   - recitation-reading: documented backend re-export shim of the canonical
     //     shared enum (docs/auth/qiraah-selection-and-c5.md) — an intentional
     //     @/backend/enum import-path alias, not a second value list.
-    "backend/enum/users/register-public-role.enum.ts",
     "backend/enum/shared/recitation-reading.enum.ts",
   ],
 

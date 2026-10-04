@@ -142,7 +142,11 @@ import {
  * one-time reconciliation (NOT a silent baseline flip) ahead of pinning
  * the admin-governance pair; the verification-plan purchase write was
  * re-anchored post-plan (shipped by the verification-plan-purchase round
- * but never enumerated here).
+ * but never enumerated here). The teacher availability toggle write
+ * (`setTeacherAvailability` — the teacher-role-gated single-arg
+ * `isOnline: Boolean!` mutation; identity derived server-side from the
+ * verified access token; NO id-taking argument) is then pinned on top
+ * as the sanctioned post-reconciliation addition.
  */
 const FROZEN_MUTATION_FIELDS = [
   "adjustTeacherWallet",
@@ -195,6 +199,7 @@ const FROZEN_MUTATION_FIELDS = [
   "respondToParentLinkRequest",
   "setPlanActiveStatus",
   "setSessionRecitation",
+  "setTeacherAvailability",
   "startSession",
   "submitRubricEvaluation",
   "submitSessionReport",
@@ -240,7 +245,11 @@ const FROZEN_MUTATION_FIELDS = [
  * inventory verbatim, with locale-aware case handling:
  * `adminUsers` precedes `adminUserStats` because the locale comparator
  * treats `s`/`S` as primary-equal and lowercases win on the secondary
- * tie-breaker — verified by the live built schema).
+ * tie-breaker — verified by the live built schema). The teacher
+ * availability toggle read (`myTeacherAvailability: TeacherAvailabilityState!`
+ * — the teacher-role-gated read with ZERO arguments; identity derived
+ * server-side from the verified access token; registers ZERO mutations)
+ * is then pinned on top as the sanctioned post-reconciliation addition.
  */
 const FROZEN_QUERY_FIELDS = [
   "_health",
@@ -289,6 +298,7 @@ const FROZEN_QUERY_FIELDS = [
   "myRubricPendingSessions",
   "myStudentSessions",
   "mySubscriptions",
+  "myTeacherAvailability",
   "myTeacherEvaluations",
   "myTeacherSessions",
   "myUnreadNotificationCount",
@@ -465,12 +475,12 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     }
   });
 
-  test("Mutation root is EXACTLY the refreshed frozen 57-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
+  test("Mutation root is EXACTLY the refreshed frozen 58-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write + the teacher availability toggle write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 67-op baseline (the prior 66-op baseline + the sanctioned applicant-cooldown lifecycle read (`adminApplicantCooldownStats: AdminApplicantCooldownStats!`, a role-gated read that registers ZERO mutations) + the sanctioned users-by-country distribution read — `adminUserCountryBreakdown(limit: Int): AdminUserCountryBreakdown!`, a role-gated admin aggregate that registers ZERO mutations; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the refreshed frozen 68-op baseline (the prior 66-op baseline + the sanctioned applicant-cooldown lifecycle read (`adminApplicantCooldownStats: AdminApplicantCooldownStats!`, a role-gated read that registers ZERO mutations) + the sanctioned users-by-country distribution read (`adminUserCountryBreakdown(limit: Int): AdminUserCountryBreakdown!`, a role-gated admin aggregate that registers ZERO mutations) + the sanctioned teacher availability toggle read (`myTeacherAvailability: TeacherAvailabilityState!`, a teacher-role-gated read with ZERO arguments that derives the acting identity from the verified access token; registers ZERO mutations; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -607,6 +617,8 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
       // and the admin-ordered paid re-evaluation write directly after
       // `adminOnboardStudentWithOfflinePayment` (the `adminO` vocabulary:
       // nboard < rder < verride).
+      // The credential-rotation write sorts between `adminSetUserDeleted`
+      // and `adminSetUserSuspended`.
       "adminCancelSubscription",
       "adminChangeSubscriptionPlan",
       "adminExtendApplicantCooldown",
@@ -617,6 +629,7 @@ describe("admin-governance pair — exact SDL signatures pinned on the artifact"
       "adminOnboardStudentWithOfflinePayment",
       "adminOrderTeacherReEvaluation",
       "adminOverrideApplicantEvaluation",
+      "adminSetUserPassword",
     ].toSorted((a, b) => a.localeCompare(b));
     expect(sorted.slice(bandStart, bandEnd + 1)).toEqual(expectedBandWindow);
   });

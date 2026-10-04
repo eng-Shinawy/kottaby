@@ -14,8 +14,11 @@
  *    `availableEvaluators`, and `myEvaluationSessions`.
  *  - `evaluation-rubric.query.ts` registers `myRubricPendingSessions` and
  *    `myRubricEvaluation`.
+ *  - `teacher-availability.query.ts` registers `myTeacherAvailability`
+ *    (zero-arg; identity server-derived from `ctx.user.id`).
  */
 import "./applicant.query";
 import "./evaluation-booking.query";
 import "./evaluation-rubric.query";
 import "./student-evaluation.query";
+import "./teacher-availability.query";

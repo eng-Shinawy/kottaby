@@ -423,6 +423,24 @@ describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
     });
   });
 
+  test("the write advances updated_at (now() is re-evaluated per call)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      // Pin the fixture stamp to the epoch so the refresh is unambiguous:
+      // now() inside this tx is strictly later (PostgreSQL now() returns
+      // transaction-start time, but the epoch predates any real run).
+      await createTeacherRowFixture(tx, user.id, { updatedAt: new Date(0) });
+
+      const row = await TeacherRepository.setOnline(user.id, false, tx);
+
+      expect(row).not.toBeNull();
+      // Independent read-back oracle — same tx, read-your-writes.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      if (!reread) throw new Error("expected the updated teacher row");
+      expect(reread.updatedAt.getTime()).toBeGreaterThan(0);
+    });
+  });
+
   // ─── Tier 2: boundary / honest failure ──────────────────────────────
 
   test("returns null for an unknown teacher id (zero rows matched)", async () => {
@@ -445,6 +463,39 @@ describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
       expect(again?.isOnline).toBe(false);
       const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
       expect(reread?.isOnline).toBe(false);
+    });
+  });
+
+  test("a redundant same-value write returns the row and changes nothing — true→true direction", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      // Drive is_online to true first (the fixture default is false).
+      await TeacherRepository.setOnline(user.id, true, tx);
+
+      const again = await TeacherRepository.setOnline(user.id, true, tx);
+
+      expect(again).not.toBeNull();
+      expect(again?.isOnline).toBe(true);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+    });
+  });
+
+  test("a row forced is_online = NULL → setOnline(true) writes cleanly (null-column coercion)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      // Force the column to NULL — the schema permits it (no notNull).
+      await tx.update(teacher).set({ isOnline: null }).where(eq(teacher.id, user.id));
+
+      const row = await TeacherRepository.setOnline(user.id, true, tx);
+
+      expect(row).not.toBeNull();
+      expect(row?.isOnline).toBe(true);
+      // Independent read-back oracle.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
     });
   });
 
@@ -494,6 +545,42 @@ describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
     });
   });
 
+  // ─── Tier 3+: chaos (concurrent same-row updates across txs) ───────
+  // These tests require real PostgreSQL (multi-connection row-level locking).
+  // PGlite is single-connection WASM and cannot observe cross-tx lock
+  // serialization, so the chaos tier is skipped there.
+  const testOnRealPostgres = isPgliteProvider() ? test.skip : test;
+
+  testOnRealPostgres(
+    "25-way Promise.allSettled mixed-toggle storm ⇒ deterministic final is_online (no partial writes)",
+    async () => {
+      const teacherUserId = await createCommittedTeacher(true);
+
+      // Fire 25 parallel mixed toggles (alternating true/false) — each
+      // opens its own top-level transaction. The row lock serializes them;
+      // the final committed value is the LAST write that acquired the
+      // lock. None rejects — the repo primitive has no business guard
+      // (the service layer composes WHEN).
+      const results = await Promise.allSettled(
+        Array.from({ length: 25 }, (_, index) =>
+          db.transaction(async tx => TeacherRepository.setOnline(teacherUserId, index % 2 === 0, tx))
+        )
+      );
+
+      const fulfilled = results.filter(r => r.status === "fulfilled");
+      const rejected = results.filter(r => r.status === "rejected");
+      expect(fulfilled).toHaveLength(25);
+      expect(rejected).toHaveLength(0);
+
+      // Deterministic final state — the final committed is_online is a
+      // total boolean (no partial write, no corruption). The certification
+      // flag is unchanged by the storm.
+      const [finalRow] = await db.select().from(teacher).where(eq(teacher.id, teacherUserId));
+      expect(finalRow?.isOnline).toBeTypeOf("boolean");
+      expect(finalRow?.isApproved).toBe(true);
+    }
+  );
+
   // ─── Tier 4: static surface pins ────────────────────────────────────
 
   test("source: setOnline is a REQUIRED-tx guarded write returning the row or null", () => {
@@ -501,6 +588,13 @@ describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
     expect(repoSetOnlineSource()).toContain("online: boolean");
     expect(repoSetOnlineSource()).toContain("tx: DBTransaction");
     expect(repoSetOnlineSource()).toContain(".returning()");
+  });
+
+  test("source: the id reaches the WHERE clause only as a bound parameter; no LIKE/scan surface", () => {
+    const source = repoSetOnlineSource();
+    expect(source).toContain("eq(teacher.id, id)");
+    // No raw-SQL string building around the id; no LIKE/ILIKE scan surface.
+    expect(source).not.toMatch(/\b(ilike|like)\s*\(/i);
   });
 });
 

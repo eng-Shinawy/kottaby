@@ -14,6 +14,7 @@ import { AdminUsers } from "@/shared/locale/namespaces/adminUsers";
 import { Analytics } from "@/shared/locale/namespaces/analytics";
 import { Applicant } from "@/shared/locale/namespaces/applicant";
 import { Auth } from "@/shared/locale/namespaces/auth";
+import { Availability } from "@/shared/locale/namespaces/availability";
 import { Checkout } from "@/shared/locale/namespaces/checkout";
 import { Common } from "@/shared/locale/namespaces/common";
 import { CountrySelector } from "@/shared/locale/namespaces/countrySelector";
@@ -46,6 +47,7 @@ export const namespaces = {
   Analytics,
   Applicant,
   Auth,
+  Availability,
   Checkout,
   Common,
   CountrySelector,

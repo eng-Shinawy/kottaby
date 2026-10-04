@@ -8,6 +8,7 @@ export * from "./adminUsers";
 export * from "./analytics";
 export * from "./applicant";
 export * from "./auth";
+export * from "./availability";
 export * from "./checkout";
 export * from "./common";
 export * from "./countrySelector";

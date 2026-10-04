@@ -927,6 +927,23 @@ const APPLICANT_COOLDOWN_ENUMS = ["ApplicantCooldownState"] as const;
  */
 const APPLICANT_OVERRIDE_MUTATION_FIELDS = ["adminOverrideApplicantEvaluation"] as const;
 const APPLICANT_OVERRIDE_ENUMS = ["AdminApplicantOverrideAction"] as const;
+/**
+ * Teacher availability toggle surface — the teacher-only availability
+ * state read + the matching single-arg write. The query is ZERO-arg
+ * (identity derived server-side from the verified access token); the
+ * mutation takes EXACTLY ONE non-nullable `isOnline: Boolean!` argument
+ * (the only client-owned input — no object spread, no input type, no id
+ * argument of any kind). Both root fields carry the
+ * `authScopes: { $all: { authenticated: true, role: [UserRole.Teacher] } }`
+ * conjunction — declared as the INLINED literal so the audit census
+ * drift scanner can classify the gate statically. The surface registers
+ * the single `TeacherAvailabilityState` object (BOPLA shape pin in the
+ * dedicated describe block below).
+ */
+const TEACHER_AVAILABILITY_QUERY_FIELDS = ["myTeacherAvailability"] as const;
+const TEACHER_AVAILABILITY_MUTATION_FIELDS = ["setTeacherAvailability"] as const;
+/** TeacherAvailabilityState — the single new object type backing both root operations. */
+const TEACHER_AVAILABILITY_TYPE_NAMES = ["TeacherAvailabilityState"] as const;
 
 /**
  * Admin-ordered paid re-evaluation surface — the teacher-wallet-deduction
@@ -1108,6 +1125,7 @@ describe("Query._health — retyped probe surface", () => {
         ...SUBSCRIPTION_ADMIN_QUERY_FIELDS,
         ...WALLET_LEDGER_QUERY_FIELDS,
         ...ADMIN_ACADEMIC_QUERY_FIELDS,
+        ...TEACHER_AVAILABILITY_QUERY_FIELDS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -1168,8 +1186,29 @@ describe("HealthCheck object shape — four scalar fields, no id", () => {
   });
 });
 
+describe("TeacherAvailabilityState object shape — three scalar fields, id FIRST (BOPLA shape pin)", () => {
+  const teacherAvailabilityType = graphQLSchema.getType("TeacherAvailabilityState");
+
+  if (!(teacherAvailabilityType instanceof GraphQLObjectType)) {
+    throw new Error("TeacherAvailabilityState must be registered as a GraphQL object type");
+  }
+
+  test("is registered exactly once as an object type backed by the canonical ref", () => {
+    expect(teacherAvailabilityType).toBeInstanceOf(GraphQLObjectType);
+  });
+
+  test("discloses EXACTLY the three canonical fields — `id: Int!`, `isOnline: Boolean!`, `isApproved: Boolean!` (no extra field, no nullable)", () => {
+    const fields = teacherAvailabilityType.getFields();
+
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual(["id", "isApproved", "isOnline"]);
+    expect(fields.id.type.toString()).toBe("Int!");
+    expect(fields.isOnline.type.toString()).toBe("Boolean!");
+    expect(fields.isApproved.type.toString()).toBe("Boolean!");
+  });
+});
+
 describe("Surface freeze — pinned additions vs the baseline inventory", () => {
-  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user quartet + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write)", () => {
+  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user quartet + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write + the teacher availability toggle write)", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
@@ -1237,6 +1276,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         // VERIFICATION_PLAN_MUTATION_FIELDS — the reconciled second spread
         // double-pinned it (see the reconciled-duplicate note above).
         ...ADMIN_STUDENT_ONBOARDING_MUTATION_FIELDS,
+        ...TEACHER_AVAILABILITY_MUTATION_FIELDS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
     expect(names).not.toContain("_health");
@@ -1464,6 +1504,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...ADMIN_STUDENT_ONBOARDING_TYPE_NAMES,
         ...APPLICANT_COOLDOWN_ENUMS,
         ...APPLICANT_OVERRIDE_ENUMS,
+        ...TEACHER_AVAILABILITY_TYPE_NAMES,
         ...TEACHER_RE_EVALUATION_TYPE_NAMES,
       ].toSorted((a, b) => a.localeCompare(b))
     );

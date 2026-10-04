@@ -386,6 +386,38 @@ describe("mapGraphQLErrorByCode — pure branch table", () => {
     expect(arLabels.applicantStatusCorrupt.length).toBeGreaterThan(0);
   });
 
+  test("row TEACHER_IN_ACTIVE_SESSION → conflict notice with its own denial copy", () => {
+    // The availability in-session lock gate denial — conflict notice
+    // treatment (error tone, non-retryable) with the row's OWN copy.
+    // No session id or identifier is surfaced; the message handle is the
+    // leaf-string key `teacherInActiveSession`. The dashboard card is
+    // expected to pre-empt this denial client-side by disabling the
+    // Available CTA while a started session is in flight; this row is
+    // the server-side defense-in-depth backstop.
+    const action = mapped("TEACHER_IN_ACTIVE_SESSION", mutationContext);
+    expect(action.kind).toBe("notice");
+    expect(action.noticeKind).toBe("conflict");
+    expect(action.messageKey).toBe("teacherInActiveSession");
+    expect(shownCopyOf(action)).toBe(labels.teacherInActiveSession);
+    expect(action.tone).toBe("error");
+    expect(action.retryable).toBe(false);
+    expect(action.duplicateSuccessEquivalent).toBeUndefined();
+    expect(arLabels.teacherInActiveSession.length).toBeGreaterThan(0);
+  });
+
+  test("availability resolver is additive — unknown codes still null, no existing row shadowed", () => {
+    // The new resolver is purely additive: codes outside every resolver
+    // row keep returning null, and a representative of every existing
+    // resolver keeps its prior message key — no behavior change.
+    expect(mapGraphQLErrorByCode("BAD_REQUEST", queryContext)).toBeNull();
+    expect(mapGraphQLErrorByCode("GRAPHQL_PARSE_FAILED", queryContext)).toBeNull();
+    expect(mapGraphQLErrorByCode("", queryContext)).toBeNull();
+    expect(mapped("CONFLICT", mutationContext).messageKey).toBe("conflict");
+    expect(mapped("FORBIDDEN", mutationContext).messageKey).toBe("forbidden");
+    expect(mapped("TEACHER_NOT_CERTIFIED", mutationContext).messageKey).toBe("teacherNotCertified");
+    expect(mapped("INTERNAL_SERVER_ERROR", mutationContext).messageKey).toBe("internalServerError");
+  });
+
   test("row DUPLICATE_REQUEST → success-equivalent idempotent notice (docs/IDEMPOTENCY.md §3)", () => {
     const action = mapped("DUPLICATE_REQUEST", mutationContext);
     expect(action.kind).toBe("notice");

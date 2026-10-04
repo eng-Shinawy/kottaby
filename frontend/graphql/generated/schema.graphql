@@ -1192,6 +1192,7 @@ type Mutation {
     isActive: Boolean!
   ): Plan!
   setSessionRecitation(input: SessionRecitationInput!, sessionId: ID!): SessionRecitation!
+  setTeacherAvailability(isOnline: Boolean!): TeacherAvailabilityState!
 
   """
   Start one of the caller's scheduled sessions (teacher-only guarded transition).
@@ -1709,6 +1710,7 @@ type Query {
   The caller's own subscriptions across every lifecycle status, newest first. Student-only.
   """
   mySubscriptions: [StudentSubscription!]!
+  myTeacherAvailability: TeacherAvailabilityState!
   myTeacherEvaluations: [Evaluation!]!
   myTeacherSessions(filter: SessionListFilterInput, page: Int = 1, pageSize: Int = 25): SessionPage!
 
@@ -2150,6 +2152,12 @@ enum SurahJuzRef {
   SurahAlFatihah
   SurahAlMaidah
   SurahAnNisa
+}
+
+type TeacherAvailabilityState {
+  id: Int!
+  isApproved: Boolean!
+  isOnline: Boolean!
 }
 
 type TeacherDisputeCase {

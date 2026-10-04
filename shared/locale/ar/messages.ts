@@ -8,6 +8,7 @@ import { adminUsersAr } from "@/shared/locale/ar/adminUsers";
 import { analyticsAr } from "@/shared/locale/ar/analytics";
 import { applicantAr } from "@/shared/locale/ar/applicant";
 import { authAr } from "@/shared/locale/ar/auth";
+import { availabilityAr } from "@/shared/locale/ar/availability";
 import { checkoutAr } from "@/shared/locale/ar/checkout";
 import { commonAr } from "@/shared/locale/ar/common";
 import { countrySelectorAr } from "@/shared/locale/ar/countrySelector";
@@ -61,4 +62,5 @@ export const arMessages: Translations = {
   analyticsTranslations: analyticsAr,
   subscriptionAdminTranslations: subscriptionAdminAr,
   studentOnboardingTranslations: studentOnboardingAr,
+  availabilityTranslations: availabilityAr,
 };

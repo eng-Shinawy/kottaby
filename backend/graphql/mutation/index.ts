@@ -31,7 +31,10 @@
  * server-side); `evaluation-rubric.mutation.ts` wires the certified
  * evaluator's rubric submission mutation (`submitRubricEvaluation` — the
  * rubric fields only; identity from the session, the evaluated subject and
- * the verdict derived server-side, no idempotency key).
+ * the verdict derived server-side, no idempotency key); `teachers/`
+ * wires the teacher availability-toggle mutation
+ * (`setTeacherAvailability` — one non-nullable `isOnline: Boolean!` arg;
+ * identity from the session).
  */
 import "./auth.mutation";
 import "./admin";
@@ -43,5 +46,6 @@ import "./notifications";
 import "./parents";
 import "./plan-catalog.mutation";
 import "./subscription-purchase.mutation";
+import "./teachers";
 import "./user.mutation";
 import "./verification-plan-purchase.mutation";

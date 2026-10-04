@@ -122,6 +122,8 @@ stateDiagram-v2
 | INV-A3 | A teacher in In-Session state is hidden from the Available Teachers directory for all other students. |
 | INV-A4 | Upon session conclusion, the teacher's status returns to Available only if they are still active (app open). |
 
+> **Implementation reference (manual toggle — INV-A1/INV-A2):** the teacher-owned Available/Unavailable toggle writes through `TeacherAvailabilityService` (`backend/services/teachers/teacher-availability.service.ts`), which composes the certification gate (INV-A1) and the reused in-session seam (INV-A2) before `TeacherRepository.setOnline` — canonically documented in [`docs/teachers/teacher-availability.md`](../teachers/teacher-availability.md); INV-A3 (directory appearance) and INV-A4 (never-resurrect release gating) remain owned by their sibling tickets.
+
 ---
 
 ## 4. Subscription & Session Balance Lifecycle

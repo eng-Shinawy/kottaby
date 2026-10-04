@@ -8,6 +8,7 @@ import { adminUsersEn } from "@/shared/locale/en/adminUsers";
 import { analyticsEn } from "@/shared/locale/en/analytics";
 import { applicantEn } from "@/shared/locale/en/applicant";
 import { authEn } from "@/shared/locale/en/auth";
+import { availabilityEn } from "@/shared/locale/en/availability";
 import { checkoutEn } from "@/shared/locale/en/checkout";
 import { commonEn } from "@/shared/locale/en/common";
 import { countrySelectorEn } from "@/shared/locale/en/countrySelector";
@@ -61,4 +62,5 @@ export const enMessages: Translations = {
   analyticsTranslations: analyticsEn,
   subscriptionAdminTranslations: subscriptionAdminEn,
   studentOnboardingTranslations: studentOnboardingEn,
+  availabilityTranslations: availabilityEn,
 };

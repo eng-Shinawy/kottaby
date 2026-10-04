@@ -8,6 +8,7 @@ import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 import type { AnalyticsLabels } from "@/shared/locale/types/analytics";
 import type { ApplicantLabels } from "@/shared/locale/types/applicant";
 import type { AuthLabels } from "@/shared/locale/types/auth";
+import type { AvailabilityLabels } from "@/shared/locale/types/availability";
 import type { CheckoutLabels } from "@/shared/locale/types/checkout";
 import type { CommonLabels } from "@/shared/locale/types/common";
 import type { CountrySelectorLabels } from "@/shared/locale/types/countrySelector";
@@ -60,4 +61,5 @@ export interface Translations {
   analyticsTranslations: AnalyticsLabels;
   subscriptionAdminTranslations: SubscriptionAdminLabels;
   studentOnboardingTranslations: StudentOnboardingLabels;
+  availabilityTranslations: AvailabilityLabels;
 }

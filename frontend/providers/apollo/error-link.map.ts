@@ -230,7 +230,19 @@ function mapAuthRow(code: string, context: GraphQLErrorMappingContext): GraphQLE
   });
 }
 
-/** Row 2 — FORBIDDEN: section fallback for queries, localized toast for mutations. */
+/**
+ * Row 2 — FORBIDDEN: section fallback for queries, localized toast for
+ * mutations. The generic `forbidden` copy is reused — no per-domain
+ * toast is minted for any single FORBIDDEN producer.
+ *
+ * Certification-gate posture: the availability service denies
+ * `ForbiddenError`/403 when a teacher whose `isApproved` flag is not
+ * strictly `true` attempts to toggle Available. The dashboard card
+ * pre-empts the denial client-side (the Available CTA stays disabled
+ * until certification clears); the server 403 surfaces here only when
+ * a stale client or a race evades the pre-empt, so the generic toast
+ * is the defense-in-depth backstop — never the primary surface.
+ */
 function mapPermissionRow(code: string, context: GraphQLErrorMappingContext): GraphQLErrorAction | null {
   if (code !== "FORBIDDEN") return null;
   return context.contextKind === "query"
@@ -456,6 +468,39 @@ function mapMaskedInternalRow(code: string, context: GraphQLErrorMappingContext)
 }
 
 /**
+ * Availability-toggle CONFLICT denial — the in-session lock gate
+ * surfaces its OWN localized copy as a conflict notice. The dashboard
+ * card pre-emptively disables the Available CTA while a started session
+ * is in flight; this row is the server-side defense-in-depth backstop
+ * for the case where a concurrent toggle lands during the session-start
+ * window. Mirrors the rubric-evaluation conflict-notice idiom (one
+ * const, one resolver) — no identifier from the denial is surfaced;
+ * the message handle is the leaf-string key `teacherInActiveSession`.
+ */
+const AVAILABILITY_CONFLICT_NOTICE_ROWS: Readonly<Record<string, ErrorMessageKey | undefined>> = {
+  TEACHER_IN_ACTIVE_SESSION: "teacherInActiveSession",
+};
+
+/**
+ * Availability-toggle submission row — the in-session conflict denial
+ * resolves as a localized conflict notice with its OWN copy. No
+ * threshold, session id, or identifier rides the action.
+ */
+function mapAvailabilityRow(code: string, context: GraphQLErrorMappingContext): GraphQLErrorAction | null {
+  const conflictMessageKey = AVAILABILITY_CONFLICT_NOTICE_ROWS[code];
+  if (conflictMessageKey !== undefined) {
+    return withCorrelation(context, {
+      kind: "notice",
+      noticeKind: "conflict",
+      messageKey: conflictMessageKey,
+      tone: "error",
+      retryable: false,
+    });
+  }
+  return null;
+}
+
+/**
  * Mapping entry point — one row per extensions.code family.
  *
  * | Normalized code                              | Context            | Action |
@@ -481,6 +526,7 @@ function mapMaskedInternalRow(code: string, context: GraphQLErrorMappingContext)
  * | TEACHER_NOT_CERTIFIED                        | any                | toast (`teacherNotCertified`) — caller-state validation denial |
  * | APPLICANT_NOT_IN_EVALUATION                  | any                | notice conflict (`applicantNotInEvaluation`) |
  * | APPLICANT_STATUS_CORRUPT                     | any                | toast (`applicantStatusCorrupt`) — fail-closed read-path integrity denial |
+ * | TEACHER_IN_ACTIVE_SESSION                    | any                | notice conflict (`teacherInActiveSession`) — in-session availability-gate backstop |
  * | DUPLICATE_REQUEST                            | any                | notice duplicate-request (`duplicateRequest`, success-equivalent) |
  * | RATE_LIMITED (+legacy RATE_LIMIT_EXCEEDED)   | any                | notice retry-later (`rateLimitExceeded`) — thresholds/counters NEVER surfaced |
  * | SERVICE_UNAVAILABLE                          | any                | notice retryable-service-unavailable (`serviceUnavailable`) |
@@ -504,6 +550,7 @@ export function mapGraphQLErrorByCode(rawCode: string, context: GraphQLErrorMapp
     mapValidationRow(code, context) ??
     mapInlineNoticeRow(code, context) ??
     mapRubricEvaluationRow(code, context) ??
+    mapAvailabilityRow(code, context) ??
     mapMaskedInternalRow(code, context)
   );
 }

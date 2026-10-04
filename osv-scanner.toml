@@ -1,0 +1,8 @@
+# osv-scanner configuration
+# Ignored advisories:
+# - GHSA-vfj7-8cjw-p6xm (braces@3.0.3): No fixed version available.
+#   braces@3.0.3 is the latest published version. Will remove once
+#   upstream publishes a fix.
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+reason = "No fixed version available for braces@3.0.3 (latest). Will remove once upstream publishes a fix."

@@ -412,6 +412,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "respondToParentLinkRequest",
   "setPlanActiveStatus",
   "setSessionRecitation",
+  "setTeacherAvailability",
   "startSession",
   "submitRubricEvaluation",
   "submitSessionReport",
