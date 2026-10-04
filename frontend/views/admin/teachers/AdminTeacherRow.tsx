@@ -21,7 +21,7 @@
  */
 
 import { TableCell } from "@mui/material";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { DirectoryBodyRow } from "@/frontend/views/admin/directory-shared/DirectoryBodyRow";
 import {
   type TeacherDirectoryItem,
@@ -46,7 +46,7 @@ interface AdminTeacherRowProps {
   readonly onViewDetails?: (teacher: TeacherDirectoryItem) => void;
 }
 
-export function AdminTeacherRow({
+export const AdminTeacherRow = memo(function AdminTeacherRow({
   teacher,
   labels,
   locale,
@@ -75,4 +75,4 @@ export function AdminTeacherRow({
       </TableCell>
     </DirectoryBodyRow>
   );
-}
+});

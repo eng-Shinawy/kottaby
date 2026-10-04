@@ -12,8 +12,9 @@ import {
   MoreVertOutlined as MoreVertIcon,
   RefreshOutlined as RefreshIcon,
 } from "@mui/icons-material";
-import { IconButton, Menu, MenuItem } from "@mui/material";
+import { IconButton, Menu, MenuItem, Tooltip } from "@mui/material";
 import { type ReactNode, useState } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import type { DirectoryUserItem } from "@/frontend/views/admin/users/directory";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
@@ -51,15 +52,17 @@ export function DirectoryActionsMenu({
   const close = () => setAnchorEl(null);
   return (
     <>
-      <IconButton
-        aria-label={labels.headers.actions}
-        aria-haspopup="menu"
-        aria-expanded={anchorEl ? true : undefined}
-        onClick={event => setAnchorEl(event.currentTarget)}
-        sx={{ minWidth: 44, minHeight: 54 }}
-      >
-        <MoreVertIcon />
-      </IconButton>
+      <Tooltip title={labels.headers.actions}>
+        <IconButton
+          aria-label={labels.headers.actions}
+          aria-haspopup="menu"
+          aria-expanded={anchorEl ? true : undefined}
+          onClick={event => setAnchorEl(event.currentTarget)}
+          sx={{ ...focusVisibleRingSx, minWidth: 44, minHeight: 54 }}
+        >
+          <MoreVertIcon />
+        </IconButton>
+      </Tooltip>
       <Menu anchorEl={anchorEl} open={anchorEl !== null} onClose={close}>
         <MenuItem
           onClick={() => {

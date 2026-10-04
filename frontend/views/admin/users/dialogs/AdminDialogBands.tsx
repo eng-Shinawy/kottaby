@@ -8,8 +8,9 @@
  */
 
 import { CloseOutlined as CloseIcon } from "@mui/icons-material";
-import { Box, Button, DialogActions, IconButton, Typography } from "@mui/material";
+import { Box, Button, DialogActions, IconButton, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 
 interface AdminDialogHeaderBandProps {
   readonly title: string;
@@ -57,9 +58,13 @@ export function AdminDialogHeaderBand({
           {subtitle}
         </Typography>
       </Box>
-      <IconButton aria-label={closeLabel} onClick={onClose} disabled={loading} size="small" sx={{ mt: -0.5 }}>
-        <CloseIcon fontSize="small" />
-      </IconButton>
+      <Tooltip title={closeLabel}>
+        <Box component="span" sx={{ display: "inline-flex", mt: -0.5 }}>
+          <IconButton aria-label={closeLabel} onClick={onClose} disabled={loading} size="small" sx={focusVisibleRingSx}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+      </Tooltip>
     </Box>
   );
 }

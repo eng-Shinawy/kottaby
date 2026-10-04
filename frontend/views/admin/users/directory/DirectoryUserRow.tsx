@@ -15,7 +15,7 @@
  */
 
 import { Box, TableCell, Typography } from "@mui/material";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { DirectoryBodyRow } from "@/frontend/views/admin/directory-shared/DirectoryBodyRow";
 import {
   DirectoryActionsMenu,
@@ -42,7 +42,7 @@ interface DirectoryUserRowProps {
   readonly onCopyEmail?: () => void;
 }
 
-export function DirectoryUserRow({
+export const DirectoryUserRow = memo(function DirectoryUserRow({
   user,
   labels,
   locale,
@@ -111,4 +111,4 @@ export function DirectoryUserRow({
       </TableCell>
     </DirectoryBodyRow>
   );
-}
+});

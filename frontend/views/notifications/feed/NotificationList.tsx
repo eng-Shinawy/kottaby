@@ -2,7 +2,7 @@
 
 import { NotificationsOutlined } from "@mui/icons-material";
 import { Box, Skeleton, Stack, Typography } from "@mui/material";
-import { memo, type ReactNode } from "react";
+import { memo, type ReactNode, useMemo } from "react";
 import type { MyNotificationsQuery_myNotifications_items } from "@/frontend/graphql/generated/gql/graphql";
 import { resolveNotificationRoute } from "@/frontend/lib/notification-route-resolution";
 import { NotificationRow } from "@/frontend/views/notifications/feed";
@@ -53,6 +53,8 @@ export const NotificationList = memo(function NotificationList({
   markReadPendingIds = NO_PENDING_IDS,
   busy = false,
 }: Readonly<NotificationListProps>): ReactNode {
+  const markReadPendingSet = useMemo(() => new Set(markReadPendingIds), [markReadPendingIds]);
+
   return (
     <Box
       component="ul"
@@ -82,7 +84,7 @@ export const NotificationList = memo(function NotificationList({
             notification.relatedEntityId
           )}
           onMarkRead={onMarkRead}
-          markReadPending={markReadPendingIds.includes(notification.id)}
+          markReadPending={markReadPendingSet.has(notification.id)}
         />
       ))}
     </Box>

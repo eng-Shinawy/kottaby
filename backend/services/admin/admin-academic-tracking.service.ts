@@ -402,18 +402,17 @@ export namespace AdminAcademicTrackingService {
         throw new NotFoundError(STUDENT_ENTITY, getServerTranslations(locale).errorsTranslations.notFound);
       }
 
-      const [homeworkRows, homeworkTotal, reportRows, reportTotal, progressRowCount, signals] = await Promise.all([
+      const [homeworkRows, homeworkTotal, reportRows, reportTotal, progressRowCount, signal] = await Promise.all([
         HomeWorkRepository.listForStudent(studentId, bounds.pageSize, bounds.offset, tx),
         HomeWorkRepository.countForStudent(studentId, tx),
         ReportRepository.listForStudent(studentId, bounds.pageSize, bounds.offset, tx),
         ReportRepository.countForStudent(studentId, tx),
         ProgressRepository.countForStudent(studentId, tx),
-        AdminAcademicTrackingRepository.listAttentionSignals(now, tx),
+        AdminAcademicTrackingRepository.getAttentionSignalForStudent(studentId, now, tx),
       ]);
 
       const sessionContexts = await resolveSessionContexts([...homeworkRows, ...reportRows], tx);
-      const signal = signals.find(candidate => candidate.studentId === studentId);
-      const needsAttention = composeAcademicAttentionFlag(signal, now);
+      const needsAttention = composeAcademicAttentionFlag(signal ?? undefined, now);
 
       const homeworkItems = homeworkRows.map(row => mapHomeworkEntry(row, sessionContexts));
       const reportItems = reportRows.map(row => mapReportEntry(row, sessionContexts));

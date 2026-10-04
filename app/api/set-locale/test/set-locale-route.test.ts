@@ -325,6 +325,12 @@ describe("set-locale route envelope adoption", () => {
       await expectHostileRedirectFallsBackToRoot("/%2f%2fevil.example/x");
       await expectHostileRedirectFallsBackToRoot("/%2f/evil.example/x");
 
+      // Multi-pass percent-encoded bypass vectors: MUST fall back to root.
+      await expectHostileRedirectFallsBackToRoot("/%252f%252fevil.example/x");
+      await expectHostileRedirectFallsBackToRoot("/%255Cevil.example/x");
+      await expectHostileRedirectFallsBackToRoot("/%250Aevil.example/x");
+      await expectHostileRedirectFallsBackToRoot("/%25252f%25252fevil.example/x");
+
       // Encoded control characters in query/hash (CRLF response-splitting shape).
       await expectHostileRedirectFallsBackToRoot("/dashboard?next=%5Cevil.example");
       await expectHostileRedirectFallsBackToRoot("/dashboard#%0D%0AHost:evil.example");

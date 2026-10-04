@@ -42,6 +42,11 @@ describe("isSafeRedirect — same-origin type guard", () => {
       "/%00evil.example/x",
       "/%0Aevil.example/x",
       "/%0D%0Aevil.example/x",
+      "/%252f%252fevil.example/x",
+      "/%255Cevil.example/x",
+      "/%250Aevil.example/x",
+      "/%2500evil.example/x",
+      "/%25252f%25252fevil.example/x",
       "/%ff",
       "%6a%61%76%61%73%63%72%69%70%74%3aalert(1)",
       " %6a%61%76%61%73%63%72%69%70%74%3aalert(1)",
@@ -70,6 +75,8 @@ describe("buildLoginHref — login redirect param construction", () => {
     expect(buildLoginHref("/\\evil.example")).toBe("/login");
     expect(buildLoginHref("/%5Cevil.example")).toBe("/login");
     expect(buildLoginHref("/%2f%2fevil.example")).toBe("/login");
+    expect(buildLoginHref("/%252f%252fevil.example")).toBe("/login");
+    expect(buildLoginHref("/%255Cevil.example")).toBe("/login");
     expect(buildLoginHref()).toBe("/login");
   });
 });

@@ -36,32 +36,37 @@ function hasControlOrBackslashChar(raw: string): boolean {
 
 export function isSafeRedirect(url: string | null | undefined): url is string {
   if (!url) return false;
-  // Must start with a single slash — protocol-relative `//host` is blocked.
-  if (!url.startsWith("/")) return false;
-  if (url.startsWith("//")) return false;
-  // Backslash or ASCII/C1 control characters anywhere → fail closed.
-  // WHATWG URL parsing strips control characters (e.g., "/\tevil.com" ≡ "//evil.com"
-  // or "http://evil.com/") and folds backslashes into slashes ("/\\evil.com" ≡ "//evil.com").
-  if (hasControlOrBackslashChar(url)) return false;
 
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(url);
-  } catch {
-    return false;
+  let current = url;
+  const MAX_DEPTH = 5;
+
+  for (let depth = 0; depth < MAX_DEPTH; depth++) {
+    // Must start with a single slash — protocol-relative `//host` is blocked.
+    if (!current.startsWith("/")) return false;
+    if (current.startsWith("//")) return false;
+    // Backslash or ASCII/C1 control characters anywhere → fail closed.
+    // WHATWG URL parsing strips control characters (e.g., "/\tevil.com" ≡ "//evil.com"
+    // or "http://evil.com/") and folds backslashes into slashes ("/\\evil.com" ≡ "//evil.com").
+    if (hasControlOrBackslashChar(current)) return false;
+
+    // Block scheme-prefixed values (`javascript:`, `data:`, etc.) even if
+    // leading whitespace or percent encoding was used to smuggle them.
+    const trimmed = current.trimStart().toLowerCase();
+    if (trimmed.includes(":") && !trimmed.startsWith("/")) return false;
+
+    try {
+      const next = decodeURIComponent(current);
+      if (next === current) {
+        return true;
+      }
+      current = next;
+    } catch {
+      return false;
+    }
   }
 
-  // Validate the URL-decoded representation so percent-encoded bypasses
-  // (%5C for \, %2f%2f for //, %00 for null, %0A for newline) are caught.
-  if (!decoded.startsWith("/")) return false;
-  if (decoded.startsWith("//")) return false;
-  if (hasControlOrBackslashChar(decoded)) return false;
-
-  // Block scheme-prefixed values (`javascript:`, `data:`, etc.) even if
-  // leading whitespace or percent encoding was used to smuggle them.
-  const trimmed = decoded.trimStart().toLowerCase();
-  if (trimmed.includes(":") && !trimmed.startsWith("/")) return false;
-  return true;
+  // Bounded decoding depth reached without reaching a stable fixed point -> fail closed.
+  return false;
 }
 
 /**

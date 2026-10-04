@@ -423,6 +423,49 @@ describe("AdminAcademicTrackingRepository — Tier 1 (branch/stmt coverage)", ()
     });
   });
 
+  test("getAttentionSignalForStudent: returns exact signal for student, null for missing/deleted/non-student", async () => {
+    await runInRollback(async tx => {
+      const tag = cohortTag();
+      const teacher = await setupTeacher(tx);
+      const student = await setupStudent(tx, tag, 0);
+
+      await setupHomeworkBatch(tx, teacher.id, student.id, [
+        {
+          sessionStatus: SessionStatus.Completed,
+          homeWork: {
+            currentSurahJuz: SurahJuzRef.SurahAlFatihah,
+            currentGrade: 88,
+            createdAt: at(-1 * DAY),
+            updatedAt: at(-1 * DAY),
+          },
+        },
+      ]);
+
+      const signal = await AdminAcademicTrackingRepository.getAttentionSignalForStudent(student.id, NOW, tx);
+      expect(signal).toEqual({
+        studentId: student.id,
+        recentGradedJadidGrades: [88],
+        lastGradedHomeworkAt: at(-1 * DAY),
+        lastHomeworkAssignedAt: at(-1 * DAY),
+        completedSessionCount: 1,
+      });
+
+      const missing = await AdminAcademicTrackingRepository.getAttentionSignalForStudent(
+        NONEXISTENT_STUDENT_ID,
+        NOW,
+        tx
+      );
+      expect(missing).toBeNull();
+
+      const nonStudent = await AdminAcademicTrackingRepository.getAttentionSignalForStudent(teacher.id, NOW, tx);
+      expect(nonStudent).toBeNull();
+
+      const deleted = await setupStudent(tx, cohortTag(), 1, { isDeleted: true });
+      const deletedSignal = await AdminAcademicTrackingRepository.getAttentionSignalForStudent(deleted.id, NOW, tx);
+      expect(deletedSignal).toBeNull();
+    });
+  });
+
   test("getStudentEchoById: every arm — found, missing id, non-student account, soft-deleted, NULL marker", async () => {
     await runInRollback(async tx => {
       const student = await setupStudent(tx, cohortTag(), 0);

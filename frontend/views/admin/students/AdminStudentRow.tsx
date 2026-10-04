@@ -20,7 +20,7 @@
  */
 
 import { TableCell } from "@mui/material";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { DirectoryBodyRow } from "@/frontend/views/admin/directory-shared/DirectoryBodyRow";
 import { StudentIdentityCell } from "@/frontend/views/admin/students/AdminStudentIdentityCell";
 import { StudentParentContent } from "@/frontend/views/admin/students/AdminStudentParentContent";
@@ -49,7 +49,7 @@ interface AdminStudentRowProps {
   readonly highlight?: boolean;
 }
 
-export function AdminStudentRow({
+export const AdminStudentRow = memo(function AdminStudentRow({
   student,
   labels,
   locale,
@@ -87,4 +87,4 @@ export function AdminStudentRow({
       </TableCell>
     </DirectoryBodyRow>
   );
-}
+});

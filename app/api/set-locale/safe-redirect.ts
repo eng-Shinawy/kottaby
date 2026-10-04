@@ -28,39 +28,56 @@ function hasControlOrBackslashChar(raw: string): boolean {
   return false;
 }
 
+function isSafeCandidatePath(current: string, dummyBase: string): boolean {
+  if (!current.startsWith("/") || current.startsWith("//") || hasControlOrBackslashChar(current)) {
+    return false;
+  }
+
+  const trimmed = current.trimStart().toLowerCase();
+  if (trimmed.includes(":") && !trimmed.startsWith("/")) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(current, dummyBase);
+    return parsed.origin === dummyBase && parsed.pathname.startsWith("/");
+  } catch {
+    return false;
+  }
+}
+
 /** Only allow same-origin relative paths (block open redirects). */
 export function safeRedirectPath(raw: string | null, fallback = "/"): string {
   if (!raw || typeof raw !== "string") {
     return fallback;
   }
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(raw);
-  } catch {
-    return fallback;
+
+  let current = raw;
+  const MAX_DEPTH = 5;
+  const dummyBase = "http://localhost:3000";
+
+  for (let depth = 0; depth < MAX_DEPTH; depth++) {
+    if (!isSafeCandidatePath(current, dummyBase)) {
+      return fallback;
+    }
+
+    try {
+      const next = decodeURIComponent(current);
+      if (next === current) {
+        break;
+      }
+      current = next;
+    } catch {
+      return fallback;
+    }
+
+    if (depth === MAX_DEPTH - 1) {
+      return fallback;
+    }
   }
 
-  // Backslash or ASCII control characters (tab, newline, CR, etc.) anywhere —
-  // checked on both the raw and URL-decoded forms, since browsers/frameworks
-  // decode percent-encoded bypasses (%5C, %2f%2f, %0d%0a) on redirect → fail closed.
-  if (
-    !raw.startsWith("/") ||
-    !decoded.startsWith("/") ||
-    hasControlOrBackslashChar(raw) ||
-    hasControlOrBackslashChar(decoded)
-  ) {
-    return fallback;
-  }
   try {
-    const dummyBase = "http://localhost:3000";
     const parsed = new URL(raw, dummyBase);
-    if (parsed.origin !== dummyBase || !parsed.pathname.startsWith("/")) {
-      return fallback;
-    }
-    const decodedParsed = new URL(decoded, dummyBase);
-    if (decodedParsed.origin !== dummyBase || !decodedParsed.pathname.startsWith("/")) {
-      return fallback;
-    }
     return parsed.pathname + parsed.search + parsed.hash;
   } catch {
     return fallback;

@@ -1,8 +1,9 @@
 "use client";
 
 import { PrintOutlined } from "@mui/icons-material";
-import { Box, IconButton, Stack, Typography } from "@mui/material";
+import { Box, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import { type ReactNode, useMemo, useState } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { PermissionDeniedFallback } from "@/frontend/components/ui/PermissionDeniedFallback";
 import { extractErrorCode } from "@/frontend/lib/graphql-error-utils";
 import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
@@ -82,17 +83,19 @@ export function HomeworkTab(props: Readonly<HomeworkTabProps>): ReactNode {
           {rows === undefined ? t.homeworkSectionTitle : t.homeworkCount(rows.length)}
         </Typography>
         {showPrintButton ? (
-          <IconButton
-            className="portal-print-button"
-            aria-label={t.printLabel}
-            onClick={() => {
-              setPrintOpen(true);
-            }}
-            size="small"
-            sx={theme => ({ color: theme.palette.primary.main })}
-          >
-            <PrintOutlined />
-          </IconButton>
+          <Tooltip title={t.printLabel} arrow>
+            <IconButton
+              className="portal-print-button"
+              aria-label={t.printLabel}
+              onClick={() => {
+                setPrintOpen(true);
+              }}
+              size="small"
+              sx={theme => ({ color: theme.palette.primary.main, ...focusVisibleRingSx })}
+            >
+              <PrintOutlined />
+            </IconButton>
+          </Tooltip>
         ) : null}
       </Box>
       {body}

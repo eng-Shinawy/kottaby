@@ -122,6 +122,49 @@ function buildDashboardPredicate(filters: AdminAcademicDashboardFiltersSelectTyp
   return and(...conditions) ?? sql`true`;
 }
 
+/**
+ * Builds the base select query joining the three LATERAL attention-signal lanes
+ * for non-deleted student accounts. Shared between the single-student lookup
+ * (`getAttentionSignalForStudent`) and full-lane listing (`listAttentionSignals`).
+ */
+function buildAttentionSignalQuery(tx: DBTransaction, now: Date) {
+  const jadidGradeWindowLane = buildGradedJadidWindowLane(tx, users.id, now);
+  const attentionAnchorLane = buildAttentionAnchorLane(tx, users.id, now);
+  const completedSessionLane = buildCompletedSessionLane(tx, users.id, now);
+
+  return tx
+    .select({
+      studentId: users.id,
+      recentGradedJadidGrades: jadidGradeWindowLane.grades,
+      lastGradedHomeworkAt: attentionAnchorLane.lastGradedHomeworkAt,
+      lastHomeworkAssignedAt: attentionAnchorLane.lastHomeworkAssignedAt,
+      completedSessionCount: completedSessionLane.completedSessionCount,
+    })
+    .from(users)
+    .leftJoinLateral(jadidGradeWindowLane, sql`true`)
+    .leftJoinLateral(attentionAnchorLane, sql`true`)
+    .leftJoinLateral(completedSessionLane, sql`true`);
+}
+
+/**
+ * Coalesces raw NULL fields from the attention-signal query onto honest defaults.
+ */
+function mapAttentionSignalRow(row: {
+  studentId: number;
+  recentGradedJadidGrades: number[] | null;
+  lastGradedHomeworkAt: Date | null;
+  lastHomeworkAssignedAt: Date | null;
+  completedSessionCount: number | null;
+}): AdminAcademicAttentionSignalSelectType {
+  return {
+    studentId: row.studentId,
+    recentGradedJadidGrades: row.recentGradedJadidGrades ?? [],
+    lastGradedHomeworkAt: row.lastGradedHomeworkAt,
+    lastHomeworkAssignedAt: row.lastHomeworkAssignedAt,
+    completedSessionCount: row.completedSessionCount ?? 0,
+  };
+}
+
 export namespace AdminAcademicTrackingRepository {
   /**
    * Lists one paged window of the all-students academic directory: one row
@@ -273,6 +316,27 @@ export namespace AdminAcademicTrackingRepository {
   }
 
   /**
+   * Resolves the attention-rule inputs for a SINGLE student (used by the
+   * student drill-down service to avoid scanning the entire student body).
+   *
+   * @param studentId The target student id.
+   * @param now       The snapshot instant the signal lanes close at.
+   * @param tx        The caller's transaction (REQUIRED, last).
+   */
+  export async function getAttentionSignalForStudent(
+    studentId: number,
+    now: Date,
+    tx: DBTransaction
+  ): Promise<AdminAcademicAttentionSignalSelectType | null> {
+    const rows = await buildAttentionSignalQuery(tx, now)
+      .where(and(eq(users.id, studentId), buildDashboardPredicate({})))
+      .limit(1);
+
+    const row = rows[0];
+    return row ? mapAttentionSignalRow(row) : null;
+  }
+
+  /**
    * Resolves the per-student attention-rule inputs for the WHOLE sealed
    * student lane (one row per non-deleted student, stable
    * newest-account-first ordering): the newest-first window of the
@@ -295,32 +359,11 @@ export namespace AdminAcademicTrackingRepository {
     now: Date,
     tx: DBTransaction
   ): Promise<AdminAcademicAttentionSignalSelectType[]> {
-    const jadidGradeWindowLane = buildGradedJadidWindowLane(tx, users.id, now);
-    const attentionAnchorLane = buildAttentionAnchorLane(tx, users.id, now);
-    const completedSessionLane = buildCompletedSessionLane(tx, users.id, now);
-
-    const rows = await tx
-      .select({
-        studentId: users.id,
-        recentGradedJadidGrades: jadidGradeWindowLane.grades,
-        lastGradedHomeworkAt: attentionAnchorLane.lastGradedHomeworkAt,
-        lastHomeworkAssignedAt: attentionAnchorLane.lastHomeworkAssignedAt,
-        completedSessionCount: completedSessionLane.completedSessionCount,
-      })
-      .from(users)
-      .leftJoinLateral(jadidGradeWindowLane, sql`true`)
-      .leftJoinLateral(attentionAnchorLane, sql`true`)
-      .leftJoinLateral(completedSessionLane, sql`true`)
+    const rows = await buildAttentionSignalQuery(tx, now)
       .where(buildDashboardPredicate({}))
       .orderBy(desc(users.createdAt), desc(users.id));
 
-    return rows.map(row => ({
-      studentId: row.studentId,
-      recentGradedJadidGrades: row.recentGradedJadidGrades ?? [],
-      lastGradedHomeworkAt: row.lastGradedHomeworkAt,
-      lastHomeworkAssignedAt: row.lastHomeworkAssignedAt,
-      completedSessionCount: row.completedSessionCount ?? 0,
-    }));
+    return rows.map(mapAttentionSignalRow);
   }
 
   /**

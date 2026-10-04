@@ -58,7 +58,10 @@ export function AttendanceCalendar({
                 ...focusVisibleRingSx,
               })}
             >
-              <ChevronLeftOutlined fontSize="small" />
+              <ChevronLeftOutlined
+                fontSize="small"
+                sx={theme => ({ transform: theme.direction === "rtl" ? "scaleX(-1)" : "none" })}
+              />
             </IconButton>
           </span>
         </Tooltip>
@@ -82,7 +85,10 @@ export function AttendanceCalendar({
                 ...focusVisibleRingSx,
               })}
             >
-              <ChevronRightOutlined fontSize="small" />
+              <ChevronRightOutlined
+                fontSize="small"
+                sx={theme => ({ transform: theme.direction === "rtl" ? "scaleX(-1)" : "none" })}
+              />
             </IconButton>
           </span>
         </Tooltip>
