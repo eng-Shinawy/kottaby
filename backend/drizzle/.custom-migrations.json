@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d41fab1fe506dd566145e978c1f7b85b27a1ec711f4446f28a71d319f841b48d",
+  "manifestHash": "49e658cab7d8c03fa53dc881da4f95ca6e66bba60c625525b0058019a496f3c9",
   "manifest": [
     {
       "file": "10-applicant-outcome-notification.sql",
@@ -8,6 +8,10 @@
     {
       "file": "11-users-country-code-backfill.sql",
       "sha256": "90f6ef6ae3148cff93cf5f3e4033cd8fc3b34795c034882d93f696c62902ba89"
+    },
+    {
+      "file": "12-teacher-matching-columns.sql",
+      "sha256": "bab38bacbda334fc28a333c9732ae87e8b4cbd99d0d3a2a21935df21867a5e98"
     },
     {
       "file": "2-functions.sql",
@@ -72,6 +76,7 @@
     "20260919222508_custom_8-broadcast-history-backfill",
     "20260923154213_custom_9-rubric-weakness-area",
     "20260928172738_custom_10-applicant-outcome-notification",
-    "20261001045616_custom_11-users-country-code-backfill"
+    "20261001045616_custom_11-users-country-code-backfill",
+    "20261005051915_custom_12-teacher-matching-columns"
   ]
 }

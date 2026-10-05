@@ -54,6 +54,23 @@
  *  - Tier 4: a rating beyond the 0-5 clamp raises the raw
  *    `teacher_average_rating_check` violation (untranslated, savepoint
  *    probe), and static pins assert the guarded REQUIRED-tx write shape.
+ *
+ * listMatchingCandidates suite (the student-facing matching read):
+ *  - Eligibility matrix: online + certified fail-closed, governance via
+ *    IS DISTINCT FROM true (legacy NULL rows kept), in-session exclusion
+ *    (NOT EXISTS) incl. the stale-`true` is_online compose rule, and the
+ *    non-`started` session states that must NOT hide a teacher.
+ *  - Token filters: recitation/subject/language quoted-token matches (the
+ *    `"hifz"` vs `"hifz_jadid"` boundary), null language pattern dropping
+ *    out of the chain, corrupt-JSON payloads matching on raw tokens.
+ *  - Country tiering: code arm, legacy free-text arm (case-insensitive),
+ *    one-tier fallback — soft ordering that never excludes a row.
+ *  - Ordering + pagination: rating DESC NULLS LAST, id-DESC tiebreak,
+ *    honest total across mid-page, beyond-last, and empty pages.
+ *  - Binding discipline + static pins: finished patterns bound verbatim
+ *    (a raw `_` wildcard still matches — escaping is upstream), patterns
+ *    never re-escaped or re-wrapped, SessionStatus as a VALUE import, and
+ *    the negative-offset error surfaced (no silent clamping).
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -62,15 +79,18 @@ import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { TeacherRepository } from "@/backend/db/repo";
+import type { NormalizedTeacherMatchingFilters } from "@/backend/db/repo/teachers/teacher.repository";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
 import {
   createTestTeacherRow as createTeacherRowFixture,
   createTestApplicant,
+  createTestSession,
   createTestUser,
 } from "@/backend/db/test/entity-setup";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
-import type { DBTransaction } from "@/backend/types";
+import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
+import type { DBTransaction, TeacherSelectType, UserSelectType } from "@/backend/types";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
 /** How long to observe a supposedly-blocked waiter before concluding it is stuck. */
@@ -104,6 +124,30 @@ async function createTestTeacherRow(tx: DBTransaction, userId: number, isApprove
 async function absentTeacherId(tx: DBTransaction): Promise<number> {
   const [row] = await tx.select({ maxId: sql<number>`coalesce(max(${teacher.id}), 0)::int` }).from(teacher);
   return (row?.maxId ?? 0) + 1_000_000;
+}
+
+/** Finished filter patterns in the service-normalized shape: escaped, quoted, `%…%`-wrapped (the repo binds, never builds). */
+function matchingFilters(overrides: Partial<NormalizedTeacherMatchingFilters> = {}): NormalizedTeacherMatchingFilters {
+  return {
+    recitationPattern: '%"hafs_an_asim"%',
+    subjectPattern: '%"hifz"%',
+    languagePattern: null,
+    studentCountryCode: null,
+    studentCountryText: null,
+    ...overrides,
+  };
+}
+
+/** Pre-fixture total for the given filters — the suite never assumes an empty table (assert `baseline + delta`). */
+async function baselineTotal(tx: DBTransaction, filters: NormalizedTeacherMatchingFilters): Promise<number> {
+  const { total } = await TeacherRepository.listMatchingCandidates(filters, 1, 0, tx);
+  return total;
+}
+
+/** Books a session for the teacher (student leg = a fresh student user, the FK parent). */
+async function createTeacherSession(tx: DBTransaction, teacherId: number, status: SessionStatus): Promise<void> {
+  const student = await createTestUser(tx, { role: "student" });
+  await createTestSession(tx, teacherId, student.id, { status });
 }
 
 /** Teacher rows committed OUTSIDE `runInRollback` (concurrency tier) — hard-deleted in `afterAll`. */
@@ -349,9 +393,21 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
   const REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
   const repoSource = readFileSync(REPO_FILE, "utf8");
 
+  /**
+   * The lockForCertificationCheck slice of the repository source (the static
+   * pin target). The no-interpolation ban is scoped to this slice: the lock
+   * query is a pure bound-parameter read, while the file's OTHER reads
+   * legitimately interpolate Drizzle column references / enum values inside
+   * `sql` templates — which renders as bound parameters, not SQL text.
+   */
+  function lockSource(): string {
+    const start = repoSource.indexOf("export async function lockForCertificationCheck(");
+    return repoSource.slice(start, repoSource.indexOf("\n  }\n", start));
+  }
+
   test("source: the id reaches the query only as a bound parameter (no injection surface)", () => {
     expect(repoSource.includes("--")).toBe(false);
-    expect(repoSource.includes("${")).toBe(false);
+    expect(lockSource().includes("${")).toBe(false);
   });
 
   test("source: no prepared statements and no module-level query state", () => {
@@ -999,5 +1055,541 @@ describe("TeacherRepository.decertifyOnce (the paid re-evaluation de-certificati
     expect(decertifySource().includes("logger")).toBe(false);
     expect(decertifySource().includes("console.")).toBe(false);
     expect(/REQ-\d|DEV2|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(decertifyRepoSource)).toBe(false);
+  });
+});
+
+describe("TeacherRepository.listMatchingCandidates", () => {
+  // ─── Fixtures ────────────────────────────────────────────────────────
+
+  /** Raw stored token payloads an eligible teacher carries (all match the default patterns). */
+  const ELIGIBLE_TOKENS = {
+    recitations: '["hafs_an_asim"]',
+    subjects: '["hifz","tajweed"]',
+    languages: '["english","french"]',
+  } as const;
+
+  /** Fixture override shape — users-row overrides plus shared-PK teacher-row overrides. */
+  interface MatchingFixtureOverrides {
+    user?: Partial<UserSelectType>;
+    teacher?: Partial<TeacherSelectType>;
+  }
+
+  /**
+   * Creates a users row (role=teacher) plus its shared-PK teacher row on an
+   * eligible, ungoverned baseline: online + certified + token payloads that
+   * match the default patterns. Overrides win per field.
+   */
+  async function createMatchingTeacher(tx: DBTransaction, overrides: MatchingFixtureOverrides = {}): Promise<number> {
+    const user = await createTestUser(tx, { role: "teacher", ...overrides.user });
+    await createTeacherRowFixture(tx, user.id, {
+      isOnline: true,
+      ...ELIGIBLE_TOKENS,
+      ...overrides.teacher,
+    });
+    return user.id;
+  }
+
+  /**
+   * Membership probe: captures the pre-fixture baseline, creates ONE
+   * eligible-baseline fixture with overrides, runs the read, and reports
+   * whether the fixture surfaced. Compresses the eligibility matrix to a
+   * few lines per case.
+   */
+  async function probeMembership(
+    tx: DBTransaction,
+    filters: NormalizedTeacherMatchingFilters,
+    overrides: MatchingFixtureOverrides = {}
+  ): Promise<{ included: boolean; baseline: number; total: number }> {
+    const baseline = await baselineTotal(tx, filters);
+    const fixtureId = await createMatchingTeacher(tx, overrides);
+    const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+    return {
+      included: page.rows.some(row => row.id === fixtureId),
+      baseline,
+      total: page.total,
+    };
+  }
+
+  // ─── Tier 1: eligibility matrix (branch/statement) ───────────────────
+
+  test("returns an online, certified, ungoverned teacher whose raw payloads match the patterns", async () => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters());
+
+      expect(probe.included).toBe(true);
+      expect(probe.total).toBe(probe.baseline + 1);
+    });
+  });
+
+  test("surfaces the raw row shape: exactly the nine projected columns, payloads unparsed", async () => {
+    await runInRollback(async tx => {
+      const id = await createMatchingTeacher(tx, { teacher: { averageRating: "4.50" } });
+
+      const page = await TeacherRepository.listMatchingCandidates(matchingFilters(), 100, 0, tx);
+
+      const row = page.rows.find(item => item.id === id);
+      if (!row) throw new Error("expected the eligible fixture row");
+      expect(Object.keys(row).toSorted((a, b) => a.localeCompare(b))).toEqual([
+        "averageRating",
+        "country",
+        "countryCode",
+        "fullName",
+        "id",
+        "isOnline",
+        "languages",
+        "recitations",
+        "subjects",
+      ]);
+      expect(row.recitations).toBe('["hafs_an_asim"]');
+      expect(row.averageRating).toBe("4.50");
+      expect(row.isOnline).toBe(true);
+    });
+  });
+
+  test("excludes an offline teacher (is_online = true is fail-closed: unknown availability is never shown)", async () => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters(), { teacher: { isOnline: false } });
+
+      expect(probe.included).toBe(false);
+      expect(probe.total).toBe(probe.baseline);
+    });
+  });
+
+  test("excludes an uncertified teacher (is_approved = false)", async () => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters(), { teacher: { isApproved: false } });
+
+      expect(probe.included).toBe(false);
+      expect(probe.total).toBe(probe.baseline);
+    });
+  });
+
+  test("excludes an uncertifiable NULL is_approved row (eq(col, true) never admits unknown)", async () => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters(), { teacher: { isApproved: null } });
+
+      expect(probe.included).toBe(false);
+      expect(probe.total).toBe(probe.baseline);
+    });
+  });
+
+  test.each([
+    ["is_deleted", { isDeleted: true }],
+    ["suspended", { suspended: true }],
+    ["is_blocked", { isBlocked: true }],
+  ] as const)("excludes a governed account (%s = true) — IS DISTINCT FROM true", async (_flag, userOverrides) => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters(), { user: userOverrides });
+
+      expect(probe.included).toBe(false);
+      expect(probe.total).toBe(probe.baseline);
+    });
+  });
+
+  test("keeps legacy rows whose governance flags are DB-level NULL (IS DISTINCT FROM, not eq(col, false))", async () => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters(), {
+        user: { isDeleted: null, suspended: null, isBlocked: null },
+      });
+
+      expect(probe.included).toBe(true);
+      expect(probe.total).toBe(probe.baseline + 1);
+    });
+  });
+
+  // ─── Tier 2: in-session exclusion + the compose rule (boundary) ──────
+
+  test("excludes a teacher that owns a started session (bulk NOT EXISTS over session(teacher_id, status))", async () => {
+    await runInRollback(async tx => {
+      const baseline = await baselineTotal(tx, matchingFilters());
+      const teacherId = await createMatchingTeacher(tx);
+      await createTeacherSession(tx, teacherId, SessionStatus.Started);
+
+      const page = await TeacherRepository.listMatchingCandidates(matchingFilters(), 100, 0, tx);
+
+      expect(page.total).toBe(baseline);
+      expect(page.rows.some(row => row.id === teacherId)).toBe(false);
+    });
+  });
+
+  test("excludes a stale-true is_online teacher that owns a started session (compose rule: the flag alone never re-admits)", async () => {
+    await runInRollback(async tx => {
+      const baseline = await baselineTotal(tx, matchingFilters());
+      // The fixture baseline IS is_online = true — the started session is
+      // the only disqualifier, proving the two predicates compose.
+      const teacherId = await createMatchingTeacher(tx, { teacher: { isOnline: true } });
+      await createTeacherSession(tx, teacherId, SessionStatus.Started);
+
+      const page = await TeacherRepository.listMatchingCandidates(matchingFilters(), 100, 0, tx);
+
+      expect(page.total).toBe(baseline);
+      expect(page.rows.some(row => row.id === teacherId)).toBe(false);
+    });
+  });
+
+  test.each([
+    ["scheduled", SessionStatus.Scheduled],
+    ["completed", SessionStatus.Completed],
+  ] as const)(
+    "does not exclude a teacher whose only session is %s (only the started state hides)",
+    async (_label, status) => {
+      await runInRollback(async tx => {
+        const baseline = await baselineTotal(tx, matchingFilters());
+        const teacherId = await createMatchingTeacher(tx);
+        await createTeacherSession(tx, teacherId, status);
+
+        const page = await TeacherRepository.listMatchingCandidates(matchingFilters(), 100, 0, tx);
+
+        expect(page.total).toBe(baseline + 1);
+        expect(page.rows.some(row => row.id === teacherId)).toBe(true);
+      });
+    }
+  );
+
+  // ─── Tier 2: token filters (quoted-token anchors) ────────────────────
+
+  test.each([
+    ['["warsh"]', false],
+    ['["warsh","hafs_an_asim"]', true],
+  ] as const)(
+    "recitation token filter over payload %s (member match, not whole-string)",
+    async (recitations, shouldMatch) => {
+      await runInRollback(async tx => {
+        const probe = await probeMembership(tx, matchingFilters(), { teacher: { recitations } });
+
+        expect(probe.included).toBe(shouldMatch);
+        expect(probe.total).toBe(probe.baseline + (shouldMatch ? 1 : 0));
+      });
+    }
+  );
+
+  test.each([
+    ['["hifz"]', true],
+    ['["tajweed","hifz"]', true],
+    ['["hifz_jadid"]', false],
+    ['["tajweed"]', false],
+  ] as const)(
+    "subject token boundary over payload %s (the quote anchors the exact token)",
+    async (subjects, shouldMatch) => {
+      await runInRollback(async tx => {
+        const probe = await probeMembership(tx, matchingFilters(), { teacher: { subjects } });
+
+        expect(probe.included).toBe(shouldMatch);
+        expect(probe.total).toBe(probe.baseline + (shouldMatch ? 1 : 0));
+      });
+    }
+  );
+
+  test("applies no language predicate when languagePattern is null (empty languages stay eligible)", async () => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters(), { teacher: { languages: null } });
+
+      expect(probe.included).toBe(true);
+      expect(probe.total).toBe(probe.baseline + 1);
+    });
+  });
+
+  test.each([
+    ['["english"]', true],
+    ['["french"]', false],
+    [null, false],
+  ] as const)(
+    "language hard filter over payload %s is fail-closed (unconfirmed fluency never matches)",
+    async (languages, shouldMatch) => {
+      await runInRollback(async tx => {
+        const probe = await probeMembership(tx, matchingFilters({ languagePattern: '%"english"%' }), {
+          teacher: { languages },
+        });
+
+        expect(probe.included).toBe(shouldMatch);
+        expect(probe.total).toBe(probe.baseline + (shouldMatch ? 1 : 0));
+      });
+    }
+  );
+
+  // ─── Tier 4: binding discipline (the repo never builds patterns) ─────
+
+  test("binds the finished pattern verbatim — a raw _ wildcard still matches (escaping is upstream)", async () => {
+    await runInRollback(async tx => {
+      // The UNESCAPED single-char wildcard matches the stored "hifz" token;
+      // a repo that re-escaped or re-wrapped would receive the pattern in
+      // its escaped form and match nothing.
+      const probe = await probeMembership(tx, matchingFilters({ subjectPattern: '%"h_fz"%' }));
+
+      expect(probe.included).toBe(true);
+      expect(probe.total).toBe(probe.baseline + 1);
+    });
+  });
+
+  test("matches a corrupt unclosed JSON payload on its raw tokens (eligibility precedes parsing)", async () => {
+    await runInRollback(async tx => {
+      const probe = await probeMembership(tx, matchingFilters(), {
+        teacher: { recitations: '["hafs_an_asim","hifz"' },
+      });
+
+      expect(probe.included).toBe(true);
+      expect(probe.total).toBe(probe.baseline + 1);
+    });
+  });
+
+  // ─── Tier 1: country tiering (soft, never an exclusion) ──────────────
+
+  test("tiers the same-country teacher ahead of a better-rated foreign teacher (code arm)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ studentCountryCode: "EG" });
+      const baseline = await baselineTotal(tx, filters);
+      const localId = await createMatchingTeacher(tx, {
+        user: { country: "Egypt", countryCode: "EG" },
+        teacher: { averageRating: "3.00" },
+      });
+      const foreignId = await createMatchingTeacher(tx, {
+        user: { country: "Canada", countryCode: "CA" },
+        teacher: { averageRating: "5.00" },
+      });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.total).toBe(baseline + 2);
+      const mine = page.rows.filter(row => row.id === localId || row.id === foreignId);
+      expect(mine.map(row => row.id)).toEqual([localId, foreignId]);
+    });
+  });
+
+  test("falls back to the legacy free-text country, case-insensitively (text arm)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ studentCountryCode: null, studentCountryText: "egypt" });
+      const baseline = await baselineTotal(tx, filters);
+      const localId = await createMatchingTeacher(tx, {
+        user: { country: "Egypt", countryCode: null },
+        teacher: { averageRating: "3.00" },
+      });
+      const foreignId = await createMatchingTeacher(tx, {
+        user: { country: "Canada", countryCode: null },
+        teacher: { averageRating: "5.00" },
+      });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.total).toBe(baseline + 2);
+      const mine = page.rows.filter(row => row.id === localId || row.id === foreignId);
+      expect(mine.map(row => row.id)).toEqual([localId, foreignId]);
+    });
+  });
+
+  test("collapses every candidate into one tier when the caller has neither code nor text (rating order only)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters();
+      const baseline = await baselineTotal(tx, filters);
+      const lowerRatedId = await createMatchingTeacher(tx, { teacher: { averageRating: "3.00" } });
+      const higherRatedId = await createMatchingTeacher(tx, { teacher: { averageRating: "5.00" } });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.total).toBe(baseline + 2);
+      const mine = page.rows.filter(row => row.id === lowerRatedId || row.id === higherRatedId);
+      expect(mine.map(row => row.id)).toEqual([higherRatedId, lowerRatedId]);
+    });
+  });
+
+  test("never excludes by country: a country-less teacher still surfaces in the fallback tier", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ studentCountryCode: "EG" });
+      const baseline = await baselineTotal(tx, filters);
+      const countryLessId = await createMatchingTeacher(tx, {
+        user: { country: null, countryCode: null },
+        teacher: { averageRating: "5.00" },
+      });
+      const localId = await createMatchingTeacher(tx, {
+        user: { country: "Egypt", countryCode: "EG" },
+        teacher: { averageRating: "1.00" },
+      });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.total).toBe(baseline + 2);
+      const mine = page.rows.filter(row => row.id === localId || row.id === countryLessId);
+      expect(mine.map(row => row.id)).toEqual([localId, countryLessId]);
+    });
+  });
+
+  // ─── Tier 2: rating order, NULLS LAST, tiebreak, pagination ──────────
+
+  test("sorts rating DESC within a tier and reads the exact decimal string", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters();
+      const baseline = await baselineTotal(tx, filters);
+      const unratedId = await createMatchingTeacher(tx, { teacher: { averageRating: null } });
+      const midId = await createMatchingTeacher(tx, { teacher: { averageRating: "3.25" } });
+      const topId = await createMatchingTeacher(tx, { teacher: { averageRating: "4.50" } });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.total).toBe(baseline + 3);
+      const mine = page.rows.filter(row => [unratedId, midId, topId].includes(row.id));
+      expect(mine.map(row => row.id)).toEqual([topId, midId, unratedId]);
+      const top = page.rows.find(row => row.id === topId);
+      expect(top?.averageRating).toBe("4.50");
+    });
+  });
+
+  test("sorts unrated teachers AFTER every rated one (NULLS LAST: honest null, not zero)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters();
+      const baseline = await baselineTotal(tx, filters);
+      const unratedId = await createMatchingTeacher(tx, { teacher: { averageRating: null } });
+      const floorRatedId = await createMatchingTeacher(tx, { teacher: { averageRating: "0.00" } });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.total).toBe(baseline + 2);
+      const mine = page.rows.filter(row => row.id === unratedId || row.id === floorRatedId);
+      expect(mine.map(row => row.id)).toEqual([floorRatedId, unratedId]);
+    });
+  });
+
+  test("tiebreaks equal ratings by id DESC (deterministic pagination)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters();
+      const baseline = await baselineTotal(tx, filters);
+      const earlierId = await createMatchingTeacher(tx, { teacher: { averageRating: "4.00" } });
+      const laterId = await createMatchingTeacher(tx, { teacher: { averageRating: "4.00" } });
+      expect(laterId).toBeGreaterThan(earlierId);
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.total).toBe(baseline + 2);
+      const mine = page.rows.filter(row => row.id === earlierId || row.id === laterId);
+      expect(mine.map(row => row.id)).toEqual([laterId, earlierId]);
+    });
+  });
+
+  test("windows the page and keeps the total honest (mid-page and beyond-last)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters();
+      const baseline = await baselineTotal(tx, filters);
+      const createdIds = await Promise.all([0, 1, 2].map(() => createMatchingTeacher(tx)));
+
+      const pageOne = await TeacherRepository.listMatchingCandidates(filters, 2, 0, tx);
+      expect(pageOne.total).toBe(baseline + 3);
+      expect(pageOne.rows.filter(row => createdIds.includes(row.id))).toHaveLength(2);
+
+      const pageTwo = await TeacherRepository.listMatchingCandidates(filters, 2, 2, tx);
+      expect(pageTwo.total).toBe(baseline + 3);
+      expect(pageTwo.rows.filter(row => createdIds.includes(row.id))).toHaveLength(1);
+
+      const beyond = await TeacherRepository.listMatchingCandidates(filters, 2, 10, tx);
+      expect(beyond.rows).toEqual([]);
+      expect(beyond.total).toBe(baseline + 3);
+    });
+  });
+
+  test("returns an empty page with an honest total when nothing satisfies the filters", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ recitationPattern: '%"no_such_token_here"%' });
+      const baseline = await baselineTotal(tx, filters);
+      await createMatchingTeacher(tx);
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.rows).toEqual([]);
+      expect(page.total).toBe(baseline);
+    });
+  });
+
+  // ─── Tier 2: bounds are the caller's contract (error path) ───────────
+
+  test("surfaces the driver error for a negative offset (no silent clamping in the repo)", async () => {
+    await runInRollback(async tx => {
+      await createMatchingTeacher(tx);
+
+      const error = await expectRepoError(() =>
+        TeacherRepository.listMatchingCandidates(matchingFilters(), 10, -1, tx)
+      );
+
+      // Drizzle wraps the failed statement ("Failed query: …"); the driver's
+      // own reason rides the cause chain — the bounds are the caller's
+      // contract and the repo does not clamp them silently.
+      expect(error.message).toContain("Failed query");
+      const cause = error.cause instanceof Error ? error.cause : error;
+      expect(cause.message).toContain("must not be negative");
+    });
+  });
+
+  // ─── Tier 4: static surface pins ─────────────────────────────────────
+
+  const MATCHING_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
+  const matchingRepoSource = readFileSync(MATCHING_REPO_FILE, "utf8");
+
+  /** Reads the source slice that starts at `anchor` and ends at its two-space closing brace. */
+  function sourceSlice(anchor: string, endAnchor?: string): string {
+    const start = matchingRepoSource.indexOf(anchor);
+    const end = endAnchor ?? "\n  }\n";
+    return matchingRepoSource.slice(start, matchingRepoSource.indexOf(end, start));
+  }
+
+  test("source: patterns are bound, never re-escaped or re-wrapped (one escape point at the service)", () => {
+    const chain = sourceSlice("function buildTeacherMatchingFilterChain(", "function buildTeacherMatchingCountryTier(");
+    expect(chain).toContain("ilike(teacher.recitations, filters.recitationPattern)");
+    expect(chain).toContain("ilike(teacher.subjects, filters.subjectPattern)");
+    expect(chain).toContain("ilike(teacher.languages, filters.languagePattern)");
+    expect(matchingRepoSource.includes("escape-like-wildcards")).toBe(false);
+    expect(matchingRepoSource.includes('"%')).toBe(false);
+  });
+
+  test("source: the eligibility chain is online+approved, IS DISTINCT FROM governance, started-session NOT EXISTS", () => {
+    const chain = sourceSlice("function buildTeacherMatchingFilterChain(");
+    expect(chain).toContain("eq(teacher.isOnline, true)");
+    expect(chain).toContain("eq(teacher.isApproved, true)");
+    expect(chain).toContain(`\${users.isDeleted} is distinct from true`);
+    expect(chain).toContain(`\${users.suspended} is distinct from true`);
+    expect(chain).toContain(`\${users.isBlocked} is distinct from true`);
+    expect(chain).toContain(`not exists (select 1 from \${session}`);
+    expect(chain).toContain(`\${SessionStatus.Started}`);
+  });
+
+  test("source: the country tier is a soft case-expression arm per caller shape (code, text, constant)", () => {
+    const tier = sourceSlice("function buildTeacherMatchingCountryTier(", "export namespace TeacherRepository {");
+    expect(tier).toContain(`case when \${users.countryCode} = \${filters.studentCountryCode} then 0 else 1 end`);
+    expect(tier).toContain(
+      `case when lower(\${users.country}) = lower(\${filters.studentCountryText}) then 0 else 1 end`
+    );
+    expect(tier).toContain("1 = 1");
+  });
+
+  test("source: SessionStatus is a VALUE import (runtime predicate), never type-only", () => {
+    expect(
+      matchingRepoSource.includes('import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum"')
+    ).toBe(true);
+    expect(matchingRepoSource.includes("import type { SessionStatus")).toBe(false);
+  });
+
+  test("source: the projection is exactly the nine raw columns; ordering is tier, rating desc nulls last, id desc", () => {
+    const method = sourceSlice("export async function listMatchingCandidates(");
+    for (const column of [
+      "id: teacher.id",
+      "fullName: users.fullName",
+      "country: users.country",
+      "countryCode: users.countryCode",
+      "subjects: teacher.subjects",
+      "recitations: teacher.recitations",
+      "languages: teacher.languages",
+      "averageRating: teacher.averageRating",
+      "isOnline: teacher.isOnline",
+    ]) {
+      expect(method).toContain(column);
+    }
+    expect(method).toContain("desc nulls last");
+    expect(method).toContain("desc(teacher.id)");
+    expect(method).toContain("count(*)::int");
+    expect(method).toContain("tx && isDBTransaction(tx) ? tx : db");
+  });
+
+  test("source: no prepared statements, no i18n, no logger, no console, no plan-artifact references", () => {
+    expect(matchingRepoSource.includes(".prepare(")).toBe(false);
+    expect(matchingRepoSource.includes("sql.placeholder")).toBe(false);
+    expect(matchingRepoSource.includes("getServerTranslations")).toBe(false);
+    expect(matchingRepoSource.includes("logger")).toBe(false);
+    expect(matchingRepoSource.includes("console.")).toBe(false);
+    expect(/REQ-\d|DEV2|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(matchingRepoSource)).toBe(false);
   });
 });

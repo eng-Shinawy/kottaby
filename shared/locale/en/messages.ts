@@ -27,6 +27,7 @@ import { scheduleEn } from "@/shared/locale/en/schedule";
 import { sessionsEn } from "@/shared/locale/en/sessions";
 import { studentOnboardingEn } from "@/shared/locale/en/studentOnboarding";
 import { subscriptionAdminEn } from "@/shared/locale/en/subscriptionAdmin";
+import { teacherDirectoryEn } from "@/shared/locale/en/teacherDirectory";
 import { upNextEn } from "@/shared/locale/en/upNext";
 import { walletEn } from "@/shared/locale/en/wallet";
 import type { Translations } from "@/shared/locale/types/message";
@@ -63,4 +64,5 @@ export const enMessages: Translations = {
   subscriptionAdminTranslations: subscriptionAdminEn,
   studentOnboardingTranslations: studentOnboardingEn,
   availabilityTranslations: availabilityEn,
+  teacherDirectoryTranslations: teacherDirectoryEn,
 };

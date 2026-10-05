@@ -27,6 +27,7 @@ import { scheduleAr } from "@/shared/locale/ar/schedule";
 import { sessionsAr } from "@/shared/locale/ar/sessions";
 import { studentOnboardingAr } from "@/shared/locale/ar/studentOnboarding";
 import { subscriptionAdminAr } from "@/shared/locale/ar/subscriptionAdmin";
+import { teacherDirectoryAr } from "@/shared/locale/ar/teacherDirectory";
 import { upNextAr } from "@/shared/locale/ar/upNext";
 import { walletAr } from "@/shared/locale/ar/wallet";
 import type { Translations } from "@/shared/locale/types/message";
@@ -63,4 +64,5 @@ export const arMessages: Translations = {
   subscriptionAdminTranslations: subscriptionAdminAr,
   studentOnboardingTranslations: studentOnboardingAr,
   availabilityTranslations: availabilityAr,
+  teacherDirectoryTranslations: teacherDirectoryAr,
 };

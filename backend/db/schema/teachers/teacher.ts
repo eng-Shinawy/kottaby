@@ -27,6 +27,22 @@ export const teacher = pgTable(
     averageRating: decimal("average_rating", { precision: 3, scale: 2 }),
     isOnline: boolean("is_online").default(false),
     subjects: varchar("subjects", { length: 255 }),
+    /**
+     * JSON array of RecitationReading values this teacher is certified to
+     * teach (e.g. ["hafs_an_asim"]). varchar(255) JSON-in-varchar — the
+     * `subjects` column pattern; parsed fail-closed (corrupt payload reads
+     * as "no certification" and excludes the teacher from
+     * recitation-filtered matching). No production writer ships with the
+     * matcher; population flows through the certification/profile surface.
+     */
+    recitations: varchar("recitations", { length: 255 }),
+    /**
+     * JSON array of lowercase language tokens the teacher is fluent in
+     * beyond Arabic (e.g. ["english","french"]). Same fail-closed parse
+     * discipline; the language hard-filter applies only to non-Arabic
+     * students.
+     */
+    languages: varchar("languages", { length: 255 }),
     requestPreference: teacherRequestPreference("request_preference").default("queue"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")

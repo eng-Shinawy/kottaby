@@ -47,8 +47,10 @@
  */
 import { and, desc, eq, ilike, or, type SQL, sql } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
+import { session } from "@/backend/db/schema/classes/session";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
+import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import type { DBQueryExecutor, DBTransaction, TeacherSelectType } from "@/backend/types";
 
 /**
@@ -110,6 +112,57 @@ export interface AdminTeacherDirectoryRow {
 }
 
 /**
+ * `NormalizedTeacherMatchingFilters` — repo-internal filter shape for the
+ * student-facing matching read (`listMatchingCandidates`).
+ *
+ * The service layer normalizes the caller's validated browse input into this
+ * structure before calling the repo:
+ *  - `recitationPattern` / `subjectPattern` / `languagePattern` are
+ *    quoted-token LIKE patterns AFTER `escapeLikeWildcards` has been applied
+ *    AND after each has been wrapped as `%…%` — the service is the single
+ *    escape point. The repo binds them directly to `ilike(column, pattern)`
+ *    predicates, never re-escaping or re-wrapping. The quoted-token anchors
+ *    make the match exact-token (the pattern `"hifz"` does not match a
+ *    stored `"hifz_jadid"` member) while still riding the varchar index
+ *    path of a substring scan.
+ *  - `languagePattern` is `null` when no language constraint applies
+ *    (the Arabic-baseline caller browses without a language hard filter) —
+ *    the predicate then drops out of the WHERE chain.
+ *  - `studentCountryCode` / `studentCountryText` drive the soft country
+ *    tiering (code first, legacy free-text fallback, neither → one tier).
+ *    They are ordering inputs ONLY — no country predicate ever excludes a
+ *    row.
+ */
+export interface NormalizedTeacherMatchingFilters {
+  readonly recitationPattern: string;
+  readonly subjectPattern: string;
+  readonly languagePattern: string | null;
+  readonly studentCountryCode: string | null;
+  readonly studentCountryText: string | null;
+}
+
+/**
+ * `TeacherMatchingRowType` — raw DB row shape returned by
+ * `listMatchingCandidates` (teacher INNER JOIN users on the shared PK).
+ * The JSON-in-varchar token payloads, the decimal rating, and the nullable
+ * availability flag preserve their `| null` select types; the projection
+ * layer parses them fail-closed at mapping time. Eligibility was already
+ * decided in SQL against the RAW stored payloads, so a corrupt JSON payload
+ * can narrow what a row DISPLAYS but never re-admit or drop the row here.
+ */
+export interface TeacherMatchingRowType {
+  readonly id: number;
+  readonly fullName: string;
+  readonly country: string | null;
+  readonly countryCode: string | null;
+  readonly subjects: string | null;
+  readonly recitations: string | null;
+  readonly languages: string | null;
+  readonly averageRating: string | null;
+  readonly isOnline: boolean | null;
+}
+
+/**
  * `EvaluationGateRow` — the projection `findForEvaluationGateById` locks
  * and returns: the `teacher` row's certification flags plus the owning
  * `users` account's governance flags. Nullable-with-default schema columns
@@ -157,6 +210,60 @@ function buildTeacherDirectoryFilterChain(filters: NormalizedAdminTeacherFilters
     return conditions[0];
   }
   return and(...conditions) ?? sql`true`;
+}
+
+/**
+ * Builds the ANDed WHERE chain for the matching read — the eligibility
+ * baseline every returned row must satisfy:
+ *  - the teacher is online AND certified (`eq(col, true)` is fail-closed:
+ *    unknown availability is never shown);
+ *  - the owning account is not governed — `is distinct from true` keeps the
+ *    legacy NULL rows that a plain `eq(col, false)` would wrongly drop;
+ *  - the teacher owns NO `session` row in the `started` state — a bulk
+ *    correlated NOT EXISTS, the list-scale equivalent of the per-teacher
+ *    in-session gate (same table, same status value); the composite
+ *    `(teacher_id, status)` index serves it on the hot browse path. It
+ *    composes WITH the online flag rather than trusting it: a row can
+ *    carry a stale-true `is_online` while a session is still running;
+ *  - the recitation and subject quoted-token patterns match (the subject
+ *    vocabulary IS the session-intent vocabulary).
+ * The language predicate joins the chain only when a pattern was resolved;
+ * `null` means no language constraint and leaves the chain unchanged.
+ */
+function buildTeacherMatchingFilterChain(filters: NormalizedTeacherMatchingFilters): SQL {
+  const chain = and(
+    eq(teacher.isOnline, true),
+    eq(teacher.isApproved, true),
+    sql`${users.isDeleted} is distinct from true and ${users.suspended} is distinct from true and ${users.isBlocked} is distinct from true`,
+    ilike(teacher.recitations, filters.recitationPattern),
+    ilike(teacher.subjects, filters.subjectPattern),
+    sql`not exists (select 1 from ${session} where ${session.teacherId} = ${teacher.id} and ${session.status} = ${SessionStatus.Started})`,
+    filters.languagePattern === null ? undefined : ilike(teacher.languages, filters.languagePattern)
+  );
+  return chain ?? sql`true`;
+}
+
+/**
+ * Builds the country tier ordering fragment — a soft 0/1 bucket that sorts
+ * same-country teachers ahead of the rest WITHOUT ever excluding a row:
+ *  - a caller country CODE tier-matches `users.country_code` exactly;
+ *  - legacy free-text falls back to a case-insensitive `country` match;
+ *  - no country on the caller's account puts every candidate in ONE tier.
+ * The tier precedes the rating in the ORDER BY, so a same-country teacher
+ * outranks a better-rated foreign one.
+ *
+ * The no-country arm is a constant EXPRESSION, not a bare integer literal:
+ * PostgreSQL reads a bare integer in ORDER BY as an output-column ordinal
+ * (it would order by the first selected column instead of contributing a
+ * constant tier key).
+ */
+function buildTeacherMatchingCountryTier(filters: NormalizedTeacherMatchingFilters): SQL {
+  if (filters.studentCountryCode !== null) {
+    return sql`case when ${users.countryCode} = ${filters.studentCountryCode} then 0 else 1 end`;
+  }
+  return filters.studentCountryText !== null
+    ? sql`case when lower(${users.country}) = lower(${filters.studentCountryText}) then 0 else 1 end`
+    : sql`1 = 1`;
 }
 
 export namespace TeacherRepository {
@@ -462,6 +569,77 @@ export namespace TeacherRepository {
         .limit(limit)
         .offset(offset),
       (tx ?? db)
+        .select({ count: sql<number>`count(*)::int`.as("count") })
+        .from(teacher)
+        .innerJoin(users, eq(users.id, teacher.id))
+        .where(where),
+    ]);
+    return { rows, total: countRows[0]?.count ?? 0 };
+  }
+
+  /**
+   * Lists the student-facing matching candidates: `teacher` rows INNER
+   * JOINed to their `users` accounts on the shared PK, filtered by the
+   * eligibility + token-filter chain, ordered country-tier first, then by
+   * rating (`desc nulls last` — an unrated teacher sorts after every rated
+   * one in their tier, honest-null rather than zero), tiebroken by
+   * `id DESC` so consecutive pages never duplicate or drop a row inserted
+   * mid-pagination.
+   *
+   * The token patterns arrive already escaped + `%…%`-wrapped from the
+   * service layer and are bound as Drizzle parameters (the service is the
+   * single escape point; this method never re-escapes or re-wraps). The
+   * patterns match the RAW stored payloads — a corrupt JSON payload
+   * narrows eligibility only as far as its raw tokens reach, and payload
+   * parsing stays the projection layer's concern.
+   *
+   * Matching filters are dynamic AND chains of scalar predicates — no
+   * prepared statements (no reuse win, per repo policy), no `inArray`.
+   *
+   * Executor choice mirrors `listDirectory`: the caller's transaction runs
+   * the reads on the caller's executor (same snapshot as any surrounding
+   * writes); absent one, the global handle serves the standalone read. The
+   * file's `isDBTransaction` guard narrows the `DBQueryExecutor` union to
+   * its Drizzle-capable member first (raw pool handles carry no query
+   * builder).
+   *
+   * Runs the page query and the same-filter `count(*)` in one round-trip
+   * pair so the caller can surface an honest `total` — an out-of-range
+   * page yields an empty `rows` array with the unchanged count (never an
+   * error, never clamped results).
+   *
+   * @returns The raw matching rows plus the unfiltered-by-page total (NOT
+   *          the return type — the service layer maps rows →
+   *          `TeacherMatchingItemReturnType`).
+   */
+  export async function listMatchingCandidates(
+    filters: NormalizedTeacherMatchingFilters,
+    limit: number,
+    offset: number,
+    tx?: DBQueryExecutor
+  ): Promise<{ rows: TeacherMatchingRowType[]; total: number }> {
+    const where = buildTeacherMatchingFilterChain(filters);
+    const countryTier = buildTeacherMatchingCountryTier(filters);
+    const [rows, countRows] = await Promise.all([
+      (tx && isDBTransaction(tx) ? tx : db)
+        .select({
+          id: teacher.id,
+          fullName: users.fullName,
+          country: users.country,
+          countryCode: users.countryCode,
+          subjects: teacher.subjects,
+          recitations: teacher.recitations,
+          languages: teacher.languages,
+          averageRating: teacher.averageRating,
+          isOnline: teacher.isOnline,
+        })
+        .from(teacher)
+        .innerJoin(users, eq(users.id, teacher.id))
+        .where(where)
+        .orderBy(sql`${countryTier} asc`, sql`${teacher.averageRating} desc nulls last`, desc(teacher.id))
+        .limit(limit)
+        .offset(offset),
+      (tx && isDBTransaction(tx) ? tx : db)
         .select({ count: sql<number>`count(*)::int`.as("count") })
         .from(teacher)
         .innerJoin(users, eq(users.id, teacher.id))

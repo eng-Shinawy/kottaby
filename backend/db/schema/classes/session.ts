@@ -88,5 +88,6 @@ export const session = pgTable(
     index("session_teacher_id_idx").on(t.teacherId),
     index("session_student_id_idx").on(t.studentId),
     index("session_teacher_id_student_id_idx").on(t.teacherId, t.studentId),
+    index("session_teacher_id_status_idx").on(t.teacherId, t.status),
   ]
 );

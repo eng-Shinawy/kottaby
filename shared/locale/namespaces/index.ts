@@ -29,5 +29,6 @@ export * from "./schedule";
 export * from "./sessions";
 export * from "./studentOnboarding";
 export * from "./subscriptionAdmin";
+export * from "./teacherDirectory";
 export * from "./upNext";
 export * from "./wallet";

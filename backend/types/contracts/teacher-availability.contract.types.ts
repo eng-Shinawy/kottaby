@@ -22,7 +22,7 @@ import type { UserSelectType } from "@/backend/types/users/user.types";
 export type TeacherSubjectsParsed = readonly string[];
 
 /** Matching-input shape: languages from the student side for cross-referencing. */
-type TeacherMatchingLanguagesInput = Pick<StudentSelectType, "primaryLanguage" | "anotherLanguage">;
+export type TeacherMatchingLanguagesInput = Pick<StudentSelectType, "primaryLanguage" | "anotherLanguage">;
 
 export interface TeacherAvailabilitySnapshotContract {
   readonly teacherId: TeacherSelectType["id"];

@@ -27,6 +27,7 @@ import type { ScheduleLabels } from "@/shared/locale/types/schedule";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
 import type { StudentOnboardingLabels } from "@/shared/locale/types/studentOnboarding";
 import type { SubscriptionAdminLabels } from "@/shared/locale/types/subscriptionAdmin";
+import type { TeacherDirectoryLabels } from "@/shared/locale/types/teacherDirectory";
 import type { UpNextLabels } from "@/shared/locale/types/upNext";
 import type { WalletLabels } from "@/shared/locale/types/wallet";
 
@@ -62,4 +63,5 @@ export interface Translations {
   subscriptionAdminTranslations: SubscriptionAdminLabels;
   studentOnboardingTranslations: StudentOnboardingLabels;
   availabilityTranslations: AvailabilityLabels;
+  teacherDirectoryTranslations: TeacherDirectoryLabels;
 }

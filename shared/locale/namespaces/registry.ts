@@ -33,6 +33,7 @@ import { Schedule } from "@/shared/locale/namespaces/schedule";
 import { Sessions } from "@/shared/locale/namespaces/sessions";
 import { StudentOnboarding } from "@/shared/locale/namespaces/studentOnboarding";
 import { SubscriptionAdmin } from "@/shared/locale/namespaces/subscriptionAdmin";
+import { TeacherDirectory } from "@/shared/locale/namespaces/teacherDirectory";
 import { UpNext } from "@/shared/locale/namespaces/upNext";
 import { Wallet } from "@/shared/locale/namespaces/wallet";
 
@@ -67,5 +68,6 @@ export const namespaces = {
   UpNext,
   SubscriptionAdmin,
   StudentOnboarding,
+  TeacherDirectory,
   Wallet,
 } as const;
