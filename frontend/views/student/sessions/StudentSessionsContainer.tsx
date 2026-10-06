@@ -6,6 +6,7 @@ import { type ReactNode, useCallback, useState } from "react";
 import type { SessionStatus } from "@/frontend/graphql/generated/gql/graphql";
 import { myStudentSessionsQueryDocument } from "@/frontend/graphql/sharedDocuments";
 import { StudentDisputeCaseDialog } from "@/frontend/views/student/disputes/StudentDisputeCaseDialog";
+import { SessionDetailsDialog } from "@/frontend/views/student/sessions/SessionDetailsDialog";
 import { SessionStatusFilterChips } from "@/frontend/views/student/sessions/SessionStatusFilterChips";
 import { StudentSessionsBody } from "@/frontend/views/student/sessions/StudentSessionsBody";
 import {
@@ -13,9 +14,10 @@ import {
   StudentSessionsDialogs,
 } from "@/frontend/views/student/sessions/StudentSessionsDialogs";
 import { StudentSessionsNoticeSnackbar } from "@/frontend/views/student/sessions/StudentSessionsNoticeSnackbar";
-import type { SessionRowRole } from "@/frontend/views/student/sessions/sessionRowPresentation";
+import { resolveSessionRowById, type SessionRowRole } from "@/frontend/views/student/sessions/sessionRowPresentation";
 import { resolveStudentDisputeMutationForRow } from "@/frontend/views/student/sessions/studentSessionDisputeMutationForRow";
 import { useMyTeacherEvaluations } from "@/frontend/views/student/sessions/useMyTeacherEvaluations";
+import { useSessionDetailsDialogSlot } from "@/frontend/views/student/sessions/useSessionDetailsDialogSlot";
 import { useStudentSessionCaseDialogSlot } from "@/frontend/views/student/sessions/useStudentSessionCaseDialogSlot";
 import { useStudentSessionDialogSlots } from "@/frontend/views/student/sessions/useStudentSessionDialogSlots";
 import { useStudentSessionMutationArms } from "@/frontend/views/student/sessions/useStudentSessionMutationArms";
@@ -38,7 +40,8 @@ import { Errors, Sessions, useAppTranslation } from "@/shared/locale";
  * book), `useStudentSessionNotices` (row alerts + snackbar notice),
  * `useStudentSessionMutationArms` (the cancel / dispute / rate arms plus
  * the confirm-completion mutation), `useStudentSessionCaseDialogSlot`
- * (the dispute case-dialog session id) and `useMyTeacherEvaluations`
+ * (the dispute case-dialog session id), `useSessionDetailsDialogSlot`
+ * (the read-only details dialog's session id) and `useMyTeacherEvaluations`
  * (the rated-session-id set the Rate gate consumes).
  *
  * Row-role token: this container supplies the shared row slot's
@@ -145,6 +148,13 @@ export function StudentSessionsContainer(): ReactNode {
   // slot shape — the filing participant's mirror of the counterparty read).
   const { caseDialogSessionId, openCaseDialog, closeCaseDialog } = useStudentSessionCaseDialogSlot();
 
+  // Details-dialog slot — the read-only "Session details" affordance's
+  // session id (or `null` when closed). The row payload for the dialog's
+  // band re-reads from THIS surface's settled list payload (the bands are
+  // list-producer territory; `sessionById` stays band-free).
+  const { detailsSessionId, openDetailsDialog, closeDetailsDialog } = useSessionDetailsDialogSlot();
+  const detailsSession = resolveSessionRowById(data?.myStudentSessions.items ?? [], detailsSessionId);
+
   const { cancelArms, disputeArms, rateArms, handleConfirm } = useStudentSessionMutationArms({
     sessionsCopy: t,
     errorsCopy: te,
@@ -180,6 +190,7 @@ export function StudentSessionsContainer(): ReactNode {
         onRate={slots.openRateDialog}
         role={rowRole}
         onCaseIntent={openCaseDialog}
+        onDetailsIntent={openDetailsDialog}
         t={t}
       />
       <StudentSessionsDialogs
@@ -208,6 +219,16 @@ export function StudentSessionsContainer(): ReactNode {
       {caseDialogSessionId !== null ? (
         <StudentDisputeCaseDialog sessionId={caseDialogSessionId} open onClose={closeCaseDialog} />
       ) : null}
+      {/* Read-only details dialog — mounted ONLY for an open slot (the
+          case-dialog mount shape); the query itself is skip-gated while
+          closed. */}
+      <SessionDetailsDialog
+        rowRole={rowRole}
+        open={detailsSessionId !== null}
+        sessionId={detailsSessionId}
+        session={detailsSession}
+        onClose={closeDetailsDialog}
+      />
       <StudentSessionsNoticeSnackbar notice={notices.notice} onDismiss={notices.dismissNotice} />
     </Stack>
   );

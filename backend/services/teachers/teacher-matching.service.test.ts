@@ -70,6 +70,7 @@ import { users } from "@/backend/db/schema/users/users";
 import { createTestStudent, createTestTeacherRow, createTestUser } from "@/backend/db/test/entity-setup";
 import { type DBTransaction, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
+import { TeacherMatchingSort } from "@/backend/enum/teachers/teacher-matching-sort.enum";
 import { escapeLikeWildcards } from "@/backend/lib/db/escape-like-wildcards";
 import { DomainError, NotFoundError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
@@ -175,9 +176,12 @@ function browseInput(
   recitation: RecitationReading,
   intent: SessionIntent.Hifz | SessionIntent.Tajweed,
   page: number | null = null,
-  pageSize: number | null = null
+  pageSize: number | null = null,
+  search: string | null = null,
+  minRating: number | null = null,
+  sort: TeacherMatchingSort = TeacherMatchingSort.RatingDesc
 ): TeacherMatchingSubmitInput {
-  return { recitation, intent, page, pageSize };
+  return { recitation, intent, page, pageSize, search, minRating, sort };
 }
 
 /**
@@ -734,6 +738,273 @@ describe("TeacherMatchingService.browseAvailableTeachers", () => {
     });
   });
 
+  // ─── Tier 1/2: the extended browse choices (search / minRating / sort) ─
+
+  test("a name search builds the PLAIN substring pattern (no JSON quoting) at the single escape point", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const { captured, stop } = captureMatchingFilters();
+      silenceDomainLog();
+
+      await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(HAFS, HIFZ_SUBJECT, null, null, "  Ahmed  "),
+        LOCALE_EN,
+        tx
+      );
+      stop();
+
+      expect(captured).toHaveLength(1);
+      // Trimmed, escaped, %…%-wrapped — and NOT quoted: the display-name
+      // column is a plain varchar, so a substring match is the contract.
+      expect(captured.at(0)?.namePattern).toBe(`%${escapeLikeWildcards("Ahmed")}%`);
+      expect(captured.at(0)?.namePattern?.startsWith('%"')).toBe(false);
+    });
+  });
+
+  test.each([
+    { label: "a % wildcard is matched literally", raw: "50%off" },
+    { label: "a _ wildcard is matched literally", raw: "a_b" },
+    { label: "a backslash is matched literally", raw: "a\\b" },
+  ])("name search: $label", async ({ raw }) => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const { captured, stop } = captureMatchingFilters();
+      silenceDomainLog();
+
+      await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(HAFS, HIFZ_SUBJECT, null, null, raw),
+        LOCALE_EN,
+        tx
+      );
+      stop();
+
+      expect(captured).toHaveLength(1);
+      expect(captured.at(0)?.namePattern).toBe(`%${escapeLikeWildcards(raw)}%`);
+    });
+  });
+
+  test.each([
+    { label: "an empty search means no search", raw: "" },
+    { label: "a whitespace-only search means no search", raw: "   " },
+  ])("name search: $label (null pattern)", async ({ raw }) => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const { captured, stop } = captureMatchingFilters();
+      silenceDomainLog();
+
+      await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(HAFS, HIFZ_SUBJECT, null, null, raw),
+        LOCALE_EN,
+        tx
+      );
+      stop();
+
+      expect(captured.at(0)?.namePattern).toBeNull();
+    });
+  });
+
+  test("a name search over the 80-character cap denies with the localized VALIDATION (pre-DB)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const listSpy = spyOn(TeacherRepository, "listMatchingCandidates");
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        TeacherMatchingService.browseAvailableTeachers(
+          callerId,
+          browseInput(HAFS, HIFZ_SUBJECT, null, null, "x".repeat(81)),
+          LOCALE_EN,
+          tx
+        )
+      );
+
+      expectDomainDenial(error, "VALIDATION", errorsFor(LOCALE_EN).validation);
+      expect(listSpy.mock.calls).toHaveLength(0);
+      listSpy.mockRestore();
+    });
+  });
+
+  test.each([
+    { label: "below the scale floor", raw: -0.5 },
+    { label: "above the scale ceiling", raw: 5.5 },
+    { label: "not a finite number", raw: Number.NaN },
+    { label: "infinite", raw: Number.POSITIVE_INFINITY },
+  ])("minRating $label denies with the localized VALIDATION (pre-DB)", async ({ raw }) => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const listSpy = spyOn(TeacherRepository, "listMatchingCandidates");
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        TeacherMatchingService.browseAvailableTeachers(
+          callerId,
+          browseInput(HAFS, HIFZ_SUBJECT, null, null, null, raw),
+          LOCALE_EN,
+          tx
+        )
+      );
+
+      expectDomainDenial(error, "VALIDATION", errorsFor(LOCALE_EN).validation);
+      expect(listSpy.mock.calls).toHaveLength(0);
+      listSpy.mockRestore();
+    });
+  });
+
+  test("a minRating passthrough rides the filters verbatim (the honest SQL floor)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const { captured, stop } = captureMatchingFilters();
+      silenceDomainLog();
+
+      await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(HAFS, HIFZ_SUBJECT, null, null, null, 4.5),
+        LOCALE_EN,
+        tx
+      );
+      stop();
+
+      expect(captured).toHaveLength(1);
+      expect(captured.at(0)?.minRating).toBe(4.5);
+    });
+  });
+
+  test("an invalid sort token denies with the localized VALIDATION (pre-DB)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const listSpy = spyOn(TeacherRepository, "listMatchingCandidates");
+      silenceDomainLog();
+
+      // Transport-tamper idiom: a runtime string outside the enum member
+      // set must never reach the ordering builder.
+      const error = await expectRepoError(() =>
+        TeacherMatchingService.browseAvailableTeachers(callerId, hostileInput({ sort: "SIDEWAYS" }), LOCALE_EN, tx)
+      );
+
+      expectDomainDenial(error, "VALIDATION", errorsFor(LOCALE_EN).validation);
+      expect(listSpy.mock.calls).toHaveLength(0);
+      listSpy.mockRestore();
+    });
+  });
+
+  test("the sort choice and the GraphQL-default sort passthrough land on the filters", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const { captured, stop } = captureMatchingFilters();
+      silenceDomainLog();
+
+      // The resolver always supplies a sort (the SDL default
+      // `RATING_DESC`) — the service-boundary echo proves the member
+      // flows through; the non-default choice rides verbatim too.
+      await TeacherMatchingService.browseAvailableTeachers(callerId, rareBrowse(), LOCALE_EN, tx);
+      expect(captured.at(0)?.sort).toBe(TeacherMatchingSort.RatingDesc);
+
+      await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(HAFS, HIFZ_SUBJECT, null, null, null, null, TeacherMatchingSort.NameAsc),
+        LOCALE_EN,
+        tx
+      );
+      stop();
+
+      expect(captured).toHaveLength(2);
+      expect(captured.at(1)?.sort).toBe(TeacherMatchingSort.NameAsc);
+    });
+  });
+
+  test("a name search narrows the read by display name (case-insensitive substring, behavioral)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const ahmed = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+      });
+      await tx.update(users).set({ fullName: "Sheikh Ahmed the Patient" }).where(eq(users.id, ahmed));
+      const other = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+      });
+      await tx.update(users).set({ fullName: "Youssef the Swift" }).where(eq(users.id, other));
+
+      const page = await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(RARE_READING, HIFZ_SUBJECT, null, null, "ahmed THE"),
+        LOCALE_EN,
+        tx
+      );
+
+      expect(page.items.map(item => item.id)).toEqual([ahmed]);
+      expect(page.items.map(item => item.id)).not.toContain(other);
+    });
+  });
+
+  test("a minimum-rating floor excludes the unrated and the below-threshold (honest SQL >=, behavioral)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const low = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+        averageRating: "2.50",
+      });
+      const high = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+        averageRating: "4.00",
+      });
+      const unrated = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+        averageRating: null,
+      });
+
+      const page = await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(RARE_READING, HIFZ_SUBJECT, null, null, null, 3),
+        LOCALE_EN,
+        tx
+      );
+
+      expect(page.items.map(item => item.id)).toEqual([high]);
+      expect(page.items.map(item => item.id)).not.toContain(low);
+      expect(page.items.map(item => item.id)).not.toContain(unrated);
+      expect(page.total).toBe(1);
+    });
+  });
+
+  test("a NAME_ASC sort orders the page alphabetically within the tier (behavioral)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const zaki = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+        averageRating: "5.00",
+      });
+      await tx.update(users).set({ fullName: "Zaki" }).where(eq(users.id, zaki));
+      const amir = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+        averageRating: "1.00",
+      });
+      await tx.update(users).set({ fullName: "Amir" }).where(eq(users.id, amir));
+
+      // RATING_DESC: the 5.00-rated Zaki first…
+      const ratedPage = await TeacherMatchingService.browseAvailableTeachers(callerId, rareBrowse(), LOCALE_EN, tx);
+      expect(ratedPage.items.map(item => item.id)).toEqual([zaki, amir]);
+
+      // …NAME_ASC: Amir first, regardless of rating.
+      const namePage = await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(RARE_READING, HIFZ_SUBJECT, null, null, null, null, TeacherMatchingSort.NameAsc),
+        LOCALE_EN,
+        tx
+      );
+      expect(namePage.items.map(item => item.id)).toEqual([amir, zaki]);
+    });
+  });
+
   // ─── Tier 3: chaos — parallel reads + snapshot semantics ─────────────
 
   test(`parallel browses (${PARALLEL_BROWSE_COUNT}× via Promise.allSettled) resolve consistently — the read path is race-free`, async () => {
@@ -858,7 +1129,7 @@ describe("TeacherMatchingService.browseAvailableTeachers", () => {
 
   // ─── Tier 4: security — smuggled fields never reach the query ────────
 
-  test("smuggled id fields on the input are dropped: the filters carry exactly the five whitelisted keys", async () => {
+  test("smuggled id fields on the input are dropped: the filters carry exactly the eight whitelisted keys", async () => {
     await runInRollback(async tx => {
       const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
       const { captured, stop } = captureMatchingFilters();
@@ -875,7 +1146,16 @@ describe("TeacherMatchingService.browseAvailableTeachers", () => {
       expect(captured).toHaveLength(1);
       const filters = captured.at(0);
       expect(new Set(Object.keys(filters ?? {}))).toEqual(
-        new Set(["recitationPattern", "subjectPattern", "languagePattern", "studentCountryCode", "studentCountryText"])
+        new Set([
+          "recitationPattern",
+          "subjectPattern",
+          "languagePattern",
+          "namePattern",
+          "minRating",
+          "sort",
+          "studentCountryCode",
+          "studentCountryText",
+        ])
       );
     });
   });

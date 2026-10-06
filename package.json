@@ -81,13 +81,16 @@
     "sharp"
   ],
   "overrides": {
-    "@graphql-tools/executor-legacy-ws": "^1.1.37",
-    "@graphql-tools/utils": "^12.0.3",
     "@grpc/grpc-js": "1.14.5",
-    "sharp": "^0.35.5",
-    "shell-quote": "^1.12.0",
-    "smol-toml": "^1.9.0",
-    "source-map-js": "^1.2.2"
+    "sharp": "0.35.5",
+    "@graphql-tools/utils": "12.0.3",
+    "@graphql-tools/executor-legacy-ws": "1.1.37",
+    "source-map-js": "1.2.2",
+    "smol-toml": "1.9.0",
+    "shell-quote": "1.11.0",
+    "yaml": "2.8.3",
+    "oxlint": "1.82.0",
+    "oxlint-tsgolint": "7.0.2001"
   },
   "msw": {
     "workerDirectory": [

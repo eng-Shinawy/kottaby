@@ -1,5 +1,5 @@
 {
-  "manifestHash": "49e658cab7d8c03fa53dc881da4f95ca6e66bba60c625525b0058019a496f3c9",
+  "manifestHash": "d10456ad90bdf3edceb6b4f03fd685dbf3e85ca064447b1ef8d09a584576b562",
   "manifest": [
     {
       "file": "10-applicant-outcome-notification.sql",
@@ -12,6 +12,10 @@
     {
       "file": "12-teacher-matching-columns.sql",
       "sha256": "bab38bacbda334fc28a333c9732ae87e8b4cbd99d0d3a2a21935df21867a5e98"
+    },
+    {
+      "file": "13-teacher-was-online-before-lock.sql",
+      "sha256": "7448c6f646766d45c4e872bee47cebd0f2730f31bebf6929bcfd9f151469b788"
     },
     {
       "file": "2-functions.sql",
@@ -77,6 +81,7 @@
     "20260923154213_custom_9-rubric-weakness-area",
     "20260928172738_custom_10-applicant-outcome-notification",
     "20261001045616_custom_11-users-country-code-backfill",
-    "20261005051915_custom_12-teacher-matching-columns"
+    "20261005051915_custom_12-teacher-matching-columns",
+    "20261006173528_custom_13-teacher-was-online-before-lock"
   ]
 }

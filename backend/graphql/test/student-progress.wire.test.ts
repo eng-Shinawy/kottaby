@@ -562,24 +562,12 @@ afterAll(async () => {
 // ─── Happy path: every admitted role reads the same pointer payload ─────────
 
 describe("studentProgress — happy path per role (real pointer payload)", () => {
-  test("the student themself reads the full pointer payload over the wire", async () => {
-    const body = await postDocument(STUDENT_PROGRESS_DOCUMENT, actorByLabel("studentMain").accessToken, {
-      studentId: studentMainId,
-    });
-    expect(body.errors).toBeUndefined();
-    expect(progressPayloadOf(body)).toEqual(expectedPointerPayload());
-  });
-
-  test("the linked teacher reads the IDENTICAL payload (shared-session gate + shared-state visibility)", async () => {
-    const body = await postDocument(STUDENT_PROGRESS_DOCUMENT, actorByLabel("teacherLinked").accessToken, {
-      studentId: studentMainId,
-    });
-    expect(body.errors).toBeUndefined();
-    expect(progressPayloadOf(body)).toEqual(expectedPointerPayload());
-  });
-
-  test("the admin reads the IDENTICAL payload (role scope + service bypass)", async () => {
-    const body = await postDocument(STUDENT_PROGRESS_DOCUMENT, actorByLabel("admin").accessToken, {
+  test.each([
+    ["the student themself reads the full pointer payload over the wire", "studentMain"],
+    ["the linked teacher reads the IDENTICAL payload (shared-session gate + shared-state visibility)", "teacherLinked"],
+    ["the admin reads the IDENTICAL payload (role scope + service bypass)", "admin"],
+  ] as const)("%s", async (_title, actorLabel) => {
+    const body = await postDocument(STUDENT_PROGRESS_DOCUMENT, actorByLabel(actorLabel).accessToken, {
       studentId: studentMainId,
     });
     expect(body.errors).toBeUndefined();

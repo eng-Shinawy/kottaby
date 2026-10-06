@@ -14,6 +14,16 @@
  * (`SELECT ... FOR UPDATE`) and holds it for the duration of the caller's
  * transaction.
  *
+ * The admin directory read (`listDirectory` with its filter-chain builder
+ * and its two directory contracts) follows the same extraction convention
+ * and lives in `teacher.repository.directory.helpers.ts`.
+ *
+ * The student-facing matching read (`listMatchingCandidates` with its
+ * filter-chain / country-tier / ordering builders and its two contracts)
+ * follows the sibling extraction convention and lives in
+ * `teacher.repository.matching.helpers.ts`; the namespace method below is
+ * a one-to-one delegation and the contracts are re-exported verbatim.
+ *
  * Conventions per `backend/db/repo/AGENTS.md`:
  *  - One `namespace` per repository file; the namespace name is the canonical
  *    export `{Entity}Repository`.
@@ -49,18 +59,38 @@
  *  - No business logic, no permission checks, no i18n or logging imports —
  *    the caller decides what `isApproved = false` or a `null` row means.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { db, queryDb } from "@/backend/db";
-import {
-  buildTeacherDirectoryFilterChain,
-  buildTeacherMatchingCountryTier,
-  buildTeacherMatchingFilterChain,
-} from "@/backend/db/repo/teachers/teacher.repository.helpers";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { queryDb } from "@/backend/db";
+import type {
+  AdminTeacherDirectoryRow,
+  NormalizedAdminTeacherFilters,
+} from "@/backend/db/repo/teachers/teacher.repository.directory.helpers";
+import * as teacherRepositoryDirectoryImpl from "@/backend/db/repo/teachers/teacher.repository.directory.helpers";
+import type {
+  NormalizedTeacherMatchingFilters,
+  TeacherMatchingRowType,
+} from "@/backend/db/repo/teachers/teacher.repository.matching.helpers";
+import * as teacherRepositoryMatchingImpl from "@/backend/db/repo/teachers/teacher.repository.matching.helpers";
 import { session } from "@/backend/db/schema/classes/session";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
-import type { DBQueryExecutor, DBTransaction, TeacherSelectType } from "@/backend/types";
+import type {
+  DBQueryExecutor,
+  DBTransaction,
+  TeacherInSessionLockReleaseOutcomeType,
+  TeacherInSessionLockReleaseResultType,
+  TeacherSelectType,
+} from "@/backend/types";
+
+export type {
+  AdminTeacherDirectoryRow,
+  NormalizedAdminTeacherFilters,
+} from "@/backend/db/repo/teachers/teacher.repository.directory.helpers";
+export type {
+  NormalizedTeacherMatchingFilters,
+  TeacherMatchingRowType,
+} from "@/backend/db/repo/teachers/teacher.repository.matching.helpers";
 
 /**
  * Type guard — narrows `DBQueryExecutor` to `DBTransaction`.
@@ -72,103 +102,6 @@ import type { DBQueryExecutor, DBTransaction, TeacherSelectType } from "@/backen
  */
 function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
   return typeof tx === "object" && "select" in tx;
-}
-
-/**
- * `NormalizedAdminTeacherFilters` — repo-internal filter shape for the
- * admin teacher directory listing.
- *
- * The service layer normalizes a transport-shape
- * `AdminTeacherFiltersSubmitInput` into this structure before calling the
- * repo:
- *  - `searchPattern` is the search substring AFTER `escapeLikeWildcards`
- *    has been applied AND after the result has been wrapped as `%…%`.
- *    The repo binds this directly to its `ilike(column, pattern)`
- *    predicates — never re-escaping or re-wrapping (one canonical escape
- *    point at the service, one binding point at the repo).
- *  - `isApproved` / `isOnline` / `isEvaluator` pass through unchanged
- *    (`null` = no constraint — the member drops out of the WHERE chain).
- */
-export interface NormalizedAdminTeacherFilters {
-  readonly searchPattern?: string | null;
-  readonly isApproved?: boolean | null;
-  readonly isOnline?: boolean | null;
-  readonly isEvaluator?: boolean | null;
-}
-
-/**
- * `AdminTeacherDirectoryRow` — raw DB row shape returned by
- * `listDirectory` (users INNER JOIN teacher on the shared PK). The
- * nullable-with-default schema columns preserve their `| null` select
- * types; the service layer null-coalesces the booleans and parses the
- * decimal rating + subjects JSON at projection time.
- */
-export interface AdminTeacherDirectoryRow {
-  readonly id: number;
-  readonly name: string;
-  readonly email: string;
-  readonly phone: string | null;
-  readonly country: string | null;
-  readonly isDeleted: boolean | null;
-  readonly suspended: boolean | null;
-  readonly isBlocked: boolean | null;
-  readonly isApproved: boolean | null;
-  readonly isEvaluator: boolean | null;
-  readonly averageRating: string | null;
-  readonly isOnline: boolean | null;
-  readonly subjects: string | null;
-  readonly createdAt: Date;
-}
-
-/**
- * `NormalizedTeacherMatchingFilters` — repo-internal filter shape for the
- * student-facing matching read (`listMatchingCandidates`).
- *
- * The service layer normalizes the caller's validated browse input into this
- * structure before calling the repo:
- *  - `recitationPattern` / `subjectPattern` / `languagePattern` are
- *    quoted-token LIKE patterns AFTER `escapeLikeWildcards` has been applied
- *    AND after each has been wrapped as `%…%` — the service is the single
- *    escape point. The repo binds them directly to `ilike(column, pattern)`
- *    predicates, never re-escaping or re-wrapping. The quoted-token anchors
- *    make the match exact-token (the pattern `"hifz"` does not match a
- *    stored `"hifz_jadid"` member) while still riding the varchar index
- *    path of a substring scan.
- *  - `languagePattern` is `null` when no language constraint applies
- *    (the Arabic-baseline caller browses without a language hard filter) —
- *    the predicate then drops out of the WHERE chain.
- *  - `studentCountryCode` / `studentCountryText` drive the soft country
- *    tiering (code first, legacy free-text fallback, neither → one tier).
- *    They are ordering inputs ONLY — no country predicate ever excludes a
- *    row.
- */
-export interface NormalizedTeacherMatchingFilters {
-  readonly recitationPattern: string;
-  readonly subjectPattern: string;
-  readonly languagePattern: string | null;
-  readonly studentCountryCode: string | null;
-  readonly studentCountryText: string | null;
-}
-
-/**
- * `TeacherMatchingRowType` — raw DB row shape returned by
- * `listMatchingCandidates` (teacher INNER JOIN users on the shared PK).
- * The JSON-in-varchar token payloads, the decimal rating, and the nullable
- * availability flag preserve their `| null` select types; the projection
- * layer parses them fail-closed at mapping time. Eligibility was already
- * decided in SQL against the RAW stored payloads, so a corrupt JSON payload
- * can narrow what a row DISPLAYS but never re-admit or drop the row here.
- */
-export interface TeacherMatchingRowType {
-  readonly id: number;
-  readonly fullName: string;
-  readonly country: string | null;
-  readonly countryCode: string | null;
-  readonly subjects: string | null;
-  readonly recitations: string | null;
-  readonly languages: string | null;
-  readonly averageRating: string | null;
-  readonly isOnline: boolean | null;
 }
 
 /**
@@ -213,7 +146,8 @@ export namespace TeacherRepository {
               subjects,
               request_preference AS "requestPreference",
               created_at AS "createdAt",
-              updated_at AS "updatedAt"
+              updated_at AS "updatedAt",
+              was_online_before_lock AS "wasOnlineBeforeLock"
        FROM teacher WHERE id = $1 LIMIT 1`,
       [id]
     );
@@ -437,25 +371,13 @@ export namespace TeacherRepository {
   }
 
   /**
-   * Lists the admin teacher directory: `teacher` rows INNER JOINed to their
-   * `users` accounts on the shared PK, filtered by the normalized filter
-   * chain, ordered newest-account-first (deterministic `created_at DESC,
-   * id DESC` so consecutive pages never duplicate or drop a row inserted
-   * mid-pagination).
+   * Lists the admin teacher directory — a one-to-one delegation to the
+   * extracted implementation in `teacher.repository.directory.helpers.ts`
+   * (the sibling-extraction convention; the two directory contracts are
+   * re-exported verbatim from this file).
    *
-   * Directory filters are dynamic AND chains of scalar predicates — no
-   * prepared statements (no reuse win, per repo policy), no `inArray`. The
-   * search pattern arrives already escaped + `%…%`-wrapped from the service
-   * layer and is bound as a Drizzle parameter.
-   *
-   * Runs the page query and the same-filter `count(*)` in one round-trip
-   * pair so the caller can surface an honest `total` — an out-of-range
-   * page yields an empty `rows` array with the unchanged count (never an
-   * error, never clamped results).
-   *
-   * @returns The raw directory rows plus the unfiltered-by-page total (NOT
-   *          the return type — the service layer maps rows →
-   *          `AdminTeacherItemReturnType`).
+   * @returns The raw directory rows plus the unfiltered-by-page total (the
+   *          service layer maps rows → the return type).
    */
   export async function listDirectory(
     filters: NormalizedAdminTeacherFilters,
@@ -463,75 +385,19 @@ export namespace TeacherRepository {
     offset: number,
     tx?: DBTransaction
   ): Promise<{ rows: AdminTeacherDirectoryRow[]; total: number }> {
-    const where = buildTeacherDirectoryFilterChain(filters);
-    const select = {
-      id: users.id,
-      name: users.fullName,
-      email: users.email,
-      phone: users.phone,
-      country: users.country,
-      isDeleted: users.isDeleted,
-      suspended: users.suspended,
-      isBlocked: users.isBlocked,
-      isApproved: teacher.isApproved,
-      isEvaluator: teacher.isEvaluator,
-      averageRating: teacher.averageRating,
-      isOnline: teacher.isOnline,
-      subjects: teacher.subjects,
-      createdAt: users.createdAt,
-    } as const;
-    const [rows, countRows] = await Promise.all([
-      (tx ?? db)
-        .select(select)
-        .from(teacher)
-        .innerJoin(users, eq(users.id, teacher.id))
-        .where(where)
-        .orderBy(desc(users.createdAt), desc(users.id))
-        .limit(limit)
-        .offset(offset),
-      (tx ?? db)
-        .select({ count: sql<number>`count(*)::int`.as("count") })
-        .from(teacher)
-        .innerJoin(users, eq(users.id, teacher.id))
-        .where(where),
-    ]);
-    return { rows, total: countRows[0]?.count ?? 0 };
+    return teacherRepositoryDirectoryImpl.listDirectory(filters, limit, offset, tx);
   }
 
   /**
-   * Lists the student-facing matching candidates: `teacher` rows INNER
-   * JOINed to their `users` accounts on the shared PK, filtered by the
-   * eligibility + token-filter chain, ordered country-tier first, then by
-   * rating (`desc nulls last` — an unrated teacher sorts after every rated
-   * one in their tier, honest-null rather than zero), tiebroken by
-   * `id DESC` so consecutive pages never duplicate or drop a row inserted
-   * mid-pagination.
+   * Lists the student-facing matching candidates — a one-to-one delegation
+   * to the extracted implementation in
+   * `teacher.repository.matching.helpers.ts` (the sibling-extraction
+   * convention: the public surface stays this namespace and the two
+   * matching contracts are re-exported verbatim from this file, so every
+   * public import path is unchanged).
    *
-   * The token patterns arrive already escaped + `%…%`-wrapped from the
-   * service layer and are bound as Drizzle parameters (the service is the
-   * single escape point; this method never re-escapes or re-wraps). The
-   * patterns match the RAW stored payloads — a corrupt JSON payload
-   * narrows eligibility only as far as its raw tokens reach, and payload
-   * parsing stays the projection layer's concern.
-   *
-   * Matching filters are dynamic AND chains of scalar predicates — no
-   * prepared statements (no reuse win, per repo policy), no `inArray`.
-   *
-   * Executor choice mirrors `listDirectory`: the caller's transaction runs
-   * the reads on the caller's executor (same snapshot as any surrounding
-   * writes); absent one, the global handle serves the standalone read. The
-   * file's `isDBTransaction` guard narrows the `DBQueryExecutor` union to
-   * its Drizzle-capable member first (raw pool handles carry no query
-   * builder).
-   *
-   * Runs the page query and the same-filter `count(*)` in one round-trip
-   * pair so the caller can surface an honest `total` — an out-of-range
-   * page yields an empty `rows` array with the unchanged count (never an
-   * error, never clamped results).
-   *
-   * @returns The raw matching rows plus the unfiltered-by-page total (NOT
-   *          the return type — the service layer maps rows →
-   *          `TeacherMatchingItemReturnType`).
+   * @returns The raw matching rows plus the unfiltered-by-page honest
+   *          total (the service layer maps rows → the return type).
    */
   export async function listMatchingCandidates(
     filters: NormalizedTeacherMatchingFilters,
@@ -539,83 +405,301 @@ export namespace TeacherRepository {
     offset: number,
     tx?: DBQueryExecutor
   ): Promise<{ rows: TeacherMatchingRowType[]; total: number }> {
-    const where = buildTeacherMatchingFilterChain(filters);
-    const countryTier = buildTeacherMatchingCountryTier(filters);
-    const [rows, countRows] = await Promise.all([
-      (tx && isDBTransaction(tx) ? tx : db)
-        .select({
-          id: teacher.id,
-          fullName: users.fullName,
-          country: users.country,
-          countryCode: users.countryCode,
-          subjects: teacher.subjects,
-          recitations: teacher.recitations,
-          languages: teacher.languages,
-          averageRating: teacher.averageRating,
-          isOnline: teacher.isOnline,
-        })
-        .from(teacher)
-        .innerJoin(users, eq(users.id, teacher.id))
-        .where(where)
-        .orderBy(sql`${countryTier} asc`, sql`${teacher.averageRating} desc nulls last`, desc(teacher.id))
-        .limit(limit)
-        .offset(offset),
-      (tx && isDBTransaction(tx) ? tx : db)
-        .select({ count: sql<number>`count(*)::int`.as("count") })
-        .from(teacher)
-        .innerJoin(users, eq(users.id, teacher.id))
-        .where(where),
-    ]);
-    return { rows, total: countRows[0]?.count ?? 0 };
+    return teacherRepositoryMatchingImpl.listMatchingCandidates(filters, limit, offset, tx);
   }
 
   /**
    * Writes the teacher's `is_online` flag in one guarded UPDATE — the
    * INV-S6 in-session lock primitive (see
    * `docs/specs/state-machine-invariants.md` §1).
+  /**
+   * Captures the teacher's pre-lock availability intent and applies the
+   * in-session lock in ONE atomic guarded UPDATE — the capture and the lock
+   * are the same statement, so there is no read-then-write window for a
+   * concurrent writer to slip through: concurrent acquires serialize on the
+   * row lock the UPDATE takes, and the row's intent is captured exactly
+   * once.
    *
-   * The write is deliberately UNCONDITIONAL beyond row identity: this
-   * method IS the guarded required-tx `UPDATE … RETURNING` primitive and
-   * nothing more — the SERVICE layer composes WHEN the flag is driven to
-   * `false` (a session start, the lock) or back to `true` (a `started`
-   * exit, the release). Restoration on exit is currently UNCONDITIONAL:
-   * a prior-online capture exists at the start flow (the teacher row read
-   * inside the start transaction), but until the future availability-
-   * toggle work owns the never-resurrect gating, a release restores
-   * availability without consulting it — the known seam documented in
-   * `docs/sessions/session-lifecycle.md` §Concurrency. Certification
-   * plays no part: an uncertified teacher may still go offline.
+   * The statement writes:
+   *  - `was_online_before_lock = COALESCE(was_online_before_lock,
+   *    is_online)` — FIRST-LOCK-WINS capture: a marker already on the row
+   *    (a concurrent session locked this teacher first) is preserved
+   *    verbatim; only a marker-less row records the availability value in
+   *    force right now. Both operands are the row's own pre-update column
+   *    values — no caller-supplied byte participates, and a `NULL`
+   *    `is_online` column captures `NULL` (no availability intent is
+   *    invented for unknown state).
+   *  - `is_online = false` — the lock itself: while it holds, the teacher
+   *    is excluded from availability-driven surfaces.
+   *  - `updated_at = now()`.
    *
-   * The service layer is the ONLY intended caller: this write composes
-   * INSIDE the session lifecycle's own transaction (the same `withTransaction`
-   * that flips the session status), so a rollback of the flow aborts the
-   * lock/release with it — a stale lock without its session transition is
-   * structurally impossible.
+   * A `null` return is the fail-closed miss signal: no `teacher` row exists
+   * for the id and nothing was written — the caller (the session-lifecycle
+   * start transition) must abort its own state change rather than proceed
+   * unlocked. Certification plays no part: an uncertified teacher's row
+   * locks identically.
    *
-   * Parameterized always; no prepared statement (writes are excluded);
-   * no business logic, no permission checks, no i18n or logging imports.
+   * `tx` is REQUIRED (not optional): the capture exists solely inside the
+   * caller's session-lifecycle transaction — it commits or rolls back with
+   * that transaction, never on the global handle.
    *
-   * @param id  The teacher row's id (shared PK with `users.id`) — pinned by
-   *            the session row inside the caller's transaction, never a
-   *            client payload.
-   * @param online  The target flag value (`false` = the INV-S6 lock,
-   *                `true` = the release).
+   * Parameterized always; the id is bound, never concatenated; no prepared
+   * statement (writes are excluded — `docs/drizzle/prepared-statements.md`);
+   * the COALESCE `sql` template references the row's own columns only (no
+   * caller interpolation, no inline comments inside the template).
+   *
+   * @param id  The teacher row's id (shared PK with `users.id`) — derived
+   *            server-side from the session being started, never a client
+   *            payload.
    * @param tx  REQUIRED transaction — the write always joins the caller's
-   *            atomic unit of work (repo write convention; never the global
-   *            handle).
-   * @returns The updated teacher row, or `null` when zero rows matched (an
-   *          unknown id — the service layer maps that to its domain error).
-   *          A redundant same-value write still returns the row (idempotent
-   *          under retry by construction).
+   *            atomic unit of work.
+   * @returns The updated teacher row (post-capture, post-lock), or `null`
+   *          when zero rows matched (unknown id — the caller owns the
+   *          fail-closed semantics).
    */
-  export async function setOnline(id: number, online: boolean, tx: DBTransaction): Promise<TeacherSelectType | null> {
+  export async function acquireInSessionLock(id: number, tx: DBTransaction): Promise<TeacherSelectType | null> {
     const [row] = await tx
       .update(teacher)
       .set({
-        isOnline: online,
+        wasOnlineBeforeLock: sql`COALESCE(${teacher.wasOnlineBeforeLock}, ${teacher.isOnline})`,
+        isOnline: false,
         updatedAt: sql`now()`,
       })
       .where(eq(teacher.id, id))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Restores the teacher's pre-lock availability intent and closes the
+   * in-session lock in ONE atomic guarded UPDATE — the restore-once
+   * counterpart of `acquireInSessionLock`. The guard and the mutation are
+   * the same statement, and the captured intent is restored exactly once:
+   * concurrent releases serialize on the teacher-row `FOR UPDATE` preamble
+   * taken before the probe, whose lock-wait re-evaluates the last-exit
+   * predicate against fresh committed state.
+   *
+   * The release OPENS by acquiring the teacher-row write lock (a `SELECT
+   * ... FOR UPDATE` on the row — the lock the closing UPDATE would take
+   * anyway). The ordering matters: a release whose last-exit probe matches
+   * zero rows writes nothing and therefore takes no row lock of its own, so
+   * without that first lock two terminal exits of the same teacher's two
+   * started sessions could each evaluate the probe against their own
+   * pre-lock snapshot (the other exit's session completion still
+   * un-committed, invisible), BOTH defer, and commit — stranding the lock
+   * (marker set, zero started sessions). Holding the row lock first
+   * serializes the racing releases: the later attempt waits out the earlier
+   * one's transaction and evaluates its probe against the committed state.
+   * The preamble writes NOTHING — a classified no-op still leaves
+   * `is_online`, the marker and `updated_at` untouched.
+   *
+   * The statement writes:
+   *  - `is_online = was_online_before_lock` — the availability value
+   *    captured at lock acquisition is written back verbatim. A `true`
+   *    marker returns the teacher to online; a `false` marker is the
+   *    never-resurrect seed (a teacher who was offline before the session
+   *    stays offline after it). The expression reads the row's own
+   *    pre-update column value — no caller-supplied byte participates.
+   *  - `was_online_before_lock = NULL` — the marker is consumed: the lock
+   *    is closed and any later release attempt degrades to the classified
+   *    no-op outcome.
+   *  - `updated_at = now()`.
+   *
+   * The LAST-EXIT GUARD rides the WHERE clause as a `NOT EXISTS` probe over
+   * the teacher's own `started` sessions: the restore applies only when no
+   * `started` session remains for THIS teacher id. A teacher running
+   * concurrent sessions releases on the final exit only; the probe reads
+   * the caller's transaction snapshot, so the exiting transition's own
+   * session write (already applied inside the same transaction) never
+   * counts against its release. A concurrent exit's session write is
+   * un-committed and therefore invisible to the probe — which is exactly
+   * why the release takes the teacher-row write lock BEFORE the probe
+   * runs: under that lock racing releases serialize, and whichever runs
+   * later re-reads the committed state in which the earlier exit's session
+   * write has landed.
+   *
+   * The preamble's locking read doubles as the existence gate: no
+   * `teacher` row resolves to `null` before the guarded statement runs —
+   * the same fail-closed miss signal (the caller aborts its own state
+   * change rather than proceed). Zero rows from the guarded UPDATE itself
+   * (row present, guard refused) → the miss is classified by ONE adjacent
+   * read on the same executor (the classification is part of this
+   * primitive's contract, so callers never re-implement it):
+   *  - the marker is `NULL` → `no_lock_held` — never started, already
+   *    restored, or a row predating lock tracking; a benign no-op, nothing
+   *    was written;
+   *  - the marker is set → `active_sessions_remain` — a `started` session
+   *    blocked the guard; the lock stays open for the remaining session and
+   *    the restore is deferred to that session's own exit.
+   * The `teacher` carried by a deferred outcome is the row's current state
+   * (unchanged by this call).
+   *
+   * `tx` is REQUIRED (not optional): the release exists solely inside the
+   * caller's session-lifecycle transaction — it commits or rolls back with
+   * that transaction, never on the global handle.
+   *
+   * Parameterized always; the id is bound, never concatenated; no prepared
+   * statement (writes are excluded — `docs/drizzle/prepared-statements.md`);
+   * the `NOT EXISTS` probe names the `session` table and the `SessionStatus`
+   * enum member (never a string literal) and references only the rows' own
+   * columns (no caller interpolation, no inline comments inside templates).
+   *
+   * @param teacherId  The teacher row's id (shared PK with `users.id`) —
+   *                   derived server-side from the exiting session, never a
+   *                   client payload.
+   * @param tx  REQUIRED transaction — the write always joins the caller's
+   *            atomic unit of work.
+   * @returns The classified outcome with the teacher row: `{ outcome:
+   *          "released", teacher }` carrying the post-restore row, the
+   *          deferred `no_lock_held` / `active_sessions_remain` outcomes
+   *          carrying the unchanged row, or `null` when no `teacher` row
+   *          exists for the id (the caller owns the fail-closed semantics).
+   */
+  export async function releaseInSessionLock(
+    teacherId: number,
+    tx: DBTransaction
+  ): Promise<TeacherInSessionLockReleaseResultType | null> {
+    // Serialization preamble: take the teacher-row write lock BEFORE the
+    // last-exit probe. A release whose probe matches zero rows writes
+    // nothing and would otherwise take no row lock of its own, so two
+    // racing terminal exits could each classify a deferred outcome from
+    // their own pre-lock snapshots and strand the lock (marker set, zero
+    // started sessions). Holding the row lock first serializes them: the
+    // later release re-reads the committed state, sees the earlier exit's
+    // session write, and classifies correctly. The read writes nothing, so
+    // classified no-ops still leave the row untouched.
+    const [locked] = await tx.select({ id: teacher.id }).from(teacher).where(eq(teacher.id, teacherId)).for("update");
+    if (!locked) {
+      return null;
+    }
+    const [row] = await tx
+      .update(teacher)
+      .set({
+        isOnline: sql`${teacher.wasOnlineBeforeLock}`,
+        wasOnlineBeforeLock: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(teacher.id, teacherId),
+          isNotNull(teacher.wasOnlineBeforeLock),
+          sql`NOT EXISTS (SELECT 1 FROM ${session} WHERE ${eq(session.teacherId, teacherId)} AND ${eq(session.status, SessionStatus.Started)})`
+        )
+      )
+      .returning();
+    if (row) {
+      return { outcome: "released", teacher: row };
+    }
+    // Cold path only — the guarded statement matched zero rows: ONE read
+    // classifies the miss (no lock held, or a started session deferring
+    // the restore). The hot path never reads before writing.
+    const current = await findById(teacherId, tx);
+    if (!current) {
+      return null;
+    }
+    const outcome: TeacherInSessionLockReleaseOutcomeType =
+      current.wasOnlineBeforeLock === null ? "no_lock_held" : "active_sessions_remain";
+    return { outcome, teacher: current };
+  }
+
+  /**
+   * Writes the teacher's availability intent in ONE guarded UPDATE — the
+   * third writer of the availability trio: `acquireInSessionLock` captures
+   * the pre-lock intent into the marker, `releaseInSessionLock` restores
+   * it, and this writer records the teacher's DELIBERATE availability
+   * decision on top of whatever state the row currently carries (a manual
+   * toggle from the availability surface).
+   *
+   * The statement writes, in BOTH directions:
+   *  - `is_online = $intent` — the toggle itself (false = go offline,
+   *    true = become available).
+   *  - `was_online_before_lock = CASE WHEN was_online_before_lock IS NULL
+   *    THEN NULL ELSE $intent::boolean END` — the marker is respected:
+   *    never minted and never consumed. A marker-less row stays marker-less
+   *    (there is no lock to re-arm, and minting one would corrupt the
+   *    release's no_lock_held classification), while a HELD marker is
+   *    overwritten with the intent value — the in-session toggle IS the
+   *    pre-lock intent now, so the eventual release restores the DELIBERATE
+   *    decision, not a stale capture. The intent param carries an explicit
+   *    boolean cast because a CASE over otherwise-untyped branches resolves
+   *    to text, which does not implicitly assign into the boolean column.
+   *  - `updated_at = now()`.
+   *
+   * The direction guard rides the WHERE clause as ONE predicate bound with
+   * the statement — `($intent = false OR NOT EXISTS (SELECT 1 FROM session
+   * WHERE session.teacher_id = $id AND session.status = 'started'))` — so
+   * the statement text never varies and the predicate is evaluated with
+   * the statement itself. The guard is DEFENSE-IN-DEPTH, not the
+   * serialization: a WHERE predicate cannot by itself serialize a
+   * concurrent session start against this write — the statement only sees
+   * committed session rows as of its own evaluation. Atomic gate-vs-start
+   * serialization is the CALLER's obligation — hold the teacher row lock
+   * (`lockForCertificationCheck`'s `SELECT … FOR UPDATE`) across the
+   * WHOLE toggle transaction, so every other teacher-row writer (a
+   * session start's lock capture included) queues behind it and the
+   * caller's pre-check gates and this statement observe one consistent
+   * ordering:
+   *  - Unavailable (`isOnline = false`): the bound direction short-circuits
+   *    the probe — going offline is always permitted, even mid-session (the
+   *    held marker is re-stamped to `false` so the release cannot resurrect
+   *    availability the teacher explicitly withdrew).
+   *  - Available (`isOnline = true`): the NOT EXISTS leg over the teacher's
+   *    own `started` sessions decides — zero rows on this direction signal
+   *    the guard fired at write time (a `started` session exists) or the
+   *    row vanished; the caller maps that miss to the in-session conflict
+   *    denial.
+   *
+   * A `null` return is the zero-row miss signal; the SERVICE layer owns
+   * the disambiguation and the error mapping (a missing row on the
+   * Unavailable direction, or the race-blocked Available direction — the
+   * caller's preceding in-transaction existence read decides which). The
+   * repo trusts the typed `isOnline` param: boolean type-guarding and
+   * normalization of untrusted input stay in the service layer — this
+   * writer contains no runtime type coercion by design.
+   *
+   * `tx` is REQUIRED (not optional): the write exists solely inside the
+   * caller's transaction — it commits or rolls back with it, never on the
+   * global handle.
+   *
+   * Parameterized always; the id and the intent are bound values, never
+   * concatenated; no prepared statement (writes are excluded —
+   * `docs/drizzle/prepared-statements.md`); the CASE template references
+   * the row's own column and the bound intent, and the Available-direction
+   * probe names the `session` table and the `SessionStatus` enum member
+   * (never a string literal) — no caller interpolation, no inline comments
+   * inside templates.
+   *
+   * @param id  The teacher row's id (shared PK with `users.id`) — resolved
+   *            and authorization-checked by the service layer, never a raw
+   *            client payload.
+   * @param isOnline  The target availability intent (`false` = Unavailable,
+   *                  `true` = Available).
+   * @param tx  REQUIRED transaction — the write always joins the caller's
+   *            atomic unit of work.
+   * @returns The updated teacher row, or `null` when zero rows matched
+   *          (row absent, or the Available-direction guard fired at write
+   *          time — the caller owns the semantics). A redundant
+   *          same-value write still returns the row (idempotent under
+   *          retry by construction).
+   */
+  export async function setAvailabilityIntent(
+    id: number,
+    isOnline: boolean,
+    tx: DBTransaction
+  ): Promise<TeacherSelectType | null> {
+    const [row] = await tx
+      .update(teacher)
+      .set({
+        isOnline,
+        wasOnlineBeforeLock: sql`CASE WHEN ${teacher.wasOnlineBeforeLock} IS NULL THEN NULL ELSE ${isOnline}::boolean END`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(teacher.id, id),
+          sql`(${isOnline} = false OR NOT EXISTS (SELECT 1 FROM ${session} WHERE ${eq(session.teacherId, id)} AND ${eq(session.status, SessionStatus.Started)}))`
+        )
+      )
       .returning();
     return row ?? null;
   }

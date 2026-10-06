@@ -55,6 +55,81 @@
  *    `teacher_average_rating_check` violation (untranslated, savepoint
  *    probe), and static pins assert the guarded REQUIRED-tx write shape.
  *
+ * acquireInSessionLock tier (the capture-and-lock write, runInRollback):
+ *  - Tier 1: an online teacher is captured true and locked (marker true,
+ *    is_online false); an offline teacher seeds the never-resurrect marker
+ *    (false); a missing row returns the fail-closed null.
+ *  - Tier 2: a NULL is_online column captures NULL; a second acquire
+ *    preserves the first marker (first-lock-wins); re-acquiring while the
+ *    marker is set is idempotent.
+ *  - Tier 3: a 20-way same-transaction acquire storm converges to the
+ *    first-captured marker with is_online=false.
+ *  - Tier 4: hostile in-domain ids (0, -1, far-beyond-sequence) are null
+ *    misses writing nothing; ids beyond the integer domain (NaN, 2^53) die
+ *    at the driver's type gate as raw data exceptions (nothing executes),
+ *    and static pins assert the guarded REQUIRED-tx single-statement shape.
+ *
+ * releaseInSessionLock tier (the marker-gated last-exit release,
+ * runInRollback):
+ *  - Tier 1: a true marker restores is_online=true; a false marker keeps
+ *    is_online false (never-resurrect); the marker is consumed to NULL; a
+ *    missing row returns null; one row walks all three outcomes in exact
+ *    sequence (active_sessions_remain → released → no_lock_held).
+ *  - Tier 2: no_lock_held on a NULL marker (including a scheduled row with
+ *    a reschedule-polluted startedAt — the classifier is never read);
+ *    active_sessions_remain while a started row exists; a deferred attempt
+ *    writes NOTHING (flag, marker and the pinned-epoch updated_at intact).
+ *  - Tier 3: two exits race one teacher's final release (exactly one
+ *    "released", one "active_sessions_remain", one restore per the
+ *    ORIGINAL marker); a two-teacher control releases BOTH (no
+ *    cross-teacher interference); a 20-way same-transaction release storm
+ *    converges to exactly one restore.
+ *  - Tier 3 cross-connection races (real PostgreSQL, committed fixtures):
+ *    the double-complete interleave serializes on the release preamble's
+ *    teacher-row lock (exactly one "released" — the both-defer strand
+ *    stays closed, the marker consumed, zero started sessions, and the
+ *    deferred exit's redundancy probe degrades to "no_lock_held"); with
+ *    both completions durable first, the serialized re-read degrades the
+ *    losing release to "no_lock_held".
+ *  - Tier 4: hostile in-domain ids (0, -1, far-beyond-sequence) are null
+ *    misses writing nothing; ids beyond the integer domain (NaN, 2^53) die
+ *    at the driver's type gate as raw data exceptions (nothing executes);
+ *    an EXPLAIN capture pins the NOT EXISTS probe's plan shape (no index
+ *    added); static pins assert the guarded REQUIRED-tx classified shape.
+ *
+ * setAvailabilityIntent tier (the direction-guarded toggle writer,
+ * runInRollback):
+ *  - Tier 1: the Unavailable direction writes is_online=false and leaves a
+ *    NULL marker NULL (the toggle never mints a marker) while overwriting a
+ *    held marker to false (deliberate intent re-arms the restore); a
+ *    missing row is null in BOTH directions.
+ *  - Tier 2: the Available direction succeeds when no started session
+ *    exists and is race-blocked to zero rows (writing NOTHING — flag,
+ *    marker and the pinned-epoch updated_at intact) while one does; the
+ *    marker CASE applies on both directions (a held marker is re-stamped
+ *    with the intent value — true stays true on the Available toggle, false
+ *    stays false on the Unavailable toggle — never consumed).
+ *  - Tier 3: a 20-way sequential rapid-toggle storm within ONE tx
+ *    converges to the LAST toggle's value (no lost update, no minted
+ *    marker); toggle-vs-release interleavings converge to a consistent
+ *    final state in BOTH orders (toggle-first: the deliberate intent
+ *    survives the release; release-first: the restore lands before the
+ *    toggle re-applies the intent without re-minting).
+ *  - Retired-writer migration (the deleted legacy toggle writer's
+ *    surviving cases, re-expressed against this primitive): a redundant
+ *    same-value Available toggle returns the row (idempotent under
+ *    retry); a NULL is_online column writes cleanly in BOTH directions
+ *    (the marker stays NULL); certification plays no part (an unapproved
+ *    row toggles identically); a 25-way cross-connection mixed-toggle
+ *    storm (real PostgreSQL, committed fixture) converges to a total
+ *    boolean with the marker never minted.
+ *  - Tier 4: hostile in-domain ids (0, -1, far-beyond-sequence) are null
+ *    misses writing nothing in both directions; ids beyond the integer
+ *    domain (NaN, 2^53) die at the driver's type gate as raw data
+ *    exceptions (nothing executes); static pins assert the
+ *    direction-guarded REQUIRED-tx shape and that the repo trusts the
+ *    typed boolean (no runtime type coercion — guarding stays in the
+ *    service layer).
  * sweepInactiveOnlineOnce tier (the inactivity auto-offline batch,
  * runInRollback):
  *  - Tier 1: the guarded predicate legs — a stale online teacher is swept;
@@ -84,6 +159,13 @@
  *    one-tier fallback — soft ordering that never excludes a row.
  *  - Ordering + pagination: rating DESC NULLS LAST, id-DESC tiebreak,
  *    honest total across mid-page, beyond-last, and empty pages.
+ *  - Extended browse filters (the post-tier sort choice era): the
+ *    name-search pattern matches the display name case-insensitively with
+ *    `%`/`_` bound literally (the service escapes; the repo binds), the
+ *    minimum-rating floor is the honest SQL `>=` (unrated NULL excluded),
+ *    and the post-tier ordering keys — RATING_DESC byte-identical to the
+ *    legacy order, NAME_ASC alphabetical, NEWEST id-first — always tiered
+ *    first and tiebroken by id DESC.
  *  - Binding discipline + static pins: finished patterns bound verbatim
  *    (a raw `_` wildcard still matches — escaping is upstream), patterns
  *    never re-escaped or re-wrapped, SessionStatus as a VALUE import, and
@@ -93,10 +175,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { TeacherRepository } from "@/backend/db/repo";
 import type { NormalizedTeacherMatchingFilters } from "@/backend/db/repo/teachers/teacher.repository";
+import { session } from "@/backend/db/schema/classes/session";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
 import {
@@ -105,9 +188,11 @@ import {
   createTestSession,
   createTestUser,
 } from "@/backend/db/test/entity-setup";
+import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
-import type { DBTransaction, TeacherSelectType, UserSelectType } from "@/backend/types";
+import { TeacherMatchingSort } from "@/backend/enum/teachers/teacher-matching-sort.enum";
+import type { DBTransaction, SessionInsertType, TeacherSelectType, UserSelectType } from "@/backend/types";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 
 /** How long to observe a supposedly-blocked waiter before concluding it is stuck. */
@@ -149,6 +234,9 @@ function matchingFilters(overrides: Partial<NormalizedTeacherMatchingFilters> = 
     recitationPattern: '%"hafs_an_asim"%',
     subjectPattern: '%"hifz"%',
     languagePattern: null,
+    namePattern: null,
+    minRating: null,
+    sort: TeacherMatchingSort.RatingDesc,
     studentCountryCode: null,
     studentCountryText: null,
     ...overrides,
@@ -161,14 +249,62 @@ async function baselineTotal(tx: DBTransaction, filters: NormalizedTeacherMatchi
   return total;
 }
 
-/** Books a session for the teacher (student leg = a fresh student user, the FK parent). */
-async function createTeacherSession(tx: DBTransaction, teacherId: number, status: SessionStatus): Promise<void> {
-  const student = await createTestUser(tx, { role: "student" });
-  await createTestSession(tx, teacherId, student.id, { status });
-}
-
 /** Teacher rows committed OUTSIDE `runInRollback` (concurrency tier) — hard-deleted in `afterAll`. */
 const committedTeacherUserIds: number[] = [];
+
+/**
+ * Teacher fixtures whose `session` rows (and the bare student `users` rows
+ * behind them) were committed OUTSIDE `runInRollback` for the
+ * cross-connection release races — hard-deleted in `afterAll` (sessions
+ * first: the restrict FKs block deleting a teacher or user that still has
+ * sessions).
+ */
+const committedRaceTeacherUserIds: number[] = [];
+
+/**
+ * Inserts a `session` row for a teacher fixture (the student leg is a bare
+ * `users.id` — every session requires one). `overrides` carries the fixture
+ * variance (e.g. a reschedule-polluted `startedAt` on a scheduled row).
+ */
+async function createTeacherSession(
+  tx: DBTransaction,
+  teacherId: number,
+  status: SessionStatus,
+  overrides: Partial<SessionInsertType> = {}
+): Promise<number> {
+  const student = await createTestUser(tx, { role: "student" });
+  const [row] = await tx
+    .insert(session)
+    .values({ teacherId, studentId: student.id, status, ...overrides })
+    .returning({ id: session.id });
+  if (!row) {
+    throw new Error("createTeacherSession: insert returned no rows");
+  }
+  return row.id;
+}
+
+/**
+ * Sequential-by-recursion toggle storm — fires `count` alternating
+ * `setAvailabilityIntent` calls on ONE teacher row inside the caller's
+ * transaction. Recursion (not a loop) satisfies the `no-await-in-loop`
+ * rule; the single connection serializes the statements behind the row
+ * lock, so no update is lost and the final persisted value is the LAST
+ * toggle's input (returned for the convergence assertion).
+ */
+async function toggleStorm(
+  tx: DBTransaction,
+  teacherId: number,
+  count: number,
+  index = 0,
+  lastInput = false
+): Promise<boolean> {
+  if (index >= count) {
+    return lastInput;
+  }
+  const nextInput = index % 2 === 0;
+  await TeacherRepository.setAvailabilityIntent(teacherId, nextInput, tx);
+  return toggleStorm(tx, teacherId, count, index + 1, nextInput);
+}
 
 /** Commits a teacher fixture outside the rollback tx and registers it for cleanup. */
 async function createCommittedTeacher(isApproved: boolean | null): Promise<number> {
@@ -182,6 +318,21 @@ async function createCommittedTeacher(isApproved: boolean | null): Promise<numbe
 }
 
 afterAll(async () => {
+  // Hard-delete every committed session-race fixture: the student ids are
+  // read off the sessions first, then the sessions go (the restrict FKs
+  // block deleting a teacher or user that still has sessions), then the
+  // bare student users — all before the teacher fixtures below.
+  await Promise.all(
+    committedRaceTeacherUserIds.map(async teacherUserId => {
+      const committedSessions = await db
+        .select({ studentId: session.studentId })
+        .from(session)
+        .where(eq(session.teacherId, teacherUserId));
+      const studentIds = committedSessions.map(row => row.studentId);
+      await db.delete(session).where(eq(session.teacherId, teacherUserId));
+      await Promise.all(studentIds.map(studentId => db.delete(users).where(eq(users.id, studentId))));
+    })
+  );
   // Hard-delete every committed fixture (teacher row first, then its owning
   // user — same direction as the cascade) so nothing leaks across suites.
   await Promise.all(
@@ -191,7 +342,16 @@ afterAll(async () => {
     })
   );
   committedTeacherUserIds.length = 0;
+  committedRaceTeacherUserIds.length = 0;
 });
+
+/**
+ * The page rows limited to the supplied fixture ids, in the read's order.
+ * Module-scope helper (shared by the browse-pipeline suites below).
+ */
+function orderedFixtureIds(rows: readonly { readonly id: number }[], ids: readonly number[]): number[] {
+  return rows.map(row => row.id).filter(id => ids.includes(id));
+}
 
 describe("TeacherRepository.lockForCertificationCheck", () => {
   // ─── Tier 1: branch/statement ───────────────────────────────────────
@@ -409,6 +569,18 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
 
   const REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
   const repoSource = readFileSync(REPO_FILE, "utf8");
+  // The directory + matching reads live in their extraction-convention
+  // helper modules (the namespace method delegates one-to-one); the
+  // interpolation drift pin spans ALL THREE sources as one union.
+  const REPO_DIRECTORY_HELPERS_FILE = join(
+    import.meta.dir,
+    "../../../repo/teachers/teacher.repository.directory.helpers.ts"
+  );
+  const REPO_MATCHING_HELPERS_FILE = join(
+    import.meta.dir,
+    "../../../repo/teachers/teacher.repository.matching.helpers.ts"
+  );
+  const matchingHelpersSource = readFileSync(REPO_MATCHING_HELPERS_FILE, "utf8");
 
   /**
    * The lockForCertificationCheck slice — the injection-surface pin target.
@@ -418,7 +590,7 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
    * Drizzle column references / enum values inside `sql` templates — which
    * renders as bound parameters, not SQL text.
    */
-  function repoLockSource(): string {
+  function lockSource(): string {
     const start = repoSource.indexOf("export async function lockForCertificationCheck(");
     return repoSource.slice(start, repoSource.indexOf("\n  }", start));
   }
@@ -430,7 +602,37 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
     // those reaches the driver as a bound value or a quoted identifier —
     // never a concatenated string.
     expect(repoSource.includes("--")).toBe(false);
-    expect(repoLockSource().includes("${")).toBe(false);
+    // The lock/release/toggle primitives carry the file's ONLY sanctioned
+    // template interpolations — the acquire statement's COALESCE capture
+    // (two column references reading the row's own pre-update values), the
+    // release statement's restore assignment over the row's own marker
+    // column plus the release probe's session table + its teacher_id/status
+    // column references, and the toggle statement's marker CASE (the row's
+    // own marker column + the bound intent value) plus the toggle guard's
+    // bound direction leg + session table + its teacher_id/status column
+    // references — every interpolated byte is row/server-owned; caller
+    // data never interpolates.
+    // plus the inactivity sweep's lock-then-recheck probes (both
+    // statements re-run the same two EXISTS legs — the users-row staleness
+    // probe and the started-session exemption — over Drizzle column
+    // references, the caller-captured cutoff instant rendered as a bound
+    // parameter, and the pinned-ids re-check), and the matching read's
+    // ORDER-BY templates (country tier asc, the
+    // post-tier sort keys — country tier asc + rating desc nulls last +
+    // name asc + the governance DISTINCT-FROM chain columns — Drizzle
+    // column references rendered as bound SQL).
+    const interpolatedFragmentCount = [
+      repoSource,
+      readFileSync(REPO_DIRECTORY_HELPERS_FILE, "utf8"),
+      matchingHelpersSource,
+    ].reduce((sum, source) => sum + source.split("${").length - 1, 0);
+    expect(interpolatedFragmentCount).toBe(49);
+    expect(repoSource.includes(`COALESCE(\${teacher.wasOnlineBeforeLock}, \${teacher.isOnline})`)).toBe(true);
+    // The certification lock read remains a pure bound-parameter read: the
+    // no-interpolation ban is scoped to its slice (the file's other reads
+    // legitimately interpolate Drizzle column references / enum values,
+    // which render as bound parameters, not SQL text).
+    expect(lockSource().includes("${")).toBe(false);
   });
 
   test("source: no prepared statements and no module-level query state", () => {
@@ -462,187 +664,1102 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
   });
 });
 
-/** The setOnline slice of the repository source (the static pin target). */
-function repoSetOnlineSource(): string {
+/** The acquireInSessionLock slice of the repository source (the static pin target). */
+function repoAcquireInSessionLockSource(): string {
   const source = readFileSync(join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts"), "utf8");
-  const start = source.indexOf("export async function setOnline(");
+  const start = source.indexOf("export async function acquireInSessionLock(");
   return source.slice(start, source.indexOf("\n  }", start));
 }
 
-describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
+describe("TeacherRepository.acquireInSessionLock (the capture-and-lock primitive)", () => {
   // ─── Tier 1: branch/statement ───────────────────────────────────────
 
-  test("sets is_online=false on an online teacher (the lock direction)", async () => {
+  test("captures true and locks: an online teacher leaves with marker true and is_online false", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });
       await createTestTeacherRow(tx, user.id, true);
       // The fixture default is isOnline=false; force the online state first.
       await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
 
-      const row = await TeacherRepository.setOnline(user.id, false, tx);
+      const row = await TeacherRepository.acquireInSessionLock(user.id, tx);
 
       expect(row).not.toBeNull();
       if (!row) throw new Error("expected the updated teacher row");
       expect(row.id).toBe(user.id);
+      expect(row.wasOnlineBeforeLock).toBe(true);
       expect(row.isOnline).toBe(false);
       // Independent read-back oracle (same tx — read-your-writes).
       const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
       expect(reread?.isOnline).toBe(false);
     });
   });
 
-  test("sets is_online=true on an offline teacher (the release direction)", async () => {
+  test("captures false and locks: an offline teacher seeds the never-resurrect marker (stays false)", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });
-      await createTestTeacherRow(tx, user.id, true);
+      await createTestTeacherRow(tx, user.id, true); // fixture default: isOnline=false
 
-      const row = await TeacherRepository.setOnline(user.id, true, tx);
+      const row = await TeacherRepository.acquireInSessionLock(user.id, tx);
 
-      expect(row?.isOnline).toBe(true);
+      expect(row).not.toBeNull();
+      expect(row?.wasOnlineBeforeLock).toBe(false);
+      expect(row?.isOnline).toBe(false);
+      // Independent read-back oracle.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.wasOnlineBeforeLock).toBe(false);
+      expect(reread?.isOnline).toBe(false);
     });
   });
 
-  test("the write advances updated_at (now() is re-evaluated per call)", async () => {
+  test("returns null for a missing teacher row (fail-closed — nothing was written)", async () => {
     await runInRollback(async tx => {
-      const user = await createTestUser(tx, { role: "teacher" });
-      // Pin the fixture stamp to the epoch so the refresh is unambiguous:
-      // now() inside this tx is strictly later (PostgreSQL now() returns
-      // transaction-start time, but the epoch predates any real run).
-      await createTeacherRowFixture(tx, user.id, { updatedAt: new Date(0) });
+      const absentId = await absentTeacherId(tx);
 
-      const row = await TeacherRepository.setOnline(user.id, false, tx);
+      const row = await TeacherRepository.acquireInSessionLock(absentId, tx);
 
-      expect(row).not.toBeNull();
-      // Independent read-back oracle — same tx, read-your-writes.
-      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
-      if (!reread) throw new Error("expected the updated teacher row");
-      expect(reread.updatedAt.getTime()).toBeGreaterThan(0);
+      expect(row).toBeNull();
+      // Zero writes: no row appeared for the absent id.
+      const [absent] = await tx.select().from(teacher).where(eq(teacher.id, absentId));
+      expect(absent).toBeUndefined();
     });
   });
 
   // ─── Tier 2: boundary / honest failure ──────────────────────────────
 
-  test("returns null for an unknown teacher id (zero rows matched)", async () => {
-    await runInRollback(async tx => {
-      const absentId = await absentTeacherId(tx);
-      const row = await TeacherRepository.setOnline(absentId, false, tx);
-      expect(row).toBeNull();
-    });
-  });
-
-  test("a redundant same-value write returns the row and changes nothing (idempotent under retry)", async () => {
-    await runInRollback(async tx => {
-      const user = await createTestUser(tx, { role: "teacher" });
-      await createTestTeacherRow(tx, user.id, true);
-      await TeacherRepository.setOnline(user.id, false, tx);
-
-      const again = await TeacherRepository.setOnline(user.id, false, tx);
-
-      expect(again).not.toBeNull();
-      expect(again?.isOnline).toBe(false);
-      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
-      expect(reread?.isOnline).toBe(false);
-    });
-  });
-
-  test("a redundant same-value write returns the row and changes nothing — true→true direction", async () => {
-    await runInRollback(async tx => {
-      const user = await createTestUser(tx, { role: "teacher" });
-      await createTestTeacherRow(tx, user.id, true);
-      // Drive is_online to true first (the fixture default is false).
-      await TeacherRepository.setOnline(user.id, true, tx);
-
-      const again = await TeacherRepository.setOnline(user.id, true, tx);
-
-      expect(again).not.toBeNull();
-      expect(again?.isOnline).toBe(true);
-      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
-      expect(reread?.isOnline).toBe(true);
-    });
-  });
-
-  test("a row forced is_online = NULL → setOnline(true) writes cleanly (null-column coercion)", async () => {
+  test("a row with is_online = NULL captures NULL (COALESCE reads the unknown state verbatim)", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });
       await createTestTeacherRow(tx, user.id, true);
       // Force the column to NULL — the schema permits it (no notNull).
       await tx.update(teacher).set({ isOnline: null }).where(eq(teacher.id, user.id));
 
-      const row = await TeacherRepository.setOnline(user.id, true, tx);
+      const row = await TeacherRepository.acquireInSessionLock(user.id, tx);
+
+      expect(row).not.toBeNull();
+      // The pinned capture semantics: COALESCE over a NULL marker and a
+      // NULL is_online yields NULL — no availability intent is invented
+      // for unknown state — while the lock itself still applies.
+      expect(row?.wasOnlineBeforeLock).toBeNull();
+      expect(row?.isOnline).toBe(false);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+      expect(reread?.isOnline).toBe(false);
+    });
+  });
+
+  test("a second acquire preserves the first marker (first-lock-wins — not clobbered by the now-false is_online)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+
+      const first = await TeacherRepository.acquireInSessionLock(user.id, tx);
+      // Without the COALESCE guard this second acquire would capture the
+      // row's CURRENT is_online (false) and destroy the first capture —
+      // the pinned statement must keep the first marker instead.
+      const second = await TeacherRepository.acquireInSessionLock(user.id, tx);
+
+      expect(first?.wasOnlineBeforeLock).toBe(true);
+      expect(second).not.toBeNull();
+      expect(second?.wasOnlineBeforeLock).toBe(true);
+      expect(second?.isOnline).toBe(false);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
+      expect(reread?.isOnline).toBe(false);
+    });
+  });
+
+  test("re-acquiring while the marker is set is idempotent (same-value write, stable state)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+
+      await TeacherRepository.acquireInSessionLock(user.id, tx);
+      const again = await TeacherRepository.acquireInSessionLock(user.id, tx);
+
+      expect(again).not.toBeNull();
+      expect(again?.wasOnlineBeforeLock).toBe(false);
+      expect(again?.isOnline).toBe(false);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.wasOnlineBeforeLock).toBe(false);
+      expect(reread?.isOnline).toBe(false);
+    });
+  });
+
+  // ─── Tier 3: acquire chaos (concurrent acquires, ONE row, one tx) ───
+
+  test("20-way Promise.allSettled acquire storm on ONE row ⇒ marker = first-captured value, is_online false", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+
+      // Twenty concurrent acquires ride the SAME transaction: the single
+      // connection serializes them behind the row's lock, so the FIRST
+      // statement captures is_online=true and every later statement keeps
+      // it via the COALESCE guard (first-lock-wins).
+      const results = await Promise.allSettled(
+        Array.from({ length: 20 }, () => TeacherRepository.acquireInSessionLock(user.id, tx))
+      );
+
+      const rows = results.map(outcome => {
+        if (outcome.status !== "fulfilled") {
+          throw new Error("expected every racing acquire to resolve without error");
+        }
+        return outcome.value;
+      });
+      expect(rows).toHaveLength(20);
+      // Every statement's RETURNING row reports the SAME first-captured
+      // marker and the locked flag — no acquire clobbered another.
+      for (const row of rows) {
+        expect(row?.wasOnlineBeforeLock).toBe(true);
+        expect(row?.isOnline).toBe(false);
+      }
+
+      // Converged persisted state: marker = the first-captured value.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
+      expect(reread?.isOnline).toBe(false);
+    });
+  });
+
+  // ─── Tier 4: hostile ids ────────────────────────────────────────────
+
+  test("hostile in-domain ids are equality misses — 0, -1, and far-beyond-sequence return null, writing nothing", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentTeacherId(tx);
+      const [before] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+
+      expect(await TeacherRepository.acquireInSessionLock(0, tx)).toBeNull();
+      expect(await TeacherRepository.acquireInSessionLock(-1, tx)).toBeNull();
+      expect(await TeacherRepository.acquireInSessionLock(absentId, tx)).toBeNull();
+
+      // Zero side effects: the row population is unchanged.
+      const [after] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+      expect(after?.count).toBe(before?.count);
+    });
+  });
+
+  test("ids beyond the integer domain fail LOUD at the driver gate — nothing executes, zero side effects", async () => {
+    await runInRollback(async tx => {
+      const [before] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+
+      // NaN cannot parse as an integer: the statement dies at the driver's
+      // type gate as the RAW data exception (untranslated, cause-chained).
+      await tx.execute(sql`savepoint acquire_hostile_nan_probe`);
+      const nanError = await expectRepoError(() => TeacherRepository.acquireInSessionLock(Number.NaN, tx));
+      await tx.execute(sql`rollback to savepoint acquire_hostile_nan_probe`);
+      expect(hasPostgresErrorCode(nanError, "22P02")).toBe(true);
+
+      // 2^53 overflows the id column's int4 domain: the RAW range exception.
+      await tx.execute(sql`savepoint acquire_hostile_overflow_probe`);
+      const overflowError = await expectRepoError(() => TeacherRepository.acquireInSessionLock(2 ** 53, tx));
+      await tx.execute(sql`rollback to savepoint acquire_hostile_overflow_probe`);
+      expect(hasPostgresErrorCode(overflowError, "22003")).toBe(true);
+
+      // Zero side effects: neither failed statement wrote anything.
+      const [after] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+      expect(after?.count).toBe(before?.count);
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  test("source: acquireInSessionLock is a REQUIRED-tx guarded write returning the row or null", () => {
+    const source = repoAcquireInSessionLockSource();
+    expect(source).toContain("export async function acquireInSessionLock(");
+    expect(source).toContain("id: number");
+    expect(source).toContain("tx: DBTransaction");
+    // Required tx — the parameter is not optional (calling without one is
+    // a compile error, the type-level pin).
+    expect(source).not.toContain("tx?:");
+    expect(source).toContain(".returning()");
+    // The pinned capture expression over the row's own columns.
+    expect(source).toContain(`COALESCE(\${teacher.wasOnlineBeforeLock}, \${teacher.isOnline})`);
+    expect(source).toContain("isOnline: false");
+    expect(source).toContain("updatedAt: sql`now()`");
+  });
+
+  test("source: the id reaches the WHERE clause only as a bound parameter; no scan surface, no template comments", () => {
+    const source = repoAcquireInSessionLockSource();
+    expect(source).toContain("eq(teacher.id, id)");
+    expect(source).not.toMatch(/\b(ilike|like)\s*\(/i);
+    expect(source.includes(".prepare(")).toBe(false);
+    // No inline `--` comments inside the sql template (parameter-shift hazard).
+    expect(source.includes("--")).toBe(false);
+  });
+});
+
+describe("TeacherRepository.releaseInSessionLock (the marker-gated last-exit release)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("restores true: a marker of true returns is_online to true and consumes the marker (released)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx);
+
+      const result = await TeacherRepository.releaseInSessionLock(user.id, tx);
+
+      expect(result?.outcome).toBe("released");
+      expect(result?.teacher.id).toBe(user.id);
+      expect(result?.teacher.isOnline).toBe(true);
+      expect(result?.teacher.wasOnlineBeforeLock).toBeNull();
+      // Independent read-back oracle (same tx — read-your-writes).
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("restores false (never-resurrect): a marker of false keeps is_online false and consumes the marker", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true); // fixture default: isOnline=false
+      await TeacherRepository.acquireInSessionLock(user.id, tx); // captures the false intent
+
+      const result = await TeacherRepository.releaseInSessionLock(user.id, tx);
+
+      // The pre-lock intent was offline: the release must NOT resurrect.
+      expect(result?.outcome).toBe("released");
+      expect(result?.teacher.isOnline).toBe(false);
+      expect(result?.teacher.wasOnlineBeforeLock).toBeNull();
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("three-outcome disambiguation exactness: one row walks active_sessions_remain → released → no_lock_held", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx);
+      const sessionAId = await createTeacherSession(tx, user.id, SessionStatus.Started);
+      const sessionBId = await createTeacherSession(tx, user.id, SessionStatus.Started);
+
+      // Session A's exit lands while session B is still started: the
+      // guarded statement matches ZERO rows (the probe sees B) and the
+      // miss classifies as active_sessions_remain — nothing was restored.
+      await tx.delete(session).where(eq(session.id, sessionAId));
+      const deferred = await TeacherRepository.releaseInSessionLock(user.id, tx);
+      expect(deferred?.outcome).toBe("active_sessions_remain");
+      expect(deferred?.teacher.wasOnlineBeforeLock).toBe(true);
+      expect(deferred?.teacher.isOnline).toBe(false);
+
+      // The final exit restores the ORIGINAL pre-lock intent exactly once.
+      await tx.delete(session).where(eq(session.id, sessionBId));
+      const released = await TeacherRepository.releaseInSessionLock(user.id, tx);
+      expect(released?.outcome).toBe("released");
+      expect(released?.teacher.isOnline).toBe(true);
+      expect(released?.teacher.wasOnlineBeforeLock).toBeNull();
+
+      // A redundant attempt is the third outcome: classified, side-effect-free.
+      const redundant = await TeacherRepository.releaseInSessionLock(user.id, tx);
+      expect(redundant?.outcome).toBe("no_lock_held");
+      expect(redundant?.teacher.isOnline).toBe(true);
+      expect(redundant?.teacher.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("returns null for a missing teacher row (fail-closed — nothing was written)", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentTeacherId(tx);
+
+      const result = await TeacherRepository.releaseInSessionLock(absentId, tx);
+
+      expect(result).toBeNull();
+      // Zero writes: no row appeared for the absent id.
+      const [absent] = await tx.select().from(teacher).where(eq(teacher.id, absentId));
+      expect(absent).toBeUndefined();
+    });
+  });
+
+  // ─── Tier 2: boundary / honest failure ──────────────────────────────
+
+  test("no_lock_held on a NULL marker — including a scheduled row with a reschedule-polluted startedAt", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      // Pinned-epoch stamp: if the release wrote ANYTHING, updated_at moves.
+      await createTeacherRowFixture(tx, user.id, { updatedAt: new Date(0) });
+      // The admin-reschedule pollution: a scheduled row stamped with a
+      // non-null startedAt. The release classifier never reads startedAt —
+      // only the marker decides, and the marker is NULL.
+      await createTeacherSession(tx, user.id, SessionStatus.Scheduled, { startedAt: new Date() });
+
+      const result = await TeacherRepository.releaseInSessionLock(user.id, tx);
+
+      expect(result?.outcome).toBe("no_lock_held");
+      expect(result?.teacher.id).toBe(user.id);
+      // No-op writes NOTHING: flag, marker and the pinned stamp are intact.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+      expect(reread?.updatedAt.getTime()).toBe(0);
+    });
+  });
+
+  test("active_sessions_remain while a started session exists — and the deferred attempt writes NOTHING", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      // The exact post-acquire persisted state, seeded directly so the
+      // updated_at stamp stays pinned to the epoch for the no-op proof.
+      await createTeacherRowFixture(tx, user.id, { wasOnlineBeforeLock: true, updatedAt: new Date(0) });
+      await createTeacherSession(tx, user.id, SessionStatus.Started);
+
+      const result = await TeacherRepository.releaseInSessionLock(user.id, tx);
+
+      expect(result?.outcome).toBe("active_sessions_remain");
+      expect(result?.teacher.isOnline).toBe(false);
+      expect(result?.teacher.wasOnlineBeforeLock).toBe(true);
+      // The deferred path restored NOTHING: marker still set, is_online
+      // still false, updated_at still the pinned epoch.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
+      expect(reread?.updatedAt.getTime()).toBe(0);
+    });
+  });
+
+  // ─── Tier 3: concurrency (racing exits, cross-teacher control, storm)
+
+  test("two exits race one teacher's final release: exactly one released, one active_sessions_remain, ONE restore", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx);
+      const sessionAId = await createTeacherSession(tx, user.id, SessionStatus.Started);
+      const sessionBId = await createTeacherSession(tx, user.id, SessionStatus.Started);
+
+      // Two terminal exits race under Promise.allSettled (each exit: its
+      // own session transition, then the release attempt). The gate holds
+      // the second transition until the first release attempt has RUN —
+      // the overlapping-exits interleaving: the first attempt must see the
+      // other session still started and defer; the final attempt restores
+      // the ORIGINAL captured intent exactly once. Nothing blocks the
+      // single connection while the gate is open (pure JS wait).
+      const finalExitMayLand = createGate();
+      const settled = await Promise.allSettled([
+        (async () => {
+          await tx.delete(session).where(eq(session.id, sessionAId));
+          const deferred = await TeacherRepository.releaseInSessionLock(user.id, tx);
+          finalExitMayLand.open();
+          return deferred;
+        })(),
+        (async () => {
+          await finalExitMayLand.promise;
+          await tx.delete(session).where(eq(session.id, sessionBId));
+          return TeacherRepository.releaseInSessionLock(user.id, tx);
+        })(),
+      ]);
+
+      const outcomes = settled.map(entry => {
+        if (entry.status !== "fulfilled") {
+          throw new Error("expected both racing exits to resolve without error");
+        }
+        return entry.value?.outcome;
+      });
+      expect(outcomes).toStrictEqual(["active_sessions_remain", "released"]);
+      // Converged state: one restore, per the ORIGINAL pre-lock intent.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("two teachers racing their own releases BOTH restore (no cross-teacher interference)", async () => {
+    await runInRollback(async tx => {
+      const onlineTeacher = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, onlineTeacher.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, onlineTeacher.id));
+      const offlineTeacher = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, offlineTeacher.id, true); // default isOnline=false
+      // Sequential fixture setup on the ONE transaction (each acquire +
+      // started session is a statement on the same connection — the two
+      // teachers' locked states are independent, so no interleaving is
+      // modeled here; the releases below are the racing part).
+      await TeacherRepository.acquireInSessionLock(onlineTeacher.id, tx);
+      await createTeacherSession(tx, onlineTeacher.id, SessionStatus.Started);
+      await TeacherRepository.acquireInSessionLock(offlineTeacher.id, tx);
+      await createTeacherSession(tx, offlineTeacher.id, SessionStatus.Started);
+      // Both exits land first (each teacher's own probe is teacher_id-
+      // scoped), then the two releases race — order-independent.
+      await tx.delete(session).where(eq(session.teacherId, onlineTeacher.id));
+      await tx.delete(session).where(eq(session.teacherId, offlineTeacher.id));
+
+      const settled = await Promise.allSettled([
+        TeacherRepository.releaseInSessionLock(onlineTeacher.id, tx),
+        TeacherRepository.releaseInSessionLock(offlineTeacher.id, tx),
+      ]);
+      const results = settled.map(entry => {
+        if (entry.status !== "fulfilled") {
+          throw new Error("expected both racing releases to resolve without error");
+        }
+        return entry.value;
+      });
+      // BOTH release — each teacher restores its OWN pre-lock intent.
+      expect(results.map(result => result?.outcome)).toStrictEqual(["released", "released"]);
+      const [onlineRow] = await tx.select().from(teacher).where(eq(teacher.id, onlineTeacher.id));
+      const [offlineRow] = await tx.select().from(teacher).where(eq(teacher.id, offlineTeacher.id));
+      expect(onlineRow?.isOnline).toBe(true);
+      expect(onlineRow?.wasOnlineBeforeLock).toBeNull();
+      expect(offlineRow?.isOnline).toBe(false);
+      expect(offlineRow?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("20-way Promise.allSettled release storm on ONE row ⇒ exactly one released, nineteen classified no-ops", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx);
+
+      // Twenty concurrent releases ride the SAME transaction (no started
+      // rows remain, so none is deferred): the single connection serializes
+      // them behind the row's lock — the FIRST release restores the
+      // captured intent and consumes the marker; every later release
+      // degrades to the classified no-op. The storm pins restore-ONCE.
+      const results = await Promise.allSettled(
+        Array.from({ length: 20 }, () => TeacherRepository.releaseInSessionLock(user.id, tx))
+      );
+
+      const outcomes = results.map(entry => {
+        if (entry.status !== "fulfilled") {
+          throw new Error("expected every racing release to resolve without error");
+        }
+        return entry.value?.outcome;
+      });
+      expect(outcomes.filter(outcome => outcome === "released")).toHaveLength(1);
+      expect(outcomes.filter(outcome => outcome === "no_lock_held")).toHaveLength(19);
+      expect(outcomes.filter(outcome => outcome === "active_sessions_remain")).toHaveLength(0);
+      // Converged persisted state: restored exactly once, marker consumed.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  // ─── Tier 3: cross-connection racing releases (real PostgreSQL) ──────
+  // The racing releases serialize on a REAL row lock held across
+  // independent connections (PGlite is single-connection WASM and cannot
+  // observe cross-transaction lock waits); the committed fixtures are
+  // hard-deleted in `afterAll`.
+  const testOnRealPostgres = isPgliteProvider() ? test.skip : test;
+
+  testOnRealPostgres(
+    "double-complete interleave across two connections: exactly ONE release (the both-defer strand is closed)",
+    async () => {
+      const teacherUserId = await createCommittedTeacher(true);
+      committedRaceTeacherUserIds.push(teacherUserId);
+      // Committed in-session state: online teacher locked (marker true,
+      // is_online false) with TWO started sessions — two concurrent
+      // terminal exits about to race their releases.
+      const [sessionAId, sessionBId] = await db.transaction(async txSetup => {
+        await txSetup.update(teacher).set({ isOnline: true }).where(eq(teacher.id, teacherUserId));
+        await TeacherRepository.acquireInSessionLock(teacherUserId, txSetup);
+        const startedSessionA = await createTeacherSession(txSetup, teacherUserId, SessionStatus.Started);
+        const startedSessionB = await createTeacherSession(txSetup, teacherUserId, SessionStatus.Started);
+        return [startedSessionA, startedSessionB] as const;
+      });
+
+      // The double-complete interleave, mirrored exactly: each connection
+      // completes its OWN started row, BOTH completions land un-committed
+      // before either release starts (the two-gate barrier), and the two
+      // releases then race.
+      const exitACompleted = createGate();
+      const exitBCompleted = createGate();
+      const settled = await Promise.allSettled([
+        db.transaction(async txExitA => {
+          await txExitA.update(session).set({ status: SessionStatus.Completed }).where(eq(session.id, sessionAId));
+          exitACompleted.open();
+          await exitBCompleted.promise;
+          return TeacherRepository.releaseInSessionLock(teacherUserId, txExitA);
+        }),
+        db.transaction(async txExitB => {
+          await txExitB.update(session).set({ status: SessionStatus.Completed }).where(eq(session.id, sessionBId));
+          exitBCompleted.open();
+          await exitACompleted.promise;
+          return TeacherRepository.releaseInSessionLock(teacherUserId, txExitB);
+        }),
+      ]);
+
+      const outcomes = settled.map(entry => {
+        if (entry.status !== "fulfilled") {
+          throw new Error("expected both racing exits to resolve without error");
+        }
+        return entry.value?.outcome;
+      });
+      // Exactly ONE exit restores the lock: the serialization preamble
+      // takes the teacher-row write lock BEFORE the last-exit probe, so the
+      // later release re-reads the committed state (the earlier exit's
+      // completion now visible) instead of deferring on its own pre-lock
+      // snapshot. Without that serialization BOTH exits see the other's
+      // un-committed completion, BOTH defer, and the lock strands (marker
+      // set, zero started sessions).
+      expect(outcomes.filter(outcome => outcome === "released")).toHaveLength(1);
+      expect(outcomes.filter(outcome => outcome === "active_sessions_remain")).toHaveLength(1);
+      expect(outcomes.filter(outcome => outcome === "no_lock_held")).toHaveLength(0);
+
+      // Converged committed state: the ORIGINAL pre-lock intent restored,
+      // the marker consumed, zero started sessions — the strand is closed.
+      const [finalRow] = await db.select().from(teacher).where(eq(teacher.id, teacherUserId));
+      expect(finalRow?.isOnline).toBe(true);
+      expect(finalRow?.wasOnlineBeforeLock).toBeNull();
+      const [startedLeft] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(session)
+        .where(and(eq(session.teacherId, teacherUserId), eq(session.status, SessionStatus.Started)));
+      expect(startedLeft?.count).toBe(0);
+
+      // The redundancy probe the deferred exit promised: the marker is now
+      // NULL, so a further cross-connection release is the classified
+      // no-lock-held no-op.
+      const redundant = await db.transaction(txProbe => TeacherRepository.releaseInSessionLock(teacherUserId, txProbe));
+      expect(redundant?.outcome).toBe("no_lock_held");
+    }
+  );
+
+  testOnRealPostgres(
+    "releases race after both exits committed: one released, the serialized re-read degrades to no_lock_held",
+    async () => {
+      const teacherUserId = await createCommittedTeacher(true);
+      committedRaceTeacherUserIds.push(teacherUserId);
+      const [sessionAId, sessionBId] = await db.transaction(async txSetup => {
+        await txSetup.update(teacher).set({ isOnline: true }).where(eq(teacher.id, teacherUserId));
+        await TeacherRepository.acquireInSessionLock(teacherUserId, txSetup);
+        const startedSessionA = await createTeacherSession(txSetup, teacherUserId, SessionStatus.Started);
+        const startedSessionB = await createTeacherSession(txSetup, teacherUserId, SessionStatus.Started);
+        return [startedSessionA, startedSessionB] as const;
+      });
+
+      // Each terminal exit completes its own started row on its OWN
+      // connection (both completions committed and durable), then two fresh
+      // connections race the release itself.
+      await db.transaction(async txExitA => {
+        await txExitA.update(session).set({ status: SessionStatus.Completed }).where(eq(session.id, sessionAId));
+      });
+      await db.transaction(async txExitB => {
+        await txExitB.update(session).set({ status: SessionStatus.Completed }).where(eq(session.id, sessionBId));
+      });
+
+      const settled = await Promise.allSettled([
+        db.transaction(txReleaseA => TeacherRepository.releaseInSessionLock(teacherUserId, txReleaseA)),
+        db.transaction(txReleaseB => TeacherRepository.releaseInSessionLock(teacherUserId, txReleaseB)),
+      ]);
+
+      const outcomes = settled.map(entry => {
+        if (entry.status !== "fulfilled") {
+          throw new Error("expected both racing releases to resolve without error");
+        }
+        return entry.value?.outcome;
+      });
+      // The winner restores per the ORIGINAL pre-lock intent; the loser's
+      // preamble waits out the winner's transaction, and its re-read finds
+      // the marker NULL — the classified no-lock-held no-op.
+      expect(outcomes.filter(outcome => outcome === "released")).toHaveLength(1);
+      expect(outcomes.filter(outcome => outcome === "no_lock_held")).toHaveLength(1);
+      expect(outcomes.filter(outcome => outcome === "active_sessions_remain")).toHaveLength(0);
+
+      // Converged committed state: one restore, marker consumed, zero
+      // started sessions.
+      const [finalRow] = await db.select().from(teacher).where(eq(teacher.id, teacherUserId));
+      expect(finalRow?.isOnline).toBe(true);
+      expect(finalRow?.wasOnlineBeforeLock).toBeNull();
+      const [startedLeft] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(session)
+        .where(and(eq(session.teacherId, teacherUserId), eq(session.status, SessionStatus.Started)));
+      expect(startedLeft?.count).toBe(0);
+    }
+  );
+
+  // ─── Tier 4: hostile ids + plan capture ─────────────────────────────
+
+  test("hostile in-domain ids are equality misses — 0, -1, and far-beyond-sequence return null, writing nothing", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentTeacherId(tx);
+      const [before] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+
+      expect(await TeacherRepository.releaseInSessionLock(0, tx)).toBeNull();
+      expect(await TeacherRepository.releaseInSessionLock(-1, tx)).toBeNull();
+      expect(await TeacherRepository.releaseInSessionLock(absentId, tx)).toBeNull();
+
+      // Zero side effects: the row population is unchanged.
+      const [after] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+      expect(after?.count).toBe(before?.count);
+    });
+  });
+
+  test("ids beyond the integer domain fail LOUD at the driver gate — nothing executes, zero side effects", async () => {
+    await runInRollback(async tx => {
+      const [before] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+
+      // NaN cannot parse as an integer: the guarded statement dies at the
+      // driver's type gate as the RAW data exception (untranslated,
+      // cause-chained) — the disambiguation read never runs.
+      await tx.execute(sql`savepoint release_hostile_nan_probe`);
+      const nanError = await expectRepoError(() => TeacherRepository.releaseInSessionLock(Number.NaN, tx));
+      await tx.execute(sql`rollback to savepoint release_hostile_nan_probe`);
+      expect(hasPostgresErrorCode(nanError, "22P02")).toBe(true);
+
+      // 2^53 overflows the id column's int4 domain: the RAW range exception.
+      await tx.execute(sql`savepoint release_hostile_overflow_probe`);
+      const overflowError = await expectRepoError(() => TeacherRepository.releaseInSessionLock(2 ** 53, tx));
+      await tx.execute(sql`rollback to savepoint release_hostile_overflow_probe`);
+      expect(hasPostgresErrorCode(overflowError, "22003")).toBe(true);
+
+      // Zero side effects: neither failed statement wrote anything.
+      const [after] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+      expect(after?.count).toBe(before?.count);
+    });
+  });
+
+  test("EXPLAIN capture: the last-exit probe plans as a teacher-row-guarded NOT EXISTS over session (no index added)", async () => {
+    await runInRollback(async tx => {
+      // The guard-shaped read the release's WHERE clause evaluates: the
+      // marker predicate on the locked teacher row plus the NOT EXISTS
+      // probe over that teacher's own started sessions. EXPLAIN executes
+      // nothing — a pure plan capture (no index added; the plan text is
+      // asserted, the cost summary is recorded in the task outcome).
+      const explained = await tx.execute<{ "QUERY PLAN": string }>(sql`
+        EXPLAIN SELECT 1
+        FROM teacher
+        WHERE teacher.id = ${1}
+          AND teacher.was_online_before_lock IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM session
+            WHERE session.teacher_id = ${1} AND session.status = ${SessionStatus.Started}
+          )
+      `);
+      const plan = explained.rows.map(row => row["QUERY PLAN"]).join("\n");
+      expect(plan).toContain("cost=");
+      expect(plan.toLowerCase()).toContain("session");
+      expect(plan.toLowerCase()).toContain("was_online_before_lock");
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  const RELEASE_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
+  const releaseRepoSource = readFileSync(RELEASE_REPO_FILE, "utf8");
+
+  /** The releaseInSessionLock slice of the repository source (the static pin target). */
+  function repoReleaseInSessionLockSource(): string {
+    const start = releaseRepoSource.indexOf("export async function releaseInSessionLock(");
+    return releaseRepoSource.slice(start, releaseRepoSource.indexOf("\n  }", start));
+  }
+
+  test("source: releaseInSessionLock is a REQUIRED-tx guarded write returning the classified outcome", () => {
+    const source = repoReleaseInSessionLockSource();
+    expect(source).toContain("export async function releaseInSessionLock(");
+    expect(source).toContain("teacherId: number");
+    expect(source).toContain("tx: DBTransaction");
+    // Required tx — the parameter is not optional (calling without one is
+    // a compile error, the type-level pin).
+    expect(source).not.toContain("tx?:");
+    expect(source).toContain(".returning()");
+    // The pinned restore assignment over the row's own pre-update marker.
+    expect(source).toContain(`isOnline: sql\`\${teacher.wasOnlineBeforeLock}\``);
+    expect(source).toContain("wasOnlineBeforeLock: null");
+    expect(source).toContain("updatedAt: sql`now()`");
+    // The last-exit guard rides the WHERE clause (marker + NOT EXISTS probe).
+    expect(source).toContain("isNotNull(teacher.wasOnlineBeforeLock)");
+    // The cold-path disambiguation: ONE adjacent read classifies the miss
+    // into exactly the three outcome members (+ the null miss signal).
+    expect(source).toContain("findById(teacherId, tx)");
+    expect(source).toContain('"released"');
+    expect(source).toContain('"no_lock_held"');
+    expect(source).toContain('"active_sessions_remain"');
+  });
+
+  test("source: bound id, value-imported SessionStatus, no scan surface, no template comments", () => {
+    const source = repoReleaseInSessionLockSource();
+    expect(source).toContain("eq(teacher.id, teacherId)");
+    expect(source).toContain("eq(session.teacherId, teacherId)");
+    expect(source).toContain(
+      `NOT EXISTS (SELECT 1 FROM \${session} WHERE \${eq(session.teacherId, teacherId)} AND \${eq(session.status, SessionStatus.Started)})`
+    );
+    // The status predicate rides the enum member, never a string literal.
+    expect(source).toContain("eq(session.status, SessionStatus.Started)");
+    expect(source).not.toMatch(/\b(ilike|like)\s*\(/i);
+    expect(source.includes(".prepare(")).toBe(false);
+    expect(source.includes("--")).toBe(false);
+    // The enum is a VALUE import at the file level (it binds as a statement
+    // parameter) — never a type-only import.
+    expect(releaseRepoSource).toContain(
+      'import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";'
+    );
+    expect(releaseRepoSource.includes("import type { SessionStatus")).toBe(false);
+  });
+});
+
+/** The setAvailabilityIntent slice of the repository source (the static pin target). */
+function repoSetAvailabilityIntentSource(): string {
+  const source = readFileSync(join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts"), "utf8");
+  const start = source.indexOf("export async function setAvailabilityIntent(");
+  return source.slice(start, source.indexOf("\n  }", start));
+}
+
+describe("TeacherRepository.setAvailabilityIntent (the direction-guarded toggle writer)", () => {
+  // ─── Tier 1: branch/statement ───────────────────────────────────────
+
+  test("Unavailable direction writes false and leaves a NULL marker NULL (the toggle never mints a marker)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      // Seeded online WITHOUT a marker: a plain availability toggle on an
+      // unlocked row must not fabricate lock bookkeeping.
+      await createTeacherRowFixture(tx, user.id, { isOnline: true });
+
+      const row = await TeacherRepository.setAvailabilityIntent(user.id, false, tx);
+
+      expect(row).not.toBeNull();
+      if (!row) throw new Error("expected the updated teacher row");
+      expect(row.id).toBe(user.id);
+      expect(row.isOnline).toBe(false);
+      expect(row.wasOnlineBeforeLock).toBeNull();
+      // Independent read-back oracle (same tx — read-your-writes).
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("Unavailable direction overwrites a HELD marker to false (deliberate intent re-arms the restore)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx); // marker=true, is_online=false
+
+      const row = await TeacherRepository.setAvailabilityIntent(user.id, false, tx);
+
+      expect(row).not.toBeNull();
+      // The in-session toggle IS the pre-lock intent now: the held marker
+      // is re-stamped to false so the eventual release cannot resurrect
+      // availability the teacher explicitly withdrew.
+      expect(row?.isOnline).toBe(false);
+      expect(row?.wasOnlineBeforeLock).toBe(false);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBe(false);
+    });
+  });
+
+  test("zero-row null in BOTH directions for a missing teacher row (fail-closed, nothing written)", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentTeacherId(tx);
+
+      expect(await TeacherRepository.setAvailabilityIntent(absentId, false, tx)).toBeNull();
+      expect(await TeacherRepository.setAvailabilityIntent(absentId, true, tx)).toBeNull();
+
+      // Zero writes: no row appeared for the absent id.
+      const [absent] = await tx.select().from(teacher).where(eq(teacher.id, absentId));
+      expect(absent).toBeUndefined();
+    });
+  });
+
+  // ─── Tier 2: boundary / honest failure ──────────────────────────────
+
+  test("Available direction succeeds when no started session exists (NULL marker stays NULL)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true); // default isOnline=false, no sessions
+
+      const row = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
 
       expect(row).not.toBeNull();
       expect(row?.isOnline).toBe(true);
-      // Independent read-back oracle.
+      expect(row?.wasOnlineBeforeLock).toBeNull();
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("Available direction is race-blocked to zero rows while a started session exists — and writes NOTHING", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      // The exact post-acquire persisted state, seeded directly so the
+      // updated_at stamp stays pinned to the epoch for the no-op proof.
+      await createTeacherRowFixture(tx, user.id, { wasOnlineBeforeLock: true, updatedAt: new Date(0) });
+      await createTeacherSession(tx, user.id, SessionStatus.Started);
+
+      const row = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
+
+      // The race-closed write: a started session exists, so the guard
+      // matches ZERO rows — the toggle cannot flip a locked teacher back
+      // online.
+      expect(row).toBeNull();
+      // NO write applied: flag, marker and the pinned stamp are untouched.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
+      expect(reread?.updatedAt.getTime()).toBe(0);
+    });
+  });
+
+  test("marker CASE applies on the true direction: an allowed Available toggle re-stamps the held marker to true", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx); // marker=true, is_online=false
+
+      const row = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
+
+      expect(row).not.toBeNull();
+      // The toggle goes through (no started session) and the held marker
+      // is re-stamped with the SAME intent — never consumed, never flipped
+      // to NULL: the disputed-window intent survives for the release.
+      expect(row?.isOnline).toBe(true);
+      expect(row?.wasOnlineBeforeLock).toBe(true);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
+    });
+  });
+
+  test("marker CASE applies on the false direction: a held false marker stays false under the Unavailable toggle", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true); // default isOnline=false
+      await TeacherRepository.acquireInSessionLock(user.id, tx); // captures the false never-resurrect intent
+
+      const row = await TeacherRepository.setAvailabilityIntent(user.id, false, tx);
+
+      expect(row).not.toBeNull();
+      expect(row?.isOnline).toBe(false);
+      expect(row?.wasOnlineBeforeLock).toBe(false);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBe(false);
+    });
+  });
+
+  // ─── Tier 3: convergence (toggle storm + toggle-vs-release interleave)
+
+  test("20-way sequential rapid-toggle storm within ONE tx ⇒ deterministic final value, no minted marker", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true); // default isOnline=false, marker NULL
+
+      // Twenty rapid toggles alternate directions inside ONE transaction —
+      // the same discipline as the service-tier toggle storm. The single
+      // connection serializes them behind the row lock, so no update is
+      // lost: every call observes the prior call's write, and the final
+      // persisted value is the LAST toggle's input. The TRUE legs pass the
+      // Available-direction guard (no started session exists), and the
+      // storm must never mint a marker.
+      const lastInput = await toggleStorm(tx, user.id, 20);
+
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(lastInput);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+      // The certification flag is unchanged by the storm.
+      expect(reread?.isApproved).toBe(true);
+    });
+  });
+
+  test("toggle-vs-release interleave, toggle first: the deliberate intent survives the release (converged)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx); // marker=true, is_online=false
+      const sessionId = await createTeacherSession(tx, user.id, SessionStatus.Started);
+
+      // The terminal exit lands first (the started row is removed), then
+      // the two writers race over the HELD marker. The gate pins the
+      // TOGGLE-FIRST order: the in-session Available toggle re-stamps the
+      // held marker to true (the disputed-window intent) and flips
+      // is_online true; the release then restores that SAME deliberate
+      // intent and consumes the marker. Nothing blocks the single
+      // connection while the gate is open (pure JS wait).
+      await tx.delete(session).where(eq(session.id, sessionId));
+      const releaseMayLand = createGate();
+      const settled = await Promise.allSettled([
+        (async () => {
+          try {
+            const toggled = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
+            return { writer: "toggle" as const, toggled };
+          } finally {
+            // Open the gate even on rejection so the racing writer can
+            // never hang on a failed premise.
+            releaseMayLand.open();
+          }
+        })(),
+        (async () => {
+          await releaseMayLand.promise;
+          const released = await TeacherRepository.releaseInSessionLock(user.id, tx);
+          return { writer: "release" as const, released };
+        })(),
+      ]);
+
+      const results = settled.map(entry => {
+        if (entry.status !== "fulfilled") {
+          throw new Error("expected both racing writers to resolve without error");
+        }
+        return entry.value;
+      });
+      const [toggleFirst, releaseSecond] = results;
+      // Toggle-first order (pinned by the gate): the toggle's RETURNING row
+      // already carries the re-stamped marker.
+      if (!toggleFirst || !releaseSecond || toggleFirst.writer !== "toggle" || releaseSecond.writer !== "release") {
+        throw new Error("expected the gate-pinned toggle-then-release order");
+      }
+      expect(toggleFirst.toggled?.isOnline).toBe(true);
+      expect(toggleFirst.toggled?.wasOnlineBeforeLock).toBe(true);
+      expect(releaseSecond.released?.outcome).toBe("released");
+      expect(releaseSecond.released?.teacher.isOnline).toBe(true);
+      // Converged state: the deliberate intent persisted, marker consumed.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("toggle-vs-release interleave, release first: the restore lands before the toggle re-applies the intent", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+      await TeacherRepository.acquireInSessionLock(user.id, tx); // marker=true, is_online=false
+      const sessionId = await createTeacherSession(tx, user.id, SessionStatus.Started);
+
+      // The terminal exit lands first, then the two writers race over the
+      // row. The gate pins the RELEASE-FIRST order: the release restores
+      // the ORIGINAL captured intent and consumes the marker; the Available
+      // toggle then re-applies the intent onto the marker-less row — and
+      // must NOT re-mint a marker. Both orders of the interleave converge
+      // to the same final state.
+      await tx.delete(session).where(eq(session.id, sessionId));
+      const toggleMayLand = createGate();
+      const settled = await Promise.allSettled([
+        (async () => {
+          try {
+            const released = await TeacherRepository.releaseInSessionLock(user.id, tx);
+            return { writer: "release" as const, released };
+          } finally {
+            // Open the gate even on rejection so the racing writer can
+            // never hang on a failed premise.
+            toggleMayLand.open();
+          }
+        })(),
+        (async () => {
+          await toggleMayLand.promise;
+          const toggled = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
+          return { writer: "toggle" as const, toggled };
+        })(),
+      ]);
+
+      const results = settled.map(entry => {
+        if (entry.status !== "fulfilled") {
+          throw new Error("expected both racing writers to resolve without error");
+        }
+        return entry.value;
+      });
+      const [releaseFirst, toggleSecond] = results;
+      // Release-first order (pinned by the gate): the restore carries the
+      // consumed marker.
+      if (!releaseFirst || !toggleSecond || releaseFirst.writer !== "release" || toggleSecond.writer !== "toggle") {
+        throw new Error("expected the gate-pinned release-then-toggle order");
+      }
+      expect(releaseFirst.released?.outcome).toBe("released");
+      expect(releaseFirst.released?.teacher.isOnline).toBe(true);
+      expect(releaseFirst.released?.teacher.wasOnlineBeforeLock).toBeNull();
+      expect(toggleSecond.toggled?.isOnline).toBe(true);
+      expect(toggleSecond.toggled?.wasOnlineBeforeLock).toBeNull();
+      // Converged state — identical to the toggle-first order.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  // ─── Retired-writer migration (the deleted legacy toggle writer's
+  // ─── surviving cases, re-expressed against this primitive — ledger D8)
+
+  test("a redundant same-value Available toggle returns the row unchanged (idempotent under retry)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      // Drive the row online first so the re-toggle writes the SAME value.
+      await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, user.id));
+
+      const first = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
+      const again = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
+
+      expect(again).not.toBeNull();
+      expect(again?.id).toBe(user.id);
+      expect(again?.isOnline).toBe(first?.isOnline);
+      // Independent read-back oracle — the persisted value is stable.
       const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
       expect(reread?.isOnline).toBe(true);
     });
   });
 
-  test("certification plays no part: an unapproved teacher row locks and releases identically", async () => {
+  test("a row forced is_online = NULL writes cleanly in BOTH directions (null-column coercion, marker stays NULL)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, true);
+      // Force the column to NULL — the schema permits it (no notNull).
+      await tx.update(teacher).set({ isOnline: null }).where(eq(teacher.id, user.id));
+
+      const offline = await TeacherRepository.setAvailabilityIntent(user.id, false, tx);
+      expect(offline).not.toBeNull();
+      expect(offline?.isOnline).toBe(false);
+      expect(offline?.wasOnlineBeforeLock).toBeNull();
+
+      // The Available leg passes the direction guard (no started session).
+      const online = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
+      expect(online).not.toBeNull();
+      expect(online?.isOnline).toBe(true);
+      expect(online?.wasOnlineBeforeLock).toBeNull();
+
+      // Independent read-back oracle.
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(true);
+      expect(reread?.wasOnlineBeforeLock).toBeNull();
+    });
+  });
+
+  test("certification plays no part: an unapproved teacher row toggles identically in BOTH directions", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });
       await createTestTeacherRow(tx, user.id, false);
 
-      const locked = await TeacherRepository.setOnline(user.id, false, tx);
-      const released = await TeacherRepository.setOnline(user.id, true, tx);
+      const offline = await TeacherRepository.setAvailabilityIntent(user.id, false, tx);
+      const online = await TeacherRepository.setAvailabilityIntent(user.id, true, tx);
 
-      expect(locked?.isOnline).toBe(false);
-      expect(released?.isOnline).toBe(true);
+      expect(offline?.isOnline).toBe(false);
+      expect(online?.isOnline).toBe(true);
     });
   });
 
-  // ─── Tier 3: transaction composition (tx propagation) ───────────────
-
-  test("the write rides the caller's transaction: a forced rollback un-applies the lock", async () => {
-    let probedTeacherId = 0;
-    await runInRollback(async tx => {
-      const user = await createTestUser(tx, { role: "teacher" });
-      await createTestTeacherRow(tx, user.id, true);
-      probedTeacherId = user.id;
-      const row = await TeacherRepository.setOnline(user.id, false, tx);
-      expect(row?.isOnline).toBe(false);
-    });
-    // The rollback un-applied the lock: a fresh read sees the durable
-    // default (is_online=false was the fixture state all along, so the
-    // honest probe is that the ROW itself is gone with its owning user).
-    const [gone] = await db.select().from(users).where(eq(users.id, probedTeacherId));
-    expect(gone).toBeUndefined();
-  });
-
-  test("lock + release composed inside ONE transaction resolve deadlock-free (tx-threading proof)", async () => {
-    await runInRollback(async tx => {
-      const user = await createTestUser(tx, { role: "teacher" });
-      await createTestTeacherRow(tx, user.id, true);
-
-      const locked = await TeacherRepository.setOnline(user.id, false, tx);
-      const released = await TeacherRepository.setOnline(user.id, true, tx);
-
-      expect(locked?.isOnline).toBe(false);
-      expect(released?.isOnline).toBe(true);
-      // Completion without deadlock IS the assertion: a call that mixed the
-      // ambient db into this tx would hang the single connection.
-    });
-  });
-
-  // ─── Tier 3+: chaos (concurrent same-row updates across txs) ───────
-  // These tests require real PostgreSQL (multi-connection row-level locking).
-  // PGlite is single-connection WASM and cannot observe cross-tx lock
-  // serialization, so the chaos tier is skipped there.
+  // Cross-connection chaos requires real PostgreSQL (multi-connection
+  // row-level locking); PGlite is single-connection WASM and cannot
+  // observe cross-tx lock serialization, so the storm is skipped there.
   const testOnRealPostgres = isPgliteProvider() ? test.skip : test;
 
   testOnRealPostgres(
-    "25-way Promise.allSettled mixed-toggle storm ⇒ deterministic final is_online (no partial writes)",
+    "25-way Promise.allSettled mixed-toggle storm ⇒ deterministic final is_online, marker never minted (no partial writes)",
     async () => {
       const teacherUserId = await createCommittedTeacher(true);
 
       // Fire 25 parallel mixed toggles (alternating true/false) — each
-      // opens its own top-level transaction. The row lock serializes them;
-      // the final committed value is the LAST write that acquired the
-      // lock. None rejects — the repo primitive has no business guard
-      // (the service layer composes WHEN).
+      // opens its own top-level transaction. The row lock serializes
+      // them; the final committed value is the LAST write that acquired
+      // the lock. None rejects — the Available legs pass the direction
+      // guard (the fixture holds no started session) and the Unavailable
+      // legs are ungated by construction.
       const results = await Promise.allSettled(
         Array.from({ length: 25 }, (_, index) =>
-          db.transaction(async tx => TeacherRepository.setOnline(teacherUserId, index % 2 === 0, tx))
+          db.transaction(async tx => TeacherRepository.setAvailabilityIntent(teacherUserId, index % 2 === 0, tx))
         )
       );
 
@@ -652,28 +1769,126 @@ describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
       expect(rejected).toHaveLength(0);
 
       // Deterministic final state — the final committed is_online is a
-      // total boolean (no partial write, no corruption). The certification
+      // total boolean (no partial write, no corruption); the marker is
+      // NEVER minted by a toggle on a marker-less row (order-independent:
+      // the CASE preserves NULL in every interleaving); the certification
       // flag is unchanged by the storm.
       const [finalRow] = await db.select().from(teacher).where(eq(teacher.id, teacherUserId));
       expect(finalRow?.isOnline).toBeTypeOf("boolean");
+      expect(finalRow?.wasOnlineBeforeLock).toBeNull();
       expect(finalRow?.isApproved).toBe(true);
     }
   );
 
-  // ─── Tier 4: static surface pins ────────────────────────────────────
+  // ─── Tier 4: hostile ids ────────────────────────────────────────────
 
-  test("source: setOnline is a REQUIRED-tx guarded write returning the row or null", () => {
-    expect(repoSetOnlineSource()).toContain("export async function setOnline(");
-    expect(repoSetOnlineSource()).toContain("online: boolean");
-    expect(repoSetOnlineSource()).toContain("tx: DBTransaction");
-    expect(repoSetOnlineSource()).toContain(".returning()");
+  test("hostile in-domain ids are equality misses — 0, -1, and far-beyond-sequence return null in both directions, writing nothing", async () => {
+    await runInRollback(async tx => {
+      const absentId = await absentTeacherId(tx);
+      const [before] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+
+      expect(await TeacherRepository.setAvailabilityIntent(0, false, tx)).toBeNull();
+      expect(await TeacherRepository.setAvailabilityIntent(-1, false, tx)).toBeNull();
+      expect(await TeacherRepository.setAvailabilityIntent(absentId, false, tx)).toBeNull();
+      expect(await TeacherRepository.setAvailabilityIntent(0, true, tx)).toBeNull();
+      expect(await TeacherRepository.setAvailabilityIntent(-1, true, tx)).toBeNull();
+      expect(await TeacherRepository.setAvailabilityIntent(absentId, true, tx)).toBeNull();
+
+      // Zero side effects: the row population is unchanged.
+      const [after] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+      expect(after?.count).toBe(before?.count);
+    });
   });
 
-  test("source: the id reaches the WHERE clause only as a bound parameter; no LIKE/scan surface", () => {
-    const source = repoSetOnlineSource();
+  test("ids beyond the integer domain fail LOUD at the driver gate — nothing executes, zero side effects", async () => {
+    await runInRollback(async tx => {
+      const [before] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+
+      // NaN cannot parse as an integer: the guarded statement dies at the
+      // driver's type gate as the RAW data exception (untranslated,
+      // cause-chained) — probed in BOTH directions (the Available direction
+      // binds the id into the probe too; the gate still kills both binds
+      // before anything executes).
+      await tx.execute(sql`savepoint toggle_hostile_nan_probe`);
+      const nanError = await expectRepoError(() => TeacherRepository.setAvailabilityIntent(Number.NaN, false, tx));
+      await tx.execute(sql`rollback to savepoint toggle_hostile_nan_probe`);
+      expect(hasPostgresErrorCode(nanError, "22P02")).toBe(true);
+
+      await tx.execute(sql`savepoint toggle_hostile_nan_available_probe`);
+      const nanAvailableError = await expectRepoError(() =>
+        TeacherRepository.setAvailabilityIntent(Number.NaN, true, tx)
+      );
+      await tx.execute(sql`rollback to savepoint toggle_hostile_nan_available_probe`);
+      expect(hasPostgresErrorCode(nanAvailableError, "22P02")).toBe(true);
+
+      // 2^53 overflows the id column's int4 domain: the RAW range exception.
+      await tx.execute(sql`savepoint toggle_hostile_overflow_probe`);
+      const overflowError = await expectRepoError(() => TeacherRepository.setAvailabilityIntent(2 ** 53, true, tx));
+      await tx.execute(sql`rollback to savepoint toggle_hostile_overflow_probe`);
+      expect(hasPostgresErrorCode(overflowError, "22003")).toBe(true);
+
+      // Zero side effects: no failed statement wrote anything.
+      const [after] = await tx.select({ count: sql<number>`count(*)::int` }).from(teacher);
+      expect(after?.count).toBe(before?.count);
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  const TOGGLE_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
+  const toggleRepoSource = readFileSync(TOGGLE_REPO_FILE, "utf8");
+
+  test("source: setAvailabilityIntent is a REQUIRED-tx direction-guarded write returning the row or null", () => {
+    const source = repoSetAvailabilityIntentSource();
+    expect(source).toContain("export async function setAvailabilityIntent(");
+    expect(source).toContain("id: number");
+    expect(source).toContain("isOnline: boolean");
+    expect(source).toContain("tx: DBTransaction");
+    // Required tx — the parameter is not optional (calling without one is
+    // a compile error, the type-level pin).
+    expect(source).not.toContain("tx?:");
+    expect(source).toContain(".returning()");
+    // The pinned marker CASE: a NULL marker is untouched (never minted), a
+    // held marker is re-stamped with the bound intent value (explicitly
+    // cast — an all-untyped CASE resolves to text and cannot assign into
+    // the boolean column).
+    expect(source).toContain(
+      `CASE WHEN \${teacher.wasOnlineBeforeLock} IS NULL THEN NULL ELSE \${isOnline}::boolean END`
+    );
+    expect(source).toContain("updatedAt: sql`now()`");
+  });
+
+  test("source: the direction guard rides ONE pinned predicate — the bound direction OR the teacher_id-scoped NOT EXISTS probe", () => {
+    const source = repoSetAvailabilityIntentSource();
     expect(source).toContain("eq(teacher.id, id)");
-    // No raw-SQL string building around the id; no LIKE/ILIKE scan surface.
+    expect(source).toContain("eq(session.teacherId, id)");
+    // The pinned guard predicate: the Unavailable leg short-circuits the
+    // probe via the BOUND direction (the statement text never varies and
+    // the guard is evaluated atomically with the write); the Available leg
+    // fires at write time when a started session exists — zero rows signal
+    // the guard fired, and the caller maps the miss to the conflict denial.
+    expect(source).toContain(
+      `(\${isOnline} = false OR NOT EXISTS (SELECT 1 FROM \${session} WHERE \${eq(session.teacherId, id)} AND \${eq(session.status, SessionStatus.Started)}))`
+    );
+    // The status predicate rides the enum member, never a string literal.
+    expect(source).toContain("eq(session.status, SessionStatus.Started)");
+    // Exactly ONE NOT EXISTS probe in the slice — the guard is one
+    // predicate bound with the statement, not a per-direction statement
+    // fork (the direction is a bound parameter, never a JS branch).
+    expect(source.split("NOT EXISTS")).toHaveLength(2);
     expect(source).not.toMatch(/\b(ilike|like)\s*\(/i);
+    expect(source.includes(".prepare(")).toBe(false);
+    expect(source.includes("--")).toBe(false);
+    // The repo trusts the typed boolean: boolean type-guarding of
+    // untrusted input stays in the service layer — no runtime coercion
+    // exists in this writer.
+    expect(source.includes("typeof isOnline")).toBe(false);
+    // The enum is a VALUE import at the file level (it binds as a statement
+    // parameter) — never a type-only import.
+    expect(toggleRepoSource).toContain(
+      'import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";'
+    );
+    expect(toggleRepoSource.includes("import type { SessionStatus")).toBe(false);
   });
 });
 
@@ -1861,12 +3076,12 @@ describe("TeacherRepository.listMatchingCandidates", () => {
 
   // ─── Tier 4: static surface pins ─────────────────────────────────────
 
-  const MATCHING_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
+  const MATCHING_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.matching.helpers.ts");
   const matchingRepoSource = readFileSync(MATCHING_REPO_FILE, "utf8");
   // The matching WHERE-chain builders live in the sibling helpers module
   // (`teacher.repository.helpers.ts`, extracted under the oxlint max-lines
   // budget) — the builder pins below read THAT file's source.
-  const MATCHING_HELPERS_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.helpers.ts");
+  const MATCHING_HELPERS_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.matching.helpers.ts");
   const matchingHelpersSource = readFileSync(MATCHING_HELPERS_FILE, "utf8");
 
   /** Reads the source slice that starts at `anchor` and ends at its two-space closing brace. */
@@ -1907,10 +3122,7 @@ describe("TeacherRepository.listMatchingCandidates", () => {
   });
 
   test("source: the country tier is a soft case-expression arm per caller shape (code, text, constant)", () => {
-    const tier = matchingHelpersSource.slice(
-      matchingHelpersSource.indexOf("function buildTeacherMatchingCountryTier("),
-      matchingHelpersSource.indexOf("function buildTeacherMatchingCountryTier(") + 400
-    );
+    const tier = sourceSlice("function buildTeacherMatchingCountryTier(", "const POST_TIER_SORT_KEY_BY_SORT");
     expect(tier).toContain(`case when \${users.countryCode} = \${filters.studentCountryCode} then 0 else 1 end`);
     expect(tier).toContain(
       `case when lower(\${users.country}) = lower(\${filters.studentCountryText}) then 0 else 1 end`
@@ -1925,7 +3137,7 @@ describe("TeacherRepository.listMatchingCandidates", () => {
     expect(matchingRepoSource.includes("import type { SessionStatus")).toBe(false);
   });
 
-  test("source: the projection is exactly the nine raw columns; ordering is tier, rating desc nulls last, id desc", () => {
+  test("source: the projection is exactly the nine raw columns; ordering delegates to the tier-first helper", () => {
     const method = sourceSlice("export async function listMatchingCandidates(");
     for (const column of [
       "id: teacher.id",
@@ -1940,10 +3152,20 @@ describe("TeacherRepository.listMatchingCandidates", () => {
     ]) {
       expect(method).toContain(column);
     }
-    expect(method).toContain("desc nulls last");
-    expect(method).toContain("desc(teacher.id)");
-    expect(method).toContain("count(*)::int");
-    expect(method).toContain("tx && isDBTransaction(tx) ? tx : db");
+    // The ORDER BY is the shared helper — the tier expression first, then
+    // the caller-selected post-tier key, then the deterministic tiebreak.
+    expect(method).toContain("buildTeacherMatchingOrderBy(filters, countryTier)");
+    expect(method).toContain(".orderBy(...orderBy)");
+    const orderHelper = sourceSlice(
+      "function buildTeacherMatchingOrderBy(",
+      "export async function listMatchingCandidates("
+    );
+    expect(orderHelper).toContain("sql`${countryTier} asc`");
+    expect(orderHelper).toContain("desc(teacher.id)");
+    const sortKeys = sourceSlice("const POST_TIER_SORT_KEY_BY_SORT", "function buildTeacherMatchingOrderBy");
+    expect(sortKeys).toContain("desc nulls last");
+    expect(sortKeys).toContain("users.fullName} asc");
+    expect(sortKeys).toContain("[TeacherMatchingSort.Newest]: () => desc(teacher.id)");
   });
 
   test("source: no prepared statements, no i18n, no logger, no console, no plan-artifact references", () => {
@@ -1953,5 +3175,177 @@ describe("TeacherRepository.listMatchingCandidates", () => {
     expect(matchingRepoSource.includes("logger")).toBe(false);
     expect(matchingRepoSource.includes("console.")).toBe(false);
     expect(/REQ-\d|DEV2|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(matchingRepoSource)).toBe(false);
+  });
+});
+
+/**
+ * The EXTENDED browse filters — the name-search pattern, the minimum-rating
+ * floor, and the post-tier ordering choice. Self-contained fixtures in a
+ * DEDICATED country tier (callers key `studentCountryCode` on "ZA", the
+ * fixtures carry the same code): every ordering assertion therefore lives
+ * in a tier of its own and cannot collide with the unrated window fixtures
+ * of the legacy ordering suite above — no rated teacher created here can
+ * ever re-sort another suite's window. All fixtures ride `runInRollback`
+ * (nothing survives the transaction), preserving the live-table
+ * window-safety contract the file's header records.
+ */
+describe("TeacherRepository.listMatchingCandidates — extended browse filters", () => {
+  /** Raw stored token payloads an eligible teacher carries (match the default patterns). */
+  const ELIGIBLE_TOKENS = {
+    recitations: '["hafs_an_asim"]',
+    subjects: '["hifz"]',
+    languages: '["english"]',
+  } as const;
+
+  /**
+   * The dedicated tier: caller + fixtures share the "ZA" country code, so
+   * every created teacher lands in tier 0 while live/legacy rows stay in
+   * tier 1 — the assertions read only the tier-0 slice of the page.
+   */
+  const TIERED_FILTERS = {
+    studentCountryCode: "ZA",
+    studentCountryText: null,
+  } as const;
+
+  /** Creates one online, certified, ZA-tiered teacher with overridable name/rating. */
+  async function createZATeacher(
+    tx: DBTransaction,
+    profile: { readonly fullName?: string; readonly averageRating?: string | null } = {}
+  ): Promise<number> {
+    const user = await createTestUser(tx, {
+      role: "teacher",
+      country: "South Africa",
+      countryCode: "ZA",
+      ...(profile.fullName === undefined ? {} : { fullName: profile.fullName }),
+    });
+    await createTeacherRowFixture(tx, user.id, {
+      isOnline: true,
+      ...ELIGIBLE_TOKENS,
+      ...(profile.averageRating === undefined ? {} : { averageRating: profile.averageRating }),
+    });
+    return user.id;
+  }
+
+  // ─── Minimum rating: the honest SQL >= (NULL never qualifies) ────────
+
+  test("minRating excludes the unrated and the below-threshold, includes at/above", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ ...TIERED_FILTERS, minRating: 3 });
+      const baseline = await baselineTotal(tx, filters);
+      const lowId = await createZATeacher(tx, { averageRating: "2.50" });
+      const atId = await createZATeacher(tx, { averageRating: "3.00" });
+      const aboveId = await createZATeacher(tx, { averageRating: "4.75" });
+      const unratedId = await createZATeacher(tx, { averageRating: null });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      // The floor is inclusive at the bound (`>=`): the 3.00 fixture stays.
+      const mine = orderedFixtureIds(page.rows, [lowId, atId, aboveId, unratedId]);
+      expect(mine).toEqual([aboveId, atId]);
+      expect(page.total).toBe(baseline + 2);
+    });
+  });
+
+  test("minRating null drops the predicate (unrated teachers stay eligible)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters(TIERED_FILTERS);
+      const baseline = await baselineTotal(tx, filters);
+      const unratedId = await createZATeacher(tx, { averageRating: null });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.rows.some(row => row.id === unratedId)).toBe(true);
+      expect(page.total).toBe(baseline + 1);
+    });
+  });
+
+  // ─── Name search: case-insensitive substring, literal wildcards ──────
+
+  test("namePattern matches the display name case-insensitively", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({
+        ...TIERED_FILTERS,
+        namePattern: `%${"sheikh za".toUpperCase()}%`,
+      });
+      const baseline = await baselineTotal(tx, filters);
+      const matchId = await createZATeacher(tx, { fullName: "Sheikh Zayed" });
+      const missId = await createZATeacher(tx, { fullName: "Uthman" });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.rows.some(row => row.id === matchId)).toBe(true);
+      expect(page.rows.some(row => row.id === missId)).toBe(false);
+      expect(page.total).toBe(baseline + 1);
+    });
+  });
+
+  test("namePattern treats % and _ as LITERAL characters (the service escapes; the repo binds)", async () => {
+    await runInRollback(async tx => {
+      // The escaped `%`/`_` patterns are received finished — a repo that
+      // re-wrapped or unescaped them would widen the match to every row.
+      const literalUnderscoreId = await createZATeacher(tx, { fullName: "A_B Teacher" });
+      const decoyId = await createZATeacher(tx, { fullName: "AXB Teacher" });
+      const filters = matchingFilters({ ...TIERED_FILTERS, namePattern: "%A\\_B%" });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      // `A\_B` (escaped underscore) matches only the literal "A_B" row —
+      // an unescaped `_` would match the "AXB" decoy too.
+      expect(page.rows.some(row => row.id === literalUnderscoreId)).toBe(true);
+      expect(page.rows.some(row => row.id === decoyId)).toBe(false);
+    });
+  });
+
+  // ─── Ordering choice: tier ALWAYS first, sort key second, id tiebreak ─
+
+  test("sort NAME_ASC orders alphabetically within the tier (rating is ignored as a key)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ ...TIERED_FILTERS, sort: TeacherMatchingSort.NameAsc });
+      const zakiId = await createZATeacher(tx, { fullName: "Zaki", averageRating: "5.00" });
+      const amirId = await createZATeacher(tx, { fullName: "Amir", averageRating: "1.00" });
+      const basmId = await createZATeacher(tx, { fullName: "Basim", averageRating: "3.00" });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      // Alphabetical despite the ratings: NAME_ASC is the post-tier key.
+      expect(orderedFixtureIds(page.rows, [zakiId, amirId, basmId])).toEqual([amirId, basmId, zakiId]);
+    });
+  });
+
+  test("sort NEWEST orders id DESC within the tier (name and rating are ignored as keys)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ ...TIERED_FILTERS, sort: TeacherMatchingSort.Newest });
+      const earlyId = await createZATeacher(tx, { fullName: "Early", averageRating: "5.00" });
+      const laterId = await createZATeacher(tx, { fullName: "Aardvark", averageRating: "1.00" });
+      expect(laterId).toBeGreaterThan(earlyId);
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(orderedFixtureIds(page.rows, [earlyId, laterId])).toEqual([laterId, earlyId]);
+    });
+  });
+
+  test("the default RATING_DESC keeps the legacy order byte-identical (rating desc nulls last, id tiebreak)", async () => {
+    await runInRollback(async tx => {
+      const explicit = matchingFilters({ ...TIERED_FILTERS, sort: TeacherMatchingSort.RatingDesc });
+      const implicit = matchingFilters({ ...TIERED_FILTERS });
+      expect(implicit.sort).toBe(TeacherMatchingSort.RatingDesc);
+
+      const unratedId = await createZATeacher(tx, { fullName: "Unrated", averageRating: null });
+      const midId = await createZATeacher(tx, { fullName: "Mid", averageRating: "3.25" });
+      const topId = await createZATeacher(tx, { fullName: "Top", averageRating: "4.50" });
+      const equalA = await createZATeacher(tx, { fullName: "Equal A", averageRating: "3.25" });
+      const equalB = await createZATeacher(tx, { fullName: "Equal B", averageRating: "3.25" });
+      expect(equalB).toBeGreaterThan(equalA);
+
+      const page = await TeacherRepository.listMatchingCandidates(explicit, 100, 0, tx);
+      const implicitPage = await TeacherRepository.listMatchingCandidates(implicit, 100, 0, tx);
+
+      const expected = [topId, equalB, equalA, midId, unratedId];
+      expect(orderedFixtureIds(page.rows, expected)).toEqual(expected);
+      // Explicit default == implicit default: the SDL default re-orders
+      // NOTHING relative to the pre-sort-choice read.
+      expect(orderedFixtureIds(implicitPage.rows, expected)).toEqual(expected);
+    });
   });
 });

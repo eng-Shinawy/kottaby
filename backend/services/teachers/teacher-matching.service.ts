@@ -4,13 +4,15 @@
  * Responsibilities:
  *  - `browseAvailableTeachers` — ONE public method resolving the caller's
  *    own profile (country pair + languages), validating the per-browse
- *    choices (recitation, intent), normalizing every match token, and
- *    delegating the filtered/sorted read to
- *    `TeacherRepository.listMatchingCandidates`. The pipeline priorities:
- *    Qira'ah certification and session subject are HARD filters, language
- *    fluency is a HARD filter for non-Arabic speakers only, country is a
- *    SOFT ordering tier that never excludes, and rating is the final sort
- *    key. Zero matches is a valid browse state (an honest empty page).
+ *    choices (recitation, intent, name search, minimum rating, sort),
+ *    normalizing every match token, and delegating the filtered/sorted
+ *    read to `TeacherRepository.listMatchingCandidates`. The pipeline
+ *    priorities: Qira'ah certification and session subject are HARD
+ *    filters, language fluency is a HARD filter for non-Arabic speakers
+ *    only, the name search and rating floor are OPTIONAL hard filters, and
+ *    country is a SOFT ordering tier that never excludes (the chosen sort
+ *    keys only the post-tier order; rating is the default sort key). Zero
+ *    matches is a valid browse state (an honest empty page).
  *
  * Disciplines enforced here:
  *  - Caller identity is the authenticated user id ONLY: the input carries
@@ -20,9 +22,10 @@
  *  - Validation BEFORE any database work: the recitation token is checked
  *    against the shared catalog, the intent against the student browse
  *    vocabulary (the staff-driven evaluation flow is never a browse
- *    intent), and the pagination bounds through the canonical bounds
- *    resolver. A malformed choice denies with the localized
- *    `ValidationError` and touches zero rows.
+ *    intent), the sort against the `TeacherMatchingSort` member set, and
+ *    the pagination bounds through the canonical bounds resolver. A
+ *    malformed choice denies with the localized `ValidationError` and
+ *    touches zero rows.
  *  - Language resolution: the caller's own profile languages resolve to
  *    at most ONE hard-filter token (primary first, then the secondary).
  *    An absent language or an Arabic-baseline token applies NO language
@@ -65,6 +68,7 @@ import {
   UserRepository,
 } from "@/backend/db/repo";
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
+import { TeacherMatchingSort } from "@/backend/enum/teachers/teacher-matching-sort.enum";
 import { escapeLikeWildcards } from "@/backend/lib/db/escape-like-wildcards";
 import { NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
@@ -106,9 +110,44 @@ const MAX_LANGUAGE_TOKEN_LENGTH = 50;
 /**
  * The student browse intent vocabulary. The staff-driven evaluation flow
  * is NOT a browse intent — a browse must name the subject the student
- * wants to study (hifz or tajweed).
+ * wants to study (hifz or tajweed). Typed over the WIRE vocabulary
+ * (`SessionIntent`) so the exported narrowing guard below can probe any
+ * client-supplied intent before it is trusted as a browse choice.
  */
-const INTENT_TOKENS: ReadonlySet<TeacherMatchingIntent> = new Set([SessionIntent.Hifz, SessionIntent.Tajweed]);
+const INTENT_TOKENS: ReadonlySet<SessionIntent> = new Set([SessionIntent.Hifz, SessionIntent.Tajweed]);
+
+/**
+ * The browse sort vocabulary — a Set probe over the `TeacherMatchingSort`
+ * members (the enum-safety lookup discipline). A transport value outside
+ * the member set denies before any pattern is built; an honest member
+ * flows through as the post-tier ordering choice.
+ */
+const SORT_TOKENS: ReadonlySet<TeacherMatchingSort> = new Set([
+  TeacherMatchingSort.RatingDesc,
+  TeacherMatchingSort.NameAsc,
+  TeacherMatchingSort.Newest,
+]);
+
+/**
+ * Maximum normalized name-search length. The cap keeps the plain
+ * `%…%` substring pattern a bounded, index-friendly literal (mirrors the
+ * language-token cap discipline).
+ */
+const MAX_SEARCH_LENGTH = 80;
+
+/**
+ * Type guard — narrows a wire `SessionIntent` to the student browse
+ * vocabulary (`hifz` | `tajweed`). The staff-driven evaluation flow is
+ * never a browse intent, so a client-supplied `evaluation` value is not a
+ * browse choice. The GraphQL resolver uses this belt for TypeScript
+ * narrowing (its localized denial is unreachable for honest clients — the
+ * UI offers only the two browse intents); the service re-validates every
+ * submission against the same set (defense-in-depth), so the guard can
+ * never widen what the pipeline accepts.
+ */
+export function isBrowseIntent(value: SessionIntent): value is TeacherMatchingIntent {
+  return INTENT_TOKENS.has(value);
+}
 
 /**
  * Field-by-field assembly of the caller's matching context from the two
@@ -175,6 +214,60 @@ function quotedTokenPattern(token: string): string {
 }
 
 /**
+ * Resolves the student's name-search choice into the finished
+ * `%…%` LIKE pattern for the display-name column, or `null` when no
+ * search applies. The raw value is trimmed; an empty remainder is "no
+ * search"; a remainder over the length cap denies with the localized
+ * `ValidationError`.
+ *
+ * Unlike the token patterns there is NO JSON quoting: `users.full_name`
+ * is a plain varchar — a free-text SUBSTRING match is the contract, and
+ * the quoted-token anchor that separates JSON-array members would only
+ * narrow the match dishonestly. `escapeLikeWildcards` still runs (the
+ * single escape point) so a caller's `%`/`_`/`\` match literally.
+ *
+ * @returns The escaped `%…%` pattern bound verbatim by the repository,
+ *     or `null` when the browse carries no name constraint.
+ */
+function resolveNameSearchPattern(search: string | null, denialMessage: string): string | null {
+  if (search === null) {
+    return null;
+  }
+  const trimmed = search.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (trimmed.length > MAX_SEARCH_LENGTH) {
+    throw new ValidationError(denialMessage);
+  }
+  return `%${escapeLikeWildcards(trimmed)}%`;
+}
+
+/**
+ * Resolves the student's minimum-rating choice, or `null` when no floor
+ * applies. The floor must be a finite number within the rating scale
+ * (`0..5` — the same clamp the cached-rating write enforces at the
+ * database); anything else (NaN/±Infinity, out of bounds) denies with the
+ * localized `ValidationError` before any database work.
+ *
+ * The floor is applied as an HONEST SQL `>=` comparison downstream: a
+ * NULL `average_rating` never satisfies it, so a floor excludes unrated
+ * teachers by construction — the explicit product choice, never a
+ * `coalesce` into a fabricated zero.
+ *
+ * @returns The validated floor, or `null` when the browse is unbounded.
+ */
+function resolveMinRating(minRating: number | null, denialMessage: string): number | null {
+  if (minRating === null) {
+    return null;
+  }
+  if (!Number.isFinite(minRating) || minRating < 0 || minRating > 5) {
+    throw new ValidationError(denialMessage);
+  }
+  return minRating;
+}
+
+/**
  * Fail-closed projection of one raw matching row into the closed
  * student-facing card. The JSON-in-varchar payload columns map through
  * the shared teacher-profile parsers (a corrupt payload degrades its own
@@ -203,10 +296,11 @@ export namespace TeacherMatchingService {
    * sorted by the matching pipeline.
    *
    * Ordered contract:
-   *  1. The recitation choice is validated against the shared catalog
-   *     and the intent against the student browse vocabulary — a malformed
-   *     choice denies with the localized `ValidationError` before any
-   *     database work.
+   *  1. The recitation choice is validated against the shared catalog,
+   *     the intent against the student browse vocabulary, and the sort
+   *     against the `TeacherMatchingSort` member set — a malformed choice
+   *     denies with the localized `ValidationError` before any database
+   *     work.
    *  2. Pagination bounds resolve through the canonical bounds resolver
    *     (explicit `null` inputs restore the defaults).
    *  3. The caller's own `users` row then `students` row resolve by the
@@ -216,11 +310,16 @@ export namespace TeacherMatchingService {
    *  4. The language filter token resolves from the caller's own profile
    *     (primary first, then the secondary; Arabic baseline applies no
    *     filter).
-   *  5. The finished quoted-token patterns are built — escaped at this
+   *  5. The optional name search (plain substring — escaped at this single
+   *     point, no JSON quoting on a non-JSON column) and the optional
+   *     minimum-rating floor (finite, 0..5; an honest SQL `>=` that
+   *     excludes the unrated when set) resolve into their filter members.
+   *  6. The finished quoted-token patterns are built — escaped at this
    *     single point — and the repository read returns the eligible page
-   *     ordered country-tier first, then rating (unrated last), then the
+   *     ordered country-tier first (ALWAYS), then the chosen post-tier
+   *     sort key (`sort`; rating desc nulls last by default), then the
    *     deterministic id tiebreak.
-   *  6. Rows project through the fail-closed parsers into the closed
+   *  7. Rows project through the fail-closed parsers into the closed
    *     nine-field card; an empty eligible set returns an honest empty
    *     page, never an error.
    *
@@ -231,8 +330,10 @@ export namespace TeacherMatchingService {
    * @param studentUserId  The browsing student's id (shared PK with
    *     `users.id`; at the API boundary it is the authenticated caller's
    *     id, never a client-supplied argument).
-   * @param input  The per-browse choices: recitation, intent, and the
-   *     nullable page/pageSize pair (`null` restores the defaults).
+   * @param input  The per-browse choices: recitation, intent, the
+   *     nullable page/pageSize pair (`null` restores the defaults), the
+   *     nullable name search / minimum-rating floor, and the post-tier
+   *     sort choice (the wire default is `RATING_DESC`).
    * @param locale  Active request locale (for the localized denial copy).
    * @param tx  Optional outer executor. The browse is a pure read: when
    *     supplied it runs on the caller's executor (same snapshot as any
@@ -254,6 +355,9 @@ export namespace TeacherMatchingService {
       throw new ValidationError(t.validation);
     }
     if (!INTENT_TOKENS.has(input.intent)) {
+      throw new ValidationError(t.validation);
+    }
+    if (!SORT_TOKENS.has(input.sort)) {
       throw new ValidationError(t.validation);
     }
 
@@ -290,11 +394,16 @@ export namespace TeacherMatchingService {
 
     // Enum-validated / character-gated tokens only — the patterns are
     // built at the single escape point and bound by the repository
-    // verbatim (never re-escaped downstream).
+    // verbatim (never re-escaped downstream). The name search and the
+    // rating floor resolve through their own pure validators; `sort` is
+    // already a probed enum member (the post-tier ordering key).
     const filters: NormalizedTeacherMatchingFilters = {
       recitationPattern: quotedTokenPattern(input.recitation),
       subjectPattern: quotedTokenPattern(input.intent),
       languagePattern: requestedLanguage === null ? null : quotedTokenPattern(requestedLanguage),
+      namePattern: resolveNameSearchPattern(input.search, t.validation),
+      minRating: resolveMinRating(input.minRating, t.validation),
+      sort: input.sort,
       studentCountryCode: context.countryCode,
       studentCountryText: context.country,
     };

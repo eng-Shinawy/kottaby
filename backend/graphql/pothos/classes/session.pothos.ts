@@ -1,16 +1,30 @@
 /**
- * SessionPothosObject + SessionPagePothosObject — the single canonical
- * GraphQL object types for a scheduling session and its pagination wrapper.
+ * SessionPothosObject + SessionParticipantPothosObject +
+ * SessionPagePothosObject — the canonical GraphQL object types for a
+ * scheduling session, its enriched participant identity band, and the
+ * pagination wrapper.
  *
  * Single Canonical Object Type Pattern (`backend/graphql/AGENTS.md`):
- *  - Backed EXCLUSIVELY by the canonical `SessionReturnType` /
+ *  - Backed EXCLUSIVELY by the canonical `SessionListItemType` (the
+ *    `SessionReturnType` select row plus the OPTIONAL display-name
+ *    enrichments the participant listers batch on) and
  *    `SessionPageReturnType` from `@/backend/types` — no local type
  *    definitions here. Every field is a structural map or passthrough;
- *    there is NO business logic in this module.
+ *    there is NO business logic in this module. The enrichment members are
+ *    OPTIONAL on the canonical shape, so every existing producer returning
+ *    plain `SessionReturnType` rows keeps compiling unchanged.
  *  - `Session` exposes `id` FIRST (Apollo cache normalization), then the
  *    participant ids `teacherId`/`studentId` — deliberately exposed per
  *    REQ-060 (both are already known to every authorized viewer of a row by
  *    construction; they exist for cache identity and self-rendering only).
+ *  - `student`/`teacher` resolve the participant IDENTITY band
+ *    (`SessionParticipant`: id + display name) and are NULLABLE BY
+ *    CONTRACT: they are populated ONLY by the participant list reads
+ *    (`myStudentSessions`/`myTeacherSessions`), which batch-enrich the page
+ *    rows; all other Session producers leave the names unset and the fields
+ *    resolve null — the nullability is honest, not lazy. Every authorized
+ *    viewer of a row already knows both participant ids, and the lists are
+ *    owner-scoped service reads, so the band discloses nothing new.
  *  - `heldBalanceLane` is DELIBERATELY ABSENT from the SDL: internal escrow
  *    provenance, never client-consumed (its presence would invite clients to
  *    trust a raceable value). It stays on `SessionReturnType` for the
@@ -46,7 +60,7 @@ import {
   SessionStatusPothosEnum,
   SessionTypePothosEnum,
 } from "@/backend/graphql/pothos/shared/enum.pothos";
-import type { SessionPageReturnType, SessionReturnType } from "@/backend/types";
+import type { SessionListItemType, SessionPageReturnType, SessionReturnType } from "@/backend/types";
 
 /**
  * Maps the `session_status` pgEnum value carried by the canonical
@@ -157,12 +171,35 @@ function toDisputeResolution(outcome: NonNullable<SessionReturnType["resolutionO
 }
 
 /**
- * The canonical `Session` GraphQL object. Producers return
- * `SessionReturnType` (the session table's derived select row). Field order
- * mirrors plan §3.1: `id` first, participant ids, lifecycle enums, fee
- * surface, then lifecycle timestamps.
+ * The participant identity band: one session participant's `id` + display
+ * name. `id` FIRST (Apollo cache normalization). Both fields are non-null —
+ * `users.full_name` is `.notNull()` at the schema and the enrichment read
+ * only ever projects resolved user rows. The object exists ONLY as the
+ * `Session.student`/`Session.teacher` field payload: there is no root field
+ * returning it and no other producer.
  */
-export const SessionPothosObject = gqlSchemaBuilder.objectRef<SessionReturnType>("Session").implement({
+const SessionParticipantPothosObject = gqlSchemaBuilder
+  .objectRef<{ id: number; fullName: string }>("SessionParticipant")
+  .implement({
+    fields: t => ({
+      // ID FIRST — Apollo cache normalization requires `id` on every
+      // entity-shaped object (identity PK, surfaced as GraphQL `ID!`).
+      id: t.exposeID("id"),
+      // The display name — NOT NULL at the schema, exposed verbatim.
+      fullName: t.exposeString("fullName"),
+    }),
+  });
+
+/**
+ * The canonical `Session` GraphQL object. Producers return
+ * `SessionReturnType` (the session table's derived select row); the
+ * participant list reads return the name-enriched `SessionListItemType` —
+ * both satisfy the ref's structural shape (the enrichment members are
+ * optional). Field order mirrors plan §3.1: `id` first, participant ids,
+ * the nullable identity band, lifecycle enums, fee surface, then lifecycle
+ * timestamps.
+ */
+export const SessionPothosObject = gqlSchemaBuilder.objectRef<SessionListItemType>("Session").implement({
   fields: t => ({
     // ID FIRST — Apollo cache normalization requires `id` on every
     // entity-shaped object (identity PK, surfaced as GraphQL `ID!`).
@@ -171,6 +208,33 @@ export const SessionPothosObject = gqlSchemaBuilder.objectRef<SessionReturnType>
     // known to every authorized viewer of the row by construction).
     teacherId: t.exposeID("teacherId"),
     studentId: t.exposeID("studentId"),
+    // Participant identity bands — NULLABLE BY CONTRACT (see the module
+    // docblock): populated ONLY by the participant list reads
+    // (myStudentSessions/myTeacherSessions), which batch-enrich the page
+    // rows; every other producer leaves the name unset and the field
+    // resolves null — the nullability is honest, not lazy. The structural
+    // probe keeps the resolution cast-free (`?: … | null` members read as
+    // `string | null | undefined`).
+    student: t.field({
+      type: SessionParticipantPothosObject,
+      nullable: true,
+      resolve: parent => {
+        if (parent.studentName == null) {
+          return null;
+        }
+        return { id: parent.studentId, fullName: parent.studentName };
+      },
+    }),
+    teacher: t.field({
+      type: SessionParticipantPothosObject,
+      nullable: true,
+      resolve: parent => {
+        if (parent.teacherName == null) {
+          return null;
+        }
+        return { id: parent.teacherId, fullName: parent.teacherName };
+      },
+    }),
     // Lifecycle status — mapped exhaustively onto the registered
     // `SessionStatus` enum (the `disputed` member is produced by the
     // participant dispute transition and consumed by the admin

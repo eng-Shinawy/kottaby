@@ -27,6 +27,12 @@
  *  - Happy paths return the live `Session` payload (id first, status
  *    chips, hold marker) and the cancel leg proves the same-lane refund
  *    through the full stack.
+ *  - The participant lists (`myStudentSessions` / `myTeacherSessions`)
+ *    return the counterpart identity band: the student lister stamps the
+ *    booked teacher's `SessionParticipant { id fullName }`, the teacher
+ *    lister stamps the booking student — and the own-side band resolves
+ *    the honest `null` on each list (the enrichment is the counterpart
+ *    only, never a blanket join).
  *
  * Fixtures: a real committed cast (real `users.role` + role-child rows via
  * `@/test/workflows/helpers` builders) + per-run `jrn_*` idempotency keys;
@@ -41,10 +47,12 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ApolloClient, gql, HttpLink, InMemoryCache } from "@apollo/client";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/backend/db";
+import { notifications } from "@/backend/db/schema/notifications";
 import { students } from "@/backend/db/schema/students/students";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
+import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { signAccessToken } from "@/backend/lib/auth/jwt";
 import { expectMutationError, setupTestServerLifecycle, TEST_PORT, testClient } from "@/test/helpers";
 import {
@@ -68,6 +76,7 @@ const KEY_C = `${PREFIX}-key-c`;
 const KEY_D = `${PREFIX}-key-d`;
 const KEY_REPLAY = `${PREFIX}-key-replay`;
 const KEY_PROBE = `${PREFIX}-key-probe`;
+const KEY_INTAKE_WAVE = `${PREFIX}-key-intake-wave`;
 
 /** The fixture registry — every created session id is hard-deleted in afterAll. */
 const registry = createSessionFixtureRegistry();
@@ -87,6 +96,7 @@ let admin: ApolloClient;
 let studentNoKey: ApolloClient; // NO idempotency header
 let studentReplay: ApolloClient; // fixed KEY_REPLAY
 let studentProbe: ApolloClient; // fixed KEY_PROBE (fresh — the probe's own
+let studentIntakeWave: ApolloClient; // fixed KEY_INTAKE_WAVE (the intake-wave inbox cell)
 // claim rolls back with its denial, so the key is never burned)
 
 /** Booked-session ids shared across the sequential transition legs. */
@@ -142,6 +152,48 @@ const CANCEL_SESSION_DOC = gql`
       id
       status
       feeHeld
+    }
+  }
+`;
+
+const MY_STUDENT_SESSIONS_DOC = gql`
+  query ParticipantListStudent {
+    myStudentSessions {
+      items {
+        id
+        teacherId
+        studentId
+        teacher {
+          id
+          fullName
+        }
+        student {
+          id
+          fullName
+        }
+      }
+      totalCount
+    }
+  }
+`;
+
+const MY_TEACHER_SESSIONS_DOC = gql`
+  query ParticipantListTeacher {
+    myTeacherSessions {
+      items {
+        id
+        teacherId
+        studentId
+        teacher {
+          id
+          fullName
+        }
+        student {
+          id
+          fullName
+        }
+      }
+      totalCount
     }
   }
 `;
@@ -224,15 +276,16 @@ async function readHifzBalance(studentUserId: number): Promise<number> {
 // ─── Fixtures (committed cast + pre-booked lifecycle targets) ───────────────
 
 beforeAll(async () => {
-  // Committed cast — primary student funded for FOUR net bookings (A trial +
-  // B/C paid-lane + the replay pair's FIRST booking) PLUS one spare hifz
-  // unit of ladder headroom: the createSession contract runs the trial-first
+  // Committed cast — primary student funded for FIVE net bookings (A trial +
+  // B/C paid-lane + the replay pair's FIRST booking + the intake-wave cell)
+  // with the ladder headroom landing at exactly zero after the last one:
+  // the createSession contract runs the trial-first
   // debit ladder BEFORE the idempotency-claim insert (the service suite's
   // pinned REQ-043(e) order — a replay's ladder debit is undone by the
   // DUPLICATE_REQUEST rollback), so the replay RETRY and the applicant-
   // teacherId probe must still clear the ladder to reach the code under
-  // test. Their debits roll back with their denials — one spare unit is
-  // never permanently consumed. Second student funded for ONE (D).
+  // test. Their debits roll back with their denials. Second student funded
+  // for ONE (D).
   await db.transaction(async tx => {
     cast = await buildSessionJourneyCast(tx, registry, {
       prefix: PREFIX,
@@ -263,6 +316,7 @@ beforeAll(async () => {
   studentNoKey = clientFor(tokenStudentA);
   studentReplay = clientFor(tokenStudentA, KEY_REPLAY);
   studentProbe = clientFor(tokenStudentA, KEY_PROBE);
+  studentIntakeWave = clientFor(tokenStudentA, KEY_INTAKE_WAVE);
 
   // Pre-book the four transition targets under DISTINCT per-run keys. A
   // drains the trial lane; B and C bind the hifz lane; D belongs to the
@@ -423,6 +477,39 @@ describe("REQ-064/REQ-050 — createSession idempotency + input guards", () => {
       variables: { input: { teacherId: cast.teacher.userId, intent: "Hifz" } },
     });
     expectMutationError(second.error, "DUPLICATE_REQUEST");
+  });
+
+  test("a committed booking leaves exactly one session-request wave in the teacher's inbox (the intake notification)", async () => {
+    const inboxBefore = await db.$count(notifications, eq(notifications.userId, cast.primaryStudent.userId));
+    const booked = await studentIntakeWave.mutate({
+      mutation: CREATE_SESSION_DOC,
+      variables: { input: { teacherId: cast.teacher.userId, intent: "Hifz" } },
+    });
+    const payload = payloadOf(booked, "createSession");
+    const id: unknown = payload.id;
+    if (typeof id !== "string" && typeof id !== "number") {
+      throw new Error("intake-wave booking returned no id");
+    }
+    trackSession(String(id));
+    expect(payload.status).toBe("Scheduled");
+
+    // The teacher's inbox gains the request row for THIS session — typed
+    // SessionRequest, session-keyed, addressed to the booked teacher; the
+    // booking student's inbox is unchanged by their own booking.
+    const intakeRows = await db
+      .select()
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.relatedEntityType, "session"),
+          eq(notifications.relatedEntityId, Number(id)),
+          eq(notifications.type, NotificationType.SessionRequest)
+        )
+      );
+    expect(intakeRows).toHaveLength(1);
+    expect(intakeRows[0]?.userId).toBe(cast.teacher.userId);
+    expect(intakeRows[0]?.isRead).toBe(false);
+    expect(await db.$count(notifications, eq(notifications.userId, cast.primaryStudent.userId))).toBe(inboxBefore);
   });
 
   test("booking intent Evaluation (SDL-legal, service-hostile) → VALIDATION", async () => {
@@ -596,5 +683,63 @@ describe("REQ-054 — malformed target-id shape guard (pre-DB VALIDATION)", () =
     const result = await teacherT.mutate({ mutation: START_SESSION_DOC, variables: { id: "12abc" } });
     expect(result.error).toBeDefined();
     expectMutationError(result.error, "VALIDATION");
+  });
+});
+
+// ─── Section 8 — participant lists carry the counterpart identity band ───────
+
+/**
+ * The participant lists batch-enrich the page rows with the counterpart's
+ * display name (`SessionParticipant { id fullName }`): the student lister
+ * stamps the booked teacher, the teacher lister stamps the booking student.
+ * The bands are NULLABLE BY CONTRACT — a producer that leaves the name
+ * unset (every read EXCEPT these two lists) resolves null, so the cells
+ * below also pin the honest null on the non-enriched side of each list.
+ */
+describe("participant lists — counterpart identity bands (enrichment contract)", () => {
+  test("myStudentSessions rows carry the booked teacher's fullName (the student band stays null there)", async () => {
+    const result = await studentA.query({ query: MY_STUDENT_SESSIONS_DOC });
+    const page = payloadOf(result, "myStudentSessions");
+    const items: unknown = page.items;
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error("myStudentSessions returned no items");
+    }
+    const itemA = items.find(item => isRecord(item) && String(item.id) === sessionAId);
+    if (!isRecord(itemA)) {
+      throw new Error("myStudentSessions is missing the sessionA row");
+    }
+    // The enriched band: the booked teacher's id + persisted display name.
+    const teacherBand: unknown = itemA.teacher;
+    if (!isRecord(teacherBand)) {
+      throw new Error("sessionA row carries no teacher band");
+    }
+    expect(teacherBand.id).toBe(String(cast.teacher.userId));
+    expect(teacherBand.fullName).toBe(cast.teacher.user.fullName);
+    // The own-side band is unpopulated on THIS list (the student lister
+    // enriches the counterpart only) — the honest null, not an omission.
+    expect(itemA.student).toBeNull();
+  });
+
+  test("myTeacherSessions rows carry the booking student's fullName (the teacher band stays null there)", async () => {
+    const result = await teacherT.query({ query: MY_TEACHER_SESSIONS_DOC });
+    const page = payloadOf(result, "myTeacherSessions");
+    const items: unknown = page.items;
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error("myTeacherSessions returned no items");
+    }
+    const itemA = items.find(item => isRecord(item) && String(item.id) === sessionAId);
+    if (!isRecord(itemA)) {
+      throw new Error("myTeacherSessions is missing the sessionA row");
+    }
+    // The enriched band: the booking student's id + persisted display name.
+    const studentBand: unknown = itemA.student;
+    if (!isRecord(studentBand)) {
+      throw new Error("sessionA row carries no student band");
+    }
+    expect(studentBand.id).toBe(String(cast.primaryStudent.userId));
+    expect(studentBand.fullName).toBe(cast.primaryStudent.user.fullName);
+    // The own-side band is unpopulated on THIS list (the teacher lister
+    // enriches the counterpart only) — the honest null, not an omission.
+    expect(itemA.teacher).toBeNull();
   });
 });

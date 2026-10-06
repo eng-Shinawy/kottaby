@@ -16,9 +16,13 @@
  *    `myRubricEvaluation`.
  *  - `teacher-availability.query.ts` registers `myTeacherAvailability`
  *    (zero-arg; identity server-derived from `ctx.user.id`).
+ *  - `teacher-matching.query.ts` registers `browseAvailableTeachers`
+ *    (student-gated paged browse; identity server-derived from
+ *    `ctx.user.id` — no caller-supplied id of any kind).
  */
 import "./applicant.query";
 import "./evaluation-booking.query";
 import "./evaluation-rubric.query";
 import "./student-evaluation.query";
 import "./teacher-availability.query";
+import "./teacher-matching.query";

@@ -128,6 +128,12 @@ interface SessionsRowListProps {
    */
   readonly onCaseIntent?: (sessionId: string) => void;
   /**
+   * Details intent — forwarded to every row (the row renders the
+   * read-only "Session details" icon-button for EVERY status while its
+   * container supplies the intent). Omitted surfaces render no affordance.
+   */
+  readonly onDetailsIntent?: (sessionId: string) => void;
+  /**
    * The teacher surface's rubric-pending overlay — the pending read's id
    * set plus the localized pill label. A row whose id is in the set
    * renders the "awaiting your evaluation" pill beside its meta cells
@@ -167,6 +173,7 @@ export function SessionsRowList(props: Readonly<SessionsRowListProps>): ReactNod
     role,
     actionsFor,
     onCaseIntent,
+    onDetailsIntent,
     awaitingEvaluation,
     parkedDrafts,
   } = props;
@@ -183,6 +190,7 @@ export function SessionsRowList(props: Readonly<SessionsRowListProps>): ReactNod
           role={role}
           actions={actionsFor(session)}
           onCaseIntent={onCaseIntent}
+          onDetailsIntent={onDetailsIntent}
           awaitingEvaluationLabel={awaitingEvaluation?.ids.has(session.id) ? awaitingEvaluation.label : null}
           parkedDraftLabel={parkedDrafts?.ids.has(session.id) ? parkedDrafts.label : null}
         />

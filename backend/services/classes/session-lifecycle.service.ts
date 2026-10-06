@@ -17,7 +17,10 @@
  *      transaction readable for the replay lookup);
  *   4. the session insert with server-side defaults (lifecycle state, type,
  *      intent, platform fee, hold marker + provenance lane, confirmation
- *      deadline) followed by the claim's session-id backfill.
+ *      deadline) followed by the claim's session-id backfill — and then the
+ *      teacher's session-request wave rides the same transaction on its own
+ *      nested savepoint (a dispatch failure rolls back only that savepoint
+ *      and is logged, never rethrown; the booking stays durable).
  * A replayed booking (duplicate claim key) THROWS `ConflictError(
  * "DUPLICATE_REQUEST")` — never a row.
  * Throwing is what keeps the replayed attempt free of charge: its own
@@ -56,12 +59,13 @@
  * are the wallet repository — composed into the dual-confirmation flow to
  * credit the teacher's earnings when the student confirms a completed
  * session — and the notification engine's emit/publish contracts for the
- * two student-facing completion waves (the confirm prompt once the
- * teacher's completion stamp lands, and the auto-cancel notice once the
- * confirmation window lapses). Notification rows are written exclusively by
- * the engine inside the owning transaction, and their delivery receipts are
- * published strictly after that transaction commits — never for a
- * rolled-back flow. The module's remaining cross-surface channel is the
+ * teacher-facing booking intake wave and the two student-facing completion
+ * waves (the request notice once the booking commits, the confirm prompt
+ * once the teacher's completion stamp lands, and the auto-cancel notice
+ * once the confirmation window lapses). Notification rows are written
+ * exclusively by the engine inside the owning transaction, and their
+ * delivery receipts are published strictly after that transaction commits —
+ * never for a rolled-back flow. The module's remaining cross-surface channel is the
  * admin arbitration's audit trail row: `resolveSessionDispute` appends its
  * single Override row through the shared `AuditService` writer on the
  * arbitration's own transaction (report surfaces stay unimported). All
@@ -186,7 +190,8 @@ export namespace SessionLifecycleService {
    *     intent only — every other column is server-owned).
    * @param idempotencyKey  The captured request idempotency key, carried
    *     verbatim (never trimmed, never coerced, never logged).
-   * @param locale  Active request locale (for the localized error messages).
+   * @param locale  Active request locale (for the localized error messages;
+   *     the teacher wave copy itself follows the teacher's persisted locale).
    * @param outerTx  Optional outer transaction. When provided (test path),
    *     the flow runs inside a SAVEPOINT on it; production callers omit it
    *     and the service opens its own transaction.
@@ -211,7 +216,32 @@ export namespace SessionLifecycleService {
     // One captured instant governs every derivation in this flow.
     const now = new Date();
 
-    return withTransaction(outerTx, tx => bookSessionInTx(studentId, input, idempotencyKey, now, tx, t));
+    const { session: createdSession, receipt } = await withTransaction(outerTx, async tx => {
+      const created = await bookSessionInTx(studentId, input, idempotencyKey, now, tx, t);
+      // The teacher wave rides the booking's own nested SAVEPOINT: a
+      // dispatch failure rolls only that savepoint back — it is logged,
+      // never rethrown, and the booking stays durable (the same posture
+      // the evaluation booking flow established for its intake wave).
+      let waveReceipt: NotificationDeliveryReceipt | undefined;
+      try {
+        waveReceipt = await withTransaction(tx, txArg =>
+          SessionRequestNotificationService.notifyTeacherOfSessionRequest(created.id, locale, txArg)
+        );
+      } catch (error) {
+        logger.error("Session booking notification dispatch failed", { sessionId: created.id, error });
+      }
+      return { session: created, receipt: waveReceipt };
+    });
+
+    // Publish strictly AFTER the commit — a denied or rolled-back booking
+    // never pushes its receipt. On a caller-owned transaction this method
+    // intentionally does NOT publish the receipt (the caller owns the
+    // commit boundary, so it cannot know the receipt survived it).
+    if (outerTx === undefined && receipt !== undefined) {
+      await NotificationEngine.publishReceipts([receipt], locale);
+    }
+
+    return createdSession;
   }
 
   /**
@@ -224,15 +254,18 @@ export namespace SessionLifecycleService {
    * round-trip). The teacher's governance state is re-asserted next. The
    * guarded transition writes the start and audit stamps from one captured
    * instant and never touches the confirmation deadline. The lock write
-   * (`teacher.is_online = false`) composes onto the SAME transaction —
-   * keyed on the teacher id the TRANSITIONED row carries (never caller
-   * input) — so a rollback of either write aborts both: a started session
-   * with an unlocked teacher is structurally impossible. The same-transaction
-   * teacher read doubles as the prior-online capture — the
-   * release-semantics seam recorded in the deferred ledger (D2): with no
-   * availability-toggle surface yet, a deliberate mid-session offline
-   * state cannot exist, so the release direction stays a plain restore.
-   * A zero-row match
+   * composes onto the SAME transaction — keyed on the teacher id the
+   * TRANSITIONED row carries (never caller input) — as ONE guarded
+   * statement that atomically captures the teacher's pre-lock availability
+   * into the persisted `was_online_before_lock` marker (first lock wins: a
+   * marker an earlier session already holds is preserved verbatim) and
+   * drives `teacher.is_online` offline, so a rollback of either write
+   * aborts both: a started session with an unlocked teacher is structurally
+   * impossible. When the session later exits, the marker-gated release
+   * restores that captured intent and clears the marker — a deliberate
+   * offline choice made before or during the session survives the exit
+   * (the never-resurrect release contract documented in
+   * `docs/teachers/teacher-availability.md` §6.2). A zero-row match
    * is classified by one cold probe read: an unknown id and a non-owning
    * caller both surface the oracle-safe session-not-found error, and any
    * other miss cause is a lifecycle-state conflict.
@@ -268,19 +301,15 @@ export namespace SessionLifecycleService {
         throw await rejectTransitionMiss("teacherStart", sessionId, teacherUserId, tx, t);
       }
 
-      // INV-S6 lock — the teacher-row read inside the SAME transaction is
-      // the prior-online capture (the D2 seam note above); the write keys
-      // off the transitioned row's teacher id, never the caller input.
-      const priorTeacher = await TeacherRepository.findById(started.teacherId, tx);
-      if (priorTeacher === null) {
-        // Unreachable while the FK holds (the session row references its
-        // teacher) — fail closed rather than lock a phantom row.
-        throw new Error("SessionLifecycleService.startSession: teacher row vanished inside the start transaction");
-      }
-      // Fail closed symmetrically with the release direction: a zero-row
-      // lock write rolls the whole flow back instead of committing a
-      // started session with no lock applied.
-      const locked = await TeacherRepository.setOnline(started.teacherId, false, tx);
+      // INV-S6 lock — ONE guarded statement inside the SAME transaction:
+      // the capture folds the pre-lock availability into the persisted
+      // marker (first lock wins) while the write drives the row offline,
+      // keyed on the transitioned row's teacher id, never the caller
+      // input. Fail closed symmetrically with the release direction: a
+      // zero-row acquire rolls the whole flow back instead of committing
+      // a started session with no lock applied (the vanished-row case the
+      // session's teacher FK otherwise renders unreachable).
+      const locked = await TeacherRepository.acquireInSessionLock(started.teacherId, tx);
       if (locked === null) {
         logger.error("Session lifecycle blocked: in-session lock write matched zero teacher rows", {
           teacherId: started.teacherId,
@@ -441,10 +470,12 @@ export namespace SessionLifecycleService {
    * foreign target is classified by one cold probe read (unknown/
    * non-participant → not-found; anything else → transition conflict), so a
    * double cancel can never double-refund. The INV-S6 in-session lock is
-   * lifted on the SAME transaction ONLY when the row had actually started
-   * — `started_at` is written by the start transition and never cleared, so
-   * it classifies the pre-state (a pre-start cancel releases nothing,
-   * because no lock was ever applied).
+   * lifted on the SAME transaction UNCONDITIONALLY — the persisted
+   * availability marker captured at lock acquisition is the single gate,
+   * never the row's start stamp (a stamp alone cannot classify the lock:
+   * the reschedule flow writes one onto rows that never started). A row
+   * that holds no lock degrades to the release's classified no-op, so a
+   * pre-start cancel never spuriously restores the teacher's flag.
    *
    * @param callerUserId  The acting participant's id (the session's student
    *     or its teacher).
@@ -484,11 +515,10 @@ export namespace SessionLifecycleService {
       // through the ONE shared same-lane refund primitive.
       await refundHeldLaneToProvenance(cancelled, "cancelSession", tx);
 
-      // INV-S6 release — ONLY a row that had started ever held the lock
-      // (`started_at` classifies the pre-state; see the docblock).
-      if (cancelled.startedAt !== null) {
-        await releaseTeacherInSessionLock(cancelled.teacherId, tx);
-      }
+      // INV-S6 release — unconditional on the pre-state: the availability
+      // marker is the single gate, so a row that never held the lock
+      // degrades to the release's classified no-op (see the docblock).
+      await releaseTeacherInSessionLock(cancelled.teacherId, tx);
 
       return cancelled;
     });
@@ -580,9 +610,10 @@ export namespace SessionLifecycleService {
    *    CONTENT never enters the trail; only its presence is recorded.
    *
    * Both outcomes lift the INV-S6 in-session lock on the SAME transaction
-   * when the row had actually started (`started_at` classifies the
-   * pre-state) — the arbitration exit is a `started`-session exit for
-   * lock purposes, identical to the participant flows.
+   * unconditionally — the persisted availability marker is the single
+   * gate, and a row that never held the lock degrades to the release's
+   * classified no-op. The arbitration exit is a session exit for lock
+   * purposes, identical to the participant flows.
    *
    * @param adminId  The acting admin's id (context-resolved server-side by
    *     the caller; shared PK with the users table).
@@ -655,14 +686,11 @@ export namespace SessionLifecycleService {
         await refundHeldLaneToProvenance(resolved, "resolveSessionDispute", tx);
       }
 
-      // INV-S6 release — ONLY a dispute opened from `started` held the
-      // lock: `started_at` classifies the pre-state (a never-started
-      // session's arbitration releases nothing). The COMPLETE outcome's
-      // guarded predicate already required a written start stamp, so its
-      // release is unconditional here.
-      if (resolved.startedAt !== null) {
-        await releaseTeacherInSessionLock(resolved.teacherId, tx);
-      }
+      // INV-S6 release — unconditional on the pre-state: the availability
+      // marker is the single gate, so a dispute on a row that never held
+      // the lock degrades to the release's classified no-op (see the
+      // docblock).
+      await releaseTeacherInSessionLock(resolved.teacherId, tx);
 
       // The arbitration's audit trail row rides the SAME transaction: one
       // Override row for the session entity, appended only after the guarded

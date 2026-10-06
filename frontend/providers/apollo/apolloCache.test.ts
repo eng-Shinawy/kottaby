@@ -23,7 +23,7 @@
  *      (`PurchaseSubscriptionPayload` / `PaymentCheckout`) joins at
  *      `keyFields: false`, and the `AdminDashboardScheduleResult.rows`
  *      replace-not-merge precedent stays exactly as authored (the
- *      twenty-entry policy surface is FROZEN; a new embedded type must
+ *      forty-five-entry policy surface is FROZEN; a new embedded type must
  *      extend, never shrink, this list per frontend/graphql/AGENTS.md
  *      embedded-type policy).
  *
@@ -186,34 +186,16 @@ describe("createApolloCache — initialised InMemoryCache config exposure", () =
     expect(cache).toBeInstanceOf(InMemoryCache);
   });
 
-  test("typePolicies.HealthCheck.keyFields === false", () => {
+  test.each([
+    "HealthCheck",
+    "HandshakeCodeLookup",
+    "AdminAuditLogPage",
+    "PurchaseSubscriptionPayload",
+    "PaymentCheckout",
+  ] as const)("typePolicies.%s.keyFields === false", typeName => {
     const cache = createApolloCache();
     const policies = typePoliciesOf(cache);
-    expect(keyFieldsOf(policies, "HealthCheck")).toBe(false);
-  });
-
-  test("typePolicies.HandshakeCodeLookup.keyFields === false", () => {
-    const cache = createApolloCache();
-    const policies = typePoliciesOf(cache);
-    expect(keyFieldsOf(policies, "HandshakeCodeLookup")).toBe(false);
-  });
-
-  test("typePolicies.AdminAuditLogPage.keyFields === false", () => {
-    const cache = createApolloCache();
-    const policies = typePoliciesOf(cache);
-    expect(keyFieldsOf(policies, "AdminAuditLogPage")).toBe(false);
-  });
-
-  test("typePolicies.PurchaseSubscriptionPayload.keyFields === false", () => {
-    const cache = createApolloCache();
-    const policies = typePoliciesOf(cache);
-    expect(keyFieldsOf(policies, "PurchaseSubscriptionPayload")).toBe(false);
-  });
-
-  test("typePolicies.PaymentCheckout.keyFields === false", () => {
-    const cache = createApolloCache();
-    const policies = typePoliciesOf(cache);
-    expect(keyFieldsOf(policies, "PaymentCheckout")).toBe(false);
+    expect(keyFieldsOf(policies, typeName)).toBe(false);
   });
 
   test("all eleven PlatformAnalytics embedded types keep keyFields:false", () => {
@@ -224,16 +206,38 @@ describe("createApolloCache — initialised InMemoryCache config exposure", () =
     }
   });
 
-  test("policy surface is FROZEN to the twenty documented entries", () => {
+  test("policy surface is FROZEN to the forty-five documented entries", () => {
     const cache = createApolloCache();
     expect(Object.keys(typePoliciesOf(cache)).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "AdminAcademicAttentionFlag",
+      "AdminAcademicDashboardPage",
+      "AdminAcademicGradeSummary",
+      "AdminAcademicHomeworkPage",
+      "AdminAcademicHomeworkTrack",
+      "AdminAcademicPosition",
+      "AdminAcademicReportPage",
+      "AdminAcademicStats",
       "AdminAuditLogPage",
       "AdminDashboardScheduleResult",
       "AdminNoteInfo",
+      "AdminStudentAcademicDetail",
+      "AdminStudentPaymentPage",
+      "AdminTeacherWallet",
+      "AdminWithdrawalQueuePage",
+      "AdminWithdrawalQueueRow",
       "HandshakeCodeLookup",
       "HealthCheck",
       "NotificationListPage",
       "OnlineMeetingInfo",
+      "ParentAttendancePage",
+      "ParentChildProgress",
+      "ParentChildUpcomingBlock",
+      "ParentChildUpcomingSession",
+      "ParentHomeworkPage",
+      "ParentHomeworkPosition",
+      "ParentHomeworkTrack",
+      "ParentReportPage",
+      "ParentSessionTarget",
       "PaymentCheckout",
       "PlatformAnalytics",
       "PlatformAnalyticsCurrencyRevenue",
@@ -247,6 +251,9 @@ describe("createApolloCache — initialised InMemoryCache config exposure", () =
       "PlatformAnalyticsTeachers",
       "PlatformAnalyticsUsers",
       "PurchaseSubscriptionPayload",
+      "StudentHomeworkPage",
+      "StudentProgress",
+      "TeacherReEvaluationOrder",
     ]);
   });
 });

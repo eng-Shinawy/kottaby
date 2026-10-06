@@ -214,6 +214,19 @@ function wireIdToPk(id: string | number): number {
  * through the PUBLIC `login` mutation to obtain a bearer token. Returns
  * both so the caller can derive direct-DB fixtures keyed by the user id.
  */
+/**
+ * Wire names for the public registration roles. The GraphQL enum's members
+ * are the TS enum KEYS (Student | Teacher | Parent), not the TS string
+ * values (student | teacher | parent) — and the runtime cannot reverse-map
+ * (bun's enum lowering drops the reverse index), so the mapping is spelled
+ * out explicitly.
+ */
+const REGISTER_ROLE_WIRE_NAMES: Record<RegisterPublicRole, string> = {
+  [RegisterPublicRole.Student]: "Student",
+  [RegisterPublicRole.Teacher]: "Teacher",
+  [RegisterPublicRole.Parent]: "Parent",
+};
+
 async function registerAndLogin(role: RegisterPublicRole): Promise<RegistrationOutcome> {
   const email = uniqueEmail("availability");
   const registered = await testClient.mutate({
@@ -226,7 +239,7 @@ async function registerAndLogin(role: RegisterPublicRole): Promise<RegistrationO
         password: testCredential,
         gender: null,
         country: "EG",
-        role,
+        role: REGISTER_ROLE_WIRE_NAMES[role],
         preferredRecitation: null,
       },
     },

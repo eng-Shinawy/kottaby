@@ -28,7 +28,10 @@
  *    start/complete/cancel/dispute (unknown id and foreign actor →
  *    `SESSION_NOT_FOUND`, wrong state → `SESSION_INVALID_TRANSITION`,
  *    owned+started completion with a decertified teacher →
- *    `TEACHER_NOT_CERTIFIED`); the replay branch (same key →
+ *    `TEACHER_NOT_CERTIFIED`); the participant list enrichment (the page
+ *    rows batch-stamp the counterpart display name through ONE
+ *    `listNamesByIds` membership read; the empty page answers without the
+ *    names read at all); the replay branch (same key →
  *    `DUPLICATE_REQUEST` conflict whose rollback leaves zero new rows and
  *    zero second debit; foreign-key owner → oracle-safe
  *    `SESSION_NOT_FOUND`); every pre-DB validation guard (empty/129-char
@@ -62,9 +65,11 @@
  *    never reaches the DB (zero writes proof); grep-level pins — the
  *    service unit's imports are a pinned allowlist whose ONLY cross-surface
  *    channels are the wallet-credit slice (repository barrel), the
- *    engine-mediated completion waves (the wave-emitter sibling plus the
- *    notification engine's publish contract; the unit never imports a
- *    notification repository and never writes a notification row itself),
+ *    engine-mediated waves (the wave-emitter sibling plus the notification
+ *    engine's publish contract; the unit never imports a notification
+ *    repository and every notification row is written BY THE ENGINE inside
+ *    the owning transaction — the booking's teacher intake wave, the
+ *    completion prompt, and the sweeper's auto-cancel notice),
  *    and the arbitration's audit trail row (the shared append-only audit
  *    writer plus the enum that names the Override verb), plus the settled
  *    arm's curriculum-progress advance (the progress service composed
@@ -85,10 +90,22 @@
  *  - the deadline sweeper composes BOTH legs in one transaction and
  *    refunds the UNION of their rows; every swept completed-leg row's
  *    student gets exactly one auto-cancel notice, the scheduled-expiry leg
- *    stays notification-free, and an emitter failure fails closed (the
- *    whole sweep rolls back, zero receipts published);
+ *    gains nothing beyond its own booking intake wave, and an emitter
+ *    failure fails closed (the whole sweep rolls back, zero receipts
+ *    published);
  *  - the sweep's counts stay honest across both legs and idempotent on
  *    re-run.
+ *
+ * Booking intake wave (the teacher's session-request notice):
+ *  - a FIRST booking emits exactly one `SessionRequest` row addressed to
+ *    the booked teacher, composed in the teacher's persisted locale, on
+ *    the booking's own transaction (nested savepoint) — a replayed booking
+ *    (duplicate claim key) never reaches the wave;
+ *  - the caller-tx path publishes nothing (the caller owns the commit
+ *    boundary); the production path hands the receipt to the engine
+ *    strictly after its own commit;
+ *  - an intake emitter failure degrades: only the wave's savepoint rolls
+ *    back — the booking stays durable (row + debit + claim all commit).
  *
  * Chaos block (REQ-043, `Promise.allSettled` on the PRODUCTION tx path):
  *  committed fixtures (hard-deleted in `afterAll`) let each concurrent
@@ -103,7 +120,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
-import { WalletRepository } from "@/backend/db/repo";
+import { SessionRepository, TeacherRepository, WalletRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { progress } from "@/backend/db/schema/classes/progress";
 import { session } from "@/backend/db/schema/classes/session";
@@ -130,6 +147,7 @@ import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "@/backend/lib/errors";
+import { logger } from "@/backend/lib/logger";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
 import { SessionRequestNotificationService } from "@/backend/services/classes/session-request-notification.service";
 import { NotificationEngine } from "@/backend/services/notifications";
@@ -1314,6 +1332,71 @@ describe("SessionLifecycleService — transactional flows (runInRollback)", () =
       const teacherView = await SessionLifecycleService.listMyTeacherSessions(actors.teacherUserId, {}, 1, 50, tx);
       expect(teacherView.items).toHaveLength(3);
       expect(teacherView.totalCount).toBe(3);
+    });
+  });
+
+  test("participant lists batch-enrich each row with the counterpart display name; the empty page skips the names read", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await insertSessionRow(tx, actors);
+      await insertSessionRow(tx, actors);
+
+      // Independent read-back oracle: both actors' persisted display names
+      // (never taken from the fixture builder's return value).
+      const [teacherNameRow] = await tx
+        .select({ fullName: users.fullName })
+        .from(users)
+        .where(eq(users.id, actors.teacherUserId));
+      const [studentNameRow] = await tx
+        .select({ fullName: users.fullName })
+        .from(users)
+        .where(eq(users.id, actors.studentUserId));
+      if (!teacherNameRow || !studentNameRow) {
+        throw new Error("counterpart-name oracle: actor user row vanished");
+      }
+
+      // Passthrough spy on the repository seam — the original names read
+      // still runs; only the call record is observed.
+      const namesSpy = spyOn(SessionRepository, "listNamesByIds");
+
+      const studentPage = await SessionLifecycleService.listMyStudentSessions(
+        actors.studentUserId,
+        {} satisfies SessionListFilterInput,
+        1,
+        50,
+        tx
+      );
+      expect(studentPage.items).toHaveLength(2);
+      for (const item of studentPage.items) {
+        expect(item.teacherName).toBe(teacherNameRow.fullName);
+      }
+      // ONE batched names read for the whole page — the DISTINCT
+      // counterpart ids collapse into a single membership call.
+      expect(namesSpy.mock.calls).toHaveLength(1);
+      expect(namesSpy.mock.calls[0]?.[0]).toEqual([actors.teacherUserId]);
+      namesSpy.mockRestore();
+
+      const teacherPage = await SessionLifecycleService.listMyTeacherSessions(actors.teacherUserId, {}, 1, 50, tx);
+      expect(teacherPage.items).toHaveLength(2);
+      for (const item of teacherPage.items) {
+        expect(item.studentName).toBe(studentNameRow.fullName);
+      }
+    });
+  });
+
+  test("an empty participant page answers the honest empty window WITHOUT the counterpart-names read", async () => {
+    await runInRollback(async tx => {
+      // A student who owns no sessions: the page read answers empty and the
+      // enrichment must not even form a membership query.
+      const loneStudent = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, loneStudent.id);
+
+      const namesSpy = spyOn(SessionRepository, "listNamesByIds");
+      const emptyPage = await SessionLifecycleService.listMyStudentSessions(loneStudent.id, {}, 1, 50, tx);
+      expect(emptyPage.items).toHaveLength(0);
+      expect(emptyPage.totalCount).toBe(0);
+      expect(namesSpy.mock.calls).toHaveLength(0);
+      namesSpy.mockRestore();
     });
   });
 
@@ -2807,9 +2890,18 @@ function countPublishes(): { receipts: NotificationDeliveryReceipt[][]; stop: ()
   return { receipts: recorded, stop: () => spy.mockRestore() };
 }
 
-/** Read-back oracle for the notification rows pinned to one session id. */
-async function readWaveRows(tx: DBTransaction, sessionId: number) {
-  return tx.select().from(notifications).where(eq(notifications.relatedEntityId, sessionId));
+/**
+ * Read-back oracle for the notification rows pinned to one session id —
+ * optionally narrowed to one notification type (booking waves are
+ * `SessionRequest`, completion/sweeper waves `SessionCompletion`), so a
+ * lifecycle-flow assertion counts only the rows ITS flow writes.
+ */
+async function readWaveRows(tx: DBTransaction, sessionId: number, type?: NotificationType) {
+  const predicate =
+    type === undefined
+      ? eq(notifications.relatedEntityId, sessionId)
+      : and(eq(notifications.relatedEntityId, sessionId), eq(notifications.type, type));
+  return tx.select().from(notifications).where(predicate);
 }
 
 /** The teacher fixture's display name (composed verbatim into wave copy). */
@@ -2817,6 +2909,15 @@ async function readTeacherName(tx: DBTransaction, teacherUserId: number): Promis
   const [row] = await tx.select({ fullName: users.fullName }).from(users).where(eq(users.id, teacherUserId));
   if (!row) {
     throw new Error("readTeacherName: teacher row vanished");
+  }
+  return row.fullName;
+}
+
+/** The student fixture's display name (composed verbatim into intake copy). */
+async function readStudentName(tx: DBTransaction, studentUserId: number): Promise<string> {
+  const [row] = await tx.select({ fullName: users.fullName }).from(users).where(eq(users.id, studentUserId));
+  if (!row) {
+    throw new Error("readStudentName: student row vanished");
   }
   return row.fullName;
 }
@@ -2857,10 +2958,12 @@ describe("SessionLifecycleService — completion prompt wave (runInRollback)", (
         expect(result.receipt.recipientUserIds).toEqual([actors.studentUserId]);
         expect(result.receipt.notifications).toHaveLength(1);
 
-        // Exactly ONE prompt row, composed in the recipient's locale copy
-        // through the notifications namespace (the request locale only
-        // feeds error copy).
-        const waveRows = await readWaveRows(tx, row.id);
+        // Exactly ONE completion prompt row (narrowed to the completion
+        // type — the booking's own teacher intake wave shares the session
+        // id), composed in the recipient's locale copy through the
+        // notifications namespace (the request locale only feeds error
+        // copy).
+        const waveRows = await readWaveRows(tx, row.id, NotificationType.SessionCompletion);
         expect(waveRows).toHaveLength(1);
         expect(waveRows[0]?.userId).toBe(actors.studentUserId);
         expect(waveRows[0]?.type).toBe(NotificationType.SessionCompletion);
@@ -2890,26 +2993,28 @@ describe("SessionLifecycleService — completion prompt wave (runInRollback)", (
         );
 
         // DENIED completion (row still scheduled): the classified conflict
-        // writes zero notification rows — nothing to publish either.
+        // writes zero COMPLETION rows (the booking's own teacher intake
+        // wave is the only row for this session) — nothing to publish
+        // either.
         const denied = await expectRepoError(() =>
           SessionLifecycleService.completeSession(actors.teacherUserId, row.id, "en", tx)
         );
         expectDomainDenial(denied, "SESSION_INVALID_TRANSITION", t().sessionInvalidTransition);
-        expect(await readWaveRows(tx, row.id)).toHaveLength(0);
+        expect(await readWaveRows(tx, row.id, NotificationType.SessionCompletion)).toHaveLength(0);
         expect(publish.receipts).toHaveLength(0);
 
         // FIRST completion: the one and only prompt row.
         await SessionLifecycleService.startSession(actors.teacherUserId, row.id, "en", tx);
         const completed = await SessionLifecycleService.completeSession(actors.teacherUserId, row.id, "en", tx);
         expect(completed.status).toBe(SessionStatus.Completed);
-        expect(await readWaveRows(tx, row.id)).toHaveLength(1);
+        expect(await readWaveRows(tx, row.id, NotificationType.SessionCompletion)).toHaveLength(1);
 
         // REPLAYED completion: conflict again, still exactly one prompt row.
         const replay = await expectRepoError(() =>
           SessionLifecycleService.completeSession(actors.teacherUserId, row.id, "en", tx)
         );
         expectDomainDenial(replay, "SESSION_INVALID_TRANSITION", t().sessionInvalidTransition);
-        expect(await readWaveRows(tx, row.id)).toHaveLength(1);
+        expect(await readWaveRows(tx, row.id, NotificationType.SessionCompletion)).toHaveLength(1);
         expect(publish.receipts).toHaveLength(0);
       } finally {
         publish.stop();
@@ -2939,12 +3044,107 @@ describe("SessionLifecycleService — completion prompt wave (runInRollback)", (
           SessionLifecycleService.completeSessionWithReceipt(actors.teacherUserId, row.id, "en", tx)
         );
 
-        // The whole flow rolled back: the stamp is unwritten, no prompt row
-        // exists, and nothing was published for the failed attempt.
+        // The completion leg rolled back: the stamp is unwritten, no
+        // completion prompt row exists (the booking's own teacher intake
+        // wave is the only row for this session), and nothing was published
+        // for the failed attempt.
         const rolledBack = await readSessionRow(tx, row.id);
         expect(rolledBack?.status).toBe(SessionStatus.Started);
         expect(rolledBack?.confirmedByTeacherAt).toBeNull();
+        expect(await readWaveRows(tx, row.id, NotificationType.SessionCompletion)).toHaveLength(0);
+        expect(publish.receipts).toHaveLength(0);
+      } finally {
+        emitSpy.mockRestore();
+        publish.stop();
+      }
+    });
+  });
+});
+
+describe("SessionLifecycleService — booking intake wave (runInRollback)", () => {
+  test("a FIRST booking emits exactly one session-request row addressed to the teacher, in the teacher's persisted locale, unpublished on the caller's transaction", async () => {
+    await runInRollback(async tx => {
+      const publish = countPublishes();
+      try {
+        const actors = await createSessionActors(tx);
+        // The TEACHER persists an English locale so the recipient-locale
+        // copy below is deterministic — a locale-less user falls back to
+        // the platform default (Arabic), a fallback the wave suite pins.
+        await tx.update(users).set({ locale: "en" }).where(eq(users.id, actors.teacherUserId));
+        await setLaneBalances(tx, actors.studentUserId, { trial: 1 });
+        const row = await bookSession(
+          tx,
+          actors.studentUserId,
+          actors.teacherUserId,
+          SessionIntent.Hifz,
+          "key-wave-booking-intake"
+        );
+        const studentName = await readStudentName(tx, actors.studentUserId);
+
+        // Exactly ONE SessionRequest row for the booked session —
+        // teacher-addressed, composed in the teacher's persisted-locale
+        // copy (the request locale only feeds error copy).
+        const intakeRows = await readWaveRows(tx, row.id, NotificationType.SessionRequest);
+        expect(intakeRows).toHaveLength(1);
+        expect(intakeRows[0]?.userId).toBe(actors.teacherUserId);
+        expect(intakeRows[0]?.type).toBe(NotificationType.SessionRequest);
+        expect(intakeRows[0]?.title).toBe(NOTIFS_EN.eventSessionRequestTitle);
+        expect(intakeRows[0]?.body).toBe(NOTIFS_EN.eventSessionRequestBody(studentName, NOTIFS_EN.intentHifz));
+
+        // The student receives nothing from their own booking.
+        const studentRows = await tx.select().from(notifications).where(eq(notifications.userId, actors.studentUserId));
+        expect(studentRows).toHaveLength(0);
+
+        // Caller-tx: the flow NEVER publishes — the caller owns the commit.
+        expect(publish.receipts).toHaveLength(0);
+      } finally {
+        publish.stop();
+      }
+    });
+  });
+
+  test("an intake emitter failure degrades: only the wave savepoint rolls back — the booking stays durable and the key is spent", async () => {
+    await runInRollback(async tx => {
+      const publish = countPublishes();
+      const emitSpy = spyOn(SessionRequestNotificationService, "notifyTeacherOfSessionRequest").mockRejectedValue(
+        new Error("emit channel down")
+      );
+      try {
+        const actors = await createSessionActors(tx);
+        // Trial = 2: the first booking spends one lane unit; the replayed
+        // attempt must still clear the debit ladder to reach the spent-claim
+        // conflict (the ladder runs BEFORE the claim insert).
+        await setLaneBalances(tx, actors.studentUserId, { trial: 2 });
+
+        const row = await bookSession(
+          tx,
+          actors.studentUserId,
+          actors.teacherUserId,
+          SessionIntent.Hifz,
+          "key-wave-intake-fail"
+        );
+
+        // The booking commits: the row exists, the lane debit stands, and
+        // zero wave rows exist for the failed dispatch.
+        const stored = await readSessionRow(tx, row.id);
+        expect(stored?.status).toBe(SessionStatus.Scheduled);
+        const balances = await readLaneBalances(tx, actors.studentUserId);
+        expect(balances.trial).toBe(1);
         expect(await readWaveRows(tx, row.id)).toHaveLength(0);
+
+        // The claim is spent: the replayed key is the duplicate conflict.
+        const replay = await expectRepoError(() =>
+          SessionLifecycleService.createSession(
+            actors.studentUserId,
+            { teacherId: actors.teacherUserId, intent: SessionIntent.Hifz },
+            "key-wave-intake-fail",
+            "en",
+            tx
+          )
+        );
+        expectDomainDenial(replay, "DUPLICATE_REQUEST", t().duplicateRequest);
+
+        // Caller-tx: nothing was published for the failed dispatch.
         expect(publish.receipts).toHaveLength(0);
       } finally {
         emitSpy.mockRestore();
@@ -3020,15 +3220,16 @@ describe("SessionLifecycleService — two-leg sweeper composition (runInRollback
         expect(balances.hifz).toBe(1);
 
         // Exactly one auto-cancel notice — for the completed-leg row only,
-        // in the recipient's locale copy. The scheduled-expiry leg keeps its
-        // notification-free semantics; the settled row is equally silent.
+        // in the recipient's locale copy. The scheduled-expiry leg gains
+        // nothing from the SWEEP (its only row is the booking's own teacher
+        // intake wave); the settled row is equally silent.
         const autoCancelRows = await readWaveRows(tx, overdue.id);
         expect(autoCancelRows).toHaveLength(1);
         expect(autoCancelRows[0]?.userId).toBe(actors.studentUserId);
         expect(autoCancelRows[0]?.type).toBe(NotificationType.SessionCompletion);
         expect(autoCancelRows[0]?.title).toBe(NOTIFS_EN.eventSessionAutoCancelledTitle);
         expect(autoCancelRows[0]?.body).toBe(NOTIFS_EN.eventSessionAutoCancelledBody(teacherName));
-        expect(await readWaveRows(tx, expiredHeld.id)).toHaveLength(0);
+        expect(await readWaveRows(tx, expiredHeld.id, NotificationType.SessionCompletion)).toHaveLength(0);
         expect(await readWaveRows(tx, settled.id)).toHaveLength(0);
 
         // Caller-tx: the sweeper never publishes.
@@ -3121,7 +3322,7 @@ describe("SessionLifecycleService — two-leg sweeper composition (runInRollback
         expect(balances.trial).toBe(0);
         expect(balances.hifz).toBe(0);
         expect(await readWaveRows(tx, overdue.id)).toHaveLength(0);
-        expect(await readWaveRows(tx, expiredHeld.id)).toHaveLength(0);
+        expect(await readWaveRows(tx, expiredHeld.id, NotificationType.SessionCompletion)).toHaveLength(0);
         expect(publish.receipts).toHaveLength(0);
       } finally {
         emitSpy.mockRestore();
@@ -3235,6 +3436,23 @@ async function readTeacherOnline(tx: DBTransaction, teacherUserId: number): Prom
   return row?.isOnline ?? null;
 }
 
+/**
+ * Read-back oracle: the teacher row's full in-session lock state — the
+ * offline flag AND the persisted pre-lock availability marker (tx-scoped).
+ * The marker is the release direction's restore value, so every lock-side
+ * verdict asserts BOTH columns together.
+ */
+async function readTeacherLockState(
+  tx: DBTransaction,
+  teacherUserId: number
+): Promise<{ isOnline: boolean | null; wasOnlineBeforeLock: boolean | null }> {
+  const [row] = await tx
+    .select({ isOnline: teacher.isOnline, wasOnlineBeforeLock: teacher.wasOnlineBeforeLock })
+    .from(teacher)
+    .where(eq(teacher.id, teacherUserId));
+  return { isOnline: row?.isOnline ?? null, wasOnlineBeforeLock: row?.wasOnlineBeforeLock ?? null };
+}
+
 /** Forces the fixture teacher online (the INV-S6 cast posture). */
 async function forceTeacherOnline(tx: DBTransaction, teacherUserId: number): Promise<void> {
   await tx.update(teacher).set({ isOnline: true }).where(eq(teacher.id, teacherUserId));
@@ -3252,19 +3470,50 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
       const started = await SessionLifecycleService.startSession(actors.teacherUserId, created.id, "en", tx);
 
       expect(started.status).toBe(SessionStatus.Started);
-      expect(await readTeacherOnline(tx, actors.teacherUserId)).toBe(false);
+      // The acquire captured the pre-lock availability (true) and drove the
+      // row offline in the SAME statement — the marker is the value the
+      // release direction restores.
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: true,
+      });
     });
   });
 
-  test("a forced mid-flow fault (the lock write raises) rolls back BOTH the transition and the lock", async () => {
+  test("start ⇒ the capture seeds the marker with the pre-start OFFLINE intent (the never-resurrect seed)", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const created = await insertSessionRow(tx, actors);
+
+      // Pre-start posture: the fresh teacher row carries no availability
+      // (the repo's offline default) and no marker. The capture must seed
+      // the marker with EXACTLY that pre-start value — the release restores
+      // it verbatim instead of resurrecting the teacher.
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: null,
+      });
+
+      const started = await SessionLifecycleService.startSession(actors.teacherUserId, created.id, "en", tx);
+
+      expect(started.status).toBe(SessionStatus.Started);
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: false,
+      });
+    });
+  });
+
+  test("a forced mid-flow fault (the acquire raises after the capture applies) rolls back the transition AND the capture", async () => {
     await runInRollback(async tx => {
       const actors = await createSessionActors(tx);
       await forceTeacherOnline(tx, actors.teacherUserId);
       const created = await insertSessionRow(tx, actors);
 
-      // Chaos injection: the teacher-row UPDATE (the lock write) raises.
-      // The DDL lives inside the rolled-back test transaction — nothing
-      // leaks into the shared database.
+      // Chaos injection: the teacher-row UPDATE (the acquire — capture plus
+      // lock in ONE statement) applies its row changes, THEN raises, so the
+      // fault lands after the acquire. The DDL lives inside the rolled-back
+      // test transaction — nothing leaks into the shared database.
       const failFn = `raise_teacher_lock_fail_${randomUUID().slice(0, 8).replaceAll("-", "_")}`;
       const failTrigger = `fail_teacher_lock_${randomUUID().slice(0, 8).replaceAll("-", "_")}`;
       await tx.execute(
@@ -3276,7 +3525,7 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
       await tx.execute(
         sql.raw(
           `CREATE TRIGGER ${failTrigger} ` +
-            `BEFORE UPDATE ON teacher FOR EACH ROW WHEN (OLD.id = ${actors.teacherUserId}) ` +
+            `AFTER UPDATE ON teacher FOR EACH ROW WHEN (OLD.id = ${actors.teacherUserId}) ` +
             `EXECUTE FUNCTION ${failFn}()`
         )
       );
@@ -3290,11 +3539,58 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
       await tx.execute(sql.raw(`DROP TRIGGER ${failTrigger} ON teacher`));
 
       // Full rollback: the session is STILL scheduled with no start stamp,
-      // and the teacher is STILL online (no lock persisted).
+      // and the teacher is STILL online with NO captured marker — the
+      // transition and the marker capture rolled back together (a captured
+      // marker never survives a failed start).
       const row = await readSessionRow(tx, created.id);
       expect(row?.status).toBe(SessionStatus.Scheduled);
       expect(row?.startedAt).toBeNull();
-      expect(await readTeacherOnline(tx, actors.teacherUserId)).toBe(true);
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: true,
+        wasOnlineBeforeLock: null,
+      });
+    });
+  });
+
+  test("a zero-row acquire fails the start closed and leaves the teacher row untouched", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await forceTeacherOnline(tx, actors.teacherUserId);
+      const created = await insertSessionRow(tx, actors);
+
+      // Simulate the zero-row acquire (a teacher row the FK otherwise
+      // renders unreachable while the session row exists): the repo writer
+      // matches zero rows and returns null.
+      const acquire = spyOn(TeacherRepository, "acquireInSessionLock").mockResolvedValue(null);
+
+      try {
+        const error = await expectRepoError(() =>
+          SessionLifecycleService.startSession(actors.teacherUserId, created.id, "en", tx)
+        );
+        // The fail-closed contract: the flow's own lifecycle failure, not a
+        // downstream typed denial.
+        expect(error).not.toBeInstanceOf(DomainError);
+        expect(error.message).toBe(
+          "SessionLifecycleService.startSession: in-session lock write matched zero teacher rows"
+        );
+        // The acquire was keyed on the TRANSITIONED row's teacher id —
+        // server-derived, never the caller's input.
+        expect(acquire.mock.calls).toHaveLength(1);
+        expect(acquire.mock.calls[0]?.[0]).toBe(actors.teacherUserId);
+      } finally {
+        acquire.mockRestore();
+      }
+
+      // The transition rolled back with the flow: the session is STILL
+      // scheduled, and the teacher row is untouched (still online, no
+      // marker) — the failed start wrote nothing to availability.
+      const row = await readSessionRow(tx, created.id);
+      expect(row?.status).toBe(SessionStatus.Scheduled);
+      expect(row?.startedAt).toBeNull();
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: true,
+        wasOnlineBeforeLock: null,
+      });
     });
   });
 
@@ -3303,8 +3599,12 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
       const actors = await createSessionActors(tx);
       await forceTeacherOnline(tx, actors.teacherUserId);
       const created = await insertSessionRow(tx, actors, { status: SessionStatus.Started, startedAt: new Date() });
-      // The lock posture: the started session holds the teacher offline.
-      await tx.update(teacher).set({ isOnline: false }).where(eq(teacher.id, actors.teacherUserId));
+      // The lock posture: the started session holds the teacher offline,
+      // with the pre-start ONLINE intent captured in the marker.
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: true })
+        .where(eq(teacher.id, actors.teacherUserId));
 
       const completed = await SessionLifecycleService.completeSession(actors.teacherUserId, created.id, "en", tx);
 
@@ -3325,7 +3625,10 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
         heldBalanceLane: null,
         feeHeld: false,
       });
-      await tx.update(teacher).set({ isOnline: false }).where(eq(teacher.id, actors.teacherUserId));
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: true })
+        .where(eq(teacher.id, actors.teacherUserId));
       const cancelled = await SessionLifecycleService.cancelSession(actors.studentUserId, started.id, null, "en", tx);
       expect(cancelled.status).toBe(SessionStatus.Cancelled);
       expect(await readTeacherOnline(tx, actors.teacherUserId)).toBe(true);
@@ -3359,7 +3662,10 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
       // Started leg: dispute opened in-progress; the arbitration CANCEL
       // refunds the hifz lane and lifts the lock in one transaction.
       const started = await insertSessionRow(tx, actors, { status: SessionStatus.Started, startedAt: new Date() });
-      await tx.update(teacher).set({ isOnline: false }).where(eq(teacher.id, actors.teacherUserId));
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: true })
+        .where(eq(teacher.id, actors.teacherUserId));
       await SessionLifecycleService.openSessionDispute(
         actors.studentUserId,
         started.id,
@@ -3414,7 +3720,10 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
         status: SessionStatus.Started,
         startedAt: new Date(),
       });
-      await tx.update(teacher).set({ isOnline: false }).where(eq(teacher.id, actors.teacherUserId));
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: true })
+        .where(eq(teacher.id, actors.teacherUserId));
       await SessionLifecycleService.openSessionDispute(
         actors.studentUserId,
         started.id,
@@ -3435,6 +3744,246 @@ describe("SessionLifecycleService — INV-S6 in-session lock (runInRollback)", (
       expect(resolved.status).toBe(SessionStatus.Completed);
       expect(resolved.startedAt).not.toBeNull();
       expect(await readTeacherOnline(tx, actors.teacherUserId)).toBe(true);
+    });
+  });
+
+  test("complete with a captured OFFLINE intent ⇒ the release never resurrects the teacher", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const created = await insertSessionRow(tx, actors, { status: SessionStatus.Started, startedAt: new Date() });
+
+      // The never-resurrect posture: the teacher was offline BEFORE the
+      // session — a deliberate intent the start captured into the marker
+      // (the exact row state a real start leaves for a pre-start offline
+      // teacher).
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: false })
+        .where(eq(teacher.id, actors.teacherUserId));
+
+      const completed = await SessionLifecycleService.completeSession(actors.teacherUserId, created.id, "en", tx);
+
+      expect(completed.status).toBe(SessionStatus.Completed);
+      // The restore writes the captured intent VERBATIM: an offline
+      // pre-lock intent stays offline after the session, and the marker is
+      // consumed — the release cannot mint availability.
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: null,
+      });
+    });
+  });
+
+  test("cancel of a scheduled row with a reschedule-polluted start stamp ⇒ the marker gates — no spurious restore", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await forceTeacherOnline(tx, actors.teacherUserId);
+
+      // The pollution posture: a SCHEDULED row carrying a stale start stamp
+      // (the reschedule flow writes `started_at` onto rows that never
+      // started and nothing clears it) — the stamp alone says "started"
+      // while the row never held a lock.
+      const polluted = await insertSessionRow(tx, actors, {
+        startedAt: new Date(),
+        heldBalanceLane: null,
+        feeHeld: false,
+      });
+      // The teacher is offline WITHOUT a lock: no marker, no started row.
+      await tx.update(teacher).set({ isOnline: false }).where(eq(teacher.id, actors.teacherUserId));
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: null,
+      });
+
+      const cancelled = await SessionLifecycleService.cancelSession(actors.studentUserId, polluted.id, null, "en", tx);
+
+      expect(cancelled.status).toBe(SessionStatus.Cancelled);
+      // A start-stamp-classified release would spuriously restore the
+      // teacher here; the marker-gated one no-ops instead — the offline
+      // teacher stays offline and no marker is minted.
+      expect(await readTeacherOnline(tx, actors.teacherUserId)).toBe(false);
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: null,
+      });
+    });
+  });
+
+  test("release verdicts surface in logs: a no-lock exit logs EXACTLY one no-op debug; a real unlock stays silent", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await forceTeacherOnline(tx, actors.teacherUserId);
+
+      // No-lock leg: cancelling a scheduled row (no marker) surfaces the
+      // classified no-op as EXACTLY ONE bounded debug line, keyed on the
+      // teacher id and the outcome alone — no session identifier.
+      const scheduled = await insertSessionRow(tx, actors, { heldBalanceLane: null, feeHeld: false });
+      const debug = spyOn(logger, "debug");
+      try {
+        await SessionLifecycleService.cancelSession(actors.teacherUserId, scheduled.id, null, "en", tx);
+        const releaseLines = debug.mock.calls.filter(([message]) => message.startsWith("In-session lock release"));
+        expect(releaseLines).toHaveLength(1);
+        expect(releaseLines[0]?.[0]).toBe("In-session lock release no-op: no lock held");
+        expect(releaseLines[0]?.[1]).toEqual({ teacherId: actors.teacherUserId, outcome: "no_lock_held" });
+      } finally {
+        debug.mockRestore();
+      }
+
+      // Real-unlock leg: the cancel of a started session (marker held)
+      // releases silently — zero release lines at any level.
+      const started = await insertSessionRow(tx, actors, {
+        status: SessionStatus.Started,
+        startedAt: new Date(),
+        heldBalanceLane: null,
+        feeHeld: false,
+      });
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: true })
+        .where(eq(teacher.id, actors.teacherUserId));
+      const unlockDebug = spyOn(logger, "debug");
+      const unlockErrors = spyOn(logger, "error");
+      try {
+        const cancelled = await SessionLifecycleService.cancelSession(actors.studentUserId, started.id, null, "en", tx);
+        expect(cancelled.status).toBe(SessionStatus.Cancelled);
+        expect(await readTeacherOnline(tx, actors.teacherUserId)).toBe(true);
+        expect(
+          unlockDebug.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+        expect(
+          unlockErrors.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+      } finally {
+        unlockDebug.mockRestore();
+        unlockErrors.mockRestore();
+      }
+    });
+  });
+
+  test("two started sessions ⇒ the first exit defers the release, the second restores the captured ONLINE intent", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await forceTeacherOnline(tx, actors.teacherUserId);
+      const first = await insertSessionRow(tx, actors, { status: SessionStatus.Started, startedAt: new Date() });
+      const last = await insertSessionRow(tx, actors, { status: SessionStatus.Started, startedAt: new Date() });
+      // The lock posture: ONE captured ONLINE intent held over TWO started
+      // sessions — the exact row state two real starts leave (first-lock-wins
+      // capture; the re-acquire keeps the seeded marker).
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: true })
+        .where(eq(teacher.id, actors.teacherUserId));
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: true,
+      });
+
+      // The FIRST exit: the sibling started session still holds the lock
+      // open, so the restore is deferred — the classified no-op writes
+      // NOTHING (the teacher stays locked offline, the marker stays).
+      const deferredDebug = spyOn(logger, "debug");
+      try {
+        const completedFirst = await SessionLifecycleService.completeSession(actors.teacherUserId, first.id, "en", tx);
+        expect(completedFirst.status).toBe(SessionStatus.Completed);
+        const releaseLines = deferredDebug.mock.calls.filter(([message]) =>
+          message.startsWith("In-session lock release")
+        );
+        expect(releaseLines).toHaveLength(1);
+        expect(releaseLines[0]?.[0]).toBe("In-session lock release deferred: active sessions remain");
+        expect(releaseLines[0]?.[1]).toEqual({ teacherId: actors.teacherUserId, outcome: "active_sessions_remain" });
+      } finally {
+        deferredDebug.mockRestore();
+      }
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: true,
+      });
+
+      // The LAST exit: no started session remains, so the deferred restore
+      // lands now — the captured intent is written verbatim and the marker
+      // consumed. The happy path is silent (zero release lines).
+      const restoreDebug = spyOn(logger, "debug");
+      const restoreErrors = spyOn(logger, "error");
+      try {
+        const completedLast = await SessionLifecycleService.completeSession(actors.teacherUserId, last.id, "en", tx);
+        expect(completedLast.status).toBe(SessionStatus.Completed);
+        expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+          isOnline: true,
+          wasOnlineBeforeLock: null,
+        });
+        expect(
+          restoreDebug.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+        expect(
+          restoreErrors.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+      } finally {
+        restoreDebug.mockRestore();
+        restoreErrors.mockRestore();
+      }
+    });
+  });
+
+  test("two started sessions ⇒ the captured OFFLINE intent survives the deferral and restores verbatim (never resurrect)", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const first = await insertSessionRow(tx, actors, { status: SessionStatus.Started, startedAt: new Date() });
+      const last = await insertSessionRow(tx, actors, { status: SessionStatus.Started, startedAt: new Date() });
+
+      // The never-resurrect posture: the teacher was offline BEFORE the
+      // sessions — the captured intent must survive the sibling session's
+      // exit UNRESTORED and land only on the last one.
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: false })
+        .where(eq(teacher.id, actors.teacherUserId));
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: false,
+      });
+
+      // The FIRST exit: deferred — the row is untouched (still offline, the
+      // OFFLINE intent still captured, never minted into availability).
+      const deferredDebug = spyOn(logger, "debug");
+      try {
+        const completedFirst = await SessionLifecycleService.completeSession(actors.teacherUserId, first.id, "en", tx);
+        expect(completedFirst.status).toBe(SessionStatus.Completed);
+        const releaseLines = deferredDebug.mock.calls.filter(([message]) =>
+          message.startsWith("In-session lock release")
+        );
+        expect(releaseLines).toHaveLength(1);
+        expect(releaseLines[0]?.[0]).toBe("In-session lock release deferred: active sessions remain");
+        expect(releaseLines[0]?.[1]).toEqual({ teacherId: actors.teacherUserId, outcome: "active_sessions_remain" });
+      } finally {
+        deferredDebug.mockRestore();
+      }
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: false,
+      });
+
+      // The LAST exit: the deferred restore writes the captured OFFLINE
+      // intent VERBATIM — an offline pre-lock intent stays offline after
+      // both sessions, and the marker is consumed (no resurrection).
+      const restoreDebug = spyOn(logger, "debug");
+      const restoreErrors = spyOn(logger, "error");
+      try {
+        const completedLast = await SessionLifecycleService.completeSession(actors.teacherUserId, last.id, "en", tx);
+        expect(completedLast.status).toBe(SessionStatus.Completed);
+        expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+          isOnline: false,
+          wasOnlineBeforeLock: null,
+        });
+        expect(
+          restoreDebug.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+        expect(
+          restoreErrors.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+      } finally {
+        restoreDebug.mockRestore();
+        restoreErrors.mockRestore();
+      }
     });
   });
 });

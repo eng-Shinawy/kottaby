@@ -639,6 +639,13 @@ describe("Recitation record journey — one write-once record per session, acros
     await trackIdempotencyClaim(raceKey);
     await SessionLifecycleService.startSession(cast.teacher.userId, raceSession.id, LOCALE);
 
+    // Re-arm the dispatch spies AFTER the in-step booking: the booking's
+    // own teacher intake dispatch (emit + publish) belongs to the setup
+    // phase, not to the race window the zero-dispatch assert below pins.
+    for (const spy of dispatchSpies) {
+      spy.mockClear();
+    }
+
     const raceSessionBefore = await readSessionRow(raceSession.id);
     const before = await captureSideEffectSnapshot();
 

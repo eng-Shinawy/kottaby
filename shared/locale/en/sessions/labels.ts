@@ -6,6 +6,11 @@ export const sessionsEn: SessionsLabels = {
   statusFilterAll: "All statuses",
   status: "Status",
   intent: "Type",
+  intentHifz: "Hifz",
+  intentTajweed: "Tajweed",
+  intentEvaluation: "Evaluation",
+  withTeacherCaption: "With teacher",
+  withStudentCaption: "With student",
   fee: "Fee",
   deadline: "Deadline",
   createdAt: "Created",
@@ -302,4 +307,15 @@ export const sessionsEn: SessionsLabels = {
   prepReadonlyHint: "This view is read-only — progress advances automatically after each confirmed session.",
   prepStudentLabel: "Student",
   prepLoadingLabel: "Loading preparation details…",
+
+  // ─── Session details dialog (read-only, both participant lists) ─────────────
+  sessionDetailsTooltip: "Session details",
+  sessionDetailsDialogTitle: "Session details",
+  sessionDetailsFeeHeld: "Fee held",
+  sessionDetailsFeeNotHeld: "Not held",
+  sessionDetailsTimelineTitle: "Timeline",
+  sessionDetailsStartedAt: "Started",
+  sessionDetailsEndedAt: "Ended",
+  sessionDetailsResolvedAt: "Resolved",
+  sessionDetailsUnavailable: "This session can't be displayed.",
 };

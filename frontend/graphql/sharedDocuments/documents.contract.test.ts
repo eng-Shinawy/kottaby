@@ -18,7 +18,8 @@
  *      cache normalizes (`registerUser`, `me`, `login.user`, `updateMyLocale`,
  *      EVERY `Session` payload + `SessionPage.items`) selects `id`;
  *      scalar-only payloads (`refreshToken`, `logout`, `recordMyActivity`,
- *      `recitationReadings`) correctly select no objects needing one.
+ *      `recitationReadings`, the id-less `mySessionBalance` lane object)
+ *      correctly select no objects needing one.
  *   5. Barrel parity — deep-import and top-level barrel paths resolve to the
  *      IDENTICAL document instance (consumer import conventions table).
  *
@@ -48,6 +49,8 @@ import type {
   AvailableEvaluatorsQueryVariables,
   BookEvaluationSessionMutation,
   BookEvaluationSessionMutationVariables,
+  BrowseAvailableTeachersQuery,
+  BrowseAvailableTeachersQueryVariables,
   CancelSessionMutation,
   CancelSessionMutationVariables,
   ChangeMyPasswordMutation,
@@ -63,6 +66,8 @@ import type {
   MyEvaluationLoopStatusQuery,
   MyEvaluationSessionsQuery,
   MyEvaluationSessionsQueryVariables,
+  MySessionBalanceQuery,
+  MySessionBalanceQueryVariables,
   MyStudentSessionsQuery,
   MyStudentSessionsQueryVariables,
   MyTeacherEvaluationsQuery,
@@ -86,6 +91,9 @@ import type {
 import {
   adminSessionsQueryDocument as adminSessionsViaBarrel,
   bookEvaluationSessionMutationDocument as bookEvaluationSessionViaBarrel,
+  browseAvailableTeachersQueryDocument as browseAvailableTeachersViaBarrel,
+  createSessionMutationDocument as createSessionViaBarrel,
+  mySessionBalanceQueryDocument as mySessionBalanceViaBarrel,
   registerUserMutationDocument as registerUserViaBarrel,
   sessionByIdQueryDocument as sessionByIdViaBarrel,
 } from "@/frontend/graphql/sharedDocuments";
@@ -117,6 +125,7 @@ import {
   sessionByIdQueryDocument,
   startSessionMutationDocument,
 } from "@/frontend/graphql/sharedDocuments/scheduling/session.documents";
+import { mySessionBalanceQueryDocument } from "@/frontend/graphql/sharedDocuments/students/session-balance.documents";
 import {
   availableEvaluatorsQueryDocument,
   bookEvaluationSessionMutationDocument,
@@ -127,6 +136,7 @@ import {
   myTeacherEvaluationsQueryDocument,
   submitTeacherEvaluationMutationDocument,
 } from "@/frontend/graphql/sharedDocuments/teachers/student-evaluation.documents";
+import { browseAvailableTeachersQueryDocument } from "@/frontend/graphql/sharedDocuments/teachers/teacher-matching.documents";
 
 // ---------------------------------------------------------------------------
 // Assertion-free AST helpers
@@ -385,6 +395,25 @@ const DOCUMENT_CONTRACT_TABLE: readonly DocumentContractRow[] = [
     variables: ["filter", "page", "pageSize"],
     objectSelections: ["myEvaluationSessions.items"],
   },
+  // --- student teacher-matching browse (teachers/teacher-matching.documents.ts) ---
+  {
+    document: browseAvailableTeachersQueryDocument,
+    operationName: "BrowseAvailableTeachers",
+    channel: "query",
+    variables: ["intent", "minRating", "page", "pageSize", "recitation", "search", "sort"],
+    objectSelections: ["browseAvailableTeachers.items"],
+  },
+  // --- student session-credit balance (students/session-balance.documents.ts) ---
+  {
+    document: mySessionBalanceQueryDocument,
+    operationName: "MySessionBalance",
+    channel: "query",
+    variables: [],
+    // StudentSessionBalance is an id-less embedded value object
+    // (`keyFields: false` in apolloCache.ts) — the four lane scalars are
+    // consumed per fetch, so there is no object selection needing an `id`.
+    objectSelections: [],
+  },
 ];
 
 describe("shared-document contract — named operations + channel + variables", () => {
@@ -440,6 +469,20 @@ describe("shared-document contract — id field requirement", () => {
     expect(fieldSelections(logoutPayload).map(field => field.name.value)).toEqual(["success"]);
   });
 
+  test("the session-credit balance selects EXACTLY the four lane scalars (id-less embedded object)", () => {
+    const operation = singleOperationOrThrow(mySessionBalanceQueryDocument);
+    const balance = namedField(operation, "mySessionBalance");
+    if (balance === undefined) {
+      throw new Error("expected mySessionBalance selection");
+    }
+    expect(fieldSelections(balance).map(field => field.name.value)).toEqual([
+      "balanceHifz",
+      "balanceReviews",
+      "balanceTajweed",
+      "balanceTrial",
+    ]);
+  });
+
   test("registration selector query returns enum values, not objects needing id", () => {
     const operation = singleOperationOrThrow(recitationReadingsQueryDocument);
     const readings = namedField(operation, "recitationReadings");
@@ -482,6 +525,9 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
   test("top-level barrel re-exports the SAME document instance (cache-key safety)", () => {
     expect(adminSessionsViaBarrel).toBe(adminSessionsQueryDocument);
     expect(bookEvaluationSessionViaBarrel).toBe(bookEvaluationSessionMutationDocument);
+    expect(browseAvailableTeachersViaBarrel).toBe(browseAvailableTeachersQueryDocument);
+    expect(createSessionViaBarrel).toBe(createSessionMutationDocument);
+    expect(mySessionBalanceViaBarrel).toBe(mySessionBalanceQueryDocument);
     expect(registerUserViaBarrel).toBe(registerUserMutationDocument);
     expect(sessionByIdViaBarrel).toBe(sessionByIdQueryDocument);
   });
@@ -560,6 +606,20 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     const typedMyEvaluationSessions: TypedDocumentNode<MyEvaluationSessionsQuery, MyEvaluationSessionsQueryVariables> =
       myEvaluationSessionsQueryDocument;
 
+    // The student session-credit balance document (compile-time proof that
+    // the id-less prepaid-lane projection conforms to the generated
+    // operation types).
+    const typedMySessionBalance: TypedDocumentNode<MySessionBalanceQuery, MySessionBalanceQueryVariables> =
+      mySessionBalanceQueryDocument;
+
+    // The student teacher-matching browse document (compile-time proof that
+    // the PII-minimal card + pagination envelope conform to the generated
+    // operation types).
+    const typedBrowseAvailableTeachers: TypedDocumentNode<
+      BrowseAvailableTeachersQuery,
+      BrowseAvailableTeachersQueryVariables
+    > = browseAvailableTeachersQueryDocument;
+
     // Runtime uses keep the bindings from being flagged as unused.
     expect(typedRegister.loc).toBeDefined();
     expect(typedLogin.loc).toBeDefined();
@@ -589,5 +649,7 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     expect(typedMyEvaluationLoopStatus.loc).toBeDefined();
     expect(typedAvailableEvaluators.loc).toBeDefined();
     expect(typedMyEvaluationSessions.loc).toBeDefined();
+    expect(typedMySessionBalance.loc).toBeDefined();
+    expect(typedBrowseAvailableTeachers.loc).toBeDefined();
   });
 });

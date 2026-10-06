@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Container, Stack, Typography, useMediaQuery } from "@mui/material";
+import { Box, CircularProgress, Container, Stack, Typography, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
@@ -31,6 +31,40 @@ function hasForcedPasswordResetFlag(user: AuthUser | null): boolean {
 }
 
 /**
+ * Centered full-viewport fallback shell shared by the two auth-gate states
+ * (session restoring / sign-in required): the brand title over the
+ * state-specific body. Renders OUTSIDE the dashboard chrome — neither
+ * state mounts the sidebar, app bar, or the realtime toast host.
+ */
+interface AuthFallbackScreenProps {
+  /** Localized brand title (`Dashboard.title`). */
+  readonly title: string;
+  /** State-specific body — the spinner's live-region announcement or the sign-in prompt body. */
+  readonly children: ReactNode;
+}
+
+function AuthFallbackScreen({ title, children }: Readonly<AuthFallbackScreenProps>): ReactNode {
+  return (
+    <Box
+      sx={theme => ({
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        bgcolor: theme.palette.background.default,
+      })}
+    >
+      <Stack spacing={2} sx={{ alignItems: "center" }}>
+        <Typography variant="h6" sx={theme => ({ color: theme.palette.text.primary, fontWeight: 700 })}>
+          {title}
+        </Typography>
+        {children}
+      </Stack>
+    </Box>
+  );
+}
+
+/**
  * DashboardLayout — the persistent shell wrapping every `/dashboard` route
  * group page.
  *
@@ -43,12 +77,20 @@ function hasForcedPasswordResetFlag(user: AuthUser | null): boolean {
  *    responsive horizontal padding.
  *
  * Auth guard: client-side. On mount, the `AuthProvider` resolves the session
- * via the `me` query. While `isLoading` is true, the layout renders a
- * centered loading state (avoids flashing authenticated content for
- * anonymous users). Once loading completes, if `!isAuthenticated`, the
- * layout pushes the user to `/login?redirect=<currentPath>` — the
- * `?redirect=` param lets the login form navigate back here on success
- * (avoids the redirect loop where login returns here unauthenticated).
+ * via the `me` query — and the refresh-token flow re-runs that resolution on
+ * every full-page load, so `isLoading` is true BRIEFLY for every visitor,
+ * authenticated or not. The gate therefore renders TWO distinct states
+ * through the shared centered screen: while the session is still restoring,
+ * a neutral loading state — brand title + a `CircularProgress` inside an
+ * `output` live region (implicit `role="status"`) announcing
+ * `authRestoring`, with NO prompt copy (rendering the sign-in prompt here
+ * flashed "Please sign in" at authenticated users on every hard
+ * navigation). Once loading RESOLVES and the viewer is still anonymous,
+ * the localized sign-in prompt renders — a legitimate state, the brief
+ * moment before the effect pushes the user to
+ * `/login?redirect=<currentPath>` (the `?redirect=` param lets the login
+ * form navigate back here on success — avoids the redirect loop where
+ * login returns here unauthenticated).
  *
  * Realtime notifications: the authenticated branch mounts
  * `NotificationRealtimeToastHost` — the shell-level owner of the tab's ONE
@@ -114,29 +156,32 @@ export function DashboardLayout({ children }: Readonly<DashboardLayoutProps>): R
     }
   }, [isAuthenticated, isLoading, router, user]);
 
-  // While the session is loading, render a centered loading state — avoids
-  // flashing the dashboard chrome for the brief moment before the redirect
-  // fires.
-  if (isLoading || !isAuthenticated) {
+  // Session still RESTORING (the refresh-token flow on every full-page
+  // load): a NEUTRAL centered loading state — brand title + spinner only.
+  // The sign-in prompt must NOT render here: it would flash at
+  // authenticated users while their session restores. The spinner rides
+  // inside an `output` element (implicit role="status") announcing
+  // `authRestoring`; the spinner itself is decorative.
+  if (isLoading) {
     return (
-      <Box
-        sx={theme => ({
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          bgcolor: theme.palette.background.default,
-        })}
-      >
-        <Stack spacing={2} sx={{ alignItems: "center" }}>
-          <Typography variant="h6" sx={theme => ({ color: theme.palette.text.primary, fontWeight: 700 })}>
-            {t.title}
-          </Typography>
-          <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
-            {t.signInPromptBody}
-          </Typography>
-        </Stack>
-      </Box>
+      <AuthFallbackScreen title={t.title}>
+        <Box component="output" aria-label={t.authRestoring} sx={{ display: "flex" }}>
+          <CircularProgress size={28} aria-hidden sx={theme => ({ color: theme.palette.primary.main })} />
+        </Box>
+      </AuthFallbackScreen>
+    );
+  }
+
+  // Session RESOLVED anonymous: the legitimate sign-in prompt — the brief
+  // state before the redirect effect above replaces the route with
+  // /login?redirect=<currentPath>.
+  if (!isAuthenticated) {
+    return (
+      <AuthFallbackScreen title={t.title}>
+        <Typography variant="body2" sx={theme => ({ color: theme.palette.text.secondary })}>
+          {t.signInPromptBody}
+        </Typography>
+      </AuthFallbackScreen>
     );
   }
 

@@ -1443,126 +1443,96 @@ describe("restore-verify tool family (4-tier)", () => {
       expect(run.requests[0]?.cmd).toBe("pg_restore");
     });
 
-    test("guard refuses a duplicate-host conninfo whose libpq-effective host is managed (zero spawns)", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
-      // libpq applies repeated keywords LAST-WINS, so the effective target of
-      // `host=127.0.0.1 host=prod.rds...` is the RDS host. First-occurrence
-      // extraction (the pre-fix bug) assessed 127.0.0.1 and would have ALLOWED
-      // this restore; last-wins assessment refuses it before any spawn.
-      const run = await runPipeline(caseRoot, {
-        from: join(caseRoot, "never-resolved"),
-        targetDsn: "host=127.0.0.1 host=prod.rds.amazonaws.com dbname=x",
-        script: emptyScript(),
-      });
-      expect(run.thrown).toBeNull();
-      expect(run.exitCode).toBe(2);
-      expect(run.stderr).toContain("[guard]");
-      expect(run.stderr).toContain("rds.amazonaws.com");
-      expect(run.requests).toHaveLength(0);
-    });
-
-    test("guard assesses conninfo targets with libpq last-wins semantics and spawns the original string", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
-      const fixture = makeBackupRun(caseRoot);
-      // The FIRST host value is a managed RDS host; libpq connects to the
-      // LAST one (127.0.0.1). First-occurrence assessment would refuse, so a
-      // PASS proves the guard assessed the libpq-effective host.
-      const lastWinsTarget = "host=prod.rds.amazonaws.com host=127.0.0.1 dbname=x";
-      const run = await runPipeline(caseRoot, {
-        from: fixture.runDir,
-        targetDsn: lastWinsTarget,
-        script: healthyScript(),
-      });
-      expect(run.thrown).toBeNull();
-      expect(run.exitCode).toBe(0);
-      expect(run.stdout).toContain("VERDICT: PASS");
-      expect(run.stdout).toContain('target database "x"');
-      // Spawn attempted with THAT DSN: pg_restore receives the operator's
-      // conninfo string unchanged.
-      const restoreRequest = run.requests.find(request => request.cmd === "pg_restore");
-      expect(restoreRequest?.args).toContain(lastWinsTarget);
-      expect(run.requests[0]?.cmd).toBe("pg_restore");
-    });
-
-    for (const dualSignalTarget of [
-      "hostaddr=127.0.0.1 host=prod.rds.amazonaws.com dbname=x",
-      "host=prod.rds.amazonaws.com hostaddr=127.0.0.1 dbname=x",
-    ]) {
-      test(`guard assesses BOTH host and hostaddr values regardless of token order (${dualSignalTarget})`, async () => {
-        const caseRoot = newCaseRoot();
-        makeSchemaFixture(caseRoot);
-        // libpq connects to hostaddr and uses host for verification, so a
-        // hostaddr-only or host-only extraction would miss one of the two
-        // host signals depending on token order; BOTH are assessed and the
-        // managed host must refuse.
-        const run = await runPipeline(caseRoot, {
-          from: join(caseRoot, "never-resolved"),
-          targetDsn: dualSignalTarget,
-          script: emptyScript(),
-        });
-        expect(run.thrown).toBeNull();
-        expect(run.exitCode).toBe(2);
-        expect(run.stderr).toContain("[guard]");
-        expect(run.stderr).toContain("rds.amazonaws.com");
-        expect(run.requests).toHaveLength(0);
-      });
-    }
-
-    test("guard refuses a conninfo host that cannot round-trip through new URL (malformed host chars)", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
+    test.each([
+      // libpq applies repeated keywords LAST-WINS, so the effective target
+      // of `host=127.0.0.1 host=prod.rds...` is the RDS host. First-
+      // occurrence extraction (the pre-fix bug) assessed 127.0.0.1 and
+      // would have ALLOWED this restore; last-wins assessment refuses it.
+      [
+        "guard refuses a duplicate-host conninfo whose libpq-effective host is managed (zero spawns)",
+        "host=127.0.0.1 host=prod.rds.amazonaws.com dbname=x",
+        ["rds.amazonaws.com"],
+      ],
+      // libpq connects to hostaddr and uses host for verification, so a
+      // hostaddr-only or host-only extraction would miss one of the two
+      // host signals depending on token order; BOTH are assessed and the
+      // managed host must refuse.
+      [
+        "guard assesses BOTH host and hostaddr values regardless of token order (hostaddr first)",
+        "hostaddr=127.0.0.1 host=prod.rds.amazonaws.com dbname=x",
+        ["rds.amazonaws.com"],
+      ],
+      [
+        "guard assesses BOTH host and hostaddr values regardless of token order (host first)",
+        "host=prod.rds.amazonaws.com hostaddr=127.0.0.1 dbname=x",
+        ["rds.amazonaws.com"],
+      ],
       // `a]b` passes the host charset pattern but cannot form a URL; without
       // the round-trip gate the guard's own URL parse would fail silently and
       // SKIP the host analysis (allowing an unassessable target).
-      const run = await runPipeline(caseRoot, {
-        from: join(caseRoot, "never-resolved"),
-        targetDsn: "host=a]b dbname=x",
-        script: emptyScript(),
-      });
-      expect(run.thrown).toBeNull();
-      expect(run.exitCode).toBe(2);
-      expect(run.stderr).toContain("[guard]");
-      expect(run.stderr).toContain("malformed host value");
-      expect(run.stderr).toContain("cannot assess target safety");
-      expect(run.requests).toHaveLength(0);
-    });
-
-    test("guard refuses a percent-encoded host with a malformed escape (unassessable)", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
+      [
+        "guard refuses a conninfo host that cannot round-trip through new URL (malformed host chars)",
+        "host=a]b dbname=x",
+        ["malformed host value", "cannot assess target safety"],
+      ],
       // decodeURIComponent("co%ZZ") throws — the libpq-effective host cannot
       // be derived, so the target is unassessable and refuses (fail closed).
+      [
+        "guard refuses a percent-encoded host with a malformed escape (unassessable)",
+        "postgresql://u@prod.rds.amazonaws.co%ZZ/db",
+        ["malformed percent-escape"],
+      ],
+    ] as const)("%s", async (_title, targetDsn, expectedStderrParts) => {
+      const caseRoot = newCaseRoot();
+      makeSchemaFixture(caseRoot);
       const run = await runPipeline(caseRoot, {
         from: join(caseRoot, "never-resolved"),
-        targetDsn: "postgresql://u@prod.rds.amazonaws.co%ZZ/db",
+        targetDsn,
         script: emptyScript(),
       });
       expect(run.thrown).toBeNull();
       expect(run.exitCode).toBe(2);
       expect(run.stderr).toContain("[guard]");
-      expect(run.stderr).toContain("malformed percent-escape");
+      for (const part of expectedStderrParts) {
+        expect(run.stderr).toContain(part);
+      }
       expect(run.requests).toHaveLength(0);
     });
 
-    test("guard decodes an encoded LOCAL host and still allows the drill target (original string spawned)", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
-      const fixture = makeBackupRun(caseRoot);
+    test.each([
+      // The FIRST host value is a managed RDS host; libpq connects to the
+      // LAST one (127.0.0.1). A PASS proves the guard assessed the
+      // libpq-effective host, and pg_restore receives the operator's
+      // conninfo string unchanged.
+      [
+        "guard assesses conninfo targets with libpq last-wins semantics and spawns the original string",
+        "host=prod.rds.amazonaws.com host=127.0.0.1 dbname=x",
+        "x",
+      ],
       // %31%32%37.0.0.1 percent-decodes to 127.0.0.1 — a local host. The
       // encoded form must remain ALLOWED (decoding reveals no managed
       // marker), and pg_restore must receive the operator's EXACT string.
-      const encodedLocalTarget = "postgresql://postgres@%31%32%37.0.0.1:5432/scratch_restore";
+      [
+        "guard decodes an encoded LOCAL host and still allows the drill target (original string spawned)",
+        "postgresql://postgres@%31%32%37.0.0.1:5432/scratch_restore",
+        "scratch_restore",
+      ],
+    ] as const)("%s", async (_title, targetDsn, expectedDbName) => {
+      const caseRoot = newCaseRoot();
+      makeSchemaFixture(caseRoot);
+      const fixture = makeBackupRun(caseRoot);
       const run = await runPipeline(caseRoot, {
         from: fixture.runDir,
-        targetDsn: encodedLocalTarget,
+        targetDsn,
         script: healthyScript(),
       });
       expect(run.thrown).toBeNull();
       expect(run.exitCode).toBe(0);
       expect(run.stdout).toContain("VERDICT: PASS");
-      expect(run.requests.find(request => request.cmd === "pg_restore")?.args).toContain(encodedLocalTarget);
+      expect(run.stdout).toContain(`target database "${expectedDbName}"`);
+      const restoreRequest = run.requests.find(request => request.cmd === "pg_restore");
+      expect(restoreRequest?.args).toContain(targetDsn);
+      expect(run.requests[0]?.cmd).toBe("pg_restore");
     });
 
     test("URL-form IP targets remain the supported drill path (hostaddr rule is conninfo-only)", async () => {
@@ -1867,51 +1837,42 @@ describe("restore-verify tool family (4-tier)", () => {
     // conninfo keyword) makes the SERVICE FILE — forwarded to the restore
     // children via PGSERVICEFILE — decide the endpoint, so a target naming a
     // service is unassessable and refuses. ──
-    test("guard refuses a URI query service= parameter (service indirection is unassessable)", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
-      const run = await runPipeline(caseRoot, {
-        from: join(caseRoot, "never-resolved"),
-        targetDsn: "postgresql://postgres@127.0.0.1:5432/scratch_restore?service=prodsvc",
-        script: emptyScript(),
-      });
-      expect(run.thrown).toBeNull();
-      expect(run.exitCode).toBe(2);
-      expect(run.stderr).toContain("[guard]");
-      expect(run.stderr).toContain("service indirection");
-      expect(run.requests).toHaveLength(0);
-    });
-
-    test("guard refuses a conninfo service= keyword (service indirection is unassessable)", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
-      const run = await runPipeline(caseRoot, {
-        from: join(caseRoot, "never-resolved"),
-        targetDsn: "host=127.0.0.1 service=prodsvc dbname=x",
-        script: emptyScript(),
-      });
-      expect(run.thrown).toBeNull();
-      expect(run.exitCode).toBe(2);
-      expect(run.stderr).toContain("[guard]");
-      expect(run.stderr).toContain("service indirection");
-      expect(run.requests).toHaveLength(0);
-    });
-
-    test("guard refuses a conninfo hostaddr naming a non-loopback endpoint (libpq connects to hostaddr)", async () => {
-      const caseRoot = newCaseRoot();
-      makeSchemaFixture(caseRoot);
+    test.each([
+      // A `service=` parameter (URI query or conninfo keyword) makes the
+      // SERVICE FILE — forwarded to the restore children via PGSERVICEFILE —
+      // decide the endpoint, so a target naming a service is unassessable.
+      [
+        "guard refuses a URI query service= parameter (service indirection is unassessable)",
+        "postgresql://postgres@127.0.0.1:5432/scratch_restore?service=prodsvc",
+        ["service indirection"],
+      ],
+      [
+        "guard refuses a conninfo service= keyword (service indirection is unassessable)",
+        "host=127.0.0.1 service=prodsvc dbname=x",
+        ["service indirection"],
+      ],
       // `host=127.0.0.99` is a loopback-family decoy; libpq CONNECTS to the
       // hostaddr — a remote numeric endpoint has no assessable host signal,
       // mirroring the query-channel hostaddr rule.
+      [
+        "guard refuses a conninfo hostaddr naming a non-loopback endpoint (libpq connects to hostaddr)",
+        "host=127.0.0.99 hostaddr=198.51.100.9 dbname=x",
+        ["non-loopback"],
+      ],
+    ] as const)("%s", async (_title, targetDsn, expectedStderrParts) => {
+      const caseRoot = newCaseRoot();
+      makeSchemaFixture(caseRoot);
       const run = await runPipeline(caseRoot, {
         from: join(caseRoot, "never-resolved"),
-        targetDsn: "host=127.0.0.99 hostaddr=198.51.100.9 dbname=x",
+        targetDsn,
         script: emptyScript(),
       });
       expect(run.thrown).toBeNull();
       expect(run.exitCode).toBe(2);
       expect(run.stderr).toContain("[guard]");
-      expect(run.stderr).toContain("non-loopback");
+      for (const part of expectedStderrParts) {
+        expect(run.stderr).toContain(part);
+      }
       expect(run.requests).toHaveLength(0);
     });
 

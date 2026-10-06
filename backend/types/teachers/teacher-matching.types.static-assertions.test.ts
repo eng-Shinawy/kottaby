@@ -15,6 +15,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
+import { TeacherMatchingSort } from "@/backend/enum/teachers/teacher-matching-sort.enum";
 import type {
   TeacherMatchingIntent,
   TeacherMatchingItemReturnType,
@@ -53,8 +54,8 @@ const FROZEN_ITEM_FIELDS = [
 /** The frozen five-member page envelope. */
 const FROZEN_PAGE_FIELDS = ["items", "total", "page", "pageSize", "pageCount"] as const;
 
-/** The frozen four-member per-browse submit input. */
-const FROZEN_SUBMIT_FIELDS = ["recitation", "intent", "page", "pageSize"] as const;
+/** The frozen seven-member per-browse submit input. */
+const FROZEN_SUBMIT_FIELDS = ["recitation", "intent", "page", "pageSize", "search", "minRating", "sort"] as const;
 
 /** The frozen caller context: contract language pick + the resolved country pair. */
 const FROZEN_CONTEXT_FIELDS = ["primaryLanguage", "anotherLanguage", "countryCode", "country"] as const;
@@ -308,20 +309,31 @@ describe("TeacherMatchingTypes — Static Structural Assertions", () => {
     expect(body).toContain("readonly intent: TeacherMatchingIntent;");
     expect(body).toContain("readonly page: number | null;");
     expect(body).toContain("readonly pageSize: number | null;");
-    expect(memberCount(body)).toBe(4);
+    expect(body).toContain("readonly search: string | null;");
+    expect(body).toContain("readonly minRating: number | null;");
+    expect(body).toContain("readonly sort: TeacherMatchingSort;");
+    expect(memberCount(body)).toBe(7);
 
     for (const field of FROZEN_SUBMIT_FIELDS) {
       expect(body).toMatch(new RegExp(`readonly\\s+${field}\\s*:`));
     }
 
-    // Type-level anchors — exact keyof equality + explicit-nullable page bounds.
-    const submitKeysExact: Equal<keyof TeacherMatchingSubmitInput, "recitation" | "intent" | "page" | "pageSize"> =
-      true;
+    // Type-level anchors — exact keyof equality + explicit-nullable members.
+    const submitKeysExact: Equal<
+      keyof TeacherMatchingSubmitInput,
+      "recitation" | "intent" | "page" | "pageSize" | "search" | "minRating" | "sort"
+    > = true;
     v(submitKeysExact);
     const pageNullableExact: Equal<TeacherMatchingSubmitInput["page"], number | null> = true;
     v(pageNullableExact);
     const pageSizeNullableExact: Equal<TeacherMatchingSubmitInput["pageSize"], number | null> = true;
     v(pageSizeNullableExact);
+    const searchNullableExact: Equal<TeacherMatchingSubmitInput["search"], string | null> = true;
+    v(searchNullableExact);
+    const minRatingNullableExact: Equal<TeacherMatchingSubmitInput["minRating"], number | null> = true;
+    v(minRatingNullableExact);
+    const sortEnumExact: Equal<TeacherMatchingSubmitInput["sort"], TeacherMatchingSort> = true;
+    v(sortEnumExact);
 
     // Identity fields fail to compile on the input — the caller is resolved server-side.
     // @ts-expect-error — no studentId on the submit input
@@ -401,8 +413,9 @@ describe("TeacherMatchingTypes — Static Structural Assertions", () => {
     // All imports are type-only and point at the canonical sources.
     expect(code.match(/^import (?!type )/gm)).toBeNull();
     const typeImports = code.match(/^import type /gm)?.length ?? 0;
-    expect(typeImports).toBe(3);
+    expect(typeImports).toBe(4);
     expect(code).toContain('from "@/backend/enum/scheduling/session-intent.enum";');
+    expect(code).toContain('from "@/backend/enum/teachers/teacher-matching-sort.enum";');
     expect(code).toContain('from "@/backend/types/contracts/teacher-availability.contract.types";');
     expect(code).toContain('from "@/shared/constants/recitation-reading.enum";');
   });
@@ -463,6 +476,9 @@ describe("TeacherMatchingTypes — Static Structural Assertions", () => {
       intent: SessionIntent.Tajweed,
       page: null,
       pageSize: null,
+      search: null,
+      minRating: null,
+      sort: TeacherMatchingSort.RatingDesc,
     };
     const sampleContext: TeacherMatchingStudentContext = {
       primaryLanguage: "ar",
@@ -501,6 +517,9 @@ describe("TeacherMatchingTypes — Static Structural Assertions", () => {
       intent: SessionIntent.Hifz,
       page: null,
       pageSize: null,
+      search: "",
+      minRating: 4.5,
+      sort: TeacherMatchingSort.NameAsc,
     };
     const sampleContext: TeacherMatchingStudentContext = {
       primaryLanguage: null,

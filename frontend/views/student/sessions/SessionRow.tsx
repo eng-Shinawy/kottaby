@@ -7,6 +7,7 @@ import { SessionRowCardShell } from "@/frontend/components/ui/sessionList";
 import type { MyStudentSessionsQuery_myStudentSessions_items } from "@/frontend/graphql/generated/gql/graphql";
 import { SessionRowActions } from "@/frontend/views/student/sessions/SessionRowActions";
 import { SessionRowCancelReason } from "@/frontend/views/student/sessions/SessionRowCancelReason";
+import { SessionRowDetailsAction } from "@/frontend/views/student/sessions/SessionRowDetailsAction";
 import { SessionRowDisputeReason } from "@/frontend/views/student/sessions/SessionRowDisputeReason";
 import { SessionRowHeader } from "@/frontend/views/student/sessions/SessionRowHeader";
 import { SessionRowLifecycleCtas } from "@/frontend/views/student/sessions/SessionRowLifecycleCtas";
@@ -17,9 +18,10 @@ import {
   CANCELLABLE_STATUSES,
   DISPUTED_STATUS,
   isDisputable,
-  NO_VALUE_PLACEHOLDER,
+  resolveCounterpartBand,
+  resolveIntentTitle,
+  resolveStatusLabel,
   type SessionRowRole,
-  STATUS_LABEL_KEY,
 } from "@/frontend/views/student/sessions/sessionRowPresentation";
 import { Sessions, useAppLocale, useAppTranslation } from "@/shared/locale";
 
@@ -38,8 +40,17 @@ import { Sessions, useAppLocale, useAppTranslation } from "@/shared/locale";
  *  - the confirmation deadline + creation moment expand through the shared
  *    locale-aware {@link formatApplicantDate} (byte-consistent with the
  *    server-side lifecycle formatter);
- *  - the booking intent renders verbatim from the payload (server-owned
- *    value — no client-side intent vocabulary exists in `SessionsLabels`).
+ *  - the booking intent renders as the LOCALIZED row title — the row
+ *    resolves `INTENT_LABEL_KEY[session.intent]` onto the `SessionsLabels`
+ *    intent members (`intentHifz`/`intentTajweed`/`intentEvaluation`), with
+ *    the honest fallbacks (null intent → `NO_VALUE_PLACEHOLDER`; a member
+ *    unknown to the table → the raw payload value, mirroring the status
+ *    fallback);
+ *  - the counterpart identity band (the batch-enriched
+ *    `Session.student`/`Session.teacher` payload) renders through
+ *    `SessionRowCounterpart` under the intent title — the row-owner role
+ *    picks the band (teacher rows name the STUDENT, student rows name the
+ *    TEACHER) and the caption; an unpopulated band renders nothing.
  *
  * The Cancel CTA renders ONLY while the row's status is `Scheduled` or
  * `Started` (the cancellable-lifecycle lookup table) — the dialog itself,
@@ -59,6 +70,13 @@ import { Sessions, useAppLocale, useAppTranslation } from "@/shared/locale";
  * `TeacherSessionRow` wrapper was rejected because the Cancel CTA lives
  * INSIDE this row's action stack — the wrapper would have to duplicate the
  * meta/actions layout to sit next to it.
+ *
+ * Details seam: the optional `onDetailsIntent` prop (the same
+ * caller-driven shape) renders the read-only "Session details" outlined
+ * icon-button at the actions row's trailing edge for EVERY status — the
+ * affordance is purely an opener (the dialog fetches fresh through
+ * `sessionById`), so it renders unconditionally whenever its container
+ * supplies the intent, on BOTH surfaces.
  *
  * Dispute-role seam: the row owner's `role` token scopes the dispute
  * affordance through `isDisputable` — pre-completion rows stay disputable
@@ -135,6 +153,15 @@ interface SessionRowProps {
    */
   readonly onCaseIntent?: (sessionId: string) => void;
   /**
+   * Details intent — the caller-driven affordance seam like
+   * `onCaseIntent`: when supplied, the row renders the read-only
+   * "Session details" outlined icon-button in the actions row for EVERY
+   * status (details are always legitimate); when omitted the affordance
+   * never renders. The container owns the details-dialog slot; the dialog
+   * itself fetches fresh through `sessionById`.
+   */
+  readonly onDetailsIntent?: (sessionId: string) => void;
+  /**
    * Localized "still owes a rubric" label — when supplied (the teacher
    * surface), the meta band may render the rubric-pending pill for the
    * rows the caller marks; absent on the student surface.
@@ -149,7 +176,20 @@ interface SessionRowProps {
   readonly parkedDraftLabel?: string | null;
 }
 
-/** One session list card: status chip + intent title + fee/deadline/created meta. */
+/**
+ * The footer band's static layout (theme-independent): meta/evidence lines
+ * stack under the actions row on mobile, align end beside them from `sm` up.
+ * Module-scope so the row function stays inside its line budget.
+ */
+const ROW_FOOTER_LAYOUT_SX = {
+  gap: 2,
+  flexDirection: { xs: "column", sm: "row" },
+  flexWrap: "wrap",
+  alignItems: { xs: "stretch", sm: "flex-end" },
+  justifyContent: "space-between",
+} as const;
+
+/** One session list card: localized intent title + counterpart band + status chip + fee/deadline/created meta. */
 export function SessionRow({
   session,
   alertMessage,
@@ -159,38 +199,32 @@ export function SessionRow({
   role,
   actions,
   onCaseIntent,
+  onDetailsIntent,
   awaitingEvaluationLabel,
   parkedDraftLabel,
 }: Readonly<SessionRowProps>): ReactNode {
   const t = useAppTranslation(Sessions);
   const locale = useAppLocale();
 
-  const statusLabelKey = STATUS_LABEL_KEY[session.status];
-  const statusLabel = statusLabelKey in t ? t[statusLabelKey] : session.status;
   const isCancellable = session.status in CANCELLABLE_STATUSES;
   const isDisputed = session.status in DISPUTED_STATUS;
   const disputeIntent = isDisputable(session, role) && onDisputeIntent !== undefined ? onDisputeIntent : null;
-  const intentText = session.intent ?? NO_VALUE_PLACEHOLDER;
-
   return (
     <SessionRowCardShell testId={`session-row-${session.id}`}>
-      <SessionRowHeader status={session.status} statusLabel={statusLabel} intentText={intentText} />
+      <SessionRowHeader
+        status={session.status}
+        statusLabel={resolveStatusLabel(session.status, t)}
+        intentText={resolveIntentTitle(session.intent, t)}
+        counterpart={resolveCounterpartBand(role, session, t)}
+      />
 
-      {alertMessage !== undefined && alertMessage !== null && alertMessage !== "" ? (
+      {alertMessage ? (
         <Alert severity="error" variant="outlined">
           {alertMessage}
         </Alert>
       ) : null}
 
-      <Stack
-        sx={{
-          gap: 2,
-          flexDirection: { xs: "column", sm: "row" },
-          flexWrap: "wrap",
-          alignItems: { xs: "stretch", sm: "flex-end" },
-          justifyContent: "space-between",
-        }}
-      >
+      <Stack sx={ROW_FOOTER_LAYOUT_SX}>
         <SessionRowMeta
           session={session}
           locale={locale}
@@ -246,6 +280,9 @@ export function SessionRow({
           disputeDisabled={disputeDisabled}
           onCancelIntent={onCancelIntent}
         />
+        {onDetailsIntent !== undefined ? (
+          <SessionRowDetailsAction sessionId={session.id} onIntent={onDetailsIntent} />
+        ) : null}
       </Stack>
     </SessionRowCardShell>
   );

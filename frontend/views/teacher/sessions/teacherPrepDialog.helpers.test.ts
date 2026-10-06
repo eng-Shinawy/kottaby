@@ -103,6 +103,11 @@ function makeSessionRow(
     feeHeld: false,
     studentId: "7",
     teacherId: "5",
+    // The counterpart identity bands are nullable on the wire (the teacher
+    // lister batch-enriches ONLY the student side); these fixtures don't
+    // exercise the band, so both legs stay honestly null.
+    student: null,
+    teacher: null,
     startedAt: null,
     endedAt: null,
     confirmationDeadline: null,

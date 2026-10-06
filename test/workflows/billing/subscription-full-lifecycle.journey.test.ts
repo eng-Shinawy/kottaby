@@ -605,8 +605,10 @@ describe("cross-actor journey: subscription full lifecycle (purchase → settle 
     expect(lanesAfter.tajweed).toBe(lanesBefore.tajweed);
     expect(lanesAfter.reviews).toBe(lanesBefore.reviews);
 
-    // The booking fanned no receipt publish through the billing seam.
-    expect(publishSpy.mock.calls).toHaveLength(1);
+    // The booking's fan-out: the teacher's intake receipt publishes through
+    // the billing-seam spy (the completion prompt's publish rides the same
+    // seam) — two publishes total on this step's window.
+    expect(publishSpy.mock.calls).toHaveLength(2);
     expect(await inboxCount(studentS.userId)).toBe(inboxBefore);
 
     await expectControlTenantUntouched();

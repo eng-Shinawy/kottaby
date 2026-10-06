@@ -30,9 +30,11 @@
  *    decision must observe the caller transaction's own writes.
  *  - NO prepared statements — the list predicates are dynamically composed
  *    and every write is transactional (`docs/drizzle/prepared-statements.md`
- *    excludes both from preparation). NO array-membership operators — the
- *    cancel/dispute-state memberships and every other predicate are
- *    composed from equality conditions. No SQL line-comment sequences in
+ *    excludes both from preparation). The lifecycle predicates are composed
+ *    from equality conditions; the ONE array-membership read is the
+ *    participant-name batch (`listNamesByIds`), a dynamic `inArray` query
+ *    per the repo AGENTS.md rule (never prepared — the same PostgreSQL
+ *    protocol limitation documented there). No SQL line-comment sequences in
  *    any statement. Lifecycle vocabulary is carried by the `SessionStatus`
  *    enum members, never string literals.
  *  - No business logic, no permission checks, no i18n or logging imports —
@@ -57,9 +59,12 @@
  * File layout: the standalone-capable read machinery (shared predicate
  * builders, the select-column shape, the list/count/probe reads) lives in
  * the sibling `session.repository.helpers.ts` module (extracted verbatim);
- * the joined wave-context read lives in the sibling
- * `session.repository.wave.helpers.ts` module (extracted verbatim); the
- * gate-supporting row reads (the report gate's `FOR UPDATE` lock and the
+ * the participant-name batch read (`listNamesByIds` — a closed two-column
+ * projection with no shared predicate, the ONE `inArray` membership read)
+ * lives in the sibling `session.repository.names.helpers.ts` module (same
+ * extraction pattern); the joined wave-context read lives in the
+ * sibling `session.repository.wave.helpers.ts` module (extracted verbatim);
+ * the gate-supporting row reads (the report gate's `FOR UPDATE` lock and the
  * rating-eligibility probe) live in the sibling
  * `session.repository.gate.helpers.ts` module (extracted verbatim); the
  * post-confirmation dispute primitives live in the sibling
@@ -87,6 +92,7 @@ import * as sessionRepositoryEvaluationImpl from "@/backend/db/repo/classes/sess
 import * as sessionRepositoryGateImpl from "@/backend/db/repo/classes/session.repository.gate.helpers";
 import * as sessionRepositoryImpl from "@/backend/db/repo/classes/session.repository.helpers";
 import * as sessionRepositoryLifecycleImpl from "@/backend/db/repo/classes/session.repository.lifecycle.helpers";
+import * as sessionRepositoryNamesImpl from "@/backend/db/repo/classes/session.repository.names.helpers";
 import * as sessionRepositoryWaveImpl from "@/backend/db/repo/classes/session.repository.wave.helpers";
 import { session } from "@/backend/db/schema/classes/session";
 import type { DisputeResolution } from "@/backend/enum/scheduling/dispute-resolution.enum";
@@ -141,6 +147,18 @@ export namespace SessionRepository {
   export async function findById(id: number, tx?: DBTransaction): Promise<SessionSelectType | null> {
     return sessionRepositoryImpl.findById(id, tx);
   }
+
+  /**
+   * Batch read of participant display names: `{ id, fullName }` for every
+   * id in `ids`. The ONE `inArray` membership read behind the participant
+   * session lists' enrichment (the participant-name batch lives in the
+   * sibling `session.repository.names.helpers.ts` module — a closed
+   * two-column projection with no shared predicate). `users.full_name` is
+   * NOT NULL at the schema, so the projection is a closed non-nullable
+   * pair. An EMPTY id list answers `[]` WITHOUT any database round-trip.
+   * Type-exact const re-export (the `listAdminDisputed` pattern).
+   */
+  export const listNamesByIds = sessionRepositoryNamesImpl.listNamesByIds;
 
   /**
    * ONE joined read of the session-request wave context: the session's

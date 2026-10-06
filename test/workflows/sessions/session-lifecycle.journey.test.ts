@@ -227,6 +227,22 @@ function expectZeroSideEffectDeltas(before: SideEffectSnapshot, after: SideEffec
 }
 
 /**
+ * Asserts a BOOKING step's side-effect shape: the teacher's notification
+ * count grows by exactly ONE (the session-request intake wave) and every
+ * other counter stays flat.
+ */
+function expectBookingSideEffectDeltas(before: SideEffectSnapshot, after: SideEffectSnapshot): void {
+  expect(after.notificationsTeacher).toBe(before.notificationsTeacher + 1);
+  expect(after.notificationsStudentA).toBe(before.notificationsStudentA);
+  expect(after.notificationsStudentB).toBe(before.notificationsStudentB);
+  expect(after.auditStudentA).toBe(before.auditStudentA);
+  expect(after.auditStudentB).toBe(before.auditStudentB);
+  expect(after.auditTeacher).toBe(before.auditTeacher);
+  expect(after.teacherWalletRows).toBe(before.teacherWalletRows);
+  expect(after.teacherTransactionRows).toBe(before.teacherTransactionRows);
+}
+
+/**
  * Installs a recording no-op over the engine's publish contract: no
  * realtime channel is ever touched, and each dispatch is recorded together
  * with the receipts (and their recipient ids) so a step can assert both
@@ -396,7 +412,7 @@ describe("Journey J1 — Full Happy Lifecycle (cross-actor, real services)", () 
 
     expect(await countClaimsForKey(KEY_A)).toBe(1);
     expect(await countClaimsForUser(cast.primaryStudent.userId)).toBe(1);
-    expectZeroSideEffectDeltas(before, await sideEffectSnapshot(cast));
+    expectBookingSideEffectDeltas(before, await sideEffectSnapshot(cast));
   });
 
   test("step 2b — Student B books T (Hifz, key K2): HIS trial binds — trial-first across both bookings", async () => {
@@ -434,7 +450,7 @@ describe("Journey J1 — Full Happy Lifecycle (cross-actor, real services)", () 
 
     expect(await countClaimsForKey(KEY_B)).toBe(1);
     expect(await countClaimsForUser(cast.secondStudent.userId)).toBe(1);
-    expectZeroSideEffectDeltas(before, await sideEffectSnapshot(cast));
+    expectBookingSideEffectDeltas(before, await sideEffectSnapshot(cast));
   });
 
   test("step 3 — cross-actor visibility: teacher sees both scheduled; each student sees own only; every other role sees NOTHING", async () => {

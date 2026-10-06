@@ -41,3 +41,31 @@ export interface StudentLinkTargetRowType {
   readonly suspendedAt: Date | null;
   readonly suspendedPeriodDays: number | null;
 }
+
+/**
+ * `StudentSessionBalanceReturnType` — the caller's own prepaid
+ * session-credit lanes, one integer counter per booking lane.
+ *
+ * Domain: each `balance_*` column on the `students` row counts PRE-PAID
+ * session credits for its lane (trial, hifz, tajweed, reviews). The booking
+ * flow spends these credits through the debit ladder — the trial lane is
+ * drawn first, then the intent lane — while subscription activation credits
+ * and refunds replenish them; THIS shape is the read-only surface over the
+ * stored counters and carries none of that ladder logic (it answers "what
+ * is stored", never re-computing spendability).
+ *
+ * Nullability mirrors the schema columns verbatim: `balance_trial` is NOT
+ * NULL (the segregated one-time trial lane, zeroed at registration), while
+ * the three purchased lanes are nullable columns whose NULL reads as "no
+ * purchased credit ever landed on this lane" — surfaced honestly, never
+ * fabricated into zeros. Closed by construction: no identifiers, no contact
+ * fields, no governance state — the four lane counters only. A pure read
+ * projection with no database identity of its own (the GraphQL object is an
+ * embedded value type without an `id`).
+ */
+export interface StudentSessionBalanceReturnType {
+  readonly balanceTrial: number;
+  readonly balanceHifz: number | null;
+  readonly balanceTajweed: number | null;
+  readonly balanceReviews: number | null;
+}

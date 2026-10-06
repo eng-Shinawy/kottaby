@@ -21,8 +21,9 @@
  *      drift). The registry includes the post-confirmation arbitration
  *      inventory (escrow-class chips, consumed-escrow outcome labels/helpers,
  *      the partial-refund amount field, the case-review dialog's
- *      section/empty-state copy) and the teacher-preparation dialog's
- *      progress/homework copy.
+ *      section/empty-state copy), the teacher-preparation dialog's
+ *      progress/homework copy and the read-only session-details dialog's
+ *      affordance/fee-hold/timeline/unavailable vocabulary.
  *   3. REGISTRY WIRING — the `Sessions` handle is registered in
  *      `shared/locale/namespaces/index.ts` with the conventional `<ns>.<ns>`
  *      id and its getter resolves to the composed bundle slice; both message
@@ -74,6 +75,11 @@ const MANDATED_SESSIONS_KEYS = [
   "statusFilterAll",
   "status",
   "intent",
+  "intentHifz",
+  "intentTajweed",
+  "intentEvaluation",
+  "withTeacherCaption",
+  "withStudentCaption",
   "fee",
   "deadline",
   "createdAt",
@@ -252,6 +258,16 @@ const MANDATED_SESSIONS_KEYS = [
   "prepReadonlyHint",
   "prepStudentLabel",
   "prepLoadingLabel",
+  // ─── Session details dialog (read-only, both participant lists) — the new vocabulary.
+  "sessionDetailsTooltip",
+  "sessionDetailsDialogTitle",
+  "sessionDetailsFeeHeld",
+  "sessionDetailsFeeNotHeld",
+  "sessionDetailsTimelineTitle",
+  "sessionDetailsStartedAt",
+  "sessionDetailsEndedAt",
+  "sessionDetailsResolvedAt",
+  "sessionDetailsUnavailable",
 ] as const;
 
 /**
@@ -300,6 +316,8 @@ const ARABIC_SCRIPT_SAMPLE_KEYS = [
   "disputeConfirmBody",
   "statusScheduled",
   "statusDisputed",
+  "intentHifz",
+  "withTeacherCaption",
   "duplicateBookingInfo",
   "adminDisputesEmptyBody",
   "resolutionRefundHelper",
@@ -318,6 +336,9 @@ const ARABIC_SCRIPT_SAMPLE_KEYS = [
   "prepHomeworkEmptyBody",
   "prepReadonlyHint",
   "prepLoadingLabel",
+  "sessionDetailsFeeHeld",
+  "sessionDetailsFeeNotHeld",
+  "sessionDetailsUnavailable",
 ] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

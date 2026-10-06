@@ -39,6 +39,8 @@ export interface DashboardLabels {
   readonly academicTracking: string;
   /** Sidebar nav: Plans link (admin) */
   readonly plans: string;
+  /** Sidebar nav: Find Teachers link (student — the available-teachers directory browse) */
+  readonly findTeachers: string;
   /** Sidebar nav: Lessons link (admin — curriculum management under a plan) */
   readonly lessons: string;
   /** Sidebar nav: Audit link (admin) */
@@ -89,6 +91,26 @@ export interface DashboardLabels {
   readonly statUnavailable: string;
   /** Accessible status text announced while stat values are loading. */
   readonly statLoading: string;
+  /**
+   * Student balance-card popover: title of the prepaid-credits breakdown
+   * surface (also composed into the interactive card's accessible name as
+   * the affordance hint — activation opens the popover this title heads).
+   */
+  readonly balanceBreakdownTitle: string;
+  /** Student balance-card popover: the NOT NULL Trial lane chip label. */
+  readonly balanceLaneTrial: string;
+  /** Student balance-card popover: the purchased Hifz lane chip label. */
+  readonly balanceLaneHifz: string;
+  /** Student balance-card popover: the purchased Tajweed lane chip label. */
+  readonly balanceLaneTajweed: string;
+  /** Student balance-card popover: the purchased Reviews (recitation) lane chip label. */
+  readonly balanceLaneReviews: string;
+  /**
+   * Student balance-card popover: the honest-scope note rendered in every
+   * state — these are the caller's OWN prepaid session credits, and
+   * subscription-covered sessions are intentionally out of view.
+   */
+  readonly balanceBreakdownNote: string;
   /** Sign-out button label (app-bar) */
   readonly signOut: string;
   /** Profile page: Account Information card title */
@@ -159,6 +181,15 @@ export interface DashboardLabels {
   readonly signInPromptTitle: string;
   /** Auth-redirect prompt body */
   readonly signInPromptBody: string;
+  /**
+   * Live-region announcement for the dashboard auth gate's session-restoring
+   * state (the `output` live region — implicit `role="status"` — while the
+   * refresh-token flow restores the session on a full-page load).
+   * Deliberately separate from the sign-in prompt vocabulary above, which is
+   * reserved for the resolved-anonymous state — announcing "sign in" while a
+   * signed-in session is still restoring would be false.
+   */
+  readonly authRestoring: string;
   /** Next.js metadata title for `/dashboard` */
   readonly dashboardMetaTitle: string;
   /** Next.js metadata description for `/dashboard` */

@@ -318,10 +318,12 @@ describe("cross-actor journey: admin academic tracking (teacher produces → adm
     expect(await readSessionStatus(sessionTwo.id)).toBe(SessionStatus.Completed);
 
     // Cross-actor visibility: the student holds exactly one confirm-prompt
-    // inbox row per completed session; NO other cast member received anything.
+    // inbox row per completed session; the teacher's only rows are the two
+    // booking intake waves (one per booked session) — no other cast member
+    // received anything.
     expect(await trackInboxRows(producerRows, cast.primaryStudent.userId)).toBe(2);
     expect(await countNotificationsForUser(cast.secondStudent.userId)).toBe(0);
-    expect(await countNotificationsForUser(cast.teacher.userId)).toBe(0);
+    expect(await countNotificationsForUser(cast.teacher.userId)).toBe(2);
     expect(await countNotificationsForUser(cast.secondTeacher.userId)).toBe(0);
     expect(await countNotificationsForUser(cast.parent.userId)).toBe(0);
     expect(await countNotificationsForUser(cast.admin.userId)).toBe(0);
@@ -412,7 +414,7 @@ describe("cross-actor journey: admin academic tracking (teacher produces → adm
     }
     expect(await trackInboxRows(producerRows, cast.primaryStudent.userId)).toBe(4);
     expect(await countNotificationsForUser(cast.secondStudent.userId)).toBe(0);
-    expect(await countNotificationsForUser(cast.teacher.userId)).toBe(0);
+    expect(await countNotificationsForUser(cast.teacher.userId)).toBe(2);
     expect(await countNotificationsForUser(cast.admin.userId)).toBe(0);
 
     publishesAfterProducerLeg = transportSpy.publishCount;

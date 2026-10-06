@@ -1,8 +1,9 @@
 "use client";
 
 import type { SchoolOutlined as SchoolIcon } from "@mui/icons-material";
-import { Box, Card, CardContent, Skeleton, Stack, Typography } from "@mui/material";
+import { Box, ButtonBase, Card, CardContent, Skeleton, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 
 /** Stat card shape — the dashboard's role-aware stat strip. */
 export interface DashboardStat {
@@ -36,6 +37,94 @@ interface DashboardStatCardProps {
    * visual — the wrapping button owns the `aria-pressed` semantics.
    */
   readonly selected?: boolean;
+  /**
+   * Interactive seam — when present, the card renders as ONE large
+   * button-shaped surface (the STUDENT balance card opens its prepaid
+   * credits breakdown popover through it). Purely additive: the value
+   * states, the hover lift, and the card's own accessible-name/`status`
+   * semantics are untouched, and an inner MUI `ButtonBase` (a native
+   * button element — pointer, Enter and Space activation, the shared
+   * `focusVisibleRingSx` keyboard ring, `aria-haspopup="dialog"` since the
+   * activation opens a popover) wraps the card body. The card body stays
+   * well past the 44px touch minimum. The handler receives the activated
+   * element itself (the caller's popover anchor — read from the event, so
+   * no caller-side ref has to be dereferenced during render). Absent for
+   * every other stat card — those stay static.
+   */
+  readonly onActivate?: (anchor: HTMLElement) => void;
+  /**
+   * Localized affordance hint composed into the interactive surface's
+   * accessible name ("<card name> — <hint>", the hint naming the popover
+   * the activation opens). Only read when `onActivate` is set; the static
+   * arm never renders a button, so it never needs one.
+   */
+  readonly popoverAriaLabel?: string;
+}
+
+/**
+ * The card body — label + value slot (skeleton while loading, muted dash
+ * while unavailable) and the tinted icon chip. Extracted so the static and
+ * interactive arms render the IDENTICAL body (the icon chip's
+ * `.MuiCard-root:hover &` selector keeps working in both).
+ */
+function StatCardBody({ stat, selected }: Readonly<{ stat: DashboardStat; selected: boolean }>): ReactNode {
+  const { label, value, Icon, loading = false, unavailable = false } = stat;
+  return (
+    <CardContent sx={{ p: 3 }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: "center", justifyContent: "space-between" }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            variant="caption"
+            sx={theme => ({
+              color: theme.palette.text.secondary,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              fontWeight: 600,
+            })}
+          >
+            {label}
+          </Typography>
+          <Typography
+            variant="h4"
+            aria-busy={loading}
+            sx={theme => ({
+              fontWeight: 700,
+              color: unavailable ? theme.palette.text.disabled : theme.palette.text.primary,
+              mt: 0.5,
+              fontVariantNumeric: "tabular-nums",
+              lineHeight: 1.2,
+              overflowWrap: "anywhere",
+            })}
+          >
+            {loading ? <Skeleton variant="text" width={64} sx={{ fontSize: "inherit" }} /> : value}
+          </Typography>
+        </Box>
+        <Box
+          sx={theme => ({
+            width: 44,
+            minHeight: 54,
+            borderRadius: 2,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            bgcolor: selected ? theme.palette.primary.main : theme.palette.primaryContainer,
+            color: selected ? theme.palette.primary.contrastText : theme.palette.onPrimaryContainer,
+            transition: theme.transitions.create(["background-color", "color"], {
+              duration: theme.transitions.duration.short,
+              easing: theme.transitions.easing.easeOut,
+            }),
+            ".MuiCard-root:hover &": {
+              bgcolor: theme.palette.primary.main,
+              color: theme.palette.primary.contrastText,
+            },
+          })}
+        >
+          <Icon fontSize="medium" />
+        </Box>
+      </Stack>
+    </CardContent>
+  );
 }
 
 /**
@@ -54,10 +143,23 @@ interface DashboardStatCardProps {
  * Hover lift: a soft shadow + 2px raise gives the previously static cards
  * interactive feedback (pure `sx` transition — no motion library). The
  * icon chip tints to the primary surface on hover to echo the lift.
+ *
+ * Interactive arm (`onActivate` set): the body is wrapped in a native
+ * button element (MUI `ButtonBase`) whose accessible name composes the
+ * card's own name with the caller's affordance hint, so a screen reader
+ * hears both what the card shows AND what activation reveals. The card
+ * root keeps its name/`status` semantics untouched — the button is purely
+ * additive.
  */
-export function DashboardStatCard({ stat, selected = false }: Readonly<DashboardStatCardProps>): ReactNode {
-  const { label, value, Icon, loading = false, loadingLabel, unavailable = false } = stat;
+export function DashboardStatCard({
+  stat,
+  selected = false,
+  onActivate,
+  popoverAriaLabel,
+}: Readonly<DashboardStatCardProps>): ReactNode {
+  const { label, value, loading = false, loadingLabel } = stat;
   const ariaLabel = loading ? `${label}: ${loadingLabel ?? "…"}` : `${label}: ${value}`;
+  const body = <StatCardBody stat={stat} selected={selected} />;
 
   return (
     <Card
@@ -84,60 +186,27 @@ export function DashboardStatCard({ stat, selected = false }: Readonly<Dashboard
         },
       })}
     >
-      <CardContent sx={{ p: 3 }}>
-        <Stack direction="row" spacing={2} sx={{ alignItems: "center", justifyContent: "space-between" }}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography
-              variant="caption"
-              sx={theme => ({
-                color: theme.palette.text.secondary,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                fontWeight: 600,
-              })}
-            >
-              {label}
-            </Typography>
-            <Typography
-              variant="h4"
-              aria-busy={loading}
-              sx={theme => ({
-                fontWeight: 700,
-                color: unavailable ? theme.palette.text.disabled : theme.palette.text.primary,
-                mt: 0.5,
-                fontVariantNumeric: "tabular-nums",
-                lineHeight: 1.2,
-                overflowWrap: "anywhere",
-              })}
-            >
-              {loading ? <Skeleton variant="text" width={64} sx={{ fontSize: "inherit" }} /> : value}
-            </Typography>
-          </Box>
-          <Box
-            sx={theme => ({
-              width: 44,
-              minHeight: 54,
-              borderRadius: 2,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              bgcolor: selected ? theme.palette.primary.main : theme.palette.primaryContainer,
-              color: selected ? theme.palette.primary.contrastText : theme.palette.onPrimaryContainer,
-              transition: theme.transitions.create(["background-color", "color"], {
-                duration: theme.transitions.duration.short,
-                easing: theme.transitions.easing.easeOut,
-              }),
-              ".MuiCard-root:hover &": {
-                bgcolor: theme.palette.primary.main,
-                color: theme.palette.primary.contrastText,
-              },
-            })}
-          >
-            <Icon fontSize="medium" />
-          </Box>
-        </Stack>
-      </CardContent>
+      {onActivate === undefined ? (
+        body
+      ) : (
+        <ButtonBase
+          component="button"
+          type="button"
+          onClick={event => onActivate(event.currentTarget)}
+          aria-haspopup="dialog"
+          aria-label={popoverAriaLabel === undefined ? ariaLabel : `${ariaLabel} — ${popoverAriaLabel}`}
+          sx={{
+            width: "100%",
+            display: "block",
+            textAlign: "start",
+            borderRadius: 3,
+            cursor: "pointer",
+            ...focusVisibleRingSx,
+          }}
+        >
+          {body}
+        </ButtonBase>
+      )}
     </Card>
   );
 }

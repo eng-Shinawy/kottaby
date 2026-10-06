@@ -23,10 +23,13 @@
  *    `{certified, uncertified, isApproved=null}` × `{isOnline true, false}` ×
  *    `{no session, started session}` — asserting the returned
  *    `TeacherAvailabilityReturnType` AND the persisted `teacher.is_online`
- *    re-read inside the same `tx` (read-your-writes oracle). A dedicated
- *    integration case books + starts a session via the REAL
- *    `SessionLifecycleService.createSession`/`startSession` to prove the
- *    INV-A2 gate fires end-to-end.
+ *    re-read inside the same `tx` (read-your-writes oracle). Dedicated
+ *    integration cases book + start sessions via the REAL
+ *    `SessionLifecycleService.createSession`/`startSession`: one proves
+ *    the INV-A2 gate fires end-to-end, one proves the mid-session
+ *    Unavailable toggle succeeds and OVERWRITES the captured marker
+ *    (`was_online_before_lock` true → false — the deliberate intent
+ *    wins, the release can never resurrect it).
  *  - Tier 2 (boundary): pre-DB shape guard rejects `teacherId` of `0`,
  *    `-1`, `1.5`, `NaN`, and `2**53` with `VALIDATION` and zero DB calls;
  *    `isOnline` non-boolean casts to `VALIDATION`; null-coercion
@@ -40,22 +43,26 @@
  *    writes (committed fixtures; skipped on pglite — single-connection WASM
  *    cannot observe cross-tx row-lock serialization); sequential
  *    rapid-toggle storm within ONE tx ⇒ no lost update, deterministic final
- *    value (runs on pglite); forced inner failure AFTER `setOnline` writes
- *    ⇒ `teacher.is_online` unchanged (rollback of the whole
- *    `withTransaction`); the honest zero-row guard (a `setOnline` spy
- *    returning `null` ⇒ `TEACHER_NOT_FOUND` post-write denial). The
- *    in-tx activity stamp tier: the stamp and the write share ONE
- *    `innerTx` (spy-arg identity) and one captured now within the test
- *    window; a forced failure AFTER the stamp rolls back
+ *    value (runs on pglite); forced inner failure AFTER the availability
+ *    write ⇒ `teacher.is_online` unchanged (rollback of the whole
+ *    `withTransaction`); the zero-row writer guards (a
+ *    `setAvailabilityIntent` spy returning `null` ⇒ the Unavailable
+ *    direction denies `TEACHER_NOT_FOUND` post-write, the Available
+ *    direction raises the race-closed `TEACHER_IN_ACTIVE_SESSION`
+ *    backstop). The in-tx activity stamp tier: the stamp and the write
+ *    share ONE `innerTx` (spy-arg identity) and one captured now within
+ *    the test window; a forced failure AFTER the stamp rolls back
  *    `last_active_at` AND `is_online` together; a fresh toggle carries a
  *    fresh `last_active_at` (both toggle directions; a stamp boolean
  *    miss never fails the toggle).
  *  - Tier 4 (security/abuse): hostile-id fuzz with a repo/read spy proving
  *    ZERO DB calls before a `VALIDATION` denial; the certification gate
- *    NEVER lets an uncertified teacher reach `setOnline(true)` (BFLA/INV-A1
- *    — a `setOnline` spy asserts ZERO calls on the FORBIDDEN denial); the
- *    in-session gate NEVER lets a started-session teacher reach
- *    `setOnline(true)` (INV-A2 — same spy discipline); every denial logs
+ *    NEVER lets an uncertified teacher reach the availability write
+ *    (BFLA/INV-A1 — a `setAvailabilityIntent` spy asserts ZERO calls on
+ *    the FORBIDDEN denial); the in-session gate NEVER lets a
+ *    started-session teacher reach the availability write (INV-A2 — same
+ *    spy discipline); the race-closed backstop denies with the gate's
+ *    EXACT code + message; every denial logs
  *    EXACTLY ONCE (log-spy count) with a BOUNDED context (`{ code, entity,
  *    entityId, locale }` only — never PII, never the submitted payload,
  *    never a session id); the INV-A2 gate's own log is the SOLE log for
@@ -63,6 +70,8 @@
  */
 
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { TeacherRepository, UserRepository } from "@/backend/db/repo";
@@ -105,7 +114,7 @@ const LOCALE_UNKNOWN = "klingon-pirate";
 /**
  * Sentinel thrown by the forced-inner-failure spy — proves the SAVEPOINT
  * rolls back the write when anything inside the `withTransaction` body
- * throws AFTER `setOnline` runs.
+ * throws AFTER the availability write runs.
  */
 const FORCED_INNER_FAILURE = "FORCED_INNER_FAILURE_AFTER_WRITE";
 
@@ -836,6 +845,36 @@ describe("TeacherAvailabilityService.setAvailability", () => {
     });
   });
 
+  test("integration: the mid-session Unavailable toggle on a REAL started session succeeds and OVERWRITES the captured marker", async () => {
+    await runInRollback(async tx => {
+      const teacherUser = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, teacherUser.id, { isOnline: true });
+      const studentUser = await createTestUser(tx, { role: "student" });
+      await createTestStudent(tx, studentUser.id);
+      silenceDomainLog();
+
+      // Book + start through the REAL lifecycle — the acquire captured
+      // the pre-lock intent (marker true) and drove the teacher offline.
+      await startSessionViaRealService(tx, teacherUser.id, studentUser.id, "key-availability-marker-overwrite");
+      const locked = await readTeacherRow(tx, teacherUser.id);
+      expect(locked?.isOnline).toBe(false);
+      expect(locked?.wasOnlineBeforeLock).toBe(true);
+
+      // The mid-session Unavailable toggle is UNGATED — and it IS the
+      // pre-lock intent now: the held marker is overwritten to false so
+      // the eventual release cannot resurrect availability the teacher
+      // explicitly withdrew.
+      const projection = await TeacherAvailabilityService.setAvailability(teacherUser.id, false, LOCALE_EN, tx);
+      expect(projection).toEqual({ id: teacherUser.id, isOnline: false, isApproved: true });
+
+      // Repo-read oracle: the flag is false AND the captured marker was
+      // overwritten (true → false), never left stale.
+      const reread = await readTeacherRow(tx, teacherUser.id);
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBe(false);
+    });
+  });
+
   // ─── Tier 2: boundary ────────────────────────────────────────────────
 
   test.each([0, -1, 1.5, Number.NaN, 2 ** 53])(
@@ -1041,7 +1080,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
     });
   });
 
-  test("forced inner failure AFTER setOnline writes ⇒ teacher.is_online unchanged (rollback of the whole withTransaction)", async () => {
+  test("forced inner failure AFTER the availability write ⇒ teacher.is_online unchanged (rollback of the whole withTransaction)", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });
       await createTestTeacherRow(tx, user.id, { isOnline: false });
@@ -1053,10 +1092,10 @@ describe("TeacherAvailabilityService.setAvailability", () => {
       // `withTransaction` rolls back, the FOR UPDATE lock releases, and
       // the UPDATE is un-applied. Restored in a `finally` so an
       // assertion failure cannot leak the spy into the next test.
-      const realSetOnline = TeacherRepository.setOnline;
-      const setOnlineSpy = spyOn(TeacherRepository, "setOnline").mockImplementation(
+      const realWriter = TeacherRepository.setAvailabilityIntent;
+      const writerSpy = spyOn(TeacherRepository, "setAvailabilityIntent").mockImplementation(
         async (id: number, online: boolean, innerTx: DBTransaction) => {
-          await realSetOnline(id, online, innerTx);
+          await realWriter(id, online, innerTx);
           throw new Error(FORCED_INNER_FAILURE);
         }
       );
@@ -1074,7 +1113,42 @@ describe("TeacherAvailabilityService.setAvailability", () => {
         // Zero committed partial state — the certification flag is unchanged.
         expect(reread?.isApproved).toBe(true);
       } finally {
-        setOnlineSpy.mockRestore();
+        writerSpy.mockRestore();
+      }
+    });
+  });
+
+  test("the honest zero-row guard (Unavailable direction): a `setAvailabilityIntent` returning null denies with TEACHER_NOT_FOUND post-write", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, user.id, { isOnline: false });
+      const logSpy = silenceDomainLog();
+
+      // The writer returns `null` — the Unavailable direction's zero-row
+      // guard denies with `TEACHER_NOT_FOUND` (the row vanished
+      // mid-transaction). The Available direction's zero rows are the
+      // race-closed backstop instead (its own test below). Restored in a
+      // `finally` so an assertion failure cannot leak the spy into the
+      // next test.
+      const writerSpy = spyOn(TeacherRepository, "setAvailabilityIntent").mockResolvedValue(null);
+      try {
+        const error = await expectRepoError(() =>
+          TeacherAvailabilityService.setAvailability(user.id, false, LOCALE_EN, tx)
+        );
+
+        expectDomainDenial(error, "TEACHER_NOT_FOUND", errorsFor(LOCALE_EN).teacherNotFound);
+        // The honest zero-row guard logs EXACTLY ONCE with a bounded context.
+        expect(logSpy.mock.calls).toHaveLength(1);
+        const [message, ctx] = recordedLogCall(logSpy);
+        expect(message).toBe("Teacher not found for availability toggle write");
+        expect(ctx).toEqual({
+          code: "TEACHER_NOT_FOUND",
+          entity: "teacher",
+          entityId: user.id,
+          locale: LOCALE_EN,
+        });
+      } finally {
+        writerSpy.mockRestore();
       }
     });
   });
@@ -1095,10 +1169,10 @@ describe("TeacherAvailabilityService.setAvailability", () => {
       // `finally` so an assertion failure cannot leak the spies into the
       // next test) — the spies record arguments WITHOUT changing the
       // committed behavior.
-      const realSetOnline = TeacherRepository.setOnline;
+      const realAvailabilityWrite = TeacherRepository.setAvailabilityIntent;
       const realStamp = UserRepository.updateLastActiveAt;
-      const setOnlineSpy = spyOn(TeacherRepository, "setOnline").mockImplementation(
-        async (id: number, online: boolean, innerTx: DBTransaction) => realSetOnline(id, online, innerTx)
+      const availabilityWriteSpy = spyOn(TeacherRepository, "setAvailabilityIntent").mockImplementation(
+        async (id: number, online: boolean, innerTx: DBTransaction) => realAvailabilityWrite(id, online, innerTx)
       );
       const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockImplementation(
         async (userId: number, now: Date, innerTx?: DBQueryExecutor) => realStamp(userId, now, innerTx)
@@ -1120,8 +1194,8 @@ describe("TeacherAvailabilityService.setAvailability", () => {
 
         // In-transaction composition — the stamp received the SAME tx
         // handle the write received (one shared atomic unit).
-        expect(setOnlineSpy.mock.calls).toHaveLength(1);
-        const [, , writeInnerTx] = setOnlineSpy.mock.calls[0];
+        expect(availabilityWriteSpy.mock.calls).toHaveLength(1);
+        const [, , writeInnerTx] = availabilityWriteSpy.mock.calls[0];
         expect(stampInnerTx).toBe(writeInnerTx);
 
         // Read-your-writes — the stamped value is visible inside the same
@@ -1129,7 +1203,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
         const stampedAt = await readUserLastActiveAt(tx, user.id);
         expect(stampedAt?.getTime()).toBe(stampNow.getTime());
       } finally {
-        setOnlineSpy.mockRestore();
+        availabilityWriteSpy.mockRestore();
         stampSpy.mockRestore();
       }
     });
@@ -1233,36 +1307,45 @@ describe("TeacherAvailabilityService.setAvailability", () => {
     });
   });
 
-  test("the honest zero-row guard: a `setOnline` returning null denies with TEACHER_NOT_FOUND post-write (coverage of the defensive branch)", async () => {
+  test("the race-closed backstop: a `setAvailabilityIntent` returning null on the Available direction denies with the gate's EXACT conflict", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });
       await createTestTeacherRow(tx, user.id, { isOnline: false });
       const logSpy = silenceDomainLog();
 
-      // The `setOnline` returns `null` — the post-write zero-row guard
-      // denies with `TEACHER_NOT_FOUND`. Structurally unreachable under
-      // the same-tx FOR UPDATE lock (the row's identity is held), but
-      // the contract is defended. Restored in a `finally` so an
-      // assertion failure cannot leak the spy into the next test.
-      const setOnlineSpy = spyOn(TeacherRepository, "setOnline").mockResolvedValue(null);
+      // Both gates PASS (certified teacher, no started session) — but the
+      // writer's own write-time guard matched zero rows: a `started`
+      // session won the race between the pre-check gate and the write.
+      // The stub simulates exactly that lost race (null once, then the
+      // real writer). Restored in a `finally` so an assertion failure
+      // cannot leak the spy into the next test.
+      const writerSpy = spyOn(TeacherRepository, "setAvailabilityIntent").mockResolvedValueOnce(null);
       try {
         const error = await expectRepoError(() =>
-          TeacherAvailabilityService.setAvailability(user.id, false, LOCALE_EN, tx)
+          TeacherAvailabilityService.setAvailability(user.id, true, LOCALE_EN, tx)
         );
 
-        expectDomainDenial(error, "TEACHER_NOT_FOUND", errorsFor(LOCALE_EN).teacherNotFound);
-        // The honest zero-row guard logs EXACTLY ONCE with a bounded context.
+        // The EXISTING denial — same code and the SAME localized message
+        // source the in-session gate raises (never a duplicate copy).
+        expectDomainDenial(error, "TEACHER_IN_ACTIVE_SESSION", errorsFor(LOCALE_EN).teacherInActiveSession);
+        // The writer fired exactly once (the stubbed call).
+        expect(writerSpy.mock.calls).toHaveLength(1);
+        // The service-owned backstop logs EXACTLY ONCE with a bounded
+        // context — oracle safety: no session id anywhere.
         expect(logSpy.mock.calls).toHaveLength(1);
         const [message, ctx] = recordedLogCall(logSpy);
-        expect(message).toBe("Teacher not found for availability toggle write");
+        expect(message).toBe("Teacher availability denied: in-session race detected at write");
         expect(ctx).toEqual({
-          code: "TEACHER_NOT_FOUND",
+          code: "TEACHER_IN_ACTIVE_SESSION",
           entity: "teacher",
           entityId: user.id,
           locale: LOCALE_EN,
         });
+        expect(new Set(Object.keys(ctx ?? {}))).toEqual(new Set(["code", "entity", "entityId", "locale"]));
+        expect(JSON.stringify(ctx)).not.toContain("sessionId");
+        expect(JSON.stringify(ctx)).not.toContain("session_id");
       } finally {
-        setOnlineSpy.mockRestore();
+        writerSpy.mockRestore();
       }
     });
   });
@@ -1272,7 +1355,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
   test("hostile-id fuzz: ZERO DB calls before a VALIDATION denial (no repo read, no repo write)", async () => {
     await runInRollback(async tx => {
       const lockSpy = spyOn(TeacherRepository, "lockForCertificationCheck");
-      const setOnlineSpy = spyOn(TeacherRepository, "setOnline");
+      const writerSpy = spyOn(TeacherRepository, "setAvailabilityIntent");
       silenceDomainLog();
 
       const error = await expectRepoError(() =>
@@ -1282,13 +1365,13 @@ describe("TeacherAvailabilityService.setAvailability", () => {
       expectDomainDenial(error, "VALIDATION", errorsFor(LOCALE_EN).validation);
       // Pre-DB shape guard — ZERO DB calls fired.
       expect(lockSpy.mock.calls).toHaveLength(0);
-      expect(setOnlineSpy.mock.calls).toHaveLength(0);
+      expect(writerSpy.mock.calls).toHaveLength(0);
       lockSpy.mockRestore();
-      setOnlineSpy.mockRestore();
+      writerSpy.mockRestore();
     });
   });
 
-  test("BFLA / INV-A1: an uncertified teacher can NEVER reach setOnline(true) — the repo write fires ZERO times", async () => {
+  test("BFLA / INV-A1: an uncertified teacher can NEVER reach the availability write — the repo write fires ZERO times", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });
       await createTestTeacherRow(tx, user.id, { isApproved: false, isOnline: false });
@@ -1296,7 +1379,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
       // denies BEFORE the write can fire (BFLA defense-in-depth).
       // Restored in a `finally` so an assertion failure cannot leak the
       // spy into the next test.
-      const setOnlineSpy = spyOn(TeacherRepository, "setOnline");
+      const writerSpy = spyOn(TeacherRepository, "setAvailabilityIntent");
       const logSpy = silenceDomainLog();
       try {
         const error = await expectRepoError(() =>
@@ -1305,7 +1388,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
 
         expectDomainDenial(error, "FORBIDDEN", errorsFor(LOCALE_EN).teacherNotCertified);
         // INV-A1 — the write primitive NEVER fired for an uncertified teacher.
-        expect(setOnlineSpy.mock.calls).toHaveLength(0);
+        expect(writerSpy.mock.calls).toHaveLength(0);
         // The denial logs EXACTLY ONCE with a bounded context.
         expect(logSpy.mock.calls).toHaveLength(1);
         const [message, ctx] = recordedLogCall(logSpy);
@@ -1320,12 +1403,12 @@ describe("TeacherAvailabilityService.setAvailability", () => {
         expect(new Set(Object.keys(ctx ?? {}))).toEqual(new Set(["code", "entity", "entityId", "locale"]));
         expect(JSON.stringify(ctx)).not.toContain("sessionId");
       } finally {
-        setOnlineSpy.mockRestore();
+        writerSpy.mockRestore();
       }
     });
   });
 
-  test("INV-A2: a started-session teacher can NEVER reach setOnline(true) — the repo write fires ZERO times", async () => {
+  test("INV-A2: a started-session teacher can NEVER reach the availability write — the repo write fires ZERO times", async () => {
     await runInRollback(async tx => {
       const teacherUser = await createTestUser(tx, { role: "teacher" });
       await createTestTeacherRow(tx, teacherUser.id, { isOnline: false });
@@ -1338,7 +1421,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
       // an assertion failure cannot leak the spy into the next test
       // (bun:test's `spyOn` returns the existing spy if one is already
       // installed — leaking state across tests is the failure mode).
-      const setOnlineSpy = spyOn(TeacherRepository, "setOnline");
+      const writerSpy = spyOn(TeacherRepository, "setAvailabilityIntent");
       const logSpy = silenceDomainLog();
       try {
         const error = await expectRepoError(() =>
@@ -1347,7 +1430,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
 
         expectDomainDenial(error, "TEACHER_IN_ACTIVE_SESSION", errorsFor(LOCALE_EN).teacherInActiveSession);
         // INV-A2 — the write primitive NEVER fired for an in-session teacher.
-        expect(setOnlineSpy.mock.calls).toHaveLength(0);
+        expect(writerSpy.mock.calls).toHaveLength(0);
         // The reused gate owns its OWN bounded log call — the service adds
         // no duplicate log. Exactly ONE log call total.
         expect(logSpy.mock.calls).toHaveLength(1);
@@ -1368,7 +1451,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
         // domain vocabulary, never the session ID).
         expect(error.message).not.toContain(String(seededSession.id));
       } finally {
-        setOnlineSpy.mockRestore();
+        writerSpy.mockRestore();
       }
     });
   });
@@ -1442,7 +1525,7 @@ describe("TeacherAvailabilityService.setAvailability", () => {
       await createTestTeacherRow(tx, teacherUser.id, { isApproved: false, isOnline: false });
       const studentUser = await createTestUser(tx, { role: "student" });
       await createTestSession(tx, teacherUser.id, studentUser.id, { status: SessionStatus.Started });
-      const setOnlineSpy = spyOn(TeacherRepository, "setOnline");
+      const writerSpy = spyOn(TeacherRepository, "setAvailabilityIntent");
       const logSpy = silenceDomainLog();
       try {
         const error = await expectRepoError(() =>
@@ -1454,13 +1537,42 @@ describe("TeacherAvailabilityService.setAvailability", () => {
         expectDomainDenial(error, "FORBIDDEN", errorsFor(LOCALE_EN).teacherNotCertified);
         // The write primitive NEVER fired — INV-A1 denied before INV-A2
         // could even be probed.
-        expect(setOnlineSpy.mock.calls).toHaveLength(0);
+        expect(writerSpy.mock.calls).toHaveLength(0);
         expect(logSpy.mock.calls).toHaveLength(1);
         const [, ctx] = recordedLogCall(logSpy);
         expect(ctx).toMatchObject({ code: "FORBIDDEN" });
       } finally {
-        setOnlineSpy.mockRestore();
+        writerSpy.mockRestore();
       }
     });
+  });
+
+  // ─── Tier 4: static source pins (retirement + caller obligation) ────
+
+  const SERVICE_FILE = join(import.meta.dir, "teacher-availability.service.ts");
+  const serviceSource = readFileSync(SERVICE_FILE, "utf8");
+
+  test("source: setOnline is fully retired from the service (zero references) and lockForCertificationCheck precedes setAvailabilityIntent (the caller-obligation pin)", () => {
+    // Retirement regression pin — the unconditional `setOnline` writer was
+    // deleted with the toggle rework; any reappearance in the service
+    // source (a call, an import, or a stray docblock reference) is a
+    // defect.
+    expect(serviceSource.includes("setOnline")).toBe(false);
+    // Caller-obligation pin — the FOR UPDATE teacher-row lock
+    // (`lockForCertificationCheck`) must be taken BEFORE the
+    // `setAvailabilityIntent` write inside `setAvailability`: the row lock
+    // held across the whole toggle transaction is the PRIMARY
+    // toggle-vs-start serialization (the pre-check gates and the write
+    // observe one consistent ordering); the write-time direction guard is
+    // only the defense-in-depth backstop. Source-order assertion — the
+    // obligation is structural, not behavioral, so it is pinned against
+    // the source text (no runtime spy can prove ordering under a race).
+    const lockCallIndex = serviceSource.indexOf("TeacherRepository.lockForCertificationCheck(teacherId, innerTx)");
+    const writeCallIndex = serviceSource.indexOf(
+      "TeacherRepository.setAvailabilityIntent(teacherId, isOnline, innerTx)"
+    );
+    expect(lockCallIndex).toBeGreaterThan(-1);
+    expect(writeCallIndex).toBeGreaterThan(-1);
+    expect(lockCallIndex).toBeLessThan(writeCallIndex);
   });
 });

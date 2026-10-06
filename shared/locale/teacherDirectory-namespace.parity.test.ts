@@ -1,6 +1,6 @@
 /**
  * `teacherDirectory`-namespace locale-parity verification
- * · ar+en parity gate + 1-key frozen set pin + Arabic-script sanity.
+ * · ar+en parity gate + frozen-key-set pin + Arabic-script sanity.
  *
  * WHAT THIS LOCKS
  *   1. TEACHERDIRECTORY PARITY BELT — the ar/en `teacherDirectory` leaf maps
@@ -9,11 +9,11 @@
  *      typed `TeacherDirectoryLabels`; any missing key fails `bun tsgo`).
  *      This suite keeps the guarantee enforced even if someone loosens that
  *      typing later.
- *   2. FROZEN 1-KEY SET PIN — the `teacherDirectory` namespace admits EXACTLY
- *      this one leaf-string key (no functions, no grouped sub-blocks):
- *      `noTeachersAvailable`. Adding or removing any key fails this gate
- *      even if compile-time parity is intact (the namespace extends
- *      additively — every future key lands in this pin alongside it).
+ *   2. FROZEN KEY-SET PIN — the `teacherDirectory` namespace admits EXACTLY
+ *      the flat leaf-string keys listed below (no functions, no grouped
+ *      sub-blocks). Adding or removing any key fails this gate even if
+ *      compile-time parity is intact (the namespace extends additively —
+ *      every future key lands in this pin alongside its siblings).
  *   3. ARABIC-SCRIPT SANITY — EVERY `ar` leaf carries Arabic script
  *      (U+0600–U+06FF), guarding against an accidental copy-paste of the
  *      English copy into the `ar` leaf.
@@ -50,12 +50,69 @@ import type { TeacherDirectoryLabels } from "@/shared/locale/types/teacherDirect
 // ─── Mandated registries ─────────────────────────────────────────────────────
 
 /**
- * The frozen 1-key leaf-string set of the `teacherDirectory` namespace.
- * Adding or removing a key fails this gate even if the compile-time
- * `TeacherDirectoryLabels` typing is intact (this pin guards both the en and
- * ar leaves from silent drift).
+ * The frozen leaf-string key set of the `teacherDirectory` namespace
+ * (count-agnostic: the namespace extends ADDITIVELY, so every new key
+ * lands in this list alongside its siblings and the length pins below
+ * derive from it). Adding or removing a key fails this gate even if the
+ * compile-time `TeacherDirectoryLabels` typing is intact (this pin guards
+ * both the en and ar leaves from silent drift).
  */
-const TEACHER_DIRECTORY_FROZEN_KEYS = ["noTeachersAvailable"] as const;
+const TEACHER_DIRECTORY_FROZEN_KEYS = [
+  "noTeachersAvailable",
+  "browseTitle",
+  "browseSubtitle",
+  "recitationLabel",
+  "intentLabel",
+  "intentHifz",
+  "intentTajweed",
+  "applyFilters",
+  "resetFilters",
+  "resultsTitle",
+  "showingPrefix",
+  "of",
+  "onlineNow",
+  "unrated",
+  "cardRecitations",
+  "cardLanguages",
+  "emptyStateHint",
+  "paginationLabel",
+  "previousPage",
+  "nextPage",
+  "pageWord",
+  "requestSessionCta",
+  "requestDialogTitle",
+  "requestDialogIntentLabel",
+  "requestDialogNote",
+  "requestDialogCreditsLabel",
+  "creditLaneTrial",
+  "creditLaneHifz",
+  "creditLaneTajweed",
+  "creditLaneReviews",
+  "requestDialogInsufficientCreditsNote",
+  "requestCancel",
+  "requestConfirm",
+  "requestSuccessNotice",
+  "requestDuplicateNotice",
+  "requestGenericFailure",
+  "appliedFiltersLabel",
+  "languageArabic",
+  "languageEnglish",
+  "languageFrench",
+  "searchLabel",
+  "searchPlaceholder",
+  "minRatingLabel",
+  "ratingAny",
+  "ratingThreePlus",
+  "ratingFourPlus",
+  "ratingFourFivePlus",
+  "sortLabel",
+  "sortTopRated",
+  "sortNameAZ",
+  "sortNewest",
+  "appliedSearchPrefix",
+  "appliedRatingPrefix",
+  "appliedSortPrefix",
+] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -102,15 +159,15 @@ function nonEmptyTeacherDirectoryLeaf(
 }
 
 // ===========================================================================
-describe("teacherDirectory namespace — frozen 1-key set pin", () => {
-  test("the en leaf exposes EXACTLY the 1 frozen key (no extra, no missing)", () => {
+describe("teacherDirectory namespace — frozen key-set pin", () => {
+  test("the en leaf exposes EXACTLY the frozen keys (no extra, no missing)", () => {
     const enKeys = Object.keys(teacherDirectoryEn).toSorted((a, b) => a.localeCompare(b));
     const frozen = [...TEACHER_DIRECTORY_FROZEN_KEYS].toSorted((a, b) => a.localeCompare(b));
     expect(enKeys).toEqual(frozen);
     expect(enKeys).toHaveLength(TEACHER_DIRECTORY_FROZEN_KEYS.length);
   });
 
-  test("the ar leaf exposes EXACTLY the 1 frozen key (no extra, no missing)", () => {
+  test("the ar leaf exposes EXACTLY the frozen keys (no extra, no missing)", () => {
     const arKeys = Object.keys(teacherDirectoryAr).toSorted((a, b) => a.localeCompare(b));
     const frozen = [...TEACHER_DIRECTORY_FROZEN_KEYS].toSorted((a, b) => a.localeCompare(b));
     expect(arKeys).toEqual(frozen);
@@ -147,9 +204,28 @@ describe("teacherDirectory namespace — ar/en parity belt", () => {
   });
 });
 
+/**
+ * The rating-chip keys whose values are locale-neutral numeric tokens in
+ * BOTH locales — they match the card's rating pill, which renders the
+ * numeric average with Western digits (`{teacher.averageRating}`), so the
+ * filter chips must not invent a diverging digit convention. They stay
+ * pinned non-empty and byte-identical across locales below.
+ */
+const NUMERIC_CHIP_KEYS = ["ratingThreePlus", "ratingFourPlus", "ratingFourFivePlus"] as const;
+
 // ===========================================================================
 describe("teacherDirectory namespace — Arabic-script sanity on EVERY ar leaf", () => {
   for (const key of TEACHER_DIRECTORY_FROZEN_KEYS) {
+    if ((NUMERIC_CHIP_KEYS as readonly string[]).includes(key)) {
+      // Locale-neutral numeric chip: pinned identical across locales
+      // (the card's rating pill is the digit-convention owner).
+      test(`teacherDirectory.${key} is the locale-neutral numeric chip (identical in BOTH locales)`, () => {
+        const en = nonEmptyTeacherDirectoryLeaf(teacherDirectoryEn, key, "en");
+        const ar = nonEmptyTeacherDirectoryLeaf(teacherDirectoryAr, key, "ar");
+        expect(ar).toBe(en);
+      });
+      continue;
+    }
     test(`teacherDirectoryAr.${key} carries Arabic script (no English slip-through)`, () => {
       const value = nonEmptyTeacherDirectoryLeaf(teacherDirectoryAr, key, "ar");
       expect(containsArabicScript(value), `teacherDirectoryAr.${key} must be Arabic script`).toBe(true);
@@ -202,6 +278,17 @@ describe("teacherDirectory namespace — sync resolution through getTranslations
     const t: TeacherDirectoryLabels = getTranslations("ar").teacherDirectoryTranslations;
     expect(t.noTeachersAvailable).toBe(teacherDirectoryAr.noTeachersAvailable);
     expect(containsArabicScript(t.noTeachersAvailable)).toBe(true);
+  });
+
+  test("en resolves a browse-surface key", () => {
+    const t: TeacherDirectoryLabels = getTranslations("en").teacherDirectoryTranslations;
+    expect(t.browseTitle).toBe(teacherDirectoryEn.browseTitle);
+  });
+
+  test("ar resolves a browse-surface key (Arabic script)", () => {
+    const t: TeacherDirectoryLabels = getTranslations("ar").teacherDirectoryTranslations;
+    expect(t.browseTitle).toBe(teacherDirectoryAr.browseTitle);
+    expect(containsArabicScript(t.browseTitle)).toBe(true);
   });
 
   test("unknown locales fall back to the DEFAULT locale without throwing", () => {

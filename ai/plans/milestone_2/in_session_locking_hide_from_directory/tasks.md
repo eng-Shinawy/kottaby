@@ -27,7 +27,7 @@
 
 ### 0.1 Record Error Baseline & Initialize Deferred-Items Ledger
 
-- [ ] 0.1 [Record baseline + initialize ledger]
+- [x] 0.1 [Record baseline + initialize ledger]
   - Run and capture counts into `/tmp/baseline-*.txt`:
     - `bun tsgo 2>&1 | grep "error TS" | wc -l > /tmp/baseline-tsgo.txt`
     - `bun biome:check 2>&1 | grep -c "warn" > /tmp/baseline-biome.txt`
@@ -38,7 +38,7 @@
 
 ### 0.2 Prerequisite & Dependency Verification (Anchored, Never Rebuilt)
 
-- [ ] 0.2 [Verify every consumed artifact exists at its cited anchor — grep/Read, no edits]
+- [x] 0.2 [Verify every consumed artifact exists at its cited anchor — grep/Read, no edits]
   - **Blocked-by ticket implemented (gate):** `TeacherAvailabilityService.getAvailability(teacherId: number, locale: string, tx?: DBQueryExecutor): Promise<TeacherAvailabilityReturnType>` (`backend/services/teachers/teacher-availability.service.ts:103-125`) and `setAvailability(teacherId: number, isOnline: boolean, locale: string, tx?: DBTransaction): Promise<TeacherAvailabilityReturnType>` (`:178-246`) — consumed, with gates at `:209-217` (INV-A1) and `:223` (INV-A2).
   - **Lock path (CONSUME the discipline, replace the two writes):** `startSession(teacherUserId: number, sessionId: number, locale: string, outerTx?: DBTransaction): Promise<SessionReturnType>` (`backend/services/classes/session-lifecycle.service.ts:249-254`); transition `SessionRepository.startSessionOnce(id: number, teacherId: number, tx?: DBTransaction): Promise<SessionSelectType | null>` (`backend/db/repo/classes/session.repository.ts:173-186`); discarded prior-online read at `session-lifecycle.service.ts:274`; lock write at `:283`; fail-closed throw at `:284-289`.
   - **Release path (REWORK target):** `releaseTeacherInSessionLock(teacherId: number, tx: DBTransaction): Promise<void>` (`backend/services/classes/session-lifecycle.transitions.ts:249-257`); call sites `session-lifecycle.service.ts:404` (complete), `:489-491` (cancel, `startedAt` guard), `:663-665` (arbitration, `startedAt` guard).
@@ -67,7 +67,7 @@
 
 ### 1.1 `teacher.was_online_before_lock` Column (Drizzle push)
 
-- [ ] 1.1 [Add the ONE nullable marker column and push the schema]
+- [x] 1.1 [Add the ONE nullable marker column and push the schema]
   - UPDATE `backend/db/schema/teachers/teacher.ts`: add `wasOnlineBeforeLock: boolean("was_online_before_lock"),` immediately after `isOnline` (`:28`) — nullable, NO `.default(...)`, NO `.notNull()`. Add the column JSDoc in the file's existing style (semantics: `NULL` = no in-session lock held; `true/false` = pre-lock availability intent restored on the last `started` exit).
   - Apply via `bun run db push` (Drizzle schema flow). Do NOT run `bun db migrate` (no custom SQL). Do NOT touch any other schema file; `git diff backend/db/schema/` MUST show exactly this one column addition.
   - VERIFY post-push: existing rows read `was_online_before_lock = NULL`; `SELECT is_online, was_online_before_lock FROM teacher LIMIT 1` shape check (no backfill, no default).
@@ -81,7 +81,7 @@
 
 ### 1.2 Canonical Release-Outcome Types
 
-- [ ] 1.2 [Add the two canonical types to `backend/types/teachers/teacher.types.ts`]
+- [x] 1.2 [Add the two canonical types to `backend/types/teachers/teacher.types.ts`]
   - UPDATE `backend/types/teachers/teacher.types.ts` (today exports `TeacherSelectType` `:3`, `TeacherColdStartCertificationInput` `:5-8`, `TeacherAvailabilityReturnType` `:24-28`) with EXACTLY two new exports (bodies pinned in `plan.md` §2.2): `export type TeacherInSessionLockReleaseOutcomeType = "released" | "no_lock_held" | "active_sessions_remain";` and `export interface TeacherInSessionLockReleaseResultType { readonly outcome: TeacherInSessionLockReleaseOutcomeType; readonly teacher: TeacherSelectType; }` — each with production-grade JSDoc (domain semantics, no plan-artifact references).
   - Do NOT touch `TeacherAvailabilityReturnType` (no `inSession` flag — forbidden by `docs/backend/cross-stream-contracts.md:56`) and do NOT touch `backend/types/contracts/teacher-availability.contract.types.ts` (Dev-3 boundary).
   - The existing barrel `backend/types/teachers/index.ts` re-exports `./teacher.types` — verify, do NOT add a duplicate line.
@@ -98,7 +98,7 @@
 
 ### 2.1 Write the Cross-Actor Journey Test FIRST (expected RED)
 
-- [ ] 2.1 [Author `test/workflows/sessions/in-session-lock-release.journey.test.ts` covering J1–J4]
+- [x] 2.1 [Author `test/workflows/sessions/in-session-lock-release.journey.test.ts` covering J1–J4]
   - CREATE the journey file BEFORE any repo/service rework (skill rule: journey-first, implement until green). Follow `test/workflows/AGENTS.md` exactly: ONE committing `beforeAll` `db.transaction(...)` cast; unique `jrn_lock_<8hex>` fixture prefixes; `tracked.register(...)` for every row; `afterAll` → `tracked.cleanup()` + `tracked.verifyAllAbsent()`; NO `runInRollback`; denials via try/catch + translated substrings (`getServerTranslations("en").errorsTranslations`); honest roles via `provisionStudentActor` / `provisionCertifiedTeacherActor` (`test/workflows/helpers/actor-context.ts:88,105`); direct-DB oracle helper `readTeacherLockState(teacherId)` reading `is_online` + `was_online_before_lock` (mirror `readTeacherIsOnline` at `test/workflows/teachers/teacher-availability.journey.test.ts:120-123`).
   - **J1 (REQ-016):** certified teacher `is_online=true`; student books (`SessionLifecycleService.createSession`); teacher still online; `startSession` → oracle `is_online=false`, marker `true`; toggle-Available attempt ⇒ `TEACHER_IN_ACTIVE_SESSION` with oracle safety (message + `JSON.stringify(denial)` must NOT contain the session id); `completeSession` → `is_online=true`, marker `NULL`.
   - **J2 (REQ-017):** variant A — teacher toggles Unavailable first, starts, completes → stays `false`, marker `NULL`; variant B — teacher Available at start, toggles Unavailable mid-session (succeeds — Unavailable direction), completes → stays `false`, marker `NULL`.
@@ -115,7 +115,7 @@
 
 ### 2.2 `TeacherRepository.acquireInSessionLock` (NEW)
 
-- [ ] 2.2 [Implement the atomic capture-and-lock primitive + migrate its slice of the `setOnline` suite]
+- [x] 2.2 [Implement the atomic capture-and-lock primitive + migrate its slice of the `setOnline` suite]
   - CREATE in `backend/db/repo/teachers/teacher.repository.ts`: `export async function acquireInSessionLock(id: number, tx: DBTransaction): Promise<TeacherSelectType | null>` — EXACTLY the single guarded statement pinned in `plan.md` §4.1 (`was_online_before_lock = COALESCE(was_online_before_lock, is_online)`, `is_online = false`, `updated_at = now()`, `WHERE id = $1`, `RETURNING *`; required-`tx` discipline identical to the retired `setOnline`; NO inline `--` comments inside `sql` templates). Production-grade docblock: domain semantics (first-lock-wins capture, fail-closed null), no plan-artifact references.
   - Do NOT yet rewire `startSession` (that is 3.1); this task ships the primitive + its tests.
   - Instructions: `backend/db/repo/AGENTS.md`; `backend/AGENTS.md`; `.agents/instructions/backend.instructions.md`.
@@ -132,7 +132,7 @@
 
 ### 2.3 `TeacherRepository.releaseInSessionLock` (NEW)
 
-- [ ] 2.3 [Implement the marker-gated, last-exit-guarded release primitive]
+- [x] 2.3 [Implement the marker-gated, last-exit-guarded release primitive]
   - CREATE: `export async function releaseInSessionLock(teacherId: number, tx: DBTransaction): Promise<TeacherInSessionLockReleaseResultType | null>` — the primary guarded statement pinned in `plan.md` §4.2 (restore `is_online = was_online_before_lock`, clear marker, `WHERE marker IS NOT NULL AND NOT EXISTS (SELECT 1 FROM session WHERE teacher_id = $1 AND status = 'started')`), then on zero rows ONE disambiguation `findById`: missing row ⇒ `null`; marker `NULL` ⇒ `{ outcome: "no_lock_held", teacher }`; else `{ outcome: "active_sessions_remain", teacher }`. Import `TeacherInSessionLockReleaseResultType` from `@/backend/types` (deep import `@/backend/types/teachers/teacher.types` per barrel rules — the `backend/types` barrel exists and re-exports teachers types; use the existing import idiom of the file).
   - `SessionStatus` used in the `NOT EXISTS` predicate MUST be a value import (`eq(session.status, SessionStatus.Started)`).
   - Instructions: `backend/db/repo/AGENTS.md`; `.agents/instructions/backend.instructions.md`.
@@ -149,7 +149,7 @@
 
 ### 2.4 `TeacherRepository.setAvailabilityIntent` (NEW) — `setOnline` RETIRED
 
-- [ ] 2.4 [Implement the direction-guarded toggle writer; DELETE `setOnline`; migrate the suite]
+- [x] 2.4 [Implement the direction-guarded toggle writer; DELETE `setOnline`; migrate the suite]
   - CREATE: `export async function setAvailabilityIntent(id: number, isOnline: boolean, tx: DBTransaction): Promise<TeacherSelectType | null>` — the statement pinned in `plan.md` §4.3 (marker CASE `WHEN was_online_before_lock IS NULL THEN NULL ELSE $online END`; Available-direction `NOT EXISTS(started)` guard; `RETURNING *`).
   - DELETE `setOnline` (`backend/db/repo/teachers/teacher.repository.ts:512-522`) together with its stale docblock (`:473-511`). Grep-verify ZERO remaining non-test references before deletion (`backend/services/classes/session-lifecycle.service.ts:283`, `session-lifecycle.transitions.ts:250`, `teacher-availability.service.ts:230` are rewired in 3.1/3.2/3.4 — **delete `setOnline` only in this task if 3.x have landed; otherwise keep the deletion as the LAST step of 3.4** — verify ledger D8 already records the 2.4/3.4 ordering split; update its status once the grep is clean).
   - MIGRATE the retired suite's cases (`backend/db/test/repo/teachers/teacher.repository.test.ts:393+`): lock/release idempotency, same-value writes, zero-row null, NULL-column coercion, chaos (the existing case at `:562-580` is 25-way — preserve or exceed), required-tx pin — re-expressed against the three new primitives (each pinned by its own task; this task owns the `setAvailabilityIntent` slice + the file-level retirement edit).
@@ -171,7 +171,7 @@
 
 ### 3.1 `startSession` — Acquire Path (UPDATE)
 
-- [ ] 3.1 [Replace the findById+setOnline pair with `acquireInSessionLock`]
+- [x] 3.1 [Replace the findById+setOnline pair with `acquireInSessionLock`]
   - UPDATE `backend/services/classes/session-lifecycle.service.ts` `startSession` (`:249-292`): after `SessionRepository.startSessionOnce` (`:266`) and the transition-miss rejection (`:267-269`), REPLACE the prior-teacher read (`:274`) + lock write (`:283`) with `const locked = await TeacherRepository.acquireInSessionLock(started.teacherId, tx);` — keyed on the transitioned row's `teacherId` (never caller input). `null` ⇒ keep the existing fail-closed `logger.error` + throw (`:284-289` message preserved).
   - REWRITE the stale docblock at `:230-234` ("with no availability-toggle surface yet…") to the marker truth: the toggle exists, the marker persists pre-lock intent, release restores it (REQ-015.4). Keep the seam-note lineage: reference the canonical doc `docs/teachers/teacher-availability.md` §6.2 instead of plan artifacts.
   - Instructions: `backend/services/AGENTS.md`; `backend/AGENTS.md`; `.agents/instructions/backend.instructions.md`.
@@ -184,7 +184,7 @@
 
 ### 3.2 Release Body Rework + Unconditional Call Sites (UPDATE)
 
-- [ ] 3.2 [Rework `releaseTeacherInSessionLock` to the marker-gated primitive; drop `startedAt` guards]
+- [x] 3.2 [Rework `releaseTeacherInSessionLock` to the marker-gated primitive; drop `startedAt` guards]
   - UPDATE `backend/services/classes/session-lifecycle.transitions.ts` `releaseTeacherInSessionLock` (`:249-257`): body → `TeacherRepository.releaseInSessionLock(teacherId, tx)`; `null` ⇒ existing `logger.error` + throw (message preserved); `"released"` ⇒ silent; `"no_lock_held"` / `"active_sessions_remain"` ⇒ ONE bounded `logger.debug` each with fixed key shape, NO session ids (REQ-014.1-2). Signature stays `(teacherId: number, tx: DBTransaction): Promise<void>`; update the definition-side doc (`:33-36`) to the marker semantics.
   - UPDATE `backend/services/classes/session-lifecycle.service.ts`: remove the `cancelled.startedAt !== null` guard (`:489`) and the `resolved.startedAt !== null` guard (`:663`) — both calls become unconditional (design D6; the marker is the single gate). `completeSessionWithReceipt`'s call (`:404`) is untouched.
   - Instructions: `backend/services/AGENTS.md`; `.agents/instructions/backend.instructions.md`.
@@ -197,7 +197,7 @@
 
 ### 3.3 Admin-Governance Cancel Leak Fix (UPDATE — the discovered defect)
 
-- [ ] 3.3 [Compose the release into `cancelSessionInTx`]
+- [x] 3.3 [Compose the release into `cancelSessionInTx`]
   - UPDATE `backend/services/classes/session-admin-governance.helpers.ts` `cancelSessionInTx` (`:298-366`): ADD `await releaseTeacherInSessionLock(cancelled.teacherId, tx);` AFTER the claim backfill (`:356`) and BEFORE the governance wave (`:359`) — the teacher row is acquired after the session-row transition and before the governance wave's receipt writes, mirroring the completion path's lock order (session row → teacher row → notification-receipt rows; consistent ordering per `plan.md` §6). `cancelled.teacherId` comes from the `guardCancelPreTerminal` transition row (`:331`) — server-derived only.
   - The governance wave (`notifySessionGovernanceCancelled`, `:359`), refund (`refundHeldLaneToProvenance`, `:343`), audit (`:345`) are consumed unchanged (REQ-013.2).
   - Instructions: `backend/services/AGENTS.md`; `.agents/instructions/backend.instructions.md`.
@@ -210,7 +210,7 @@
 
 ### 3.4 Toggle Service Rework (UPDATE) — completes `setOnline` retirement
 
-- [ ] 3.4 [Switch `setAvailability` to `setAvailabilityIntent` with the race-closed denial]
+- [x] 3.4 [Switch `setAvailability` to `setAvailabilityIntent` with the race-closed denial]
   - UPDATE `backend/services/teachers/teacher-availability.service.ts` `setAvailability` (`:178-246`): REPLACE the `TeacherRepository.setOnline(teacherId, isOnline, innerTx)` call (`:230`) with `TeacherRepository.setAvailabilityIntent(teacherId, isOnline, innerTx)`. Zero-row mapping: `isOnline === true` ⇒ `throw new ConflictError("TEACHER_IN_ACTIVE_SESSION", t.teacherInActiveSession)` (race-closed backstop, REQ-010.2 — the teacher row's existence is already proven in-tx by `lockForCertificationCheck` at `:190`); `isOnline === false` ⇒ existing `NotFoundError("TEACHER", t.teacherNotFound)` path (`:231-242` semantics preserved). Gates at `:209-217`/`:223` unchanged.
   - AFTER this task: grep-verify zero non-test `setOnline` references remain, then complete the 2.4 deletion if it was deferred (ledger D8 → done). Flip nothing until `bun tsgo` is clean.
   - Instructions: `backend/services/AGENTS.md`; `.agents/instructions/backend.instructions.md`.
@@ -223,7 +223,7 @@
 
 ### 3.5 Journey Green + INV-S6 Matrix Consolidation
 
-- [ ] 3.5 [Turn `test/workflows/sessions/in-session-lock-release.journey.test.ts` green; consolidate the service matrix]
+- [x] 3.5 [Turn `test/workflows/sessions/in-session-lock-release.journey.test.ts` green; consolidate the service matrix]
   - RUN `bun run test/scripts/run-test.ts test/workflows/sessions/in-session-lock-release.journey.test.ts` — J1–J4 must pass end-to-end against the real DB with committed fixtures. Capture the green inventory in the outcome file.
   - Consolidate: every REQ-003/006/007/008/009/010 service-level verdict now lives in exactly one place (INV-S6 suite + toggle suite + governance suite); delete any duplicated scaffolding the journey accidentally introduced (journey asserts outcomes, service suites assert mechanics — no overlap in fixtures).
   - _Requirements: REQ-003.3, REQ-006, REQ-007, REQ-016, REQ-017, REQ-018, REQ-019_
@@ -239,7 +239,7 @@
 
 ### 4.1 GraphQL Integration & Schema-Surface Pins (consumed, never edited)
 
-- [ ] 4.1 [Prove the SDL freeze and the wire-level denial surface]
+- [x] 4.1 [Prove the SDL freeze and the wire-level denial surface]
   - RUN `bun run test/scripts/run-test.ts backend/graphql/test/teacher-availability.integration.test.ts` and `backend/graphql/test/schema-surface.test.ts` — MUST be green UNEDITED: mutation args pin `["isOnline"]`, query args empty, `TeacherAvailabilityState` fields `{id, isOnline, isApproved}` (`teacher-availability.integration.test.ts:807-849`; `schema-surface.test.ts:1200-1205`); permission tiers (anonymous 401, student/admin 403, INV-A1 403, INV-A2 409 with oracle safety `:652-758`); BOPLA smuggled-arg probes `:762-802`.
   - RUN the state-machine journey `test/workflows/sessions/session-state-machine.journey.test.ts` — green unedited (no transition-matrix change).
   - VERIFY zero UI drift: `git diff --name-only` contains NO `frontend/**`, `app/**`, `shared/locale/**`, `.storybook/**` paths (REQ-020.1) — the existing card/hook/error-link row are consumed unchanged (`frontend/views/teachers/dashboard/TeacherAvailabilityCard.tsx:62`; `frontend/providers/apollo/error-link.map.ts:480-482`).
@@ -256,7 +256,7 @@
 
 ### 5.1 Canonical Domain Docs (UPDATE — truth-first)
 
-- [ ] 5.1 [Update the three canonical docs to the shipped semantics]
+- [x] 5.1 [Update the three canonical docs to the shipped semantics]
   - UPDATE `docs/specs/state-machine-invariants.md`: §3.3 implementation pointer (`:125`) — INV-A4 now implemented (marker-gated release); `:12` header note — release now composes on every started-exit including admin-governance cancel (the claim becomes true); document the `was_online_before_lock` marker as the lock-held oracle.
   - UPDATE `docs/teachers/teacher-availability.md`: §6.2 (`:299-313`) — hazard RESOLVED (shipped marker + gated release; keep the historical narrative, mark the fix shipped); §6.1 forward contract (`:287-297`) — unchanged and now backed by the truthful write-side; fix the `users.ts:37` line drift at `:315` → `users.ts:44`; add the composition note for the `:1298` sweep (in-session lock priority; sweep owns app-open convergence).
   - UPDATE `docs/sessions/session-lifecycle.md`: release semantics section — marker oracle, the four composed exit paths (complete / participant cancel / arbitration / admin governance cancel), the last-started-exit guard, and the rule "any NEW terminal exit path MUST compose the release" (REQ-008.6); correct the `:81` release-coverage claim if it lists only the three legacy exits; add the deploy-cutover note (a session already `started` at deploy time holds no marker, so its post-deploy conclusion releases as a benign no-op — affected teachers self-heal via the manual toggle).
@@ -271,7 +271,7 @@
 
 ### 5.2 Code Docblocks + DEF-6 Drift Fix (UPDATE)
 
-- [ ] 5.2 [Fix the stale seam notes and the enforcement docstring]
+- [x] 5.2 [Fix the stale seam notes and the enforcement docstring]
   - VERIFY (and complete if not already done in 3.1/3.2): `session-lifecycle.service.ts:230-234` rewritten; `session-lifecycle.transitions.ts:33-36` definition doc updated; the retired `setOnline` docblock (`teacher.repository.ts:473-511`) is gone with the method; the three new primitives carry production-grade docblocks (what/why/domain — ZERO plan-artifact references like REQ-NNN/Task N/specs.md).
   - FIX the DEF-6 drift (predecessor-plan ledger item): `assertTeacherNotInActiveSession` docblock at `backend/services/classes/session-lifecycle.enforcement.ts:186-189` says "The denial is FORBIDDEN-class" while the code throws `ConflictError("TEACHER_IN_ACTIVE_SESSION")` (`:212`, 409) — code is authoritative; rewrite the docstring to CONFLICT-class.
   - _Requirements: REQ-015.4-5_
@@ -287,7 +287,7 @@
 
 ### 6.1 Final Quality Gate, Ledger Enforcement & Traceability Audit
 
-- [ ] 6.1 [Run the full verification battery]
+- [x] 6.1 [Run the full verification battery]
   - `bun quality-gate` — all stages pass (tsgo → oxlint → biome → lint → duplicates).
   - `grep -cE '^\s*\|.*(❌|⚠️)' ai/plans/milestone_2/in_session_locking_hide_from_directory/deferred-items.md` = 0.
   - Traceability: `for r in $(grep -oE 'REQ-[0-9]+' ai/plans/milestone_2/in_session_locking_hide_from_directory/specs.md | sort -u); do grep -q "$r" ai/plans/milestone_2/in_session_locking_hide_from_directory/tasks.md || echo "MISSING: $r"; done` — zero output.
@@ -302,7 +302,7 @@
 
 ### 6.2 Knowledge Propagation & Documentation
 
-- [ ] 6.2 [Synthesize outcome files into the canonical docs; evaluate skill updates]
+- [x] 6.2 [Synthesize outcome files into the canonical docs; evaluate skill updates]
   - Read ALL files in `ai/plans/milestone_2/in_session_locking_hide_from_directory/outcome/`; extract recurring patterns/gotchas.
   - The canonical propagation target for this plan is ALREADY `docs/teachers/teacher-availability.md` + `docs/sessions/session-lifecycle.md` (updated in 5.1) — VERIFY they consolidate the plan's durable learnings (three-writer map, marker oracle, last-exit guard, release-composition rule). IF a gap remains, close it in `docs/sessions/in-session-lock.md` (new canonical file, kebab-case) and cross-link.
   - Evaluate `.agents/skills/*/SKILL.md` updates: ONLY if a new pattern emerged that changes a skill's domain guidance (expected: NONE — the plan applies existing patterns; record the negative finding explicitly). NEVER touch `AGENTS.md` / `.agents/instructions/*`.

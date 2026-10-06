@@ -28,6 +28,16 @@ export interface SessionsLabels {
   readonly status: string;
   /** List column label — booked session intent (hifz / tajweed / evaluation). */
   readonly intent: string;
+  /** Row title — the hifz booking intent, localized. */
+  readonly intentHifz: string;
+  /** Row title — the tajweed booking intent, localized. */
+  readonly intentTajweed: string;
+  /** Row title — the evaluation booking intent, localized. */
+  readonly intentEvaluation: string;
+  /** Counterpart-band caption — the row owner is the STUDENT (the band names the teacher). */
+  readonly withTeacherCaption: string;
+  /** Counterpart-band caption — the row owner is the TEACHER (the band names the student). */
+  readonly withStudentCaption: string;
   /** List column label — platform fee (rendered verbatim + currency label). */
   readonly fee: string;
   /** List column label — confirmation deadline moment (locale date formatter). */
@@ -493,4 +503,28 @@ export interface SessionsLabels {
   readonly prepStudentLabel: string;
   /** Prep dialog loading-state label (skeleton aria-label). */
   readonly prepLoadingLabel: string;
+
+  // ─── Session details dialog (read-only, both participant lists) ─────────────
+  /** Row affordance tooltip — opens the read-only session-details dialog. */
+  readonly sessionDetailsTooltip: string;
+  /** Session-details dialog title. */
+  readonly sessionDetailsDialogTitle: string;
+  /** Fee-row state pill — the fee still sits in escrow (the wire `feeHeld` marker). */
+  readonly sessionDetailsFeeHeld: string;
+  /** Fee-row state pill — the hold lifecycle has concluded and no fee is held. */
+  readonly sessionDetailsFeeNotHeld: string;
+  /** Session-details dialog section heading — the lifecycle timeline. */
+  readonly sessionDetailsTimelineTitle: string;
+  /** Timeline stamp label — the moment the session started. */
+  readonly sessionDetailsStartedAt: string;
+  /** Timeline stamp label — the moment the session ended. */
+  readonly sessionDetailsEndedAt: string;
+  /** Timeline stamp label — the moment arbitration resolved the dispute. */
+  readonly sessionDetailsResolvedAt: string;
+  /**
+   * Session-details dialog honest-null state — the session id is foreign,
+   * nonexistent or the row left the caller's visibility; `sessionById`
+   * answers `null` (the no-oracle contract) and this is the ONE answer.
+   */
+  readonly sessionDetailsUnavailable: string;
 }

@@ -360,7 +360,7 @@ describe("Journey — dual-confirmation completion handshake (cross-actor, real 
     expect(await readTeacherWalletRow(cast.teacher.userId)).toBeNull();
   });
 
-  test("step 2 — Student A books T: scheduled, trial-lane hold, platform fee, zero notification rows", async () => {
+  test("step 2 — Student A books T: scheduled, trial-lane hold, platform fee, one teacher intake wave", async () => {
     const notificationsA = await countNotificationsForUser(cast.primaryStudent.userId);
     const notificationsT = await countNotificationsForUser(cast.teacher.userId);
 
@@ -382,10 +382,10 @@ describe("Journey — dual-confirmation completion handshake (cross-actor, real 
     registry.track("session", sessionA.id);
     await trackIdempotencyClaim(KEY_A, "key A (Student A)");
 
-    // A booking fans out to nobody (the request waves have no producer on
-    // this surface) — both participants' inboxes stay empty.
+    // A booking's only fan-out is the teacher's intake wave — the
+    // student's inbox stays empty; the teacher gains exactly one row.
     expect(await countNotificationsForUser(cast.primaryStudent.userId)).toBe(notificationsA);
-    expect(await countNotificationsForUser(cast.teacher.userId)).toBe(notificationsT);
+    expect(await countNotificationsForUser(cast.teacher.userId)).toBe(notificationsT + 1);
   });
 
   test("step 3 — Teacher T starts session A; Student A's own complete attempt is denied oracle-safely", async () => {
@@ -427,12 +427,19 @@ describe("Journey — dual-confirmation completion handshake (cross-actor, real 
     sessionA = completed;
 
     // Exactly ONE completion notification row, addressed to the student,
-    // pointing back at this session.
+    // pointing back at this session (narrowed to the completion type — the
+    // booking's own teacher intake wave shares the session id).
     expect(await countCompletionNotificationsForSession(sessionA.id)).toBe(1);
     const promptRows = await db
       .select()
       .from(notifications)
-      .where(and(eq(notifications.relatedEntityType, "session"), eq(notifications.relatedEntityId, sessionA.id)));
+      .where(
+        and(
+          eq(notifications.relatedEntityType, "session"),
+          eq(notifications.relatedEntityId, sessionA.id),
+          eq(notifications.type, NotificationType.SessionCompletion)
+        )
+      );
     expect(promptRows).toHaveLength(1);
     expect(promptRows[0]?.userId).toBe(cast.primaryStudent.userId);
     expect(promptRows[0]?.type).toBe(NotificationType.SessionCompletion);

@@ -26,6 +26,14 @@ export const teacher = pgTable(
     isEvaluator: boolean("is_evaluator").default(false),
     averageRating: decimal("average_rating", { precision: 3, scale: 2 }),
     isOnline: boolean("is_online").default(false),
+    /**
+     * Availability intent captured when an in-session lock is acquired.
+     * `NULL` means no in-session lock is currently held; `true`/`false`
+     * records the availability (`is_online`) value in force at lock
+     * acquisition and is restored automatically when the last started
+     * session exits.
+     */
+    wasOnlineBeforeLock: boolean("was_online_before_lock"),
     subjects: varchar("subjects", { length: 255 }),
     /**
      * JSON array of RecitationReading values this teacher is certified to

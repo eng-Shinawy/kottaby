@@ -161,7 +161,19 @@ function SettledAvailabilityCard({ state, t, refetch }: Readonly<SettledAvailabi
           onClick={() => {
             void toggle();
           }}
-          sx={[{ justifySelf: { xs: "stretch", sm: "start" }, minHeight: { xs: 54 } }, focusVisibleRingSx]}
+          sx={theme => ({
+            ...focusVisibleRingSx,
+            // Auto width on sm+ — a full-bleed stretched button inside the
+            // card's grid reads as a static bar (visual-loop round-1
+            // finding), not as a control. Grid items stretch on the INLINE
+            // axis, so this is `justifySelf` (alignSelf would only move the
+            // block axis). Mobile keeps the comfortable stretch.
+            justifySelf: { xs: "stretch", sm: "start" },
+            minHeight: { xs: 54 },
+            px: { sm: 3 },
+            fontWeight: 600,
+            borderColor: isOnline ? theme.palette.primary.main : undefined,
+          })}
         >
           {ctaLabel}
         </Button>

@@ -133,7 +133,10 @@ export function SessionStatusFilterChips({ value, onChange }: Readonly<SessionSt
               aria-pressed={token === activeToken}
               sx={theme => ({
                 minHeight: { xs: 44, sm: 36 },
-                px: 2.5,
+                // Tighter inline padding past mobile keeps all six pills on
+                // ONE line at tablet width (visual-loop round-2 finding: the
+                // sixth chip wrapped to a ragged second row at 834px).
+                px: { xs: 2.5, sm: 2 },
                 borderRadius: 999,
                 textTransform: "none",
                 fontWeight: 600,

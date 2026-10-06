@@ -761,20 +761,12 @@ describe("BFLA — admin create/update stay admin-only (real actors, honest deni
 });
 
 describe("buildUpdatePatch — country bridge onto the code + display-name pair", () => {
-  test("canonical code persists the pair (EG → countryCode EG + English display name)", () => {
-    const patch = buildUpdatePatch({ country: "EG" });
-    expect(patch.countryCode).toBe("EG");
-    expect(patch.country).toBe(COUNTRIES.EG.en);
-  });
-
-  test("padded + lowercase variant normalizes onto the pair ('  eg ' → EG)", () => {
-    const patch = buildUpdatePatch({ country: "  eg " });
-    expect(patch.countryCode).toBe("EG");
-    expect(patch.country).toBe(COUNTRIES.EG.en);
-  });
-
-  test("legacy display text resolves through the shared seed bridge (Egypt → EG, twin updated not erased)", () => {
-    const patch = buildUpdatePatch({ country: "Egypt" });
+  test.each([
+    ["canonical code persists the pair (EG → countryCode EG + English display name)", "EG"],
+    ["padded + lowercase variant normalizes onto the pair ('  eg ' → EG)", "  eg "],
+    ["legacy display text resolves through the shared seed bridge (Egypt → EG, twin updated not erased)", "Egypt"],
+  ] as const)("%s", (_title, countryInput) => {
+    const patch = buildUpdatePatch({ country: countryInput });
     expect(patch.countryCode).toBe("EG");
     expect(patch.country).toBe(COUNTRIES.EG.en);
   });
@@ -858,20 +850,12 @@ describe("validateUpdatePatch — defense-in-depth on the derived twin", () => {
 });
 
 describe("buildUpdatePatch — country bridge onto the code + display-name pair", () => {
-  test("canonical code persists the pair (EG → countryCode EG + English display name)", () => {
-    const patch = buildUpdatePatch({ country: "EG" });
-    expect(patch.countryCode).toBe("EG");
-    expect(patch.country).toBe(COUNTRIES.EG.en);
-  });
-
-  test("padded + lowercase variant normalizes onto the pair ('  eg ' → EG)", () => {
-    const patch = buildUpdatePatch({ country: "  eg " });
-    expect(patch.countryCode).toBe("EG");
-    expect(patch.country).toBe(COUNTRIES.EG.en);
-  });
-
-  test("legacy display text resolves through the shared seed bridge (Egypt → EG, twin updated not erased)", () => {
-    const patch = buildUpdatePatch({ country: "Egypt" });
+  test.each([
+    ["canonical code persists the pair (EG → countryCode EG + English display name)", "EG"],
+    ["padded + lowercase variant normalizes onto the pair ('  eg ' → EG)", "  eg "],
+    ["legacy display text resolves through the shared seed bridge (Egypt → EG, twin updated not erased)", "Egypt"],
+  ] as const)("%s", (_title, countryInput) => {
+    const patch = buildUpdatePatch({ country: countryInput });
     expect(patch.countryCode).toBe("EG");
     expect(patch.country).toBe(COUNTRIES.EG.en);
   });

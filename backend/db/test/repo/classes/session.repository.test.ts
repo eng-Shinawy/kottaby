@@ -2399,16 +2399,20 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
   // the read machinery in `session.repository.helpers.ts`, the joined
   // wave-context read in `session.repository.wave.helpers.ts`, the
   // post-confirmation dispute primitives in
-  // `session.repository.arbitration.helpers.ts`): every source pin below
-  // scans ALL FOUR files as one implementation unit, so the pinned
-  // invariants (executor discipline, predicate sharing, SQL interpolation
-  // allowlist) keep covering the whole repository layer.
+  // `session.repository.arbitration.helpers.ts`, the gate-supporting row
+  // reads in `session.repository.gate.helpers.ts`, the lifecycle-transition
+  // primitives in `session.repository.lifecycle.helpers.ts`, and the
+  // participant-name batch in `session.repository.names.helpers.ts`): every
+  // source pin below scans ALL sibling files as one implementation unit, so
+  // the pinned invariants (executor discipline, predicate sharing, SQL
+  // interpolation allowlist) keep covering the whole repository layer.
   const REPO_FILES = [
     join(import.meta.dir, "../../../repo/classes/session.repository.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.helpers.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.wave.helpers.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.arbitration.helpers.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.lifecycle.helpers.ts"),
+    join(import.meta.dir, "../../../repo/classes/session.repository.names.helpers.ts"),
   ];
   const repoSource = REPO_FILES.map(file => readFileSync(file, "utf8")).join("\n");
 
@@ -2441,12 +2445,18 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
     expect(repoSource.includes("or(eq(session.studentId, participantId), eq(session.teacherId, participantId))")).toBe(
       true
     );
-    // Cancel's state membership is OR-ed equality (no array-membership
-    // operator anywhere).
+    // Cancel's state membership is OR-ed equality. Array-membership is
+    // reserved for the participant-name batch's PK projection
+    // (`inArray(users.id, ids)` in the names helper — page-derived ids,
+    // parameterized); the participant STATE predicates never ride it
+    // (no `inArray` over a `session.` column anywhere in the layer).
     expect(
       repoSource.includes("or(eq(session.status, SessionStatus.Scheduled), eq(session.status, SessionStatus.Started))")
     ).toBe(true);
-    expect(repoSource.includes("inArray")).toBe(false);
+    expect(repoSource.includes("inArray(session.")).toBe(false);
+    // Both executor arms of the ONE sanctioned membership read: the tx
+    // select and the standalone PgDialect render.
+    expect(repoSource.match(/inArray\(users\.id, ids\)/g)?.length).toBe(2);
     expect(repoSource.includes("sql.raw")).toBe(false);
   });
 
@@ -2484,7 +2494,7 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
       "cutoff",
       "now",
     ]);
-    expect(interpolations).toHaveLength(39);
+    expect(interpolations).toHaveLength(40);
     for (const interpolation of interpolations) {
       expect(ALLOWED.has(interpolation)).toBe(true);
     }
@@ -2551,12 +2561,13 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
   test("source: executor discipline — reads fall back to queryDb, writes to the pool, tx last on every signature", () => {
     expect(repoSource.includes("const executor = tx ?? db;")).toBe(true);
     expect(repoSource.match(/const executor = tx \?\? db;/g) ?? []).toHaveLength(16);
-    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(13);
-    // Thirty-four exported methods across the namespace + its one-to-one
+    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(14);
+    // Thirty-five exported methods across the namespace + its one-to-one
     // sibling implementation modules (the read machinery, the joined
     // wave-context read, the post-confirmation dispute primitives, the
     // lifecycle completion lane, the report-gate lock, the
-    // rating-eligibility probe, and the evaluation-loop wrappers delegating
+    // rating-eligibility probe, the participant-name batch, and the
+    // evaluation-loop wrappers delegating
     // to the evaluation helpers module, whose own discipline suite lives in
     // session.repository.evaluation.test.ts); the admin directory reads
     // (listAdminDisputed, countAdminDisputed, listForAdmin), the
@@ -2570,7 +2581,7 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
     // evaluation-cycle resolver + booking counter (both cycle-gate reads
     // must observe the caller's transaction's own writes under the
     // applicant's FOR UPDATE lock); every other signature keeps the optional tx.
-    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(34);
+    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(35);
     expect((repoSource.match(/tx\?: DBTransaction/g) ?? []).length).toBeGreaterThanOrEqual(20);
     expect(repoSource.match(/tx: DBTransaction/g) ?? []).toHaveLength(4);
   });

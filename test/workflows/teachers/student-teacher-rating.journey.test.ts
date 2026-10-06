@@ -517,9 +517,10 @@ describe("Journey — the student rates the session teacher (cross-actor, real s
     sessionRated = confirmed;
 
     // The completion prompt was published exactly once, targeting exactly
-    // the student; the confirmation itself publishes nothing.
-    expect(publicationCallCount()).toBe(publishesBefore + 1);
-    expect(publishedUserIds().slice(publishesBefore)).toEqual([cast.primaryStudent.userId]);
+    // the student. The booking's teacher intake wave published once before
+    // it on the same seam; the confirmation itself publishes no receipt.
+    expect(publicationCallCount()).toBe(publishesBefore + 2);
+    expect(publishedUserIds().slice(publishesBefore)).toEqual([cast.teacher.userId, cast.primaryStudent.userId]);
     expect(await countNotificationsForUser(cast.primaryStudent.userId)).toBe(notificationsStudentBefore + 1);
 
     // Baseline for the rating legs: no evaluations row exists for this pair.

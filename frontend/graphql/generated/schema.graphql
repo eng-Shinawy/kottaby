@@ -1653,6 +1653,11 @@ type Query {
 
   """Unused certified evaluators (not yet used in the current cycle)."""
   availableEvaluators(page: Int, pageSize: Int): EvaluationEvaluatorOptionPage!
+
+  """
+  Student-only paged browse of eligible teachers for one Qira'ah + subject choice, narrowed optionally by a case-insensitive name search and a minimum rating, ordered by same-country affinity first, then the chosen sort (top-rated by default, with unrated last within a tier), then a stable id tiebreak. PII-minimal cards (display name, country, subjects, recitations, languages, average rating, online flag). Eligibility composes the availability flag with the no-active-session rule; out-of-range pages return empty items next to the honest total.
+  """
+  browseAvailableTeachers(intent: SessionIntent!, minRating: Float, page: Int = 1, pageSize: Int = 25, recitation: RecitationReading!, search: String, sort: TeacherMatchingSort = RatingDesc): TeacherMatchingPage!
   findStudentByHandshakeCode(code: String!): HandshakeCodeLookup
 
   """
@@ -1709,6 +1714,7 @@ type Query {
   The calling certified evaluator's completed evaluation sessions with NO rubric submission yet (paged).
   """
   myRubricPendingSessions(page: Int, pageSize: Int): SessionPage!
+  mySessionBalance: StudentSessionBalance!
   myStudentSessions(filter: SessionListFilterInput, page: Int = 1, pageSize: Int = 25): SessionPage!
 
   """
@@ -1894,7 +1900,9 @@ type Session {
   sessionType: SessionType!
   startedAt: DateTime
   status: SessionStatus!
+  student: SessionParticipant
   studentId: ID!
+  teacher: SessionParticipant
   teacherId: ID!
   updatedAt: DateTime!
 }
@@ -1929,6 +1937,11 @@ type SessionPage {
   page: Int!
   pageSize: Int!
   totalCount: Int!
+}
+
+type SessionParticipant {
+  fullName: String!
+  id: ID!
 }
 
 type SessionRecitation {
@@ -2029,6 +2042,13 @@ type StudentProgress {
   planTitle: String
   studentId: Int!
   totalLessons: Int!
+}
+
+type StudentSessionBalance {
+  balanceHifz: Int
+  balanceReviews: Int
+  balanceTajweed: Int
+  balanceTrial: Int!
 }
 
 """A student subscription linking a purchaser to a catalog plan."""
@@ -2171,6 +2191,32 @@ type TeacherDisputeCase {
   report: SessionReport
   session: Session!
   studentName: String
+}
+
+type TeacherMatchingItem {
+  averageRating: Float
+  country: String
+  countryCode: String
+  fullName: String!
+  id: Int!
+  isOnline: Boolean!
+  languages: [String!]!
+  recitations: [RecitationReading!]!
+  subjects: [String!]!
+}
+
+type TeacherMatchingPage {
+  items: [TeacherMatchingItem!]!
+  page: Int!
+  pageCount: Int!
+  pageSize: Int!
+  total: Int!
+}
+
+enum TeacherMatchingSort {
+  NameAsc
+  Newest
+  RatingDesc
 }
 
 type TeacherReEvaluationOrder {

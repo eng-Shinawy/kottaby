@@ -509,6 +509,12 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
    defects — the loop exits at Pass 1 with accepted-debt adjudication per the rubric plateau
    clause (matches the 2026-09-30 issue_230 data point).
 
+## 2026-10-06 — in_session_locking_hide_from_directory visual run
+- MUI grid parents stretch children on the inline axis: `alignSelf` no-ops for width on a `display:grid` card body — use `justifySelf: "start"` (promoted to capture/fix knowledge here; the wave-1 fix silently failed until wave 2 corrected the axis).
+- Per-mount transient UI (inline notices after a denied mutation) can't be captured by navigate-then-shoot: load → interact → `--no-nav` gate → in-place screenshot.
+- Routes owning dynamic `document.title` break a constant `--expect-title` guard; pass the route's own title to keep the auth-bounce guard intact.
+- z-ai vision axis output can be a sum (55/60) or `N/A`; parse defensively, keep the objective gate as the mechanical ground truth.
+
 ### 2026-10-06 — 15-minute inactivity auto-offline m2 auto-offline (#297)
 
 - MUI CardContent in this app's CardShell is `display: grid`: a full-width CTA is fixed with

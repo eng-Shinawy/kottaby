@@ -99,11 +99,19 @@ function requireObject(name: string): GraphQLObjectType {
  * Pins the `id`-FIRST declaration convention on one Pothos object source —
  * lexical scan by design (the built schema is lexicographically sorted, so
  * field order carries no SDL semantics; the SOURCE order is the contract).
- * Mirrors the Notification precedent in `schema-surface.test.ts`.
+ * Mirrors the Notification precedent in `schema-surface.test.ts`. The
+ * optional `anchor` scopes the scan to ONE object's declaration when the
+ * source file hosts several (`objectRef<…>("Name")` occurrences) — without
+ * it the FIRST `fields: t => ({` block in the file is scanned, the exact
+ * behavior the report/home-work callers rely on.
  */
-function assertIdFirstInSource(sourcePath: string, fieldNames: readonly string[]): void {
+function assertIdFirstInSource(sourcePath: string, fieldNames: readonly string[], anchor?: string): void {
   const source = readFileSync(resolve(process.cwd(), sourcePath), "utf8");
-  const fieldsBlock = source.slice(source.indexOf("fields: t => ({"));
+  const anchorAt = anchor === undefined ? 0 : source.indexOf(anchor);
+  if (anchorAt < 0) {
+    throw new Error(`${sourcePath} must declare the anchor \`${anchor}\``);
+  }
+  const fieldsBlock = source.slice(source.indexOf("fields: t => ({", anchorAt));
   const positions = fieldNames.map(name => ({
     name,
     at: fieldsBlock.indexOf(`${name}: `),
@@ -127,12 +135,16 @@ function assertIdFirstInSource(sourcePath: string, fieldNames: readonly string[]
  * declaration position (after the confirmation stamps, before the row
  * timestamps) and the server-derived admin attention badge in its Pothos
  * declaration position (after the dispute surface, before the row
- * timestamps — the directory read is its only populating producer).
+ * timestamps — the directory read is its only populating producer). The two
+ * participant identity bands sit between the participant ids and the
+ * lifecycle enums — the exact position the Pothos module declares them.
  */
 const SESSION_FIELD_ORDER = [
   "id",
   "teacherId",
   "studentId",
+  "student",
+  "teacher",
   "status",
   "sessionType",
   "intent",
@@ -175,7 +187,9 @@ const SESSION_FIELD_TYPES: Record<string, string> = {
   sessionType: "SessionType!",
   startedAt: "DateTime",
   status: "SessionStatus!",
+  student: "SessionParticipant",
   studentId: "ID!",
+  teacher: "SessionParticipant",
   teacherId: "ID!",
   updatedAt: "DateTime!",
 };
@@ -279,6 +293,50 @@ describe("Session object — plan §3.1 exact shape", () => {
   test("carries NO `heldBalanceLane` — internal provenance stays off the SDL", () => {
     expect(Object.hasOwn(fields, "heldBalanceLane")).toBe(false);
     expect(sdl).not.toContain("heldBalanceLane");
+  });
+
+  test("`id` is the FIRST declared field on the Session object source (Apollo normalization)", () => {
+    assertIdFirstInSource(
+      "backend/graphql/pothos/classes/session.pothos.ts",
+      SESSION_FIELD_ORDER,
+      'objectRef<SessionListItemType>("Session")'
+    );
+  });
+});
+
+describe("SessionParticipant object + Session identity bands — honest-null contract", () => {
+  const participantType = requireObject("SessionParticipant");
+  const participantFields = participantType.getFields();
+  const sessionFields = requireObject("Session").getFields();
+
+  test("SessionParticipant exposes EXACTLY the two-field identity band (id first, both non-null)", () => {
+    expect(Object.keys(participantFields).toSorted((a, b) => a.localeCompare(b))).toEqual(["fullName", "id"]);
+    expect(participantFields.id?.type.toString()).toBe("ID!");
+    expect(participantFields.fullName?.type.toString()).toBe("String!");
+  });
+
+  test("`id` is the FIRST declared field on the SessionParticipant object source (Apollo normalization)", () => {
+    assertIdFirstInSource(
+      "backend/graphql/pothos/classes/session.pothos.ts",
+      ["id", "fullName"],
+      'objectRef<{ id: number; fullName: string }>("SessionParticipant")'
+    );
+  });
+
+  test("Session.student / Session.teacher are the NULLABLE SessionParticipant bands", () => {
+    // Nullable by contract — the bands are populated ONLY by the
+    // participant list reads (myStudentSessions/myTeacherSessions), which
+    // batch-enrich the page rows; every other producer leaves the names
+    // unset and the fields resolve null. The nullability is honest, not
+    // lazy.
+    expect(sessionFields.student?.type.toString()).toBe("SessionParticipant");
+    expect(sessionFields.teacher?.type.toString()).toBe("SessionParticipant");
+    // The behavioral shape: a producer that leaves the enrichment members
+    // unset resolves NULL — exercised end-to-end by the resolver wire suite
+    // and the service suite (unpopulated members → null bands).
+    const fieldNames = Object.keys(sessionFields);
+    expect(fieldNames).toContain("student");
+    expect(fieldNames).toContain("teacher");
   });
 });
 

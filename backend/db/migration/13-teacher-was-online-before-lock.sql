@@ -1,0 +1,22 @@
+-- Source: 13-teacher-was-online-before-lock.sql
+-- =============================================================================
+-- 13-teacher-was-online-before-lock.sql
+-- -----------------------------------------------------------------------------
+-- Purpose: Schema-sync counterpart for the in-session availability-lock
+--          marker column — nullable `teacher.was_online_before_lock`
+--          boolean. `NULL` means no in-session lock is currently held;
+--          `true`/`false` records the availability (`is_online`) value in
+--          force at lock acquisition and is restored automatically when the
+--          last started session exits (marker-aware release: restore honors
+--          pre-lock intent and never resurrects).
+--
+-- Why a migration: the column exists in the committed drizzle schema
+--          (`backend/db/schema/teachers/teacher.ts`); without this file the
+--          migrate path (fresh CI databases, production deploys) produces a
+--          schema missing it while the push path creates it — a push/migrate
+--          drift. This file restores parity.
+--
+-- Idempotent: safe to replay (IF NOT EXISTS guard).
+-- =============================================================================
+
+ALTER TABLE "teacher" ADD COLUMN IF NOT EXISTS "was_online_before_lock" boolean;--> statement-breakpoint

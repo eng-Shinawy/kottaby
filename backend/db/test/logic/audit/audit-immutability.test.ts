@@ -108,7 +108,9 @@ const TEARDOWN_ALLOWLIST_PATHS = [
   "test/workflows/billing/subscription-full-lifecycle.journey.test.ts",
   "test/workflows/helpers/journey-cleanup.ts",
   "test/workflows/notifications/broadcast-retraction.journey.test.ts",
+  "test/workflows/sessions/in-session-lock-release.journey.test.ts",
   "test/workflows/sessions/post-confirmation-dispute.journey.test.ts",
+  "test/workflows/sessions/session-state-machine.journey.test.ts",
   "test/workflows/teachers/admin-ordered-re-evaluation.journey.test.ts",
 ] as const;
 

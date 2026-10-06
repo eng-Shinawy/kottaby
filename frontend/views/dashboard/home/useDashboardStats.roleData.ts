@@ -3,15 +3,24 @@
 import {
   countActiveSubscriptions,
   type DashboardStatsData,
+  studentSessionCreditLanes,
+  sumStudentSessionBalance,
 } from "@/frontend/views/dashboard/home/useDashboardStats.helpers";
 import { type ParentAggregateState, resolveOptional } from "@/frontend/views/dashboard/home/useDashboardStats.parts";
 import type { RoleStatQueries } from "@/frontend/views/dashboard/home/useDashboardStats.queries";
 
 /**
  * Student branch — two status-filtered session count envelopes, the
- * subscriptions rows (active rows counted client-side), and the unread
- * count. A failed subscriptions query degrades the active-count stat to
- * `null`; the session counts degrade independently.
+ * subscriptions rows (active rows counted client-side), the prepaid
+ * session-credit lanes (the four `mySessionBalance` counts summed
+ * client-side — PREPAID lanes only, never subscription coverage), the
+ * SAME balance read broken down per lane (`sessionCreditLanes` — the
+ * balance card's popover payload; its tri-state rides the shared
+ * resolver, so loading → `undefined`, failed → `null`, resolved → the
+ * four display counts), and the unread count. A failed subscriptions
+ * query degrades the active-count stat to `null`; the session counts, the
+ * credits total AND the lane payload degrade independently (loading →
+ * skeleton, failed → unavailable).
  */
 function buildStudentStats(
   queries: RoleStatQueries,
@@ -20,6 +29,7 @@ function buildStudentStats(
   const subscriptionRows = queries.studentSubscriptions.loading
     ? undefined
     : (queries.studentSubscriptions.data?.mySubscriptions ?? null);
+  const balanceWire = queries.studentSessionBalance.data?.mySessionBalance;
   return {
     unreadNotificationsCount,
     completedSessionsCount: resolveOptional(
@@ -33,6 +43,16 @@ function buildStudentStats(
       queries.studentUpcoming.data?.myStudentSessions?.totalCount
     ),
     activeSubscriptionsCount: queries.studentSubscriptions.error ? null : countActiveSubscriptions(subscriptionRows),
+    sessionCreditsTotal: resolveOptional(
+      queries.studentSessionBalance.loading,
+      queries.studentSessionBalance.error,
+      balanceWire === undefined ? undefined : sumStudentSessionBalance(balanceWire)
+    ),
+    sessionCreditLanes: resolveOptional(
+      queries.studentSessionBalance.loading,
+      queries.studentSessionBalance.error,
+      balanceWire === undefined ? undefined : studentSessionCreditLanes(balanceWire)
+    ),
   };
 }
 

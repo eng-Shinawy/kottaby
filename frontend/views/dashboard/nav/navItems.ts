@@ -10,6 +10,7 @@ import {
   DashboardOutlined as DashboardIcon,
   GavelOutlined as DisputesIcon,
   AccountBalanceOutlined as FinanceIcon,
+  PersonSearchOutlined as FindTeachersIcon,
   HistoryEduOutlined as HomeworkIcon,
   InsightsOutlined,
   LinkOutlined as LinkChildIcon,
@@ -114,6 +115,9 @@ function isDashboardLabelKey(key: NavLabelKey): key is keyof DashboardLabels {
  *  - Student Plans → `/student/plans` (a pure ADD to the student list:
  *    the student-guarded catalog page ships at the route; the `plans`
  *    label key is shared with the admin entry — both `DashboardLabels`-owned)
+ *  - Student Find Teachers → `/student/teachers` (a pure ADD: the
+ *    student-guarded available-teachers directory browse ships at the
+ *    route; the `findTeachers` label key is `DashboardLabels`-owned)
  *  - Admin Users → `/admin/users` (the directory page exists)
  *  - Admin Plans → `/admin/plans`
  *  - Admin Broadcasts → `/admin/broadcasts` (a pure ADD, not a
@@ -135,6 +139,10 @@ const NAV_ITEMS_BY_ROLE: Record<UserRole, readonly DashboardNavItem[]> = {
     // Targets the student-guarded plan catalog at
     // `app/(dashboard)/student/plans/page.tsx` — browse + purchase CTA.
     { route: "/student/plans", labelKey: "plans", Icon: PlansIcon },
+    // Targets the student-guarded teacher directory at
+    // `app/(dashboard)/student/teachers/page.tsx` — the
+    // available-teachers browse (recitation + subject intent filters).
+    { route: "/student/teachers", labelKey: "findTeachers", Icon: FindTeachersIcon },
     { route: "/subscriptions", labelKey: "subscriptions", Icon: SubscriptionsIcon },
     { route: "/homework", labelKey: "homework", Icon: HomeworkIcon },
     { route: STUDENT_LINK_REQUESTS_ROUTE, labelKey: "linkRequests", Icon: LinkChildIcon },

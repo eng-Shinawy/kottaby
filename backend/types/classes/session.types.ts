@@ -19,6 +19,31 @@ export type SessionInsertType = typeof session.$inferInsert;
 export type SessionReturnType = typeof session.$inferSelect;
 
 /**
+ * The participant-list read row: the canonical select row PLUS the two
+ * optional display-name enrichments the participant listers batch onto the
+ * page items. Every other producer keeps returning plain `SessionReturnType`
+ * rows — the enrichment members stay OPTIONAL (`?: … | null`) so the wider
+ * shape stays structurally assignable everywhere the plain row is accepted,
+ * and an unpopulated member is indistinguishable from "not enriched" (the
+ * GraphQL `Session.student`/`Session.teacher` fields resolve `null` for it).
+ */
+export type SessionListItemType = SessionReturnType & {
+  readonly studentName?: string | null;
+  readonly teacherName?: string | null;
+};
+
+/**
+ * Projection row of the participant-name batch read (`users.id` +
+ * `users.full_name`): the minimal column pair the participant listers join
+ * back onto the page rows. `full_name` is NOT NULL at the schema, so the
+ * projection is a closed non-nullable pair.
+ */
+export interface SessionParticipantNameRowType {
+  readonly id: number;
+  readonly fullName: string;
+}
+
+/**
  * Student-facing booking intent vocabulary: Hifz | Tajweed only.
  * The evaluation member of the underlying session-intent enum is
  * structurally unreachable from a session submission — evaluation
@@ -53,10 +78,13 @@ export interface SessionListFilterInput {
 /**
  * Paginated participant read result. `page`/`pageSize` echo the request
  * honestly: an out-of-range page yields empty `items` next to the true
- * `totalCount` — never a fabricated window.
+ * `totalCount` — never a fabricated window. The items are the
+ * participant-list read rows (`SessionListItemType`): the optional
+ * display-name members are populated ONLY by the participant listers
+ * batch-enrichment, so producers returning plain rows stay accepted.
  */
 export interface SessionPageReturnType {
-  readonly items: readonly SessionReturnType[];
+  readonly items: readonly SessionListItemType[];
   readonly totalCount: number;
   readonly page: number;
   readonly pageSize: number;

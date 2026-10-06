@@ -129,6 +129,12 @@ export function NotificationRowContent({
           sx={theme => ({
             fontWeight: unread ? 700 : 500,
             color: theme.palette.text.primary,
+            // Span the row's content width so a cross-script row (RTL copy
+            // inside the LTR shell, or the mirror) aligns its title to the
+            // SAME inline edge the dir="auto" body already picks — a
+            // shrink-wrapped title box would pin the title to the row's
+            // opposite edge and split the two lines apart.
+            flex: 1,
             minWidth: 0,
           })}
         >

@@ -155,6 +155,17 @@
  *    entries are re-anchored here as a documented one-time reconciliation
  *    (additions only — no historical pin altered).
  *
+ *  - **student session-balance surface** — the Student-role-gated
+ *    self-read `mySessionBalance: StudentSessionBalance!` is pinned by
+ *    name in both root inventories (query additions + named-type delta)
+ *    plus a dedicated shape describe: the embedded four-lane value object
+ *    discloses EXACTLY the honest column-nullability split
+ *    (`balanceTrial: Int!` — the NOT NULL lane; the three purchased lanes
+ *    nullable `Int`), carries NO `id`, and the root field accepts ZERO
+ *    arguments (identity context-derived; smuggled identity args die at
+ *    validation) with the EXPLICIT student `$all` authScopes conjunction
+ *    pinned verbatim.
+ *
  * Pure unit tier — NO server boot, NO network, NO DB. Runs via the mandated
  * runner: `bun run test/scripts/run-test.ts backend/graphql/test/schema-surface.test.ts`.
  */
@@ -361,12 +372,16 @@ const PRE_3_1_TYPE_NAMES = [
  * session surface — objects + inputs that enter the named-type
  * map when the resolver modules register the root fields (plan §3.1 SDL).
  * The scheduling enum trio is pinned separately (see `SESSION_LIFECYCLE_ENUMS`).
+ * `SessionParticipant` is the participant identity band object referenced
+ * by the NULLABLE `Session.student`/`Session.teacher` fields (no root field
+ * returns it — it enters the map through the Session object's own fields).
  */
 const SESSION_LIFECYCLE_TYPE_NAMES = [
   "CreateSessionInput",
   "Session",
   "SessionListFilterInput",
   "SessionPage",
+  "SessionParticipant",
 ] as const;
 /** billing objects + input (R-301/R-302) — the wallet surface types. */
 const WALLET_TYPE_NAMES = ["RequestWithdrawalInput", "TeacherTransaction", "Wallet"] as const;
@@ -946,6 +961,27 @@ const TEACHER_AVAILABILITY_MUTATION_FIELDS = ["setTeacherAvailability"] as const
 const TEACHER_AVAILABILITY_TYPE_NAMES = ["TeacherAvailabilityState"] as const;
 
 /**
+ * Student browse surface — the on-demand matching read (`browseAvailableTeachers`):
+ * a single QUERY root field (zero mutations — the browse is a pure read),
+ * carrying the two required browse choices (`recitation`, `intent`) plus
+ * the paged bounds (`page`/`pageSize` with SDL defaults). Both root-field
+ * object types are registered: the PII-minimal card (`TeacherMatchingItem`)
+ * and the id-less page envelope (`TeacherMatchingPage`). Auth-gated with
+ * the `authScopes: { $all: { authenticated: true, role: [UserRole.Student] } }`
+ * conjunction — declared as the INLINED literal so the audit census drift
+ * scanner can classify the gate statically.
+ */
+const TEACHER_MATCHING_QUERY_FIELDS = ["browseAvailableTeachers"] as const;
+/** TeacherMatching — the card + the id-less page envelope (value object). */
+const TEACHER_MATCHING_TYPE_NAMES = ["TeacherMatchingItem", "TeacherMatchingPage"] as const;
+/**
+ * TeacherMatching — the browse ORDERING vocabulary enum (the post-tier
+ * sort choice on `browseAvailableTeachers`; the country tier always sorts
+ * first and the id tiebreak last).
+ */
+const TEACHER_MATCHING_ENUMS = ["TeacherMatchingSort"] as const;
+
+/**
  * Admin-ordered paid re-evaluation surface — the teacher-wallet-deduction
  * write (`adminOrderTeacherReEvaluation`): the order debits the fee from
  * the subject teacher's wallet, de-certifies the teacher, re-opens the
@@ -962,6 +998,22 @@ const TEACHER_AVAILABILITY_TYPE_NAMES = ["TeacherAvailabilityState"] as const;
  */
 const TEACHER_RE_EVALUATION_MUTATION_FIELDS = ["adminOrderTeacherReEvaluation"] as const;
 const TEACHER_RE_EVALUATION_TYPE_NAMES = ["TeacherReEvaluationOrder"] as const;
+
+/**
+ * Student session-balance surface — the caller's own prepaid session-credit
+ * read (`mySessionBalance`): a single QUERY root field (zero mutations —
+ * the balance read is a pure read) with ZERO arguments (identity derived
+ * server-side from the verified access token — no caller-supplied id of
+ * any kind). Registers the ONE embedded `StudentSessionBalance` object (a
+ * four-lane counter projection with NO `id` — not a normalizable entity).
+ * Auth-gated with the
+ * `authScopes: { $all: { authenticated: true, role: [UserRole.Student] } }`
+ * conjunction — declared as the INLINED literal so the audit census drift
+ * scanner can classify the gate statically.
+ */
+const STUDENT_SESSION_BALANCE_QUERY_FIELDS = ["mySessionBalance"] as const;
+/** StudentSessionBalance — the embedded four-lane value object (no id). */
+const STUDENT_SESSION_BALANCE_TYPE_NAMES = ["StudentSessionBalance"] as const;
 
 /**
  * Caller-scoped user-activity surface — the presence heartbeat's server
@@ -1099,10 +1151,15 @@ describe("Query._health — retyped probe surface", () => {
     // nav's homework entry, reusing the parent portal's canonical
     // homework page projection), the admin academic-tracking read pair
     // (`adminAcademicDashboard` / `adminStudentAcademicDetail` — the
-    // sanctioned read-only surface, registering ZERO mutations), and the
+    // sanctioned read-only surface, registering ZERO mutations), the
     // parent upcoming-sessions read (`myChildrenUpcomingSessions` —
     // merged from main, re-anchored alongside it as a documented
-    // one-time reconciliation).
+    // one-time reconciliation), the teacher availability state read
+    // (`myTeacherAvailability`), the student directory browse read
+    // (`browseAvailableTeachers`), and the student session-balance
+    // self-read (`mySessionBalance` — the Student-role-gated read of the
+    // caller's own prepaid session-credit lanes, ZERO arguments,
+    // registering ZERO mutations).
     const additions = fieldNames.filter(name => !(PRE_3_1_QUERY_FIELDS as readonly string[]).includes(name));
     expect(additions.toSorted((a, b) => a.localeCompare(b))).toEqual(
       [
@@ -1139,6 +1196,8 @@ describe("Query._health — retyped probe surface", () => {
         ...WALLET_LEDGER_QUERY_FIELDS,
         ...ADMIN_ACADEMIC_QUERY_FIELDS,
         ...TEACHER_AVAILABILITY_QUERY_FIELDS,
+        ...TEACHER_MATCHING_QUERY_FIELDS,
+        ...STUDENT_SESSION_BALANCE_QUERY_FIELDS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -1217,6 +1276,140 @@ describe("TeacherAvailabilityState object shape — three scalar fields, id FIRS
     expect(fields.id.type.toString()).toBe("Int!");
     expect(fields.isOnline.type.toString()).toBe("Boolean!");
     expect(fields.isApproved.type.toString()).toBe("Boolean!");
+  });
+});
+
+describe("TeacherMatching object shapes — PII-minimal card + id-less page envelope (browse shape pin)", () => {
+  const item = graphQLSchema.getType("TeacherMatchingItem");
+  const page = graphQLSchema.getType("TeacherMatchingPage");
+
+  if (!(item instanceof GraphQLObjectType)) {
+    throw new Error("TeacherMatchingItem must be registered as a GraphQL object type");
+  }
+  if (!(page instanceof GraphQLObjectType)) {
+    throw new Error("TeacherMatchingPage must be registered as a GraphQL object type");
+  }
+
+  test("TeacherMatchingItem is registered exactly once as an object type", () => {
+    expect(item).toBeInstanceOf(GraphQLObjectType);
+  });
+
+  test("TeacherMatchingItem discloses EXACTLY the nine canonical PII-minimal fields with `id` FIRST", () => {
+    const fields = item.getFields();
+
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "averageRating",
+      "country",
+      "countryCode",
+      "fullName",
+      "id",
+      "isOnline",
+      "languages",
+      "recitations",
+      "subjects",
+    ]);
+    expect(fields.id.type.toString()).toBe("Int!");
+    expect(fields.fullName.type.toString()).toBe("String!");
+    expect(fields.country.type.toString()).toBe("String");
+    expect(fields.countryCode.type.toString()).toBe("String");
+    expect(fields.subjects.type.toString()).toBe("[String!]!");
+    expect(fields.recitations.type.toString()).toBe("[RecitationReading!]!");
+    expect(fields.languages.type.toString()).toBe("[String!]!");
+    expect(fields.averageRating.type.toString()).toBe("Float");
+    expect(fields.isOnline.type.toString()).toBe("Boolean!");
+  });
+
+  test("TeacherMatchingPage is registered exactly once as an object type", () => {
+    expect(page).toBeInstanceOf(GraphQLObjectType);
+  });
+
+  test("TeacherMatchingPage discloses EXACTLY the five envelope fields and carries NO `id`", () => {
+    const fields = page.getFields();
+
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "items",
+      "page",
+      "pageCount",
+      "pageSize",
+      "total",
+    ]);
+    expect(fields.items.type.toString()).toBe("[TeacherMatchingItem!]!");
+    expect(fields.total.type.toString()).toBe("Int!");
+    expect(fields.page.type.toString()).toBe("Int!");
+    expect(fields.pageSize.type.toString()).toBe("Int!");
+    expect(fields.pageCount.type.toString()).toBe("Int!");
+    expect(Object.hasOwn(fields, "id")).toBe(false);
+  });
+
+  test("selecting `id` on the page envelope FAILS validation (behavioral id-less proof)", () => {
+    const document = parse("{ browseAvailableTeachers(recitation: HAFS_AN_ASIM, intent: hifz) { id } }");
+    const errors = validate(graphQLSchema, document);
+
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors.some(error => error.message.includes('Cannot query field "id" on type "TeacherMatchingPage"'))).toBe(
+      true
+    );
+  });
+});
+
+describe("StudentSessionBalance object + mySessionBalance read — embedded value pin (shape + zero-arg BOLA posture)", () => {
+  const balanceType = graphQLSchema.getType("StudentSessionBalance");
+
+  if (!(balanceType instanceof GraphQLObjectType)) {
+    throw new Error("StudentSessionBalance must be registered as a GraphQL object type");
+  }
+
+  test("is registered exactly once as an object type backed by the canonical ref", () => {
+    expect(balanceType).toBeInstanceOf(GraphQLObjectType);
+  });
+
+  test("discloses EXACTLY the four lane fields with the honest column-nullability split (`balanceTrial: Int!` — the NOT NULL lane; the three purchased lanes nullable)", () => {
+    const fields = balanceType.getFields();
+
+    expect(Object.keys(fields).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "balanceHifz",
+      "balanceReviews",
+      "balanceTajweed",
+      "balanceTrial",
+    ]);
+    // `balance_trial` is NOT NULL at the schema — the segregated one-time
+    // trial lane reads as a plain counter. The three purchased lanes are
+    // nullable columns; their null surfaces honestly ("no purchased credit
+    // ever landed here"), never fabricated into zeros.
+    expect(fields.balanceTrial?.type.toString()).toBe("Int!");
+    expect(fields.balanceHifz?.type.toString()).toBe("Int");
+    expect(fields.balanceTajweed?.type.toString()).toBe("Int");
+    expect(fields.balanceReviews?.type.toString()).toBe("Int");
+  });
+
+  test("carries NO `id` field — embedded value object with no database identity", () => {
+    const fields = balanceType.getFields();
+
+    expect(Object.hasOwn(fields, "id")).toBe(false);
+  });
+
+  test("`mySessionBalance` is NON-NULLABLE `StudentSessionBalance!` and accepts ZERO arguments (no caller-supplied identity surface)", () => {
+    const field = queryRootField("mySessionBalance");
+
+    expect(field.type.toString()).toBe("StudentSessionBalance!");
+    expect(field.args).toHaveLength(0);
+  });
+
+  test("`mySessionBalance` carries EXACTLY the student `$all` conjunction verbatim (401/403 split is load-bearing)", () => {
+    const scopes = authScopesSnapshot(queryRootField("mySessionBalance"));
+
+    expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+    const conjunction = scopes.$all;
+    if (!isRecord(conjunction)) throw new Error("expected a record-shaped `$all` conjunction");
+    expect(Object.keys(conjunction).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated", "role"]);
+    expect(conjunction.authenticated).toBe(true);
+    expect(conjunction.role).toEqual([UserRole.Student]);
+  });
+
+  test("smuggled identity args die at validation BEFORE any resolver runs (zero identity-arg surface)", () => {
+    const smuggledUserId = validate(graphQLSchema, parse("{ mySessionBalance(userId: 123) { balanceTrial } }"));
+
+    expect(smuggledUserId).toHaveLength(1);
   });
 });
 
@@ -1412,6 +1605,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...EVALUATION_RUBRIC_ENUMS,
         ...APPLICANT_COOLDOWN_ENUMS,
         ...APPLICANT_OVERRIDE_ENUMS,
+        ...TEACHER_MATCHING_ENUMS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });
@@ -1468,7 +1662,33 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     }
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum + the credential-change input pair + the id-less re-evaluation order receipt object", () => {
+  test("Session.student / Session.teacher are the NULLABLE SessionParticipant identity bands", () => {
+    const sessionType = graphQLSchema.getType("Session");
+
+    if (!(sessionType instanceof GraphQLObjectType)) {
+      throw new Error("Session must be registered as a GraphQL object type");
+    }
+    const fields = sessionType.getFields();
+    // Nullable by contract — populated ONLY by the participant list reads
+    // (myStudentSessions/myTeacherSessions), which batch-enrich the page
+    // rows; every other producer leaves the names unset and the fields
+    // resolve null — the nullability is honest, not lazy.
+    expect(fields.student?.type.toString()).toBe("SessionParticipant");
+    expect(fields.teacher?.type.toString()).toBe("SessionParticipant");
+
+    // The band object itself: EXACTLY the two-field identity projection,
+    // both non-null (`users.full_name` is NOT NULL at the schema).
+    const participantType = graphQLSchema.getType("SessionParticipant");
+    if (!(participantType instanceof GraphQLObjectType)) {
+      throw new Error("SessionParticipant must be registered as a GraphQL object type");
+    }
+    const participantFields = participantType.getFields();
+    expect(Object.keys(participantFields).toSorted((a, b) => a.localeCompare(b))).toEqual(["fullName", "id"]);
+    expect(participantFields.id?.type.toString()).toBe("ID!");
+    expect(participantFields.fullName?.type.toString()).toBe("String!");
+  });
+
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum + the credential-change input pair + the id-less re-evaluation order receipt object + the student session-balance value object", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1522,6 +1742,9 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         ...APPLICANT_OVERRIDE_ENUMS,
         ...TEACHER_AVAILABILITY_TYPE_NAMES,
         ...TEACHER_RE_EVALUATION_TYPE_NAMES,
+        ...TEACHER_MATCHING_TYPE_NAMES,
+        ...TEACHER_MATCHING_ENUMS,
+        ...STUDENT_SESSION_BALANCE_TYPE_NAMES,
       ].toSorted((a, b) => a.localeCompare(b))
     );
   });

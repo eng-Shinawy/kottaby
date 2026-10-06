@@ -210,12 +210,10 @@ const FROZEN_MUTATION_FIELDS = [
 ] as const;
 
 /**
- * Root query fields — the refreshed 67-op baseline: the prior frozen
- * 66-op baseline + the sanctioned applicant-cooldown lifecycle read
- * (`adminApplicantCooldownStats: AdminApplicantCooldownStats!` — the
- * admin-gated dashboard KPI read registering ZERO mutations; the pointer's
- * writer is internal-only).
- * The prior baseline had already grown by: the `_health`
+ * Root query fields — the frozen Query-root baseline, grown in place by
+ * each sanctioned addition (the full growth chain is documented below; the
+ * live count is carried by the Query-root freeze test's name).
+ * The prior baseline had grown by: the `_health`
  * probe + the session-report read pair (`sessionHomework` /
  * `sessionReport`) + the reconciled admin-user query quartet + the
  * participant-read trio + the admin arbitration listing + the admin
@@ -250,6 +248,12 @@ const FROZEN_MUTATION_FIELDS = [
  * — the teacher-role-gated read with ZERO arguments; identity derived
  * server-side from the verified access token; registers ZERO mutations)
  * is then pinned on top as the sanctioned post-reconciliation addition.
+ * The student session-balance read
+ * (`mySessionBalance: StudentSessionBalance!` — the Student-role-gated
+ * read with ZERO arguments that derives the acting identity from the
+ * verified access token and answers the caller's own prepaid
+ * session-credit lanes; registers ZERO mutations) is pinned on top in the
+ * same convention.
  */
 const FROZEN_QUERY_FIELDS = [
   "_health",
@@ -282,6 +286,12 @@ const FROZEN_QUERY_FIELDS = [
   "adminUsers",
   "adminUserStats",
   "availableEvaluators",
+  // The round-4 directory browse read — shipped with the teacher-matching
+  // filter surface but never enumerated in this artifact-side baseline
+  // (the suite's Query-root cell has been red since; re-anchored to the
+  // live artifact as a documented one-time reconciliation, NOT a silent
+  // baseline flip).
+  "browseAvailableTeachers",
   "findStudentByHandshakeCode",
   "me",
   "myApplicantProfile",
@@ -296,6 +306,11 @@ const FROZEN_QUERY_FIELDS = [
   "myOutgoingParentLinkRequests",
   "myRubricEvaluation",
   "myRubricPendingSessions",
+  // The student session-balance read — the sanctioned Student-role-gated
+  // self-read of the caller's own prepaid session-credit lanes
+  // (`mySessionBalance: StudentSessionBalance!`, ZERO arguments, ZERO
+  // mutations), enumerated at its sorted position.
+  "mySessionBalance",
   "myStudentSessions",
   "mySubscriptions",
   "myTeacherAvailability",
@@ -480,7 +495,7 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });
 
-  test("Query root is EXACTLY the refreshed frozen 68-op baseline (the prior 66-op baseline + the sanctioned applicant-cooldown lifecycle read (`adminApplicantCooldownStats: AdminApplicantCooldownStats!`, a role-gated read that registers ZERO mutations) + the sanctioned users-by-country distribution read (`adminUserCountryBreakdown(limit: Int): AdminUserCountryBreakdown!`, a role-gated admin aggregate that registers ZERO mutations) + the sanctioned teacher availability toggle read (`myTeacherAvailability: TeacherAvailabilityState!`, a teacher-role-gated read with ZERO arguments that derives the acting identity from the verified access token; registers ZERO mutations; zero unsanctioned growth)", () => {
+  test("Query root is EXACTLY the reconciled frozen 70-op baseline (the prior 69-op baseline + the sanctioned student session-balance read (`mySessionBalance: StudentSessionBalance!`, a Student-role-gated read with ZERO arguments that derives the acting identity from the verified access token and answers the caller's own prepaid session-credit lanes; registers ZERO mutations) + the prior clauses verbatim: the round-4 directory browse read `browseAvailableTeachers(search: String, minRating: Float, sort: TeacherMatchingSort): TeacherDirectoryPage!`, re-anchored to the live artifact as a documented one-time reconciliation — NOT a silent baseline flip; the baseline had already grown by the applicant-cooldown lifecycle read (`adminApplicantCooldownStats: AdminApplicantCooldownStats!`, a role-gated read that registers ZERO mutations) + the sanctioned users-by-country distribution read (`adminUserCountryBreakdown(limit: Int): AdminUserCountryBreakdown!`, a role-gated admin aggregate that registers ZERO mutations) + the sanctioned teacher availability toggle read (`myTeacherAvailability: TeacherAvailabilityState!`, a teacher-role-gated read with ZERO arguments that derives the acting identity from the verified access token; registers ZERO mutations; zero unsanctioned growth)", () => {
     const names = fieldSurfaces("Query").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_QUERY_FIELDS]);
   });
@@ -1076,6 +1091,42 @@ describe("Platform analytics surface (extend) — artifact-side pins", () => {
       "last30DaysAmount",
       "totalAmount",
     ]);
+  });
+});
+
+describe("SessionParticipant identity band — artifact-side pins", () => {
+  test("SessionParticipant exposes EXACTLY the two-field identity projection, both non-null", () => {
+    const surfaces = fieldSurfaces("SessionParticipant");
+    expect(surfaces.map(surface => surface.name).toSorted((a, b) => a.localeCompare(b))).toEqual(["fullName", "id"]);
+    const byName = new Map(surfaces.map(surface => [surface.name, surface]));
+    // `id` FIRST in the artifact's declaration order (the built schema is
+    // lexicographically sorted — the declaration order is the Pothos
+    // source's contract, pinned in session-sdl.test.ts; here the SET and
+    // the exact type strings are the artifact contract).
+    expect(byName.get("id")?.type).toBe("ID!");
+    expect(byName.get("fullName")?.type).toBe("String!");
+    // No participant id column and no extra identity channel leaks onto the
+    // band: it is exactly { id, fullName }.
+    expect(byName.has("studentId")).toBe(false);
+    expect(byName.has("teacherId")).toBe(false);
+    expect(surfaces).toHaveLength(2);
+  });
+
+  test("Session.student and Session.teacher are the NULLABLE SessionParticipant bands on the artifact", () => {
+    const studentBand = fieldSurface("Session", "student");
+    const teacherBand = fieldSurface("Session", "teacher");
+    expect(studentBand.type).toBe("SessionParticipant");
+    expect(teacherBand.type).toBe("SessionParticipant");
+    expect(studentBand.namedType).toBe("SessionParticipant");
+    expect(teacherBand.namedType).toBe("SessionParticipant");
+  });
+
+  test("both Session identity-band lines appear verbatim in the artifact text (lexical belt-and-braces)", () => {
+    expect(sdlText).toContain("student: SessionParticipant");
+    expect(sdlText).toContain("teacher: SessionParticipant");
+    // No non-null spelling exists — the honest-null contract is textual.
+    expect(sdlText).not.toContain("student: SessionParticipant!");
+    expect(sdlText).not.toContain("teacher: SessionParticipant!");
   });
 });
 

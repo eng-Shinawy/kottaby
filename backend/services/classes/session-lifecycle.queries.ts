@@ -22,7 +22,13 @@ import {
   normalizeAdminListBounds,
   normalizePageBounds,
 } from "@/backend/services/classes/session-lifecycle.guards";
-import type { DBTransaction, SessionListFilterInput, SessionPageReturnType, SessionReturnType } from "@/backend/types";
+import type {
+  DBTransaction,
+  SessionListFilterInput,
+  SessionListItemType,
+  SessionPageReturnType,
+  SessionReturnType,
+} from "@/backend/types";
 
 export namespace SessionLifecycleQueries {
   /**
@@ -69,6 +75,13 @@ export namespace SessionLifecycleQueries {
    * count is computed under the SAME filtered predicate as the list, so
    * `totalCount` can never diverge from the items.
    *
+   * The page rows are batch-enriched with the counterpart display name:
+   * ONE membership read (`SessionRepository.listNamesByIds`) resolves the
+   * DISTINCT `teacherId`s of the page and the names are stamped onto each
+   * item as `teacherName` (an absent/unmatched id stamps `null`). Every
+   * other Session producer skips this enrichment — the GraphQL
+   * `Session.teacher` band is populated ONLY by the participant lists.
+   *
    * @param studentId  The acting student's id (owner-side scoping).
    * @param filter  Optional lifecycle filter (absent/null members drop out).
    * @param page  Requested page (≥ 1; invalid values normalize to 1).
@@ -95,13 +108,31 @@ export namespace SessionLifecycleQueries {
     );
     const totalCount = await SessionRepository.countForStudent(studentId, guardedFilter, tx);
 
-    return { items, totalCount, page: bounds.page, pageSize: bounds.pageSize };
+    // Batch-enrich the page rows with the counterpart (teacher) display
+    // names — ONE membership read for the whole page, keyed by id, AFTER the
+    // page read (errors propagate untouched — the same posture as the page
+    // read itself; no try/catch degradation). An empty page skips the read
+    // entirely: no ids, no round-trip. The row copy uses Object.assign (the
+    // repository helpers' no-map-spread idiom — never a spread inside map).
+    const teacherIds = [...new Set(items.map(item => item.teacherId))];
+    const teacherNames = new Map(
+      teacherIds.length === 0
+        ? []
+        : (await SessionRepository.listNamesByIds(teacherIds, tx)).map(row => [row.id, row.fullName])
+    );
+    const enrichedItems: SessionListItemType[] = items.map(item =>
+      Object.assign({}, item, { teacherName: teacherNames.get(item.teacherId) ?? null })
+    );
+
+    return { items: enrichedItems, totalCount, page: bounds.page, pageSize: bounds.pageSize };
   }
 
   /**
    * Lists the acting teacher's own sessions — the teacher-side twin of
    * `listMyStudentSessions`, with identical paging, guarding, filtering,
-   * and honest-echo semantics over the owning-teacher predicate.
+   * and honest-echo semantics over the owning-teacher predicate. The page
+   * rows are batch-enriched with the counterpart (student) display names
+   * through the same ONE-read membership batch, stamped as `studentName`.
    *
    * @param teacherId  The acting teacher's id (owner-side scoping).
    * @param filter  Optional lifecycle filter (absent/null members drop out).
@@ -129,7 +160,21 @@ export namespace SessionLifecycleQueries {
     );
     const totalCount = await SessionRepository.countForTeacher(teacherId, guardedFilter, tx);
 
-    return { items, totalCount, page: bounds.page, pageSize: bounds.pageSize };
+    // The teacher-side twin of the student lister's batch enrichment: ONE
+    // membership read resolves the counterpart (student) display names for
+    // the whole page; an empty page skips it; errors propagate untouched.
+    // Object.assign row copy — the no-map-spread idiom.
+    const studentIds = [...new Set(items.map(item => item.studentId))];
+    const studentNames = new Map(
+      studentIds.length === 0
+        ? []
+        : (await SessionRepository.listNamesByIds(studentIds, tx)).map(row => [row.id, row.fullName])
+    );
+    const enrichedItems: SessionListItemType[] = items.map(item =>
+      Object.assign({}, item, { studentName: studentNames.get(item.studentId) ?? null })
+    );
+
+    return { items: enrichedItems, totalCount, page: bounds.page, pageSize: bounds.pageSize };
   }
 
   /**

@@ -907,7 +907,10 @@ describe("SessionRepository — admin governance surface (runInRollback)", () =>
         repoSource
       )
     ).toBe(true);
-    expect(repoSource.includes("inArray")).toBe(false);
+    // Call-form pin, not prose: the doc blocks legitimately NAME the
+    // sanctioned `inArray` membership read (names.helpers) — the guard
+    // forbids an inArray CALL inside these three admin-guard files.
+    expect(repoSource.includes("inArray(")).toBe(false);
   });
 
   test("source: the directory predicate is the single list/count truth with the half-open window", () => {

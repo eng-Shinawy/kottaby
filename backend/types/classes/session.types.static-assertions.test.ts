@@ -131,7 +131,10 @@ describe("Session Canonical Types — Static Structural Assertions", () => {
     const body = interfaceBody(code, /export interface SessionPageReturnType\b/);
     expect(body).not.toBe("");
 
-    expect(body).toContain("readonly items: readonly SessionReturnType[];");
+    // The items are the participant-list read rows: the canonical select row
+    // plus the OPTIONAL display-name enrichments (populated only by the
+    // participant listers — plain-row producers stay structurally accepted).
+    expect(body).toContain("readonly items: readonly SessionListItemType[];");
     expect(body).toContain("readonly totalCount: number;");
     expect(body).toContain("readonly page: number;");
     expect(body).toContain("readonly pageSize: number;");
@@ -193,5 +196,26 @@ describe("Session Canonical Types — Static Structural Assertions", () => {
       const content = libCode(files, name);
       expect(content).not.toMatch(/REQ-\d|DEV3-\d|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/);
     }
+  });
+
+  test("10. Participant-list item is the canonical row PLUS the two optional name enrichments (structural widening)", () => {
+    const code = codeLines(libCode(files, "session.types.ts")).join("\n");
+    // Whitespace-normalized: biome may wrap the >100-column signature —
+    // the STRUCTURE (the canonical row intersection with exactly these two
+    // optional members) is the pin, not the line wrapping.
+    const normalized = code.replace(/\s+/g, " ");
+    // Intersection (never an interface re-declaration, never a Pick/Omit
+    // fork): the participant list row IS the canonical select row with the
+    // two OPTIONAL nullable display-name members the listers batch on —
+    // so every plain-row producer stays structurally accepted.
+    expect(normalized).toContain(
+      "export type SessionListItemType = SessionReturnType & { readonly studentName?: string | null; readonly teacherName?: string | null; };"
+    );
+    // The enrichment projection row is the closed non-nullable name pair.
+    const body = interfaceBody(code, /export interface SessionParticipantNameRowType\b/);
+    expect(body).not.toBe("");
+    expect(body).toContain("readonly id: number;");
+    expect(body).toContain("readonly fullName: string;");
+    expect(memberCount(body)).toBe(2);
   });
 });

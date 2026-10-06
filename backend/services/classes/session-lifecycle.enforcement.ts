@@ -183,9 +183,12 @@ export async function assertReportSubmittedForHomework(
  *
  * Probes the teacher's own sessions on the caller's transaction for any
  * still-`started` row (window of one — the gate answers existence, never
- * enumerates). The denial is FORBIDDEN-class and carries NO session id:
- * the availability surface may learn only THAT the teacher is locked,
- * never which session holds the lock (oracle ruling).
+ * enumerates). The denial is CONFLICT-class — an HTTP 409 carrying the
+ * `TEACHER_IN_ACTIVE_SESSION` code and the localized
+ * `teacherInActiveSession` message, nothing else — and it discloses NO
+ * session identifier: the availability surface may learn only THAT the
+ * teacher is locked, never which session holds the lock, how many do, or
+ * since when (oracle-safe denial).
  *
  * @param teacherId  The server-derived teacher id (the `teacher` row's
  *     shared PK).

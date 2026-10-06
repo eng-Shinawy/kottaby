@@ -31,9 +31,12 @@
  * cancellation/resolution back, leaving the hold and the row consistent).
  *
  * `releaseTeacherInSessionLock` is the release twin of that primitive: the
- * INV-S6 lock lifted inside the SAME transaction as the transition that
- * exits the in-progress state (complete/cancel-from-started/arbitration),
- * keyed on the transitioned row's teacher id.
+ * INV-S6 lock lifted inside the SAME transaction as the terminal transition
+ * that exits the session (completion, participant cancel, arbitration, admin-governance cancel), keyed on the
+ * transitioned row's teacher id. The call is unconditional on the session's
+ * pre-state — the persisted availability marker is the single gate: the
+ * captured intent is restored exactly once behind a last-exit guard, and a
+ * marker-less row degrades to a classified no-op instead of a write.
  *
  * `refundSweptHolds` drives the confirmation-deadline sweeper's refunds
  * SEQUENTIALLY BY DESIGN through the same primitive: every refund composes
@@ -239,20 +242,46 @@ export async function refundHeldLaneToProvenance(
 /**
  * Lifts the INV-S6 in-session teacher lock — the release twin of the
  * same-lane refund primitive: a post-transition, same-transaction
- * follow-up write that the cancel/arbitration/complete flows compose so
- * the lock never outlives its session. The write is keyed on the teacher
- * id the TRANSITIONED row carries (never caller input); a zero-row match
- * is the fail-closed hard stop (the flow rolls back — the session stays
- * in its pre-transition state and the lock question stays open for the
- * retry), never a silent skip.
+ * follow-up write that the terminal-exit flows compose so the lock never
+ * outlives its session. The write is keyed on the teacher id the
+ * TRANSITIONED row carries (never caller input) and is UNCONDITIONAL on
+ * the session's pre-state: the marker captured at lock acquisition is the
+ * single gate. The underlying writer restores the captured availability
+ * intent into `is_online` and consumes the marker in ONE guarded
+ * statement — restore-once (a double release degrades to the classified
+ * no-op, never a second write) — behind a last-exit guard (while any
+ * `started` session remains for the teacher, the restore is deferred to
+ * that session's own exit). The three-way outcome maps as:
+ *  - no teacher row → the fail-closed hard stop (the flow rolls back —
+ *    the session stays in its pre-transition state and the lock question
+ *    stays open for the retry), never a silent skip;
+ *  - a held lock with no remaining session → the restore applied; the
+ *    happy path is silent;
+ *  - no lock held (a pre-start exit, a polluted start stamp, a double
+ *    release) or a session still holding → one bounded debug line each —
+ *    a classified no-op, never a denial, and the payload carries no
+ *    identifier beyond the teacher id.
  */
 export async function releaseTeacherInSessionLock(teacherId: number, tx: DBTransaction): Promise<void> {
-  const released = await TeacherRepository.setOnline(teacherId, true, tx);
-  if (released === null) {
+  const result = await TeacherRepository.releaseInSessionLock(teacherId, tx);
+  if (result === null) {
     logger.error("Session lifecycle blocked: in-session lock release matched zero teacher rows", {
       teacherId,
     });
     throw new Error("SessionLifecycleService: in-session lock release matched zero teacher rows");
+  }
+  if (result.outcome === "no_lock_held") {
+    logger.debug("In-session lock release no-op: no lock held", {
+      teacherId,
+      outcome: result.outcome,
+    });
+    return;
+  }
+  if (result.outcome === "active_sessions_remain") {
+    logger.debug("In-session lock release deferred: active sessions remain", {
+      teacherId,
+      outcome: result.outcome,
+    });
   }
 }
 

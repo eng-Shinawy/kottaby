@@ -240,6 +240,21 @@ const apolloCacheTypePolicies: NonNullable<InMemoryCacheConfig["typePolicies"]> 
   // `hasProgress` flag, not an identity); cached inline under the
   // `studentProgress` root field and replaced wholesale on refetch.
   StudentProgress: { keyFields: false },
+  // Student teacher-directory browse pagination envelope — id-less wrapper
+  // (page bounds + honest total) over the `TeacherMatchingItem` cards; the
+  // cards themselves normalize via their `id` (no policy needed). Mirrors
+  // the `StudentHomeworkPage` precedent above; without it every browse
+  // with a different page window trips "Cache data may be lost"
+  // normalization warnings.
+  TeacherMatchingPage: { keyFields: false },
+  // Student prepaid session-credit balance — the id-less embedded value
+  // object under the `mySessionBalance` root field (no `id` by design:
+  // the four lane counts are a plain projection of the caller's own
+  // student row, derived server-side from the access token, so nothing
+  // in the payload identifies a row). Cached inline under the root field
+  // and replaced wholesale on every refetch; mirrors the
+  // `HandshakeCodeLookup` precedent above.
+  StudentSessionBalance: { keyFields: false },
 };
 
 /** Apollo cache with the module-scope {@link apolloCacheTypePolicies} applied. */

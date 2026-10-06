@@ -14,9 +14,14 @@
  *
  * Disciplines enforced here:
  *  - Single-writer composition: the service composes WHEN to flip
- *    `teacher.is_online` for the MANUAL toggle. The unconditional guarded
- *    `UPDATE … RETURNING` primitive (`TeacherRepository.setOnline`) is
- *    the write; this service decides whether it should fire.
+ *    `teacher.is_online` for the MANUAL toggle. The direction-guarded
+ *    `UPDATE … RETURNING` primitive
+ *    (`TeacherRepository.setAvailabilityIntent`) is the write; this
+ *    service decides whether it should fire. The transaction's
+ *    certification-check `FOR UPDATE` teacher-row lock is the PRIMARY
+ *    toggle-vs-start serialization; the Available direction's write-time
+ *    guard is the defense-in-depth backstop for the race window the
+ *    pre-check gate cannot cover.
  *  - Pre-DB shape validation: the caller-supplied teacher id is
  *    shape-checked (`Number.isSafeInteger(teacherId) && teacherId > 0`)
  *    before any database read, and the `isOnline` flag is checked as a
@@ -35,8 +40,10 @@
  *    in a session sees the certification denial, not the state conflict.
  *    The Unavailable direction (`isOnline === false`) skips BOTH gates.
  *  - Logging: the happy path emits NOTHING. Each service-owned denial
- *    (certification gate, not-found, post-write zero-row guard) emits
- *    exactly ONE bounded `logger.logDomainError` call carrying
+ *    (certification gate, not-found, the post-write zero-row guards —
+ *    the vanished-row 404 on the Unavailable direction and the
+ *    race-closed 409 backstop on the Available direction) emits exactly
+ *    ONE bounded `logger.logDomainError` call carrying
  *    `{ code, entity, entityId, locale }` only — never PII, never the
  *    submitted payload. The reused in-session gate owns its OWN bounded
  *    log call (it is consumed verbatim, never re-logged here).
@@ -51,7 +58,7 @@
 
 import { TeacherRepository, UserRepository } from "@/backend/db/repo";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
-import { ForbiddenError, NotFoundError, ValidationError } from "@/backend/lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { assertTeacherNotInActiveSession } from "@/backend/services/classes/session-lifecycle.enforcement";
 import type { DBQueryExecutor, DBTransaction, TeacherAvailabilityReturnType } from "@/backend/types";
@@ -157,6 +164,24 @@ export namespace TeacherAvailabilityService {
    * are idempotent by construction (the guarded UPDATE returns the row
    * for a redundant same-value write).
    *
+   * Race mechanics on the Available direction: the certification-check
+   * `FOR UPDATE` teacher-row lock taken at the top of the transaction is
+   * the PRIMARY serialization — every other teacher-row writer (a session
+   * start's lock capture included) queues behind it for the whole toggle,
+   * so the pre-check gates and the write observe one consistent ordering
+   * and the lock — not the write — closes the toggle-vs-start race window
+   * the pre-check gate alone cannot cover. The direction-guarded
+   * primitive (`TeacherRepository.setAvailabilityIntent`) is the
+   * defense-in-depth backstop: its `NOT EXISTS (started)` probe rides the
+   * UPDATE's WHERE clause, and zero rows on that direction signal the
+   * guard fired at write time (or the row vanished) — the teacher row's
+   * existence is already proven in-transaction by the certification lock
+   * — so the service raises the SAME localized `ConflictError`
+   * (`TEACHER_IN_ACTIVE_SESSION`) the gate raises, sharing its message
+   * source (one bounded log marks the service-owned backstop). Zero rows
+   * on the Unavailable direction mean the row vanished mid-transaction —
+   * the localized `NotFoundError` (`TEACHER_NOT_FOUND`).
+   *
    * Activity stamp — after the guarded write lands (and the post-write
    * zero-row guard holds), the flow stamps the acting teacher's
    * `users.last_active_at` with ONE captured `now` inside the SAME
@@ -166,7 +191,7 @@ export namespace TeacherAvailabilityService {
    * no-op here, never a toggle failure.
    *
    * The happy path emits NOTHING. Each service-owned denial
-   * (certification gate, not-found, post-write zero-row guard) emits
+   * (certification gate, not-found, the post-write zero-row guards) emits
    * exactly ONE bounded `logger.logDomainError` call carrying
    * `{ code, entity, entityId, locale }` only — never PII, never the
    * submitted payload.
@@ -234,15 +259,36 @@ export namespace TeacherAvailabilityService {
         await assertTeacherNotInActiveSession(teacherId, innerTx, t);
       }
 
-      // The write is unconditional beyond row identity — the service
-      // composes WHEN the flag is driven; the repo primitive is the
-      // guarded `UPDATE … RETURNING`. A redundant same-value write
-      // returns the row unchanged (idempotent under retry).
-      const updated = await TeacherRepository.setOnline(teacherId, isOnline, innerTx);
+      // The service composes WHEN the flag is driven; the repo primitive
+      // is the direction-guarded `UPDATE … RETURNING`. The FOR UPDATE
+      // teacher-row lock held since the top of the transaction is the
+      // primary toggle-vs-start serialization; the write-time direction
+      // guard is the defense-in-depth backstop that the zero-row mapping
+      // below translates into the conflict denial. A redundant same-value
+      // write returns the row unchanged (idempotent under retry).
+      const updated = await TeacherRepository.setAvailabilityIntent(teacherId, isOnline, innerTx);
       if (updated === null) {
-        // Honest zero-row guard — structurally unreachable under the
-        // same-tx `FOR UPDATE` lock, but the contract is defended: never
-        // return a phantom projection.
+        if (isOnline) {
+          // Race-closed backstop — the Available direction matched zero
+          // rows. The PRIMARY serialization is the certification-check
+          // `FOR UPDATE` lock taken at the top of this transaction: it
+          // serializes every teacher-row writer (a concurrent session
+          // start included) for the whole toggle. This mapping is the
+          // backstop on top of that lock — zero rows signal the
+          // write-time guard fired (or the row vanished) while the row's
+          // existence is already proven in-tx by the lock itself: the
+          // SAME denial the gate itself raises, sharing its localized
+          // message source (never a duplicate copy).
+          logger.logDomainError("Teacher availability denied: in-session race detected at write", {
+            code: "TEACHER_IN_ACTIVE_SESSION",
+            entity: "teacher",
+            entityId: teacherId,
+            locale,
+          });
+          throw new ConflictError("TEACHER_IN_ACTIVE_SESSION", t.teacherInActiveSession);
+        }
+        // Unavailable direction — the row vanished mid-transaction; the
+        // contract is defended: never return a phantom projection.
         logger.logDomainError("Teacher not found for availability toggle write", {
           code: "TEACHER_NOT_FOUND",
           entity: "teacher",

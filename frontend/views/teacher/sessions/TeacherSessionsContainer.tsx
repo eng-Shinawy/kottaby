@@ -105,6 +105,7 @@ import type { SessionStatus } from "@/frontend/graphql/generated/gql/graphql";
 import { myTeacherSessionsQueryDocument } from "@/frontend/graphql/sharedDocuments";
 import { SessionStatusFilterChips } from "@/frontend/views/student/sessions/SessionStatusFilterChips";
 import type { SessionRowRole } from "@/frontend/views/student/sessions/sessionRowPresentation";
+import { useSessionDetailsDialogSlot } from "@/frontend/views/student/sessions/useSessionDetailsDialogSlot";
 import { parkedRubricDraftSessionIds } from "@/frontend/views/teacher/sessions/rubricDraftStorage.helpers";
 import { TeacherPendingRubricBanner } from "@/frontend/views/teacher/sessions/TeacherPendingRubricBanner";
 import { TeacherSessionsBody } from "@/frontend/views/teacher/sessions/TeacherSessionsBody";
@@ -123,6 +124,19 @@ const teacherSessionsQueryVariables = (statusFilter: SessionStatus | null) => ({
   page: null,
   pageSize: null,
 });
+
+/**
+ * The parked-draft chips — WHICH pending sessions carry a restorable draft
+ * (the storage intersection read, so a row can name its parked draft
+ * without opening the dialog) — derived during render as a membership read
+ * over the parked-draft namespace, keyed by the pending set's identity:
+ * the read is idempotent and only re-runs when the pending set changes —
+ * on refetches, which is exactly when a chip may gain or lose a draft.
+ * (Extracted so the container stays within the per-function line budget.)
+ */
+function useParkedDraftSessionIds(pendingSessionIds: ReadonlySet<string>): ReadonlySet<string> {
+  return useMemo(() => new Set(parkedRubricDraftSessionIds(pendingSessionIds)), [pendingSessionIds]);
+}
 
 /**
  * The teacher sessions view: ALWAYS-ON chrome (title + sticky filter chips)
@@ -161,8 +175,10 @@ export function TeacherSessionsContainer(): ReactNode {
     openPrepDialog,
     closePrepDialog,
   } = useTeacherSessionDialogSessions();
+  // The read-only "Session details" affordance's own slot (the student
+  // surface's identical slot hook — the cross-surface home this folder is).
+  const { detailsSessionId, openDetailsDialog, closeDetailsDialog } = useSessionDetailsDialogSlot();
   const dismissNotice = useCallback(() => setNotice(null), []);
-  const handleFilterChange = useCallback((status: SessionStatus | null) => setStatusFilter(status), []);
 
   const { data, loading, error } = useQuery(myTeacherSessionsQueryDocument, {
     variables: teacherSessionsQueryVariables(statusFilter),
@@ -173,15 +189,8 @@ export function TeacherSessionsContainer(): ReactNode {
   const pendingRubricCount = mutations.rubric.pendingSessionIds.size;
 
   // The parked-draft chips — which PENDING sessions carry a restorable
-  // draft (the storage intersection read, so a row can name its parked
-  // draft without opening the dialog) — DERIVE during render (a membership read over
-  // the parked-draft namespace, keyed by the pending set's identity): the
-  // read is idempotent and only re-runs when the pending set changes —
-  // on refetches, which is exactly when a chip may gain or lose a draft.
-  const parkedDraftSessionIdSet = useMemo(
-    () => new Set(parkedRubricDraftSessionIds(mutations.rubric.pendingSessionIds)),
-    [mutations.rubric.pendingSessionIds]
-  );
+  // draft (see the extracted hook for the derivation contract).
+  const parkedDraftSessionIdSet = useParkedDraftSessionIds(mutations.rubric.pendingSessionIds);
 
   // The lane reads as active only while the pending set is non-empty —
   // when the last submission lands and the set drains, the strip renders
@@ -210,7 +219,7 @@ export function TeacherSessionsContainer(): ReactNode {
         <Typography variant="h5" component="h1" sx={{ fontWeight: 700 }}>
           {t.teacherPageTitle}
         </Typography>
-        <SessionStatusFilterChips value={statusFilter} onChange={handleFilterChange} />
+        <SessionStatusFilterChips value={statusFilter} onChange={setStatusFilter} />
         {pendingRubricCount > 0 ? (
           <TeacherPendingRubricBanner
             count={pendingRubricCount}
@@ -240,6 +249,7 @@ export function TeacherSessionsContainer(): ReactNode {
         parkedDrafts={{ ids: parkedDraftSessionIdSet, label: t.rubricDraftParkedChip }}
         role={rowRole}
         onCaseIntent={openCaseDialog}
+        onDetailsIntent={openDetailsDialog}
         t={t}
       />
       <TeacherSessionsOverlays
@@ -247,6 +257,8 @@ export function TeacherSessionsContainer(): ReactNode {
         disputeArms={disputeArms}
         caseDialogSessionId={caseDialogSessionId}
         closeCaseDialog={closeCaseDialog}
+        detailsDialog={{ sessionId: detailsSessionId, close: closeDetailsDialog }}
+        rowRole={rowRole}
         reportDialogSessionId={reportDialogSessionId}
         closeReportDialog={closeReportDialog}
         prepDialogSessionId={prepDialogSessionId}

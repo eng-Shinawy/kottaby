@@ -29,6 +29,17 @@ import type {
  * the cache-normalize `update` arms share ONE field shape across the
  * family.
  *
+ * BOTH list selections carry BOTH participant identity bands
+ * (`student { id fullName }` AND `teacher { id fullName }`) — the
+ * documented structural identity of the two item shapes that lets ONE
+ * `SessionRow` component serve both surfaces (a teacher row passes
+ * without a mapping layer). The bands are NULLABLE on the wire: each list
+ * batch-enriches ONLY the counterpart side (the student lister stamps the
+ * teacher, the teacher lister stamps the student), so the own-side band
+ * resolves null there; `sessionById` stays band-free — its producers
+ * never populate the names and the row's identity consumers read the
+ * exposed participant ids.
+ *
  * All types come from the codegen output
  * (`@/frontend/graphql/generated/gql/graphql`) — never inline literals
  * as TYPES, never mapping layers. Hooks (`useQuery`, `useMutation`) are
@@ -88,6 +99,14 @@ export const myStudentSessionsQueryDocument: TypedDocumentNode<
         feeHeld
         studentId
         teacherId
+        student {
+          id
+          fullName
+        }
+        teacher {
+          id
+          fullName
+        }
         startedAt
         endedAt
         confirmationDeadline
@@ -129,6 +148,14 @@ export const myTeacherSessionsQueryDocument: TypedDocumentNode<
         feeHeld
         studentId
         teacherId
+        student {
+          id
+          fullName
+        }
+        teacher {
+          id
+          fullName
+        }
         startedAt
         endedAt
         confirmationDeadline

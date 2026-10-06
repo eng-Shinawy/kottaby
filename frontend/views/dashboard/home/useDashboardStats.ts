@@ -2,7 +2,11 @@
 
 import { useMemo } from "react";
 import { useAuth } from "@/frontend/hooks/auth";
-import { type DashboardStatDraft, resolveStatDrafts } from "@/frontend/views/dashboard/home/useDashboardStats.helpers";
+import {
+  type DashboardStatDraft,
+  resolveStatDrafts,
+  type SessionCreditLanes,
+} from "@/frontend/views/dashboard/home/useDashboardStats.helpers";
 import { useRoleStatQueries } from "@/frontend/views/dashboard/home/useDashboardStats.queries";
 import { buildStatsData } from "@/frontend/views/dashboard/home/useDashboardStats.roleData";
 
@@ -14,8 +18,12 @@ import { buildStatsData } from "@/frontend/views/dashboard/home/useDashboardStat
  * anywhere):
  *
  *  - Student → two status-filtered `myStudentSessions` count envelopes,
- *    `mySubscriptions` (active rows counted client-side), and the shared
- *    `myUnreadNotificationCount` cache field the app-bar badge maintains.
+ *    `mySubscriptions` (active rows counted client-side), the
+ *    `mySessionBalance` prepaid credit lanes (summed client-side —
+ *    prepaid lanes only, never subscription coverage — and threaded
+ *    through per lane for the balance card's breakdown popover), and the
+ *    shared `myUnreadNotificationCount` cache field the app-bar badge
+ *    maintains.
  *  - Teacher → the two `myTeacherSessions` count envelopes, `myWallet`
  *    (the balance decimal string verbatim), and the unread count.
  *  - Parent → `myLinkedChildren` plus a per-child aggregate loop (reports
@@ -49,20 +57,33 @@ export interface UseDashboardStatsResult {
   readonly drafts: readonly DashboardStatDraft[];
   /** True while ANY of the role's stat values is still resolving. */
   readonly isLoading: boolean;
+  /**
+   * The student's prepaid session-credit lanes (the balance card's
+   * breakdown-popover payload — see `SessionCreditLanes`). Tri-state,
+   * honest: `undefined` for every non-student role (the field is never
+   * wired for them) AND while the student's `mySessionBalance` read is
+   * still resolving (the view separates the two with its own role gate —
+   * the popover renders skeletons); `null` = the read failed (the popover
+   * renders its unavailable state); resolved = the four display counts.
+   * The SUM card's semantics are untouched either way.
+   */
+  readonly sessionCreditLanes?: SessionCreditLanes | null;
 }
 
 /**
  * Resolves the rendered stat drafts: compose the role's payload from the
  * wired observers, run the pure draft builders in
- * `useDashboardStats.helpers`, and derive the loading marker — a draft
- * with an empty value is the helpers' loading sentinel, so any such draft
- * means at least one of the role's stats is still resolving.
+ * `useDashboardStats.helpers`, derive the loading marker — a draft with an
+ * empty value is the helpers' loading sentinel, so any such draft means at
+ * least one of the role's stats is still resolving — and thread the
+ * balance popover's lane payload through untouched (it degrades
+ * independently of the drafts, per its own tri-state contract).
  */
 function buildRoleDrafts(role: string | null, queries: ReturnType<typeof useRoleStatQueries>) {
   const data = buildStatsData(role, queries, queries.parentAggregate);
   const drafts = resolveStatDrafts(role, data);
   const isLoading = drafts.some(entry => entry.value === "");
-  return { drafts, isLoading };
+  return { drafts, isLoading, sessionCreditLanes: data.sessionCreditLanes };
 }
 
 /**

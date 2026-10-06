@@ -72,6 +72,7 @@ import { createTestSession, createTestTeacherRow, createTestUser } from "@/backe
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
+import { TeacherMatchingSort } from "@/backend/enum/teachers/teacher-matching-sort.enum";
 import { ConflictError, DomainError, NotFoundError } from "@/backend/lib/errors";
 import { assertTeacherNotInActiveSession } from "@/backend/services/classes/session-lifecycle.enforcement";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
@@ -159,7 +160,17 @@ function browseInput(
   recitation: RecitationReading,
   intent: SessionIntent.Hifz | SessionIntent.Tajweed
 ): TeacherMatchingSubmitInput {
-  return { recitation, intent, page: null, pageSize: null };
+  // Explicit `null`s restore the page/search/rating defaults; `sort` is the
+  // non-nullable SDL default (`RATING_DESC`) carried verbatim.
+  return {
+    recitation,
+    intent,
+    page: null,
+    pageSize: null,
+    search: null,
+    minRating: null,
+    sort: TeacherMatchingSort.RatingDesc,
+  };
 }
 
 /** The canonical Hafs + Hifz browse every visibility probe uses. */

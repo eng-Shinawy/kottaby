@@ -6,6 +6,7 @@ import { SessionStatus } from "@/frontend/graphql/generated/gql/graphql";
 import {
   adminUserStatsQueryDocument,
   myLinkedChildrenQueryDocument,
+  mySessionBalanceQueryDocument,
   myStudentSessionsQueryDocument,
   mySubscriptionsQueryDocument,
   myTeacherSessionsQueryDocument,
@@ -36,6 +37,7 @@ export interface RoleStatQueries {
   readonly studentCompleted: MyStudentSessionsQueryResult;
   readonly studentUpcoming: MyStudentSessionsQueryResult;
   readonly studentSubscriptions: MySubscriptionsQueryResult;
+  readonly studentSessionBalance: MySessionBalanceQueryResult;
   readonly teacherCompleted: MyTeacherSessionsQueryResult;
   readonly teacherUpcoming: MyTeacherSessionsQueryResult;
   readonly teacherWallet: MyWalletQueryResult;
@@ -49,6 +51,7 @@ export interface RoleStatQueries {
 type MyUnreadNotificationCountQueryResult = ReturnType<typeof useUnreadCount>;
 type MyStudentSessionsQueryResult = ReturnType<typeof useStudentSessionCount>;
 type MySubscriptionsQueryResult = ReturnType<typeof useStudentSubscriptions>;
+type MySessionBalanceQueryResult = ReturnType<typeof useStudentSessionBalance>;
 type MyTeacherSessionsQueryResult = ReturnType<typeof useTeacherSessionCount>;
 type MyWalletQueryResult = ReturnType<typeof useTeacherWallet>;
 type MyLinkedChildrenQueryResult = ReturnType<typeof useParentChildren>;
@@ -75,6 +78,14 @@ function useStudentSessionCount(status: SessionStatus, skip: boolean) {
 
 function useStudentSubscriptions(skip: boolean) {
   return useQuery(mySubscriptionsQueryDocument, skip ? skipToken : {});
+}
+
+function useStudentSessionBalance(skip: boolean) {
+  // The caller's own prepaid session-credit lanes (zero-argument read —
+  // the identity is exclusively the token's user id). Feeds the student
+  // balance stat card; the same cache field the request dialog's credits
+  // strip observes.
+  return useQuery(mySessionBalanceQueryDocument, skip ? skipToken : {});
 }
 
 function useTeacherSessionCount(status: SessionStatus, skip: boolean) {
@@ -106,6 +117,7 @@ export function useRoleStatQueries(role: string | null): RoleStatQueries {
   const studentCompleted = useStudentSessionCount(SessionStatus.Completed, role !== "Student");
   const studentUpcoming = useStudentSessionCount(SessionStatus.Scheduled, role !== "Student");
   const studentSubscriptions = useStudentSubscriptions(role !== "Student");
+  const studentSessionBalance = useStudentSessionBalance(role !== "Student");
 
   const teacherCompleted = useTeacherSessionCount(SessionStatus.Completed, role !== "Teacher");
   const teacherUpcoming = useTeacherSessionCount(SessionStatus.Scheduled, role !== "Teacher");
@@ -126,6 +138,7 @@ export function useRoleStatQueries(role: string | null): RoleStatQueries {
     studentCompleted,
     studentUpcoming,
     studentSubscriptions,
+    studentSessionBalance,
     teacherCompleted,
     teacherUpcoming,
     teacherWallet,

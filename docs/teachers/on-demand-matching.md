@@ -29,11 +29,13 @@ Three boundaries give the pipeline its shape:
 ### 2.1 The pipeline (data flow)
 
 ```
-student browse (per-browse choices: recitation, intent; caller: ctx user id)
+student browse (per-browse choices: recitation, intent, search, minRating,
+  │              sort; caller: ctx user id)
   │
   ├── 1. Service validation  (backend/services/teachers/teacher-matching.service.ts)
   │        ├── recitation checked against the shared catalog guard (isRecitationReading)
   │        ├── intent restricted to hifz | tajweed (evaluation is NOT a browse intent)
+  │        ├── sort restricted to the TeacherMatchingSort member set
   │        ├── page/pageSize bounds resolved + localized rejection out of range
   │        │    (resolvePageBounds — backend/services/admin/user-management.query.helpers.ts)
   │        └── caller resolved: users row → students row; either miss ⇒
@@ -47,7 +49,7 @@ student browse (per-browse choices: recitation, intent; caller: ctx user id)
   │        backend/db/repo/teachers/teacher.repository.ts)
   │        teacher INNER JOIN users on the shared PK
   │        WHERE  <eligibility chain, §2.2>
-  │        ORDER BY country tier ASC, average_rating DESC NULLS LAST, id DESC
+  │        ORDER BY country tier ASC, <sort key, §2.3>, id DESC
   │        LIMIT/OFFSET  + same-filter count(*)::int sibling (Promise.all — honest total)
   │        └─ the in-session check is a correlated NOT EXISTS inside the ONE query
   │           (zero N+1; served by session_teacher_id_status_idx)
@@ -73,18 +75,23 @@ A teacher is a candidate for a browse page if and only if ALL of the following h
 | 5 | Teaches the requested recitation | `teacher.recitations` | quoted-token `ilike`, §3.1 |
 | 6 | Teaches the requested intent as a subject | `teacher.subjects` | quoted-token `ilike`, §3.1 |
 | 7 | (non-Arabic students only) Fluent in the student's language | `teacher.languages` | quoted-token `ilike`; omitted entirely when the student's resolved language is null/Arabic |
+| 8 | (optional `search` set) Display name matches the search substring | `users.full_name` | PLAIN substring `ilike` — NO quoted-token anchor (a varchar column, not a JSON payload); escaped at the service's single escape point; empty/whitespace means "no search" |
+| 9 | (optional `minRating` set) Rating floor satisfied | `teacher.average_rating` | parameterized `>=` bound (decimal string, the wallet funds-guard precedent); the honest SQL semantics exclude the unrated (NULL never satisfies a `>=`) |
 
-Predicates 5–7 match the RAW stored JSON payloads in SQL — string containment on quoted tokens. Predicates 1–4 are the eligibility core; 5–7 narrow it per browse. Nothing else excludes: country (§3.7) and rating position are ordering concerns, never filters.
+Predicates 5–7 match the RAW stored JSON payloads in SQL — string containment on quoted tokens. Predicates 1–4 are the eligibility core; 5–9 narrow it per browse (8–9 only when the student opts in). Nothing else excludes: country (§3.7) and rating POSITION are ordering concerns, never filters (a rating FLOOR chosen by the student is the one sanctioned exception, and it excludes only by the student's own request).
 
-### 2.3 Ordering: country tier, then rating, then id
+### 2.3 Ordering: country tier, then the chosen sort key, then id
 
 ```
-ORDER BY country_tier ASC,          -- 0 = same country as the student, 1 = foreign
-         average_rating DESC NULLS LAST,   -- rated before unrated inside a tier
-         id DESC                    -- deterministic tiebreak (stable pagination)
+ORDER BY country_tier ASC,          -- 0 = same country as the student, 1 = foreign (ALWAYS first)
+         <sort key>,                -- the student's `sort` choice (RATING_DESC by default):
+                                    --   RATING_DESC → average_rating DESC NULLS LAST
+                                    --   NAME_ASC    → users.full_name ASC
+                                    --   NEWEST      → teacher.id DESC (the tiebreak repeats it)
+         id DESC                    -- deterministic tiebreak (stable pagination; ALWAYS last)
 ```
 
-Country precedence is a **soft ordering** (§3.7) built as a CASE tier: the student's `country_code` match is tier 0; a legacy free-text `country` match (case-insensitive) is the fallback arm; a student with neither gets a single tier. Rating is the honest-null column maintained by the rating submission flow (`docs/teachers/teacher-average-rating.md`) — the sort preserves its honesty instead of fabricating a zero (§3.6).
+Country precedence is a **soft ordering** (§3.7) built as a CASE tier: the student's `country_code` match is tier 0; a legacy free-text `country` match (case-insensitive) is the fallback arm; a student with neither gets a single tier. The tier is NEVER displaced — every `sort` choice re-orders only the post-tier band. The default `RATING_DESC` key is byte-identical to the pre-sort-choice ordering, so an absent/legacy client sees exactly the historical page. Rating is the honest-null column maintained by the rating submission flow (`docs/teachers/teacher-average-rating.md`) — the sort preserves its honesty instead of fabricating a zero (§3.6); the same honesty applies to the optional `minRating` floor (predicate 9): a NULL rating never satisfies `>=`, so a floored browse excludes the unrated by construction.
 
 ### 2.4 The page envelope and the card
 
@@ -98,8 +105,8 @@ The envelope is `{ items, total, page, pageSize, pageCount }` with `pageCount = 
 
 Every free-text token that reaches a LIKE/ILIKE predicate passes through exactly ONE normalization site — the service — in this order:
 
-1. **Gate** — enum-backed tokens (`recitation`, `intent`) are validated against their catalogs before any pattern exists; free-text tokens (language) are trimmed, lowercased, length-capped, and rejected if they carry `"` or `\` (either would break the quoting scheme).
-2. **JSON-quote** — the token is wrapped as `"token"`. The columns store JSON arrays (`["hafs_an_asim","english"]`), so the quotes anchor token boundaries: a search for `"hifz"` can never match `"hifz_jadid"`.
+1. **Gate** — enum-backed tokens (`recitation`, `intent`) are validated against their catalogs before any pattern exists; free-text tokens (language) are trimmed, lowercased, length-capped, and rejected if they carry `"` or `\` (either would break the quoting scheme). The name-search choice takes the PLAIN-SUBSTRING arm (no gate quotes — step 2 does not apply to it): trimmed, length-capped (80), empty ⇒ no predicate.
+2. **JSON-quote** — the token is wrapped as `"token"`. The columns store JSON arrays (`["hafs_an_asim","english"]`), so the quotes anchor token boundaries: a search for `"hifz"` can never match `"hifz_jadid"`. The display-name search deliberately SKIPS this step — `users.full_name` is a plain varchar, a free-text substring match is the contract, and the quoted-token anchor would only narrow the match dishonestly.
 3. **Escape** — `escapeLikeWildcards` (`backend/lib/db/escape-like-wildcards.ts`) prefixes every `\`, `%`, `_` so the token's own characters stay literal. The order is load-bearing: the backslash is escaped FIRST, so the `%`/`_` escapes it then introduces are not themselves treated as escapable characters by PostgreSQL.
 4. **Wrap** — the escaped quoted token becomes `%…"token"…%`.
 

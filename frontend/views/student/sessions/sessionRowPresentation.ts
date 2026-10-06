@@ -9,6 +9,7 @@ import {
 import type { Palette } from "@mui/material/styles";
 import {
   type MyStudentSessionsQuery_myStudentSessions_items,
+  SessionIntent,
   SessionStatus,
 } from "@/frontend/graphql/generated/gql/graphql";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
@@ -46,6 +47,68 @@ export const STATUS_LABEL_KEY: Record<string, StatusChipLabelKey> = {
   [SessionStatus.Cancelled]: "statusCancelled",
   [SessionStatus.Disputed]: "statusDisputed",
 };
+
+/**
+ * Resolves the row's lifecycle chip label: the {@link STATUS_LABEL_KEY}
+ * table maps the payload member onto the `SessionsLabels` status key, an
+ * unknown member falls back to the raw payload value verbatim (the
+ * defensive-corrupt arm — identical posture to {@link resolveIntentTitle}).
+ */
+export function resolveStatusLabel(status: string, labels: SessionsLabels): string {
+  const labelKey = STATUS_LABEL_KEY[status];
+  return labelKey !== undefined && labelKey in labels ? labels[labelKey] : status;
+}
+
+/**
+ * Intent-title label-key union — the slice of `SessionsLabels` the row's
+ * localized intent title may render (the STATUS_LABEL_KEY mirror; keyed by
+ * the `SessionIntent` member strings, typed to the new keys). Unknown
+ * members fall back at the call site (defensive-corrupt arm — the raw
+ * payload value renders verbatim there, mirroring the status fallback).
+ */
+type IntentChipLabelKey = keyof Pick<SessionsLabels, "intentHifz" | "intentTajweed" | "intentEvaluation">;
+
+/** Intent label key per booking intent (vocabulary-stability pin includes `Evaluation`). */
+const INTENT_LABEL_KEY: Record<string, IntentChipLabelKey> = {
+  [SessionIntent.Hifz]: "intentHifz",
+  [SessionIntent.Tajweed]: "intentTajweed",
+  [SessionIntent.Evaluation]: "intentEvaluation",
+};
+
+/**
+ * Resolves the row's LOCALIZED intent title: the {@link INTENT_LABEL_KEY}
+ * table maps the payload member onto the `SessionsLabels` intent key, an
+ * unknown member falls back to the raw payload value verbatim (the
+ * defensive-corrupt arm — the same posture as the status fallback), and a
+ * null intent resolves to {@link NO_VALUE_PLACEHOLDER}.
+ */
+export function resolveIntentTitle(intent: string | null, labels: SessionsLabels): string {
+  if (intent === null) {
+    return NO_VALUE_PLACEHOLDER;
+  }
+  const labelKey = INTENT_LABEL_KEY[intent];
+  return labelKey !== undefined && labelKey in labels ? labels[labelKey] : intent;
+}
+
+/**
+ * Resolves the row-owner's counterpart identity band: the band each list
+ * batch-enriches is the COUNTERPART side only, so the role picks which
+ * payload band carries the name (teacher rows read the student band and
+ * vice versa) plus its role caption. An unpopulated band resolves
+ * `name: null` — the honest no-band answer `SessionRowCounterpart` renders
+ * as nothing.
+ */
+export function resolveCounterpartBand(
+  role: SessionRowRole,
+  session: Pick<MyStudentSessionsQuery_myStudentSessions_items, "student" | "teacher">,
+  labels: SessionsLabels
+): { readonly name: string | null; readonly caption: string } {
+  const band = role === "teacher" ? session.student : session.teacher;
+  return {
+    name: band?.fullName ?? null,
+    caption: role === "teacher" ? labels.withStudentCaption : labels.withTeacherCaption,
+  };
+}
 
 /** Visual tone family driving the chip's container/on-container pair. */
 export type StatusTone = "info" | "primary" | "success" | "error" | "warning";
@@ -114,6 +177,34 @@ export const RATE_ELIGIBLE_STATUSES: Record<string, true> = {
 /** Disputed token (Record lookup — the disabled-Cancel state). */
 export const DISPUTED_STATUS: Record<string, true> = {
   [SessionStatus.Disputed]: true,
+};
+
+/**
+ * Hold-concluded lookup — the statuses where the fee-hold lifecycle has
+ * REACHED its settled outcome, so `feeHeld = false` is the meaningful
+ * "released/consumed" answer (Cancelled: the hold was refunded; Completed:
+ * the hold was consumed by the dual-confirmation handshake or arbitration).
+ * On the pre-settlement statuses (Scheduled/Started) and while a dispute is
+ * open the hold is the EXPECTED state, so a `false` wire value there is an
+ * edge/corrupt shape the details dialog answers with honest silence (the
+ * same posture as the row pills, which render nothing when a shape
+ * membership fails). Record lookup — never an enum comparison.
+ */
+export const HOLD_CONCLUDED_STATUSES: Record<string, true> = {
+  [SessionStatus.Completed]: true,
+  [SessionStatus.Cancelled]: true,
+};
+
+/**
+ * Deadline-pending lookup — the statuses where the booking's
+ * `confirmationDeadline` still governs the session's fate (the 24h window a
+ * freshly created session may lapse within, per
+ * `SESSION_CONFIRMATION_WINDOW_MS`). From Start onward the lifecycle has
+ * moved past the deadline, so the timeline renders the stamp only while the
+ * session is `Scheduled`. Record lookup — never an enum comparison.
+ */
+export const DEADLINE_PENDING_STATUSES: Record<string, true> = {
+  [SessionStatus.Scheduled]: true,
 };
 
 /**
@@ -189,4 +280,24 @@ export function isDisputable(session: DisputeShapeRow, role: SessionRowRole): bo
     return true;
   }
   return role === "student" && isPostConfirmationDisputable(session);
+}
+
+/**
+ * Resolves ONE settled list row by session id (the details-dialog slot's
+ * row-payload lookup): the slot stores only the id (the case-dialog slot's
+ * shape), so the container re-reads the clicked row from its OWN settled
+ * list payload — the counterpart bands are populated by the list producers
+ * only (`sessionById` stays band-free by design), which is why the dialog's
+ * band data rides this lookup instead of the single-session read. `null`
+ * id or an id absent from the items resolves `null` — the honest no-band
+ * answer the dialog renders as nothing.
+ */
+export function resolveSessionRowById<T extends { readonly id: string }>(
+  items: readonly T[],
+  sessionId: string | null
+): T | null {
+  if (sessionId === null) {
+    return null;
+  }
+  return items.find(item => item.id === sessionId) ?? null;
 }

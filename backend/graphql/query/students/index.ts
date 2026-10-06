@@ -12,6 +12,9 @@
  *    `findStudentByHandshakeCode`.
  *  - `homework.query.ts` registers `myHomework` (the student's own paged
  *    homework history).
+ *  - `session-balance.query.ts` registers `mySessionBalance` (the
+ *    student's own prepaid session-credit lanes).
  */
 import "./handshake-code.query";
 import "./homework.query";
+import "./session-balance.query";

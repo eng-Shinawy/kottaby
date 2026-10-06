@@ -31,6 +31,7 @@
  *  - `LinkStatus` (pending|confirmed|rejected|expired — parent-child link request lifecycle)
  *  - `SurahJuzRef` (5 surahs + 30 juz — home_work assignment/ref vocabulary)
  *  - `RubricWeaknessArea` (tajweed|hifz — rubric evaluation weakness vocabulary)
+ *  - `TeacherMatchingSort` (RATING_DESC|NAME_ASC|NEWEST — student browse ordering choice)
  *
  * After registering a new enum here, run `bun run generate:gqlSchema` and
  * `bun codegen` to refresh the SDL + frontend codegen.
@@ -58,6 +59,7 @@ import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldo
 import { AdminApplicantOverrideAction } from "@/backend/enum/teachers/applicant-override-action.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { RubricWeaknessArea } from "@/backend/enum/teachers/rubric-weakness-area.enum";
+import { TeacherMatchingSort } from "@/backend/enum/teachers/teacher-matching-sort.enum";
 import { AdminUserGovernanceFilter } from "@/backend/enum/users/admin-user-governance-filter.enum";
 import { AppLocale } from "@/backend/enum/users/app-locale.enum";
 import { Gender } from "@/backend/enum/users/gender.enum";
@@ -449,4 +451,23 @@ export const SurahJuzRefPothosEnum = gqlSchemaBuilder.enumType(SurahJuzRef, {
  */
 export const ProrationDirectionPothosEnum = gqlSchemaBuilder.enumType(ProrationDirection, {
   name: "ProrationDirection",
+});
+
+/**
+ * GraphQL `TeacherMatchingSort` enum (wire names `RatingDesc`/`NameAsc`/
+ * `Newest` over the runtime strings "RATING_DESC"/"NAME_ASC"/"NEWEST") —
+ * the student browse's post-tier ordering choice on the
+ * `browseAvailableTeachers` query.
+ *
+ * Registered ONCE from the canonical TS enum
+ * (`backend/enum/teachers/teacher-matching-sort.enum.ts`). There is NO
+ * pgEnum backing this vocabulary — it is a pure per-browse transport
+ * selector, never a stored column value. The ordering contract lives in
+ * the resolver's service (`docs/teachers/on-demand-matching.md` §2.3): the
+ * country tier is ALWAYS the first ORDER BY key, the chosen member selects
+ * only the post-tier key, and the deterministic `id DESC` tiebreak is
+ * ALWAYS last.
+ */
+export const TeacherMatchingSortPothosEnum = gqlSchemaBuilder.enumType(TeacherMatchingSort, {
+  name: "TeacherMatchingSort",
 });

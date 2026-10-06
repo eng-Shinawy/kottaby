@@ -15,7 +15,11 @@
  * audit row is appended through the composition-only writer, the cancel's
  * hold release rides the ONE shared same-lane refund primitive verbatim
  * (a row with no recorded lane refunds nothing; an unreadable lane fails
- * closed and rolls the mutation back), and the idempotency claim — when
+ * closed and rolls the mutation back), the teacher's in-session lock is
+ * lifted inside the SAME cancel transaction — after the session-row
+ * transition, before the wave's receipt writes: the completion path's
+ * lock order (session row → teacher row → notification-receipt rows) —
+ * and the idempotency claim — when
  * the caller supplied a key — is inserted savepoint-bracketed BEFORE any
  * session write, with its session pointer backfilled before the body
  * returns — the replay arm backfills it too, so a spent claim always
@@ -40,7 +44,10 @@ import { logger } from "@/backend/lib/logger";
 import { AuditService } from "@/backend/services/admin/audit.service";
 import { isClaimKeyUniqueViolation } from "@/backend/services/classes/session-lifecycle.guards";
 
-import { refundHeldLaneToProvenance } from "@/backend/services/classes/session-lifecycle.transitions";
+import {
+  refundHeldLaneToProvenance,
+  releaseTeacherInSessionLock,
+} from "@/backend/services/classes/session-lifecycle.transitions";
 import { SessionRequestNotificationService } from "@/backend/services/classes/session-request-notification.service";
 import type { NotificationEngineCallOptions } from "@/backend/services/notifications";
 import type {
@@ -290,10 +297,25 @@ export async function rescheduleSessionInTx(
  * eligibility atomically, the released hold is refunded through the ONE
  * shared same-lane primitive, exactly ONE audit row is appended, the
  * claim's session pointer is backfilled (the replay arm backfills it too —
- * a committed claim always names the session it resolved against), and the
- * cancellation wave persists as unpublished delivery receipts for both
- * participants. The caller owns the gate, the key-length guard, the
- * boundary validation, the transaction composition, and the publish.
+ * a committed claim always names the session it resolved against), the
+ * teacher's in-session lock is lifted, and the cancellation wave persists
+ * as unpublished delivery receipts for both participants. The caller owns
+ * the gate, the key-length guard, the boundary validation, the transaction
+ * composition, and the publish.
+ *
+ * The lock lift is composed INSIDE the cancel transaction — never as a
+ * post-commit follow-up — so availability is restored atomically with the
+ * terminal state it belongs to: a rolled-back cancel rolls the restore
+ * back with it, and a committed cancel can never leave the lock outliving
+ * its session. The teacher row is written AFTER the session-row transition
+ * and BEFORE the wave's receipt writes — the completion path's lock order
+ * (session row → teacher row → notification-receipt rows) — so a
+ * governance cancel and any concurrent terminal exit for the same teacher
+ * acquire their locks in the same order and cannot deadlock. The write is
+ * keyed on the teacher id the transitioned row carries (never caller
+ * input), and the availability marker captured at start is the single
+ * gate: a cancel of a session that never started holds no marker and
+ * degrades to the release primitive's classified no-lock no-op.
  */
 export async function cancelSessionInTx(
   actorId: number,
@@ -355,6 +377,14 @@ export async function cancelSessionInTx(
   if (claim !== null) {
     await SessionRequestIdempotencyRepository.updateClaimSessionId(claim.id, input.sessionId, tx);
   }
+
+  // Lift the teacher's in-session lock inside the SAME transaction —
+  // after the session-row transition, before the wave's receipt writes
+  // (the completion path's lock order: session row → teacher row →
+  // notification-receipt rows). Keyed on the transitioned row's teacher
+  // id; the availability marker captured at start gates the restore, so a
+  // pre-start cancel degrades to the release's classified no-op.
+  await releaseTeacherInSessionLock(cancelled.teacherId, tx);
 
   const receipts = await SessionRequestNotificationService.notifySessionGovernanceCancelled(
     input.sessionId,

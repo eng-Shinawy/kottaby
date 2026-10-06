@@ -574,12 +574,13 @@ describe("Journey — teacher preparation read before a session (cross-actor, re
     // Fan-out check on the persisted rows: the lifecycle's shipped wave
     // reached its participant (the confirm prompt for A's settled
     // completion committed). Every non-participant cast member observes no
-    // accidental fan-out — booking emits no waves
-    // (session-lifecycle.service.ts), and the confirm-prompt wave addresses
-    // the settled session's participant alone.
+    // accidental fan-out — booking's only wave is the per-session teacher
+    // intake notice (three booked sessions ⇒ three rows for T1, none for
+    // T2), and the confirm-prompt wave addresses the settled session's
+    // participant alone.
     expect(await db.$count(notifications, eq(notifications.userId, studentA.actor.userId))).toBeGreaterThan(0);
     expect(await db.$count(notifications, eq(notifications.userId, studentB.actor.userId))).toBe(0);
-    expect(await db.$count(notifications, eq(notifications.userId, teacherT1.userId))).toBe(0);
+    expect(await db.$count(notifications, eq(notifications.userId, teacherT1.userId))).toBe(3);
     expect(await db.$count(notifications, eq(notifications.userId, teacherT2.userId))).toBe(0);
 
     // Bookkeeping — every service-created row is tracked for the afterAll

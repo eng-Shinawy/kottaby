@@ -77,7 +77,12 @@ export function SessionRowMeta({
   return (
     <Stack
       sx={{
-        gap: 1.5,
+        // Column gap grows past the mobile stack so the confirmation-stamp
+        // cells stop crowding each other at tablet width (visual-loop
+        // round-1 finding: 5 cells on one 834px line touched labels); the
+        // row gap keeps wrapped lines breathable.
+        columnGap: { xs: 1.5, sm: 3, lg: 4 },
+        rowGap: 1.5,
         flexDirection: "row",
         flexWrap: "wrap",
         alignItems: "baseline",

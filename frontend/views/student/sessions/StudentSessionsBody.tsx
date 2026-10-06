@@ -49,6 +49,13 @@ interface StudentSessionsBodyProps {
    * omitted surfaces (none today) simply render no affordance.
    */
   readonly onCaseIntent?: (sessionId: string) => void;
+  /**
+   * Details intent — forwarded to every row (the row renders the
+   * read-only "Session details" affordance for EVERY status). The student
+   * surface supplies it — its dialog slot lives in the container beside
+   * the case-dialog slot.
+   */
+  readonly onDetailsIntent?: (sessionId: string) => void;
   readonly t: SessionsLabels;
 }
 
@@ -74,6 +81,7 @@ export function StudentSessionsBody({
   onRate,
   role,
   onCaseIntent,
+  onDetailsIntent,
   t,
 }: Readonly<StudentSessionsBodyProps>): ReactNode {
   if (loading && data === undefined) {
@@ -125,6 +133,7 @@ export function StudentSessionsBody({
         studentActionsForSession(session, { t, inFlightSlots, onConfirm, ratedSessionIds, onRate })
       }
       onCaseIntent={onCaseIntent}
+      onDetailsIntent={onDetailsIntent}
     />
   );
 }

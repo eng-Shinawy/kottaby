@@ -11,8 +11,10 @@
 import type { ReactNode } from "react";
 import { NoticeSnackbar } from "@/frontend/components/ui/NoticeSnackbar";
 import type { MyTeacherSessionsQuery } from "@/frontend/graphql/generated/gql/graphql";
+import { SessionDetailsDialog } from "@/frontend/views/student/sessions/SessionDetailsDialog";
 import { StudentSessionsDialogs } from "@/frontend/views/student/sessions/StudentSessionsDialogs";
 import { OPEN_SESSION_DISPUTE_MUTATION } from "@/frontend/views/student/sessions/sessionDisputeMutations";
+import { resolveSessionRowById, type SessionRowRole } from "@/frontend/views/student/sessions/sessionRowPresentation";
 import { TeacherDisputeCaseDialog } from "@/frontend/views/teacher/disputes/TeacherDisputeCaseDialog";
 import { TeacherPrepDialogMount } from "@/frontend/views/teacher/sessions/TeacherPrepDialogMount";
 import { TeacherRubricDialogMount } from "@/frontend/views/teacher/sessions/TeacherRubricDialogMount";
@@ -27,6 +29,10 @@ interface TeacherSessionsOverlaysProps {
   readonly disputeArms: ReturnType<typeof useTeacherDisputeDialogArms>;
   readonly caseDialogSessionId: string | null;
   readonly closeCaseDialog: () => void;
+  /** The read-only details dialog's slot (id + close intent, grouped). */
+  readonly detailsDialog: { readonly sessionId: string | null; readonly close: () => void };
+  /** The surface's row-role constant — picks WHICH band the details dialog's row supplies. */
+  readonly rowRole: SessionRowRole;
   readonly reportDialogSessionId: string | null;
   readonly closeReportDialog: () => void;
   readonly prepDialogSessionId: string | null;
@@ -48,6 +54,8 @@ export function TeacherSessionsOverlays({
   disputeArms,
   caseDialogSessionId,
   closeCaseDialog,
+  detailsDialog,
+  rowRole,
   reportDialogSessionId,
   closeReportDialog,
   prepDialogSessionId,
@@ -83,6 +91,17 @@ export function TeacherSessionsOverlays({
       {caseDialogSessionId !== null ? (
         <TeacherDisputeCaseDialog sessionId={caseDialogSessionId} open onClose={closeCaseDialog} />
       ) : null}
+      {/* The read-only details dialog — the band row re-reads from THIS
+          surface's settled list payload (the bands are list-producer
+          territory; `sessionById` stays band-free), and the role is THIS
+          surface's constant (the container's rowRole twin). */}
+      <SessionDetailsDialog
+        rowRole={rowRole}
+        open={detailsDialog.sessionId !== null}
+        sessionId={detailsDialog.sessionId}
+        session={resolveSessionRowById(data?.myTeacherSessions.items ?? [], detailsDialog.sessionId)}
+        onClose={detailsDialog.close}
+      />
       <TeacherSessionReportDialogMount
         sessionId={reportDialogSessionId}
         data={data}

@@ -179,7 +179,7 @@ async function fuzzHostileIdsSequentially(
   hostileIds: readonly number[],
   index: number,
   lockSpy: ReturnType<typeof spyOn<typeof TeacherRepository, "lockForCertificationCheck">>,
-  writeSpy: ReturnType<typeof spyOn<typeof TeacherRepository, "setOnline">>,
+  writeSpy: ReturnType<typeof spyOn<typeof TeacherRepository, "setAvailabilityIntent">>,
   hostileLogSpy: ReturnType<typeof spyOn<typeof logger, "logDomainError">>
 ): Promise<void> {
   if (index >= hostileIds.length) {
@@ -405,9 +405,9 @@ describe("Cross-actor journey — teacher availability toggle", () => {
     // Hostile ids — pre-DB shape guard denies with `VALIDATION` (422)
     // BEFORE any SQL round-trip. The repo spy proves ZERO DB calls fire
     // for the garbage shapes (no `lockForCertificationCheck`, no
-    // `setOnline`).
+    // `setAvailabilityIntent`).
     const lockSpy = spyOn(TeacherRepository, "lockForCertificationCheck").mockImplementation(async () => null);
-    const writeSpy = spyOn(TeacherRepository, "setOnline").mockImplementation(async () => null);
+    const writeSpy = spyOn(TeacherRepository, "setAvailabilityIntent").mockImplementation(async () => null);
     const hostileLogSpy = spyOn(logger, "logDomainError").mockImplementation(() => {});
     try {
       await fuzzHostileIdsSequentially([0, -1, Number.NaN], 0, lockSpy, writeSpy, hostileLogSpy);

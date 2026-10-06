@@ -87,6 +87,10 @@ function makeSession(overrides: {
     resolutionNote: null,
     resolutionOutcome: null,
     resolvedAt: null,
+    // Counterpart identity objects (nullable in the wire shape; the schedule
+    // week helpers never read them, so the fixtures carry the honest null).
+    student: null,
+    teacher: null,
   };
 }
 

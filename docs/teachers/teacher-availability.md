@@ -5,7 +5,7 @@
 **Sibling docs:** `docs/sessions/session-lifecycle.md` (the in-session lock/release writer — INV-S6, INV-A2 seam), `docs/teachers/applicant-lifecycle.md` (the certification surface whose result backs INV-A1), `docs/teachers/verification-plan-purchase.md` (the path that arms certification)
 **Status:** Implemented and verified
 
-This document is the canonical reference for the teacher-owned availability toggle: the manual `Available ↔ Unavailable` write that makes `teacher.is_online` truthful on the manual side. The two-state directory appearance (INV-A3) and the never-resurrect release gating (INV-A4) are sibling-ticket work and are NOT built here — their pointers live in §6 (Forward Consumption Contract). All layers (repository, service, GraphQL, locale, frontend, tests) MUST conform to the contracts described here. Code blocks are **illustrative and NON-authoritative** — the authoritative implementations are cited by path in each section.
+This document is the canonical reference for the teacher-owned availability toggle: the manual `Available ↔ Unavailable` write that makes `teacher.is_online` truthful on the manual side. The two-state directory appearance (INV-A3) remains sibling-ticket work (§6.1); the never-resurrect release gating (INV-A4) has since SHIPPED — §6.2 keeps the hazard narrative this doc previously recorded and marks the fix. All layers (repository, service, GraphQL, locale, frontend, tests) MUST conform to the contracts described here. Code blocks are **illustrative and NON-authoritative** — the authoritative implementations are cited by path in each section.
 
 ---
 
@@ -15,7 +15,7 @@ This document is the canonical reference for the teacher-owned availability togg
 
 | Writer | Trigger | Direction |
 |---|---|---|
-| The session lifecycle (INV-S6 lock/release) | A session enters `started` / exits `started` | Locks to `false` on enter; restores on exit |
+| The session lifecycle (INV-S6 lock/release) | A session enters `started` / exits `started` | Locks to `false` on enter (capturing the pre-lock intent into the `was_online_before_lock` marker); restores the marker's value on the last `started`-exit |
 | The manual toggle (this surface) | The teacher taps the dashboard card | Either direction, gated |
 
 Before this surface shipped, the manual side had NO writer. The teacher dashboard could not flip `is_online`, so the column was driven exclusively by session lifecycle transitions — a teacher who finished a session and stayed online could not turn the flag off, and an uncertified teacher had no way to assert "I am not available" themselves. The toggle closes that gap.
@@ -31,15 +31,15 @@ The Unavailable direction (`isOnline === false`) skips BOTH gates. An uncertifie
 
 ## 2. Pattern
 
-The toggle exposes exactly two GraphQL operations, each delegating to one service method, each method composing the gate pipeline before the unconditional guarded repo write.
+The toggle exposes exactly two GraphQL operations, each delegating to one service method, each method composing the gate pipeline before the guarded repo write (direction-guarded on Available — §3.1).
 
 ### 2.1 The toggle operation table
 
 | GraphQL operation | Service method | Direction | Gate pipeline (ordered) | Repo primitive |
 |---|---|---|---|---|
 | `myTeacherAvailability: TeacherAvailabilityState!` (zero-arg, teacher-role-gated) | `TeacherAvailabilityService.getAvailability(ctx.user.id, ctx.locale)` | Read | Pre-DB shape guard → `TeacherRepository.findById` → field-by-field projection | `TeacherRepository.findById` (read-only) |
-| `setTeacherAvailability(isOnline: Boolean!): TeacherAvailabilityState!` (one arg, teacher-role-gated) | `TeacherAvailabilityService.setAvailability(ctx.user.id, args.isOnline, ctx.locale)` | Write — Available (`true`) | Pre-DB shape guard → `lockForCertificationCheck` → **INV-A1** (cert gate) → **INV-A2** (in-session gate) → `setOnline` | `TeacherRepository.setOnline` (unconditional guarded `UPDATE … RETURNING`) |
-| `setTeacherAvailability(isOnline: Boolean!): TeacherAvailabilityState!` (one arg, teacher-role-gated) | `TeacherAvailabilityService.setAvailability(ctx.user.id, args.isOnline, ctx.locale)` | Write — Unavailable (`false`) | Pre-DB shape guard → `lockForCertificationCheck` → `setOnline` (NO cert gate; NO in-session gate) | `TeacherRepository.setOnline` (same primitive) |
+| `setTeacherAvailability(isOnline: Boolean!): TeacherAvailabilityState!` (one arg, teacher-role-gated) | `TeacherAvailabilityService.setAvailability(ctx.user.id, args.isOnline, ctx.locale)` | Write — Available (`true`) | Pre-DB shape guard → `lockForCertificationCheck` → **INV-A1** (cert gate) → **INV-A2** (in-session gate) → `setAvailabilityIntent` | `TeacherRepository.setAvailabilityIntent` (direction-guarded guarded `UPDATE … RETURNING` — zero rows while a `started` session exists ⇒ the service's 409 backstop; the race itself is serialized by the `lockForCertificationCheck` FOR UPDATE row lock — §3.1) |
+| `setTeacherAvailability(isOnline: Boolean!): TeacherAvailabilityState!` (one arg, teacher-role-gated) | `TeacherAvailabilityService.setAvailability(ctx.user.id, args.isOnline, ctx.locale)` | Write — Unavailable (`false`) | Pre-DB shape guard → `lockForCertificationCheck` → `setAvailabilityIntent` (NO cert gate; NO in-session gate) | `TeacherRepository.setAvailabilityIntent` (same primitive — the third writer of the availability trio) |
 
 The object type returned by both operations is `TeacherAvailabilityState { id: Int!, isOnline: Boolean!, isApproved: Boolean! }` — a closed three-field whitelist backed by `TeacherAvailabilityReturnType` (`backend/types/teachers/teacher.types.ts`).
 
@@ -72,8 +72,10 @@ mutation setTeacherAvailability(isOnline: true)
   │      │      │        → ConflictError (code TEACHER_IN_ACTIVE_SESSION, HTTP 409)
   │      │      │        → ONE bounded log (OWNED by the seam; the service adds NO duplicate log)
   │      │      │
-  │      │      └── 2f. TeacherRepository.setOnline(teacherId, true, innerTx)
-  │      │                (unconditional guarded UPDATE … RETURNING)
+  │      │      └── 2f. TeacherRepository.setAvailabilityIntent(teacherId, true, innerTx)
+  │      │                (direction-guarded guarded UPDATE … RETURNING — zero rows while
+  │      │                 a `started` session exists: the 409 backstop — defense-in-depth
+  │      │                 behind 2c's FOR UPDATE row lock, not an independent race-closer)
   │      │                (null → NotFoundError 404 — honest zero-row guard)
   │      │
   │      └── 2g. return { id, isOnline, isApproved }  (field-by-field projection, NO spread)
@@ -83,24 +85,26 @@ The Available direction takes the full pipeline. The Unavailable direction (`isO
 
 ### 2.3 The two-writer serialization
 
-The session lifecycle writer (INV-S6 lock at `session-lifecycle.transitions.ts:249`, release at `releaseTeacherInSessionLock`) and the manual toggle writer (this surface) both touch `teacher.is_online`. They NEVER cross. The toggle composes its `lockForCertificationCheck` (`FOR UPDATE`) inside the same `withTransaction` as the gate read and the write, so a session-lifecycle transition that holds the row lock blocks the toggle's lock attempt until the lifecycle's transaction commits — and vice versa. The in-session gate (INV-A2) is the second layer of defense: even if a toggle reads the row before the lifecycle locks it, the gate's `assertTeacherNotInActiveSession` re-checks the session table inside the held lock and refuses the Available direction with a 409.
+The session lifecycle writers (INV-S6 lock composed into `startSession` — `session-lifecycle.service.ts:282` via `TeacherRepository.acquireInSessionLock`; release at `releaseTeacherInSessionLock`, `session-lifecycle.transitions.ts:265`) and the manual toggle writer (this surface) all touch `teacher.is_online` — three repo primitives, one column. They NEVER cross. The toggle composes its `lockForCertificationCheck` (`FOR UPDATE`) inside the same `withTransaction` as the gate read and the write, so a session-lifecycle transition that holds the row lock blocks the toggle's lock attempt until the lifecycle's transaction commits — and vice versa. The in-session gate (INV-A2) is the second layer of defense: even if a toggle reads the row before the lifecycle locks it, the gate's `assertTeacherNotInActiveSession` re-checks the session table inside the held lock and refuses the Available direction with a 409.
 
 ---
 
 ## 3. Rules
 
-### 3.1 The service composes WHEN to call `setOnline`; the repo primitive is an unconditional guarded write
+### 3.1 The service composes WHEN to call the write; the repo primitive is a direction-guarded, marker-aware guarded write
 
-`TeacherRepository.setOnline(id, online, tx)` is an unconditional `UPDATE teachers SET is_online = $online, updated_at = now() WHERE id = $id RETURNING …` write. It performs NO business-rule checks — it does not look at certification, it does not look at session state, it does not log. Its contract is: "given a held lock and a passing gate pipeline, flip the boolean and return the row, or return `null` if zero rows matched."
+`TeacherRepository.setAvailabilityIntent(id, online, tx)` (`backend/db/repo/teachers/teacher.repository.ts:752`) is ONE guarded `UPDATE teachers SET is_online = $online, was_online_before_lock = CASE WHEN … END, updated_at = now() WHERE id = $id AND ($online = false OR NOT EXISTS (… started …)) RETURNING …` write. It performs NO certification lookups and does not log — but it is not a bare boolean flip: the SET clause keeps the in-session lock marker coherent (while a lock is held the marker is OVERWRITTEN with the new intent — a mid-session Unavailable converges the restore-truth so a concluding session can never resurrect the teacher; with no lock held the marker stays `NULL`), and the WHERE clause carries the direction guard — on the Available direction it matches zero rows whenever a `started` session exists, which the service maps to the same `TEACHER_IN_ACTIVE_SESSION` 409 the seam gate raises (`backend/services/teachers/teacher-availability.service.ts:258` for the intent write, `:259-283` for the zero-row → 409 mapping — ConflictError at `:277`).
 
-`TeacherAvailabilityService.setAvailability` is the composition seam that decides WHETHER `setOnline` fires:
+The direction guard is a defense-in-depth predicate, NOT the mechanism that closes the toggle-vs-start race. That serialization is the `lockForCertificationCheck` FOR UPDATE teacher-row lock (`backend/services/teachers/teacher-availability.service.ts:215`): the service takes it at the head of the pipeline and holds it across the whole toggle transaction, so a concurrent session-start's acquire waits on the row lock while the INV-A2 gate re-checks the session table inside it. The guard's zero-row → conflict mapping is the backstop behind that lock (this service is the intent write's sole caller) — never an independent race-closer.
+
+`TeacherAvailabilityService.setAvailability` is the composition seam that decides WHETHER the write fires:
 
 - The pre-DB shape guard runs first — a malformed id never reaches SQL.
 - `lockForCertificationCheck` takes the row lock and returns the row's `isApproved` flag — the certification gate reads the locked value (no TOCTOU window between the read and the write).
 - INV-A1 and INV-A2 run on the Available direction only — the gates fire AFTER the lock and BEFORE the write, inside the same transaction.
-- The Unavailable direction skips both gates and goes straight to `setOnline`.
+- The Unavailable direction skips both gates and goes straight to `setAvailabilityIntent`.
 
-The service is the ONLY writer on the manual path. The repo primitive exists to be composed — never call `setOnline` without the service, and never re-implement the gate pipeline inside another service.
+The service is the ONLY writer on the manual path. The repo primitive exists to be composed — never call `setAvailabilityIntent` without the service, and never re-implement the gate pipeline inside another service. The column's other two writers are the session lifecycle's `acquireInSessionLock` / `releaseInSessionLock` (`docs/sessions/session-lifecycle.md` §2.3).
 
 ### 3.2 Certify-before-session gate order
 
@@ -159,7 +163,7 @@ No PII (no name, email, phone), no governance fields (no `suspended`, `is_blocke
 
 ### 3.7 Transaction composition — caller's outer tx is joined, never bypassed
 
-`setAvailability(teacherId, isOnline, locale, tx?)` accepts an optional `DBTransaction` as the LAST parameter. Inside the method, `withTransaction(tx, async innerTx => …)` joins the caller's outer transaction via a SAVEPOINT when `tx` is provided, or starts a new top-level transaction when `tx` is `undefined`. The global `db` handle is NEVER touched inside the write path — every read (`lockForCertificationCheck`), every gate (`assertTeacherNotInActiveSession`), and every write (`setOnline`) takes the `innerTx` argument. This is the single-writer composition discipline: the service composes WHEN to flip, and the composition is transactional.
+`setAvailability(teacherId, isOnline, locale, tx?)` accepts an optional `DBTransaction` as the LAST parameter. Inside the method, `withTransaction(tx, async innerTx => …)` joins the caller's outer transaction via a SAVEPOINT when `tx` is provided, or starts a new top-level transaction when `tx` is `undefined`. The global `db` handle is NEVER touched inside the write path — every read (`lockForCertificationCheck`), every gate (`assertTeacherNotInActiveSession`), and every write (`setAvailabilityIntent`) takes the `innerTx` argument. This is the single-writer composition discipline: the service composes WHEN to flip, and the composition is transactional.
 
 ### 3.8 Role scope — the `$all` conjunction (BFLA)
 
@@ -169,9 +173,9 @@ Both root fields declare `authScopes: { $all: { authenticated: true, role: [User
 
 ## 4. What NOT to Do
 
-### 4.1 Never write `is_online` outside `TeacherRepository.setOnline`
+### 4.1 Never write `is_online` outside the availability writer trio
 
-The repo primitive is the SINGLE write seam for the column on the manual path. A service that "knows better" and writes `is_online` through `db.update(…)` directly bypasses the guarded `UPDATE … RETURNING` shape, the zero-row guard, and the `updated_at` stamping convention. The session lifecycle writer (`releaseTeacherInSessionLock`) also composes through `TeacherRepository.setOnline`. There are exactly TWO repo methods that write the boolean — `setOnline` (the manual toggle and the lifecycle lock/release writes) and `sweepInactiveOnlineOnce` (the inactivity sweep's guarded batch flip, §6.3) — and every writer composes through one of them.
+The repo exposes exactly FOUR single-statement writers for the column — `acquireInSessionLock`, `releaseInSessionLock`, `setAvailabilityIntent`, and `sweepInactiveOnlineOnce` (all in `backend/db/repo/teachers/teacher.repository.ts` — `:460` / `:558` / `:685` / `:774`) — and every writer on the column composes through one of them. A service that "knows better" and writes `is_online` through `db.update(…)` directly bypasses the guarded `UPDATE … RETURNING` shape, the zero-row guard, and the `updated_at` stamping convention. (The retired `TeacherRepository.setOnline` primitive this section previously named — one unconditional guarded write shared by every writer — was split into the marker-gated lock trio when the in-session lock shipped, and joined by the sweep's batch primitive when the 15-minute inactivity auto-offline shipped; it no longer exists.)
 
 ### 4.2 Never trust a client-supplied teacher id
 
@@ -179,7 +183,7 @@ The mutation's ONLY variable is `$isOnline: Boolean!`. There is NO `$teacherId` 
 
 ### 4.3 Never spread input into the write
 
-`TeacherRepository.setOnline(teacherId, isOnline, tx)` takes a bare boolean — never an input object, never a `{...input}` spread. A "convenience" overload that accepts a row-shaped object and spreads it into the `UPDATE` would let a hostile client smuggle arbitrary column writes (`is_approved`, `average_rating`, `subjects`) through the same mutation. The boolean is the WHOLE write surface; the projection is built member-by-member via the `toAvailabilityReturnType` helper, never a spread of the raw row.
+`TeacherRepository.setAvailabilityIntent(teacherId, isOnline, tx)` takes a bare boolean — never an input object, never a `{...input}` spread. A "convenience" overload that accepts a row-shaped object and spreads it into the `UPDATE` would let a hostile client smuggle arbitrary column writes (`is_approved`, `average_rating`, `subjects`) through the same mutation. The boolean is the WHOLE write surface; the projection is built member-by-member via the `toAvailabilityReturnType` helper, never a spread of the raw row.
 
 ### 4.4 Never disclose a session id
 
@@ -212,7 +216,7 @@ The toggle shipped across the full stack in one additive changeset — zero sche
 | MODIFIED (additive) | `backend/services/teachers/index.ts` | +1 barrel export for the new service. |
 | MODIFIED (additive) | `backend/types/teachers/teacher.types.ts` | +`TeacherAvailabilityReturnType` interface (the canonical three-field projection). |
 | NEW | `backend/types/teachers/teacher-availability.types.static-assertions.test.ts` | Static-assertion suite pinning the canonical type shape. |
-| MODIFIED (additive) | `backend/db/test/repo/teachers/teacher.repository.test.ts` | +5 `setOnline` coverage cases (timestamp advancement, idempotency, null coercion, chaos, parameterized-id source pin). |
+| MODIFIED (additive) | `backend/db/test/repo/teachers/teacher.repository.test.ts` | +5 availability-writer coverage cases (timestamp advancement, idempotency, null coercion, chaos, parameterized-id source pin) — authored against the then-`setOnline` primitive, since retired; the suite now covers the four-writer map (acquire / release / intent / inactivity sweep). |
 
 ### 5.2 Backend — GraphQL resolvers + schema inventories
 
@@ -274,7 +278,7 @@ The toggle shipped across the full stack in one additive changeset — zero sche
 - `backend/db/schema/**` and `backend/db/migration/**` — `teacher.is_online` column already exists; no schema or migration drift.
 - `backend/lib/gateway/public-operations.ts` — the frozen-six anonymous-access allowlist; neither toggle operation is added (both are teacher-role-gated).
 - `backend/services/classes/session-lifecycle.enforcement.ts` — the INV-A2 seam gate is consumed verbatim, never modified.
-- `backend/services/classes/session-lifecycle.transitions.ts` — the INV-S6 lock/release writer is consumed verbatim.
+- `backend/services/classes/session-lifecycle.transitions.ts` — the INV-S6 lock/release writer is consumed verbatim (frozen at this changeset's ship time; the marker-gated release rework has since modified the release body — see §6.2).
 - `frontend/views/dashboard/nav/navItems.ts` — no new route, no new nav entry (the card is a dashboard surface addition).
 - `shared/locale/en/errors/*`, `shared/locale/ar/errors/*`, `shared/locale/types/errors/*` — the three reused `errors` keys (`teacherNotCertified`, `teacherInActiveSession`, `teacherNotFound`) are byte-identical; zero new `errors`-namespace key minted.
 
@@ -282,7 +286,7 @@ The toggle shipped across the full stack in one additive changeset — zero sche
 
 ## 6. Forward Consumption Contract
 
-Two state-machine invariants land on `teacher.is_online` but are NOT enforced by this surface. They are owned by sibling tickets and are recorded here as resolved-pointer deferrals — the toggle makes `is_online` truthful on the manual side; the directory appearance and the never-resurrect release gating consume that truthfulness downstream.
+Two state-machine invariants land on `teacher.is_online` beyond this surface's gates. INV-A3 (directory appearance) remains sibling-ticket work and is recorded below as a resolved-pointer deferral; INV-A4 (never-resurrect release gating) has since SHIPPED — §6.2 keeps the original hazard narrative and records the fix. The toggle makes `is_online` truthful on the manual side; the directory appearance consumes that truthfulness downstream.
 
 ### 6.1 INV-A3 — directory appearance / hiding
 
@@ -300,21 +304,23 @@ Two state-machine invariants land on `teacher.is_online` but are NOT enforced by
 
 **Invariant:** Upon session conclusion, the teacher's status returns to Available only if they are still active (app open).
 
-**Status:** NOT enforced here — the release path out of the in-session lock is out of scope for this surface. Recorded as a resolved-pointer deferral because the current release implementation carries a hazard.
+**Status:** RESOLVED — the marker-gated release SHIPPED with the In-Session Locking changeset (the `was_online_before_lock` marker + the gated `releaseInSessionLock`). The historical narrative below is retained verbatim as the record of the hazard; the shipped fix follows it.
 
-**Owner ticket:** In-Session Locking (Hide from Directory) — owns the release transaction.
+**Owner ticket:** In-Session Locking (Hide from Directory) — owned the release transaction; the fix is shipped.
 
-**The hazard (load-bearing):** `releaseTeacherInSessionLock` (`backend/services/classes/session-lifecycle.transitions.ts:249-250`) calls `TeacherRepository.setOnline(teacherId, true, tx)` UNCONDITIONALLY on session exit — it restores `is_online = true` regardless of whether the teacher was Available before the session started. There is no persisted prior-online marker on the `teacher` table (the columns at `backend/db/schema/teachers/teacher.ts` carry `isOnline` only — no `wasOnlineBeforeLock`-style field), so the release path has no value to restore.
+**The hazard (historical — as this doc previously recorded it, pre-fix):** `releaseTeacherInSessionLock` (`backend/services/classes/session-lifecycle.transitions.ts:249-250`) calls `TeacherRepository.setOnline(teacherId, true, tx)` UNCONDITIONALLY on session exit — it restores `is_online = true` regardless of whether the teacher was Available before the session started. There is no persisted prior-online marker on the `teacher` table (the columns at `backend/db/schema/teachers/teacher.ts` carry `isOnline` only — no `wasOnlineBeforeLock`-style field), so the release path has no value to restore.
 
-**Consequence:** a teacher who toggled to Unavailable, then accepted a session, then had the session conclude, is resurrected to Available by the release path — contradicting their manual choice. This is the INV-A4 hazard.
+**Consequence (historical):** a teacher who toggled to Unavailable, then accepted a session, then had the session conclude, is resurrected to Available by the release path — contradicting their manual choice. This is the INV-A4 hazard.
 
-**Forward contract:** the sibling ticket MUST add a persisted prior-online marker (e.g. a `was_online_before_lock` column on `teacher`, or an equivalent in a session-scoped table) and amend `releaseTeacherInSessionLock` to restore the marker's value instead of unconditionally setting `true`. The fix lives inside the release transaction — this surface MUST NOT attempt to patch it from the toggle path. The toggle's contract is: "I set the flag truthfully at the moment of the write; I do not own what happens to the flag inside another writer's transaction."
+**The shipped fix (load-bearing):** the persisted prior-online marker exists exactly as the forward contract below specified — the nullable `teacher.was_online_before_lock` column (`backend/db/schema/teachers/teacher.ts:36`). `TeacherRepository.acquireInSessionLock` captures it atomically at session start (`was_online_before_lock = COALESCE(marker, is_online)`, `is_online = false` — `backend/db/repo/teachers/teacher.repository.ts:527`), and `TeacherRepository.releaseInSessionLock` restores it on session exit (`is_online = was_online_before_lock`, marker cleared — `backend/db/repo/teachers/teacher.repository.ts:625`), gated by `marker IS NOT NULL AND NOT EXISTS (started session)`: the restore happens ONCE on the LAST `started`-exit (a concurrent second exit resolves `active_sessions_remain` and defers), a marker-less release resolves `no_lock_held` (a benign no-op that writes nothing — the cold-path classification read: `backend/db/repo/teachers/teacher.repository.ts:667`), and both marker values restore truthfully — `true` returns the teacher to Available, `false` keeps them Unavailable (never resurrected). The release OPENS with a `FOR UPDATE` serialization preamble on the teacher row (`backend/db/repo/teachers/teacher.repository.ts:638`), taken BEFORE the last-exit probe: concurrent releases of the same teacher serialize on that row lock, and the later release re-evaluates the last-started-exit guard under the lock against the fresh post-wait state — closing the double-defer strand (each exit classifying `active_sessions_remain` from its own pre-lock snapshot would strand the lock: marker set, zero `started` sessions). The preamble writes nothing: a classified no-op still leaves `is_online`, the marker and `updated_at` untouched. The release is composed on ALL FOUR terminal exits of a `started` session — teacher complete, participant cancel, arbitration resolve, and the admin-governance cancel (`backend/services/classes/session-admin-governance.helpers.ts:387`). Full release semantics: [`docs/sessions/session-lifecycle.md`](../sessions/session-lifecycle.md) §2.3.
+
+**Forward contract (FULFILLED):** the sibling ticket has added the persisted prior-online marker (`was_online_before_lock` on `teacher`) and amended `releaseTeacherInSessionLock` to restore the marker's value instead of unconditionally setting `true`. The fix lives inside the release transaction — this surface does NOT patch it from the toggle path. The toggle's contract stands: "I set the flag truthfully at the moment of the write; I do not own what happens to the flag inside another writer's transaction."
 
 ### 6.3 15-minute inactivity auto-offline (shipped)
 
 **Status:** SHIPPED — this section documents the implemented surface, NOT a forward contract. Unlike the two deferrals above, nothing here is owned by a sibling ticket.
 
-**Behavior:** the sweep is the third writer on `teacher.is_online` (beside the manual toggle and the session lifecycle): it flips online → offline when a teacher's recorded activity ages past the inactivity threshold. It closes the gap the manual toggle cannot close — a teacher whose client simply disappears (backgrounded tab, closed app, dropped connection) never taps Unavailable, and without the sweep the flag would read `true` indefinitely.
+**Behavior:** the sweep is the fourth writer on `teacher.is_online` (beside the lock capture, the marker-gated release, and the manual toggle): it flips online → offline when a teacher's recorded activity ages past the inactivity threshold. It closes the gap the manual toggle cannot close — a teacher whose client simply disappears (backgrounded tab, closed app, dropped connection) never taps Unavailable, and without the sweep the flag would read `true` indefinitely.
 
 **Owner surface (all implemented):**
 
@@ -335,15 +341,15 @@ Two state-machine invariants land on `teacher.is_online` but are NOT enforced by
 - **In-session exemption:** `NOT EXISTS (started session)` — a teacher holding a `started` session is structurally never auto-offlined, even in the sub-second window where the lifecycle's own lock write has not yet landed. The session lock takes priority, unconditionally.
 - **Confirmation owns the final state (lock-then-recheck):** the sweep pins its candidate victims `FOR UPDATE` first and re-runs the full predicate set — scoped to the pinned ids — under the fresh snapshot its UPDATE statement captures. A manual availability confirmation that commits while the pass is already mid-flight is therefore always honored: its stamp is either already visible to the re-check (the row is spared) or the confirmation is still blocked behind the sweep's lock and re-asserts Available on top of the flip. A single-statement UPDATE cannot promise this — PostgreSQL's EvalPlanQual re-check evaluates its cross-table EXISTS probes against the ORIGINAL statement snapshot, so a stamp committed during a lock wait would stay invisible.
 
-**The activity model (heartbeat-as-API-call ruling):** "recent activity" is defined server-side and has three sources — authenticated GraphQL requests (the per-request stamp in the GraphQL context factory, `backend/graphql/gqlContextFactory.ts`, throttled through `UserRepository.updateLastActiveAtIfStale` so a request storm writes at most once per minute), explicit-intent stamps (the manual toggle writes a fresh `last_active_at` in the SAME transaction as `setOnline`, so a just-toggled teacher can never be swept by the same pass — and the sweep's lock-then-recheck keeps that guarantee even when a pass is already mid-flight behind the toggle's row lock), and login (a fire-and-forget bump). The client heartbeat is deliberately an ordinary authenticated API call, NOT a socket keepalive: the argless `recordMyActivity` mutation (`backend/graphql/mutation/user.mutation.ts` → `AuthService.recordMyActivity`) fires every 5 minutes while the document is visible via `useTeacherPresenceHeartbeat` (`frontend/hooks/presence/use-teacher-presence-heartbeat.ts`; exported cadence `TEACHER_PRESENCE_HEARTBEAT_INTERVAL_MS = 5 * 60_000`), mounted once for teachers in `DashboardLayout` (`frontend/views/dashboard/layout/DashboardLayout.tsx`). The 5-minute cadence is half the default threshold, so one missed beat is tolerated before the sweep can act. The WebSocket sidecar is untouched: it stays push-only and carries zero presence state (`docs/notifications/realtime-engine.md` — "never reuse the WS sidecar for presence").
+**The activity model (heartbeat-as-API-call ruling):** "recent activity" is defined server-side and has three sources — authenticated GraphQL requests (the per-request stamp in the GraphQL context factory, `backend/graphql/gqlContextFactory.ts`, throttled through `UserRepository.updateLastActiveAtIfStale` so a request storm writes at most once per minute), explicit-intent stamps (the manual toggle writes a fresh `last_active_at` in the SAME transaction as `setAvailabilityIntent`, so a just-toggled teacher can never be swept by the same pass — and the sweep's lock-then-recheck keeps that guarantee even when a pass is already mid-flight behind the toggle's row lock), and login (a fire-and-forget bump). The client heartbeat is deliberately an ordinary authenticated API call, NOT a socket keepalive: the argless `recordMyActivity` mutation (`backend/graphql/mutation/user.mutation.ts` → `AuthService.recordMyActivity`) fires every 5 minutes while the document is visible via `useTeacherPresenceHeartbeat` (`frontend/hooks/presence/use-teacher-presence-heartbeat.ts`; exported cadence `TEACHER_PRESENCE_HEARTBEAT_INTERVAL_MS = 5 * 60_000`), mounted once for teachers in `DashboardLayout` (`frontend/views/dashboard/layout/DashboardLayout.tsx`). The 5-minute cadence is half the default threshold, so one missed beat is tolerated before the sweep can act. The WebSocket sidecar is untouched: it stays push-only and carries zero presence state (`docs/notifications/realtime-engine.md` — "never reuse the WS sidecar for presence").
 
-**Self-heal interplay with the release hazard (§6.2):** `releaseTeacherInSessionLock` (`backend/services/classes/session-lifecycle.transitions.ts:249-250`) still restores `is_online = true` UNCONDITIONALLY on session exit — the INV-A4 hazard above, which remains sibling-ticket scope. The sweep bounds that hazard: a teacher resurrected by the release but no longer active carries a stale `last_active_at`, so the next sweep pass re-offlines them. Net guarantee: `is_online` is accurate within threshold + cadence — an inactive teacher's wrongful "online" appearance lasts at most `TEACHER_INACTIVITY_TIMEOUT_MINUTES` plus one scheduler interval.
+**Self-heal interplay with the marker-gated release (§6.2):** the shipped `releaseTeacherInSessionLock` does NOT restore `is_online = true` unconditionally — it restores the availability intent captured at lock acquisition (`was_online_before_lock`) exactly once, on the last terminal exit, so a teacher who was offline before the session stays offline after it (the never-resurrect seed closes the unconditional-resurrect hazard INV-A4 at the source). The sweep still bounds residual staleness: an online teacher whose recorded activity ages past the threshold is re-offlined by the next pass, so `is_online` is accurate within threshold + cadence.
 
 ---
 
 ## 7. Related Documents
 
-- **State-machine invariants** — `docs/specs/state-machine-invariants.md` §3 (Teacher Availability Lifecycle), INV-A1..A4. INV-A1 and INV-A2 are enforced by this surface (the toggle writes through `TeacherAvailabilityService`); INV-A3 (directory appearance) and INV-A4 (never-resurrect release gating) are owned by their sibling tickets (see §6).
+- **State-machine invariants** — `docs/specs/state-machine-invariants.md` §3 (Teacher Availability Lifecycle), INV-A1..A4. INV-A1 and INV-A2 are enforced by this surface (the toggle writes through `TeacherAvailabilityService`); INV-A4 (never-resurrect release gating) has shipped — the marker-gated release (see §6.2); INV-A3 (directory appearance) remains owned by its sibling tickets (see §6).
 - **Session lifecycle** — `docs/sessions/session-lifecycle.md` — the INV-S6 lock/release writer (the OTHER writer on `teacher.is_online`); the `assertTeacherNotInActiveSession` seam consumed by this surface's INV-A2 gate is documented there as the canonical "is this teacher in a started session?" oracle.
 - **Applicant lifecycle** — `docs/teachers/applicant-lifecycle.md` — the certification surface whose result (`teacher.is_approved`) backs INV-A1; the toggle READS `isApproved` but never writes it.
 - **Verification plan purchase** — `docs/teachers/verification-plan-purchase.md` — the path that arms certification (the gate the toggle's INV-A1 reads).

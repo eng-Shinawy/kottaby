@@ -81,6 +81,13 @@ export interface TeacherSessionsBodyProps {
    * itself scopes it via `disputeReason`).
    */
   readonly onCaseIntent: (sessionId: string) => void;
+  /**
+   * Details intent — forwarded to every row (the row renders the
+   * read-only "Session details" affordance for EVERY status). The teacher
+   * surface supplies it — its dialog slot rides the overlays cluster
+   * beside the case-dialog mount.
+   */
+  readonly onDetailsIntent: (sessionId: string) => void;
   readonly t: SessionsLabels;
 }
 
@@ -111,6 +118,7 @@ export function TeacherSessionsBody({
   parkedDrafts,
   role,
   onCaseIntent,
+  onDetailsIntent,
   t,
 }: Readonly<TeacherSessionsBodyProps>): ReactNode {
   if (loading && data === undefined) {
@@ -178,6 +186,7 @@ export function TeacherSessionsBody({
         })
       }
       onCaseIntent={onCaseIntent}
+      onDetailsIntent={onDetailsIntent}
       // The rubric-pending overlay rides the SAME membership set that
       // gates the rows' submit CTA — pill and affordance can never drift.
       awaitingEvaluation={{ ids: pendingRubricSessionIds, label: t.awaitingEvaluation }}

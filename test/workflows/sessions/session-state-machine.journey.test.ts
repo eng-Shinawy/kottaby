@@ -44,8 +44,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "@/backend/db";
+import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { session } from "@/backend/db/schema/classes/session";
 import { sessionRequestIdempotency } from "@/backend/db/schema/classes/session-request-idempotency";
 import { students } from "@/backend/db/schema/students/students";
@@ -66,6 +67,7 @@ import type {
 } from "@/backend/types";
 import { SESSION_FEE_HIFZ } from "@/shared/constants/session-fees.constants";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
+import { withAuditDeleteTriggersSuspended } from "@/test/helpers/db-cleanup";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
 import {
   buildSessionJourneyCast,
@@ -212,8 +214,19 @@ beforeAll(async () => {
 
 afterAll(async () => {
   publication?.stop();
-  // Hard-deletes every tracked fixture AND service-created row (sessions,
-  // idempotency claims) inside one committed transaction, FK-safe order.
+  // The admin arbitration arc exercises a governance-audited service, so
+  // audit_logs rows legitimately reference the journey's users (actor_id
+  // restrict-deletes into users). Drain them first under the suspended
+  // immutability triggers — the same sanctioned pattern as journeyCleanup —
+  // then hard-delete every tracked fixture AND service-created row
+  // (sessions, idempotency claims) inside one committed transaction,
+  // FK-safe order.
+  const journeyUserIds = registry.ids("users");
+  if (journeyUserIds.length > 0) {
+    await withAuditDeleteTriggersSuspended(async () => {
+      await db.delete(auditLogs).where(inArray(auditLogs.actorId, [...journeyUserIds]));
+    });
+  }
   await registry.cleanup();
 });
 
@@ -493,9 +506,14 @@ testOnRealPostgres(
     expect(rejections[0]).toBeInstanceOf(DomainError);
     expect(denialCode(rejections[0])).toBe("SESSION_INVALID_TRANSITION");
 
-    // EXACTLY one refund landed on the recorded lane.
+    // EXACTLY one refund fired, restored to the booking's own provenance
+    // lane: the fixture ladder exhausts the trial lane before this arc, so
+    // the Hifz booking (and its refund) ride the hifz lane — a trial-lane
+    // delta of 0 with a hifz-lane delta of 1 proves the refund fired exactly
+    // once with provenance intact (no double-fire across lanes).
     const lanesAfter = await readStudentLanes(cast.primaryStudent.student.id);
-    expect((lanesAfter.trial ?? 0) - (lanesBefore.trial ?? 0)).toBe(1);
+    expect((lanesAfter.trial ?? 0) - (lanesBefore.trial ?? 0)).toBe(0);
+    expect((lanesAfter.hifz ?? 0) - (lanesBefore.hifz ?? 0)).toBe(1);
     // The lock lifted exactly once (same-tx with the winning resolution).
     expect(await readTeacherOnline(cast.teacher.userId)).toBe(true);
   }

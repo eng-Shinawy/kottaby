@@ -150,9 +150,16 @@ function NotificationDrawerList({
                   // `dir="auto"` isolates it from the surrounding direction so
                   // trailing punctuation never wraps to the wrong edge.
                   dir="auto"
+                  noWrap
                   sx={theme => ({
                     fontWeight: item.isRead ? 400 : 700,
                     color: theme.palette.text.primary,
+                    // Span the available width so a cross-script row (RTL copy
+                    // inside the LTR shell, or the mirror) aligns its title to
+                    // the SAME inline edge the dir="auto" body already picks —
+                    // a shrink-wrapped box would pin the title to the row's
+                    // opposite edge and split the two lines apart.
+                    flex: 1,
                     minWidth: 0,
                   })}
                 >

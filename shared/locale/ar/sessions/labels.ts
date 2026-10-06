@@ -6,6 +6,11 @@ export const sessionsAr: SessionsLabels = {
   statusFilterAll: "جميع الحالات",
   status: "الحالة",
   intent: "النوع",
+  intentHifz: "الحفظ",
+  intentTajweed: "التجويد",
+  intentEvaluation: "التقييم",
+  withTeacherCaption: "مع المعلم",
+  withStudentCaption: "مع الطالب",
   fee: "الرسوم",
   deadline: "الموعد النهائي",
   createdAt: "تاريخ الإنشاء",
@@ -309,4 +314,15 @@ export const sessionsAr: SessionsLabels = {
   prepReadonlyHint: "هذا العرض للقراءة فقط — يتحدّث تقدّم الطالب تلقائياً بعد كل جلسة مؤكدة.",
   prepStudentLabel: "الطالب",
   prepLoadingLabel: "جارٍ تحميل بيانات التحضير…",
+
+  // ─── حوار تفاصيل الجلسة (للقراءة فقط، على قائمتي الطالب والمعلم) ─────────────
+  sessionDetailsTooltip: "تفاصيل الجلسة",
+  sessionDetailsDialogTitle: "تفاصيل الجلسة",
+  sessionDetailsFeeHeld: "الرسوم محتجزة",
+  sessionDetailsFeeNotHeld: "غير محتجزة",
+  sessionDetailsTimelineTitle: "السجل الزمني",
+  sessionDetailsStartedAt: "بدأت",
+  sessionDetailsEndedAt: "انتهت",
+  sessionDetailsResolvedAt: "تم الحسم",
+  sessionDetailsUnavailable: "لا يمكن عرض هذه الجلسة.",
 };

@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "@apollo/client/react";
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack } from "@mui/material";
+import { Dialog, DialogContent, DialogTitle, Stack } from "@mui/material";
 import type { ReactNode } from "react";
+import { DialogCloseActions } from "@/frontend/components/ui/DialogCloseActions";
 import { PermissionDeniedFallback } from "@/frontend/components/ui/PermissionDeniedFallback";
 import type { StudentDisputeCaseQuery, TeacherDisputeCaseQuery } from "@/frontend/graphql/generated/gql/graphql";
 import { studentDisputeCaseQueryDocument, teacherDisputeCaseQueryDocument } from "@/frontend/graphql/sharedDocuments";
@@ -197,11 +198,7 @@ export function ParticipantDisputeCaseDialog({
         {t.teacherCaseTitle}
       </DialogTitle>
       <DialogContent sx={{ display: "grid", gap: 3 }}>{body}</DialogContent>
-      <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button onClick={onClose} data-testid={tid("close")} sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}>
-          {tc.close}
-        </Button>
-      </DialogActions>
+      <DialogCloseActions onClick={onClose} testId={tid("close")} label={tc.close} />
     </Dialog>
   );
 }

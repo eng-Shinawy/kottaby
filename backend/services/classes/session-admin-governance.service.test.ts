@@ -32,7 +32,11 @@
  *    claim and a mis-pointed claim, the replay-arm claim-pointer invariant
  *    (a key spent on an already-cancelled session points at it — the same
  *    key on a DIFFERENT cancelled session is the mis-point conflict while
- *    the same session still replays), key-shape guards); the reassignment
+ *    the same session still replays), key-shape guards; the in-session
+ *    lock release verdicts — a started row's cancel restores the captured
+ *    availability in the same transaction, a captured-offline intent is
+ *    never resurrected, a pre-start cancel is the classified no-lock
+ *    no-op); the reassignment
  *    arms (certified candidate swaps the teacher, unapproved / DB-null
  *    candidate refuses byte-identically, missing candidate is the not-found
  *    denial, non-scheduled rows are transition conflicts); the join gate
@@ -65,7 +69,7 @@
  * millisecond older is rejected, both deterministically.
  */
 
-import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
@@ -86,6 +90,7 @@ import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ConflictError, DomainError, NotFoundError } from "@/backend/lib/errors";
+import { logger } from "@/backend/lib/logger";
 import { SessionAdminGovernanceService } from "@/backend/services/classes/session-admin-governance";
 import { joinObservationInTx } from "@/backend/services/classes/session-admin-governance.helpers";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
@@ -346,6 +351,23 @@ async function readSessionRow(
 ): Promise<SessionSelectType | null> {
   const [row] = await executor.select().from(session).where(eq(session.id, sessionId));
   return row ?? null;
+}
+
+/**
+ * Independent read-back oracle: the teacher row's in-session lock state —
+ * the availability flag AND the persisted pre-lock marker. The marker is
+ * the value the release restores, so every release verdict asserts BOTH
+ * columns together (the sibling suite's lock-state oracle).
+ */
+async function readTeacherLockState(
+  executor: DBTransaction | typeof db,
+  teacherUserId: number
+): Promise<{ isOnline: boolean | null; wasOnlineBeforeLock: boolean | null }> {
+  const [row] = await executor
+    .select({ isOnline: teacher.isOnline, wasOnlineBeforeLock: teacher.wasOnlineBeforeLock })
+    .from(teacher)
+    .where(eq(teacher.id, teacherUserId));
+  return { isOnline: row?.isOnline ?? null, wasOnlineBeforeLock: row?.wasOnlineBeforeLock ?? null };
 }
 
 /** Audit rows ABOUT one session entity (tx- or db-scoped count oracle). */
@@ -1260,6 +1282,124 @@ describe("SessionAdminGovernanceService — cancel (runInRollback)", () => {
       expect(stored?.status).toBe(SessionStatus.Scheduled);
       expect(await countAuditsForSession(tx, row.id)).toBe(0);
       expect(await readClaimsForUser(tx, adminId)).toHaveLength(0);
+    });
+  });
+
+  // ─── In-session lock release verdicts (the cancel's same-tx restore) ──
+
+  test("started row with the lock held: the cancel restores the captured availability in the SAME transaction — teacher online again, marker consumed, the wave still exactly once", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const { adminId } = await createTestAdmin(tx);
+      await setLaneBalances(tx, actors.studentUserId, { hifz: 0 });
+      const row = await insertSessionRow(tx, actors, {
+        status: SessionStatus.Started,
+        startedAt: new Date(),
+      });
+      // The lock-holding posture a real start leaves behind: the teacher is
+      // offline with the captured pre-lock intent (true) persisted in the
+      // marker — the value the release restores.
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: true })
+        .where(eq(teacher.id, actors.teacherUserId));
+
+      // A real unlock stays silent — zero release lines at any level.
+      const releaseDebug = spyOn(logger, "debug");
+      const releaseErrors = spyOn(logger, "error");
+      try {
+        const cancelled = await cancelVia(tx, adminId, { sessionId: row.id });
+        expect(cancelled.status).toBe(SessionStatus.Cancelled);
+        expect(
+          releaseDebug.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+        expect(
+          releaseErrors.mock.calls.filter(([message]) => message.startsWith("In-session lock release"))
+        ).toHaveLength(0);
+        // The restore applied INSIDE the cancel's transaction: the captured
+        // intent is back in is_online and the marker is consumed — the same
+        // tx-scoped oracle read sees it before any commit.
+        expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+          isOnline: true,
+          wasOnlineBeforeLock: null,
+        });
+      } finally {
+        releaseDebug.mockRestore();
+        releaseErrors.mockRestore();
+      }
+
+      // The composed side effects are unchanged: the hold still refunds to
+      // its lane exactly once, ONE audit row, and the governance wave fired
+      // EXACTLY once (one inbox row per participant — the release added no
+      // duplicate wave and disturbed no prior step).
+      const balances = await readLaneBalances(tx, actors.studentUserId);
+      expect(balances.hifz).toBe(1);
+      expect(await countAuditsForSession(tx, row.id)).toBe(1);
+      expect(await countNotificationsFor(tx, [actors.studentUserId, actors.teacherUserId])).toBe(2);
+    });
+  });
+
+  test("started row with a captured OFFLINE intent: the release never resurrects the teacher — is_online stays false, the marker is consumed", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const { adminId } = await createTestAdmin(tx);
+      const row = await insertSessionRow(tx, actors, {
+        status: SessionStatus.Started,
+        startedAt: new Date(),
+      });
+      // The never-resurrect posture: the teacher was OFFLINE before the
+      // session — a deliberate intent the start captured into the marker.
+      await tx
+        .update(teacher)
+        .set({ isOnline: false, wasOnlineBeforeLock: false })
+        .where(eq(teacher.id, actors.teacherUserId));
+
+      const cancelled = await cancelVia(tx, adminId, { sessionId: row.id });
+
+      expect(cancelled.status).toBe(SessionStatus.Cancelled);
+      // The restore writes the captured intent VERBATIM: an offline
+      // pre-lock intent stays offline after the cancel, and the marker is
+      // consumed — the release cannot mint availability.
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: null,
+      });
+      // The governance wave still fired exactly once for the pair.
+      expect(await countNotificationsFor(tx, [actors.studentUserId, actors.teacherUserId])).toBe(2);
+    });
+  });
+
+  test("scheduled row: the release is the classified no-lock no-op — EXACTLY one bounded debug line and availability untouched", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const { adminId } = await createTestAdmin(tx);
+      const row = await insertSessionRow(tx, actors, { heldBalanceLane: null, feeHeld: false });
+      // Pre-start posture: the teacher is offline WITHOUT a lock — no
+      // marker, nothing to restore.
+      await tx.update(teacher).set({ isOnline: false }).where(eq(teacher.id, actors.teacherUserId));
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: null,
+      });
+
+      const debug = spyOn(logger, "debug");
+      try {
+        const cancelled = await cancelVia(tx, adminId, { sessionId: row.id });
+        expect(cancelled.status).toBe(SessionStatus.Cancelled);
+        const releaseLines = debug.mock.calls.filter(([message]) => message.startsWith("In-session lock release"));
+        expect(releaseLines).toHaveLength(1);
+        expect(releaseLines[0]?.[0]).toBe("In-session lock release no-op: no lock held");
+        expect(releaseLines[0]?.[1]).toEqual({ teacherId: actors.teacherUserId, outcome: "no_lock_held" });
+      } finally {
+        debug.mockRestore();
+      }
+
+      // Availability untouched: no restore was written and no marker was
+      // minted by the pre-start cancel.
+      expect(await readTeacherLockState(tx, actors.teacherUserId)).toEqual({
+        isOnline: false,
+        wasOnlineBeforeLock: null,
+      });
     });
   });
 });
