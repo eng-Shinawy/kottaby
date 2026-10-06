@@ -1157,6 +1157,11 @@ type Mutation {
   purchaseVerificationPlan: PurchaseSubscriptionPayload!
 
   """
+  Heartbeat server leg — stamps the caller's last-activity timestamp and returns true. Argless: identity is derived from the verified context, never from arguments.
+  """
+  recordMyActivity: Boolean!
+
+  """
   Rotate the JWT pair from a valid refresh token (explicit argument, or the httpOnly refresh_token cookie when omitted). Returns fresh access + refresh tokens. The new access_token + refresh_token + session_id are also set as httpOnly cookies (rotation invalidates the prior pair).
   """
   refreshToken(refreshToken: String): RefreshTokenPayload!

@@ -1,6 +1,6 @@
 /**
  * `availability`-namespace locale-parity verification
- * · ar+en parity gate + 8-key frozen set pin + Arabic-script sanity.
+ * · ar+en parity gate + 10-key frozen set pin + Arabic-script sanity.
  *
  * WHAT THIS LOCKS
  *   1. AVAILABILITY PARITY BELT — the ar/en `availability` leaf maps expose
@@ -9,9 +9,10 @@
  *      `AvailabilityLabels`; any missing key fails `bun tsgo`). This suite
  *      keeps the guarantee enforced even if someone loosens that typing
  *      later.
- *   2. FROZEN 8-KEY SET PIN — the `availability` namespace admits EXACTLY
- *      these eight leaf-string keys (no functions, no grouped sub-blocks):
- *      `cardTitle`, `toggleToAvailableCta`, `toggleToUnavailableCta`,
+ *   2. FROZEN 10-KEY SET PIN — the `availability` namespace admits EXACTLY
+ *      these ten leaf-string keys (no functions, no grouped sub-blocks):
+ *      `cardTitle`, `statusAvailable`, `statusUnavailable`,
+ *      `toggleToAvailableCta`, `toggleToUnavailableCta`,
  *      `certificationRequiredHint`, `inSessionLockedHint`, `updateSuccess`,
  *      `updateGenericError`, `loadErrorNotice`. Adding or removing any key
  *      fails this gate even if compile-time parity is intact.
@@ -53,13 +54,21 @@ import type { AvailabilityLabels } from "@/shared/locale/types/availability";
 // ─── Mandated registries ─────────────────────────────────────────────────────
 
 /**
- * The frozen 8-key leaf-string set of the `availability` namespace.
+ * The frozen 10-key leaf-string set of the `availability` namespace.
  * Adding or removing a key fails this gate even if the compile-time
  * `AvailabilityLabels` typing is intact (this pin guards both the en and ar
  * leaves from silent drift).
+ *
+ * History: the original 8-key set (cardTitle, the two CTA labels, the two
+ * hints, and the three notice keys) grew `statusAvailable`/`statusUnavailable`
+ * in the visual-improvement loop for plan #297 — the status chip used to be
+ * icon-only (no accessible name, state word missing from the indicator);
+ * the loop added the two state-word leaves so the chip is never icon-only.
  */
 const AVAILABILITY_FROZEN_KEYS = [
   "cardTitle",
+  "statusAvailable",
+  "statusUnavailable",
   "toggleToAvailableCta",
   "toggleToUnavailableCta",
   "certificationRequiredHint",
@@ -114,15 +123,15 @@ function nonEmptyAvailabilityLeaf(
 }
 
 // ===========================================================================
-describe("availability namespace — frozen 8-key set pin", () => {
-  test("the en leaf exposes EXACTLY the 8 frozen keys (no extra, no missing)", () => {
+describe("availability namespace — frozen 10-key set pin", () => {
+  test("the en leaf exposes EXACTLY the 10 frozen keys (no extra, no missing)", () => {
     const enKeys = Object.keys(availabilityEn).toSorted((a, b) => a.localeCompare(b));
     const frozen = [...AVAILABILITY_FROZEN_KEYS].toSorted((a, b) => a.localeCompare(b));
     expect(enKeys).toEqual(frozen);
     expect(enKeys).toHaveLength(AVAILABILITY_FROZEN_KEYS.length);
   });
 
-  test("the ar leaf exposes EXACTLY the 8 frozen keys (no extra, no missing)", () => {
+  test("the ar leaf exposes EXACTLY the 10 frozen keys (no extra, no missing)", () => {
     const arKeys = Object.keys(availabilityAr).toSorted((a, b) => a.localeCompare(b));
     const frozen = [...AVAILABILITY_FROZEN_KEYS].toSorted((a, b) => a.localeCompare(b));
     expect(arKeys).toEqual(frozen);

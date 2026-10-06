@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircleOutlined as CheckCircleIcon } from "@mui/icons-material";
+import { CheckCircleOutlined as AvailableIcon, RemoveCircleOutlined as UnavailableIcon } from "@mui/icons-material";
 import { Card, CardContent, Chip, Skeleton } from "@mui/material";
 import type { Palette } from "@mui/material/styles";
 import type { ReactNode } from "react";
@@ -45,17 +45,25 @@ function resolveToneColors(tone: AvailabilityTone): {
 }
 
 interface AvailabilityStatusChipProps {
-  /** Current availability flag — drives the chip's tone + accent color. */
+  /** Current availability flag — drives the chip's tone + icon + accent color. */
   readonly isOnline: boolean;
+  /**
+   * The localized state word ("Available" / "Offline") — resolved by the
+   * card entry point (the shell keeps zero user-facing string surfaces).
+   * The chip is NEVER icon-only: the word names the state next to the icon
+   * so the indicator stays legible and screen-reader-announced.
+   */
+  readonly label: string;
 }
 
 /** Status chip driven by `isOnline` — semantic container/on-container pair. */
-export function AvailabilityStatusChip({ isOnline }: Readonly<AvailabilityStatusChipProps>): ReactNode {
+export function AvailabilityStatusChip({ isOnline, label }: Readonly<AvailabilityStatusChipProps>): ReactNode {
   const tone: AvailabilityTone = isOnline ? "available" : "unavailable";
   const colors = resolveToneColors(tone);
   return (
     <Chip
-      icon={<CheckCircleIcon fontSize="small" />}
+      icon={isOnline ? <AvailableIcon fontSize="small" /> : <UnavailableIcon fontSize="small" />}
+      label={label}
       size="small"
       sx={theme => ({
         fontWeight: 600,

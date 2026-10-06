@@ -7,6 +7,7 @@
  *    `/api/set-locale` envelope, `/api/health` envelope from its first commit,
  *    `/api/cron/sweep-sessions` envelope, `/api/cron/reconcile-paymob-payments`
  *    envelope, `/api/cron/expire-subscriptions`
+ *    envelope, `/api/cron/sweep-inactive-teachers`
  *    envelope, `/api/payments/webhook` provider-ack-exempt) and frozen
  *    ordering.
  *  - Tier 3: LIVE-TREE completeness — every physical route file under
@@ -114,6 +115,11 @@ describe("ROUTE_INVENTORY — ground-truth rows (Tier 2)", () => {
     expect(expiryEntry?.classification).toBe("envelope");
   });
 
+  test("/api/cron/sweep-inactive-teachers classified as envelope (bearer-gated REST envelope contract)", () => {
+    const inactivityEntry = ROUTE_INVENTORY.find(entry => entry.path === "/api/cron/sweep-inactive-teachers");
+    expect(inactivityEntry?.classification).toBe("envelope");
+  });
+
   test("/api/payments/webhook classified as provider-ack-exempt (gateway callback surface)", () => {
     const webhookEntry = ROUTE_INVENTORY.find(entry => entry.path === "/api/payments/webhook");
     expect(webhookEntry?.classification).toBe("provider-ack-exempt");
@@ -127,6 +133,7 @@ describe("ROUTE_INVENTORY — ground-truth rows (Tier 2)", () => {
       "/api/cron/sweep-sessions",
       "/api/cron/reconcile-paymob-payments",
       "/api/cron/expire-subscriptions",
+      "/api/cron/sweep-inactive-teachers",
       "/api/payments/webhook",
     ]);
   });

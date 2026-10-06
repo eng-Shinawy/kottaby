@@ -26,3 +26,8 @@ export interface TeacherAvailabilityReturnType {
   readonly isOnline: boolean;
   readonly isApproved: boolean;
 }
+
+/** Honest-counts result of the inactivity sweep — identities never cross the cron boundary. */
+export interface TeacherInactivitySweepReturnType {
+  readonly offlined: number;
+}

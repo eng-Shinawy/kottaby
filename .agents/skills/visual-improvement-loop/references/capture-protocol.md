@@ -274,3 +274,19 @@ contradiction signature), not "fixed".
 - For "element is clipped" claims, a PIL pixel-bbox scan of the capture (match the element's
   distinctive color, compare bbox margins to the DOM rect) is decisive and immune to the
   crop-edge tangency misreads VLMs make; prefer it over another VLM round.
+
+## Verdict-staleness on recapture (added 2026-10-06)
+
+- Idempotent verdict runners (skip images that already have a verdict file) silently return the
+  PRE-FIX verdict when a PNG was re-captured at the same path: the runner prints "SKIP existing
+  verdict" and the orchestrator reads stale pre-fix pixels as the new pass. When re-running
+  inspections after a recapture, DELETE the verdict files of the re-taken shots first — idempotency
+  keys are image PATHS, not image CONTENT.
+
+## Edit-wave console noise variant (added 2026-10-06)
+
+- `[warning] [Fast Refresh] performing full reload because your application had an unrecoverable
+  error` lands in the error-level console buffer after ANY file edit while the dev server is up
+  (turbopack HMR), and the gate's grep counts it as an error entry. This is harness noise, not a
+  page error: `agent-browser console --clear` + one verified reload + re-run the gate before
+  treating it as a HIGH finding (same discipline as the stale-buffer lesson above).

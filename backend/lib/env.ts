@@ -126,6 +126,14 @@ const DEFAULT_PAYMOB_HTTP_TIMEOUT_MS = 10000;
  */
 const DEFAULT_PAYMOB_RECONCILE_PENDING_MINUTES = 30;
 
+/**
+ * Inactivity window (minutes) after which the auto-offline sweep marks an
+ * online teacher unavailable, used when `TEACHER_INACTIVITY_TIMEOUT_MINUTES`
+ * is unset or unusable. The 15-minute default is the resolved inactivity-
+ * timeout decision B.15 (docs/specs/open-decisions-and-gaps.md:159-163).
+ */
+const DEFAULT_TEACHER_INACTIVITY_TIMEOUT_MINUTES = 15;
+
 /** Local dev-server port the ngrok tunnel forwards to when `NGROK_PORT` is unset or unusable. */
 const DEFAULT_NGROK_PORT = 3000;
 
@@ -303,6 +311,13 @@ export interface EnvironmentConfig {
   /** Per-user WebSocket connection cap (the sidecar evicts the oldest beyond it). */
   wsMaxConnectionsPerUser: number;
   /**
+   * Teacher inactivity timeout in minutes (`TEACHER_INACTIVITY_TIMEOUT_MINUTES`;
+   * default 15 — the resolved inactivity-timeout decision B.15). The
+   * auto-offline sweep marks an online teacher whose last activity is older
+   * than this window unavailable.
+   */
+  teacherInactivityTimeoutMinutes: number;
+  /**
    * Active payment gateway provider for the billing purchase flow
    * (`PAYMENT_GATEWAY_PROVIDER`, trimmed + lowercased; default `"mock"`).
    * Only adapters with a matching gateway implementation can be selected;
@@ -392,6 +407,10 @@ function readEnvironment(): EnvironmentConfig {
     wsMaxConnectionsPerUser: parsePositiveIntegerEnv(
       process.env.WS_MAX_CONNECTIONS_PER_USER,
       DEFAULT_WS_MAX_CONNECTIONS_PER_USER
+    ),
+    teacherInactivityTimeoutMinutes: parsePositiveIntegerEnv(
+      process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES,
+      DEFAULT_TEACHER_INACTIVITY_TIMEOUT_MINUTES
     ),
     paymentGatewayProvider: (trimmedEnvValue(process.env.PAYMENT_GATEWAY_PROVIDER) ?? "mock").toLowerCase(),
     paymentWebhookSecret: trimmedEnvValue(process.env.PAYMENT_WEBHOOK_SECRET),
@@ -596,6 +615,25 @@ export function isPaymentWebhookEnabled(): boolean {
  */
 export function getPaymobConfig(): EnvironmentConfig["paymob"] {
   return getEnvironmentConfig().paymob;
+}
+
+// ─── Teacher availability (auto-offline sweep) typed getters ────────────────
+// Every getter reads through getEnvironmentConfig(), so all of these keys are
+// covered by resetEnvironmentCache(): after a reset the next call re-reads
+// process.env from scratch.
+
+/**
+ * Teacher inactivity timeout in minutes (`TEACHER_INACTIVITY_TIMEOUT_MINUTES`;
+ * default 15 — the resolved inactivity-timeout decision B.15). The auto-offline
+ * sweep marks an online teacher whose last activity is older than this window
+ * unavailable.
+ *
+ * Positive integers only; anything else (zero, negative, garbage) falls back
+ * to the default so a bad operator value can neither disable the sweep nor
+ * hyper-accelerate it.
+ */
+export function getTeacherInactivityTimeoutMinutes(): number {
+  return getEnvironmentConfig().teacherInactivityTimeoutMinutes;
 }
 
 /**

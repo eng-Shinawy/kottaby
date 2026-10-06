@@ -963,6 +963,19 @@ const TEACHER_AVAILABILITY_TYPE_NAMES = ["TeacherAvailabilityState"] as const;
 const TEACHER_RE_EVALUATION_MUTATION_FIELDS = ["adminOrderTeacherReEvaluation"] as const;
 const TEACHER_RE_EVALUATION_TYPE_NAMES = ["TeacherReEvaluationOrder"] as const;
 
+/**
+ * Caller-scoped user-activity surface — the presence heartbeat's server
+ * leg. `recordMyActivity` is ARGLESS (zero arguments — identity is derived
+ * server-side from the verified context; there is no client-owned value
+ * and no input object) and returns the non-nullable `Boolean` success
+ * scalar (scalar-only payload — the surface registers NO new object, enum,
+ * or input type). The repository primitive's boolean miss is a no-op, so
+ * the wire contract stays `true`. `authenticated`-scoped (every role owns
+ * its own activity signal), so it is deliberately absent from the
+ * public-operation allowlist.
+ */
+const USER_ACTIVITY_MUTATION_FIELDS = ["recordMyActivity"] as const;
+
 // ─── Schema walk helpers ─────────────────────────────────────────────────────
 
 /** All named SDL type names, introspection builtins + spec scalars excluded, sorted deterministically. */
@@ -1208,7 +1221,7 @@ describe("TeacherAvailabilityState object shape — three scalar fields, id FIRS
 });
 
 describe("Surface freeze — pinned additions vs the baseline inventory", () => {
-  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user quartet + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write + the teacher availability toggle write)", () => {
+  test("mutation set grows ONLY by the sanctioned additions (quartet + dispute pair + confirm + payout + admin-user quartet + admin-governance pair + session-governance quartet + session-report write + the subscription purchase write + the reconciled verification-plan purchase write + the admin subscription-management quartet + the reconciled parent-link trio + broadcast/certify/stop trio + the session-recitation write + the financial-auditing trio + the student-evaluation rating write + the evaluation-rubric submission write + the direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write + the teacher availability toggle write + the user-activity heartbeat write)", () => {
     const mutationFields = graphQLSchema.getMutationType()?.getFields() ?? {};
     const names = Object.keys(mutationFields).toSorted((a, b) => a.localeCompare(b));
 
@@ -1242,7 +1255,9 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // credential write (`changeMyPassword`), and the admin-ordered paid
     // re-evaluation write (`adminOrderTeacherReEvaluation` — the
     // teacher-wallet-deduction surface; the two scalar args suffice, no
-    // input object).
+    // input object), and the argless caller-scoped heartbeat write
+    // (`recordMyActivity` — scalar-only payload, zero arguments, no new
+    // type of any kind).
     // All authScopes-gated — none is allowlist material; the
     // public-operation registry stays byte-unchanged.
     expect(names).toEqual(
@@ -1277,6 +1292,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         // double-pinned it (see the reconciled-duplicate note above).
         ...ADMIN_STUDENT_ONBOARDING_MUTATION_FIELDS,
         ...TEACHER_AVAILABILITY_MUTATION_FIELDS,
+        ...USER_ACTIVITY_MUTATION_FIELDS,
       ].toSorted((a, b) => a.localeCompare(b))
     );
     expect(names).not.toContain("_health");

@@ -508,3 +508,28 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
 5. **Zero-fix-wave confirm run**: 28 captures, 6 findings, 6 DOM/pixel arbitrations, 0 genuine
    defects — the loop exits at Pass 1 with accepted-debt adjudication per the rubric plateau
    clause (matches the 2026-09-30 issue_230 data point).
+
+### 2026-10-06 — 15-minute inactivity auto-offline m2 auto-offline (#297)
+
+- MUI CardContent in this app's CardShell is `display: grid`: a full-width CTA is fixed with
+  `justifySelf: { xs: "stretch", sm: "start" }` — flex's `alignSelf` silently no-ops on the grid
+  child (first fix attempt measured unchanged at 1062px). → landed: `references/fix-patterns.md`
+  (grid-CTA row).
+- Default MUI Button inside dashboard cards measures 32px tall — below the 44px touch minimum;
+  fixed with the app's own convention `minHeight: { xs: 54 }` scoped to compact viewports.
+  → landed: `references/fix-patterns.md` (touch-target row).
+- Idempotent `z-ai vision` verdict runners skip re-captured images (verdict keyed by path), so a
+  post-fix pass can read PRE-FIX pixels; delete verdict files for re-taken shots before re-inspecting.
+  → landed: `references/capture-protocol.md` (verdict-staleness).
+- Turbopack HMR full-reload warnings pollute the error-level console buffer after edit waves;
+  gate on a cleared + verified-reloaded session. → landed: `references/capture-protocol.md`
+  (edit-wave console noise variant).
+- CDP viewport reverts between tool calls keep producing mislabeled captures — the PNG pixel
+  audit (PIL size vs label) caught one this run (390×1800 labeled 1440). Lesson CONFIRMED, no
+  reference change needed (2026-10-01 viewport-proofing entry already prescribes the audit).
+- Locale frozen-key pins (e.g. `availability-namespace.parity.test.ts` 8→10 keys) must be amended
+  IN THE SAME WAVE as any key addition — the pin's doc comment gets a history note so the key
+  change stays deliberate. → recorded here; feature-specific detail stays in the plan outcome.
+- VLM inspector status-chip claims (icon-only chip "missing", offline icon "blue") were resolved
+  by code/DOM reading (no `label` prop existed; theme-token slate colors) — one real HIGH fix, one
+  dark-scheme misperception. Reinforces existing DOM-arbitration rules; no new reference.

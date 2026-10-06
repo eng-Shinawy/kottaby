@@ -24,9 +24,11 @@
  *    caller-supplied transaction (a row lock taken outside a transaction is
  *    released when the statement ends, which protects nothing) and therefore
  *    never use prepared statements (`docs/drizzle/prepared-statements.md`).
- *  - Writes are single statements that take a REQUIRED `tx: DBTransaction`
- *    (last param) — they always join the caller's atomic unit of work and
- *    never fall back to the global handle. Insert payloads are built
+ *  - Writes take a REQUIRED `tx: DBTransaction` (last param) — they always
+ *    join the caller's atomic unit of work and never fall back to the
+ *    global handle. Single-row writes are one statement; the batch
+ *    inactivity sweep is the one deliberate lock-then-recheck pair (see
+ *    `sweepInactiveOnlineOnce`). Insert payloads are built
  *    field-by-field (no spread of caller objects), and the guarded UPDATE
  *    folds its precondition (`is_approved = false`) into the WHERE clause so
  *    the predicate and the mutation are one statement (no TOCTOU window).
@@ -39,14 +41,21 @@
  *    `teacher_average_rating_check` is the final clamp, and a zero-row
  *    result means the id had no teacher row (the caller owns the
  *    semantics).
- *  - No prepared statements on writes; no `inArray`; raw driver errors
+ *  - No prepared statements on writes; `inArray` appears only in the
+ *    sweep's dynamic pinned-id re-check (plain runtime array, per-element
+ *    parameters — the repo's batch-lookup form); raw driver errors
  *    (e.g. a duplicate-PK `23505`) surface untranslated — the service layer
  *    owns error mapping.
  *  - No business logic, no permission checks, no i18n or logging imports —
  *    the caller decides what `isApproved = false` or a `null` row means.
  */
-import { and, desc, eq, ilike, or, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, queryDb } from "@/backend/db";
+import {
+  buildTeacherDirectoryFilterChain,
+  buildTeacherMatchingCountryTier,
+  buildTeacherMatchingFilterChain,
+} from "@/backend/db/repo/teachers/teacher.repository.helpers";
 import { session } from "@/backend/db/schema/classes/session";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
 import { users } from "@/backend/db/schema/users/users";
@@ -176,94 +185,6 @@ interface EvaluationGateRow {
   readonly isDeleted: boolean | null;
   readonly isBlocked: boolean | null;
   readonly suspended: boolean | null;
-}
-
-/**
- * Builds the ANDed WHERE chain from the normalized teacher-directory
- * filters. Absent or null members are skipped (the directory falls back to
- * the unfiltered listing rather than erroring). The `searchPattern` is
- * bound directly to two `ilike` predicates — one over the user's full
- * name, one over the email — joined by `OR` so a single search term
- * matches either column. No string interpolation; the pattern is
- * Drizzle-parameterized.
- */
-function buildTeacherDirectoryFilterChain(filters: NormalizedAdminTeacherFilters): SQL | undefined {
-  const conditions: SQL[] = [];
-  if (filters.searchPattern) {
-    conditions.push(
-      or(ilike(users.fullName, filters.searchPattern), ilike(users.email, filters.searchPattern)) ?? sql`false`
-    );
-  }
-  if (filters.isApproved !== null && filters.isApproved !== undefined) {
-    conditions.push(eq(teacher.isApproved, filters.isApproved));
-  }
-  if (filters.isOnline !== null && filters.isOnline !== undefined) {
-    conditions.push(eq(teacher.isOnline, filters.isOnline));
-  }
-  if (filters.isEvaluator !== null && filters.isEvaluator !== undefined) {
-    conditions.push(eq(teacher.isEvaluator, filters.isEvaluator));
-  }
-  if (conditions.length === 0) {
-    return undefined;
-  }
-  if (conditions.length === 1) {
-    return conditions[0];
-  }
-  return and(...conditions) ?? sql`true`;
-}
-
-/**
- * Builds the ANDed WHERE chain for the matching read — the eligibility
- * baseline every returned row must satisfy:
- *  - the teacher is online AND certified (`eq(col, true)` is fail-closed:
- *    unknown availability is never shown);
- *  - the owning account is not governed — `is distinct from true` keeps the
- *    legacy NULL rows that a plain `eq(col, false)` would wrongly drop;
- *  - the teacher owns NO `session` row in the `started` state — a bulk
- *    correlated NOT EXISTS, the list-scale equivalent of the per-teacher
- *    in-session gate (same table, same status value); the composite
- *    `(teacher_id, status)` index serves it on the hot browse path. It
- *    composes WITH the online flag rather than trusting it: a row can
- *    carry a stale-true `is_online` while a session is still running;
- *  - the recitation and subject quoted-token patterns match (the subject
- *    vocabulary IS the session-intent vocabulary).
- * The language predicate joins the chain only when a pattern was resolved;
- * `null` means no language constraint and leaves the chain unchanged.
- */
-function buildTeacherMatchingFilterChain(filters: NormalizedTeacherMatchingFilters): SQL {
-  const chain = and(
-    eq(teacher.isOnline, true),
-    eq(teacher.isApproved, true),
-    sql`${users.isDeleted} is distinct from true and ${users.suspended} is distinct from true and ${users.isBlocked} is distinct from true`,
-    ilike(teacher.recitations, filters.recitationPattern),
-    ilike(teacher.subjects, filters.subjectPattern),
-    sql`not exists (select 1 from ${session} where ${session.teacherId} = ${teacher.id} and ${session.status} = ${SessionStatus.Started})`,
-    filters.languagePattern === null ? undefined : ilike(teacher.languages, filters.languagePattern)
-  );
-  return chain ?? sql`true`;
-}
-
-/**
- * Builds the country tier ordering fragment — a soft 0/1 bucket that sorts
- * same-country teachers ahead of the rest WITHOUT ever excluding a row:
- *  - a caller country CODE tier-matches `users.country_code` exactly;
- *  - legacy free-text falls back to a case-insensitive `country` match;
- *  - no country on the caller's account puts every candidate in ONE tier.
- * The tier precedes the rating in the ORDER BY, so a same-country teacher
- * outranks a better-rated foreign one.
- *
- * The no-country arm is a constant EXPRESSION, not a bare integer literal:
- * PostgreSQL reads a bare integer in ORDER BY as an output-column ordinal
- * (it would order by the first selected column instead of contributing a
- * constant tier key).
- */
-function buildTeacherMatchingCountryTier(filters: NormalizedTeacherMatchingFilters): SQL {
-  if (filters.studentCountryCode !== null) {
-    return sql`case when ${users.countryCode} = ${filters.studentCountryCode} then 0 else 1 end`;
-  }
-  return filters.studentCountryText !== null
-    ? sql`case when lower(${users.country}) = lower(${filters.studentCountryText}) then 0 else 1 end`
-    : sql`1 = 1`;
 }
 
 export namespace TeacherRepository {
@@ -697,6 +618,115 @@ export namespace TeacherRepository {
       .where(eq(teacher.id, id))
       .returning();
     return row ?? null;
+  }
+
+  /**
+   * Inactivity sweep primitive — ONE guarded batch transition of the
+   * availability flag driven by recorded user activity.
+   *
+   * Flips online → offline for teachers whose last recorded activity is
+   * strictly older than `cutoff` and who hold no started session, via a
+   * LOCK-THEN-RECHECK pair of statements inside the caller's transaction:
+   *
+   *  1. Statement 1 pins the candidate victims — the predicate-matching
+   *     `is_online = true` rows — under `FOR UPDATE` row locks held until
+   *     the caller's transaction resolves.
+   *  2. Statement 2 is the guarded batch `UPDATE … RETURNING`: it re-runs
+   *     the SAME predicates scoped to the pinned ids, under the fresh
+   *     snapshot its own start captures (READ COMMITTED).
+   *
+   * The re-check closes the lock-wait staleness hole a single-statement
+   * form cannot close: an UPDATE that waits on a row held by a concurrent
+   * availability confirmation re-evaluates its cross-table EXISTS probes
+   * against its ORIGINAL statement snapshot under PostgreSQL's
+   * EvalPlanQual — the confirmation's freshly committed
+   * `users.last_active_at` stays invisible, and a just-confirmed teacher
+   * could be overridden offline. With the two-statement form the
+   * confirmation's stamp is always either (a) already committed — visible
+   * to statement 2's fresh snapshot, the row is skipped — or (b) still
+   * blocked behind the sweep's lock — the flip lands first and the
+   * confirmation then re-asserts Available on top of it: the explicit
+   * human toggle owns the final state in both interleavings. Rows that
+   * become eligible only AFTER statement 1's snapshot are never
+   * transitioned mid-pass (the pinned-id scoping) — they wait for the
+   * next scheduled pass.
+   *
+   *  - `is_online = true` remains the victim gate: already-offline rows
+   *    never match, so a replay is a zero-row no-op and the count stays
+   *    honest.
+   *  - The staleness probe EXISTS-joins the owning `users` row: activity
+   *    strictly older than `cutoff` counts as expired, and a NULL
+   *    `last_active_at` counts as expired too (an online teacher with no
+   *    recorded activity cannot be verified as recently active).
+   *  - The `NOT EXISTS (started session)` exemption makes the sweep
+   *    structurally unable to touch an in-session teacher — the session
+   *    lock takes priority, unconditionally — and is re-verified in
+   *    statement 2 against the fresh snapshot.
+   *
+   * `RETURNING` yields an honest count of the rows actually transitioned.
+   * Only `is_online` and `updated_at` are written; `updated_at` receives
+   * the caller-captured `now` — the primitive never reads the clock
+   * itself, so every row in a pass shares one instant.
+   *
+   * Victim selection is predicate-only: the WHERE clauses reference
+   * nothing but the availability flag, the recorded activity, and the
+   * session status. The pinned-id scoping binds a plain runtime array
+   * through the dynamic `inArray` (per-element parameters — the repo's
+   * batch-lookup form), never a client-supplied value.
+   *
+   * Parameterized always; no prepared statement (writes are excluded);
+   * no business logic, no permission checks, no i18n or logging imports.
+   *
+   * @param now  The caller-captured sweep instant — written to `updated_at`
+   *             of every transitioned row.
+   * @param cutoff  The inactivity threshold instant: activity strictly
+   *                older than this (or NULL) counts as expired.
+   * @param tx  REQUIRED transaction — both statements run on it, so the
+   *            row locks and the flips commit or roll back together and
+   *            the batch never falls back to the global handle.
+   * @returns The number of teachers actually transitioned online → offline
+   *          (zero when nothing matched — an idempotent no-op).
+   */
+  export async function sweepInactiveOnlineOnce(now: Date, cutoff: Date, tx: DBTransaction): Promise<number> {
+    // Statement 1 — pin the candidate victims under row locks. The locks
+    // are held to the caller's commit, so statement 2 evaluates only rows
+    // no concurrent writer can mutate in between.
+    const candidates = await tx
+      .select({ id: teacher.id })
+      .from(teacher)
+      .where(
+        and(
+          eq(teacher.isOnline, true),
+          sql`EXISTS (SELECT 1 FROM ${users} WHERE ${users.id} = ${teacher.id} AND (${users.lastActiveAt} IS NULL OR ${users.lastActiveAt} < ${cutoff}))`,
+          sql`NOT EXISTS (SELECT 1 FROM ${session} WHERE ${session.teacherId} = ${teacher.id} AND ${session.status} = ${SessionStatus.Started})`
+        )
+      )
+      .for("update");
+    if (candidates.length === 0) {
+      return 0;
+    }
+
+    // Statement 2 — the guarded batch write, re-checked under the FRESH
+    // snapshot this statement's start captures: a stamp that committed
+    // while the locks were being acquired is now visible and spares the
+    // row. Scoped to the pinned ids so rows that became eligible only
+    // after statement 1 wait for the next pass.
+    const rows = await tx
+      .update(teacher)
+      .set({ isOnline: false, updatedAt: now })
+      .where(
+        and(
+          inArray(
+            teacher.id,
+            candidates.map(candidate => candidate.id)
+          ),
+          eq(teacher.isOnline, true),
+          sql`EXISTS (SELECT 1 FROM ${users} WHERE ${users.id} = ${teacher.id} AND (${users.lastActiveAt} IS NULL OR ${users.lastActiveAt} < ${cutoff}))`,
+          sql`NOT EXISTS (SELECT 1 FROM ${session} WHERE ${session.teacherId} = ${teacher.id} AND ${session.status} = ${SessionStatus.Started})`
+        )
+      )
+      .returning({ id: teacher.id });
+    return rows.length;
   }
 
   /**

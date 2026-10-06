@@ -2,6 +2,8 @@ import type { AvailabilityLabels } from "@/shared/locale/types/availability";
 
 export const availabilityAr: AvailabilityLabels = {
   cardTitle: "التوفّر",
+  statusAvailable: "متاح",
+  statusUnavailable: "غير متاح",
   toggleToAvailableCta: "تفعيل التوفّر",
   toggleToUnavailableCta: "إيقاف التوفّر",
   certificationRequiredHint: "أكمل اعتمادك كمعلم لتفعيل التوفّر.",

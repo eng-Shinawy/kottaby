@@ -166,13 +166,14 @@ describe("TeacherAvailabilityReturnType — Static Structural Assertions", () =>
     expect(body).not.toMatch(/readonly\s+sessionLock\s*:/);
   });
 
-  test("6. The `teacher.types.ts` module exports exactly three symbols and stays import-light", () => {
+  test("6. The `teacher.types.ts` module exports exactly four symbols and stays import-light", () => {
     const code = codeLines(libCode(teacherFiles, "teacher.types.ts")).join("\n");
     const exportCount = code.match(/^export /gm)?.length ?? 0;
-    expect(exportCount).toBe(3);
+    expect(exportCount).toBe(4);
     expect(code).toContain("export type TeacherSelectType");
     expect(code).toContain("export interface TeacherColdStartCertificationInput");
     expect(code).toContain("export interface TeacherAvailabilityReturnType");
+    expect(code).toContain("export interface TeacherInactivitySweepReturnType");
     // The only allowed import is the schema-module type-only import for `$inferSelect`.
     expect(code).toMatch(/^import type \{ teacher \} from "@\/backend\/db\/schema\/teachers\/teacher";/);
   });

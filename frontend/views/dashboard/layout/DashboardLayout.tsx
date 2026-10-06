@@ -7,6 +7,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { NotificationRealtimeToastHost } from "@/frontend/components/ui/NotificationRealtimeToastHost";
 import type { AuthUser } from "@/frontend/context/AuthContext";
 import { useAuth } from "@/frontend/hooks/auth";
+import { useTeacherPresenceHeartbeat } from "@/frontend/hooks/presence/use-teacher-presence-heartbeat";
 import { CHANGE_PASSWORD_PAGE_PATH } from "@/frontend/lib/auth/changePasswordRoute";
 import { buildLoginHref } from "@/frontend/lib/safeRedirect";
 import { DashboardAppBar } from "@/frontend/views/dashboard/layout";
@@ -76,6 +77,11 @@ export function DashboardLayout({ children }: Readonly<DashboardLayoutProps>): R
   // the app-bar hamburger. SSR returns `false` (default), client re-renders
   // with the actual value after hydration — no hydration mismatch.
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up("lg"));
+
+  // Client presence heartbeat: teacher-gated and silent — it stamps the
+  // caller's activity on a fixed cadence while the tab is visible and
+  // renders nothing.
+  useTeacherPresenceHeartbeat();
 
   const [mobileOpen, setMobileOpen] = useState(false);
 

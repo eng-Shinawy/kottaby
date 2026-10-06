@@ -55,10 +55,30 @@
  *    is denied by the in-transaction deleted-row guard with the SAME
  *    single `CURRENT_PASSWORD_INVALID` shape; the dead row is untouched
  *    (hash byte-identical, pending flag intact, zero audit rows).
+ *  - Tier 8 (login, activity-stamp seam): login on a committed Rule-9
+ *    fixture issues the fire-and-forget activity stamp through the
+ *    `UserRepository.updateLastActiveAt(id, now)` primitive — the
+ *    optional-executor form (no tx argument → the no-tx pool branch) —
+ *    and a REJECTED stamp never fails login: the rejection is swallowed
+ *    + logged via `logger.logDomainError` (`LOGIN_LAST_ACTIVE_UPDATE_FAILED`,
+ *    the error NAME only — never the full error). A source-scan pin
+ *    asserts the raw-db private touch helper is fully gone from the
+ *    service file (zero occurrences, no raw `db.update` seam, the stamp
+ *    flows through the repo primitive).
+ *  - Tier 9 (recordMyActivity, heartbeat stamp): the service composes the
+ *    stamp through the repo primitive INSIDE its own transaction — the spy
+ *    receives (userId, Date within the test window, a DEFINED tx executor
+ *    — the in-tx form, unlike login's fire-and-forget no-tx bump) — and the
+ *    field returns `true` (the primitive's boolean miss is a no-op, never a
+ *    failure); a repo rejection propagates uncaught (no swallow — the
+ *    GraphQL error finalizer owns the wire failure).
  */
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { and, eq, max, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
+import { UserRepository } from "@/backend/db/repo";
 import { AdminUserRepository } from "@/backend/db/repo/admin/admin-user.repository";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { users } from "@/backend/db/schema/users/users";
@@ -679,5 +699,151 @@ describe("AuthService.changeMyPassword — mid-flight soft-delete (in-tx deleted
       .from(auditLogs)
       .where(and(eq(auditLogs.entityType, "user"), eq(auditLogs.entityId, midFlightFixtureId)));
     expect(auditCount?.count).toBe(0);
+  });
+});
+
+/**
+ * Rule-9 committed fixture for the login-stamp describe: `login` resolves
+ * the identity through the GLOBAL `db` (`UserRepository.findByEmail` without
+ * a tx — the production bare-pool read), which cannot observe an uncommitted
+ * `runInRollback` row — so the fixture is committed in `beforeAll` and
+ * hard-deleted in `afterAll` (the same sanctioned static-fixture pattern as
+ * the sibling credential-fence describes above).
+ */
+let loginFixtureId = 0;
+
+/** The committed fixture's email — the login credential's identity half. */
+let loginFixtureEmail = "";
+
+describe("AuthService.login — activity stamp (fire-and-forget repo seam)", () => {
+  beforeAll(async () => {
+    // Real bcrypt hash on the fixture credential so the login reaches the
+    // token-issuing path through the genuine `comparePassword` seam.
+    const created = await db.transaction(async (tx: DBTransaction) => {
+      const storedHash = await hashPassword(FIXTURE_CURRENT_PASSWORD);
+      return createTestUser(tx, { passwordHash: storedHash });
+    });
+    loginFixtureId = created.id;
+    loginFixtureEmail = created.email;
+  });
+
+  afterAll(async () => {
+    // Rule 9: hard-delete ONLY the committed fixture this describe created.
+    await db.delete(users).where(eq(users.id, loginFixtureId));
+  });
+
+  test("login stamps through UserRepository.updateLastActiveAt(id, now) — the optional-executor form (no tx)", async () => {
+    const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockResolvedValue(true);
+
+    try {
+      const session = await AuthService.login(loginFixtureEmail, FIXTURE_CURRENT_PASSWORD, "en");
+
+      expect(session.user.id).toBe(loginFixtureId);
+      expect(stampSpy).toHaveBeenCalledTimes(1);
+      const [stampedId, stampedAt, stampedExecutor] = stampSpy.mock.calls[0] ?? [];
+      expect(stampedId).toBe(loginFixtureId);
+      expect(stampedAt).toBeInstanceOf(Date);
+      // The fire-and-forget bump needs no transaction — the optional
+      // executor stays undefined (the no-tx pool branch).
+      expect(stampedExecutor).toBeUndefined();
+    } finally {
+      stampSpy.mockRestore();
+    }
+  });
+
+  test("a rejected stamp never fails login — swallowed + logged via logDomainError", async () => {
+    const domainLogSpy = silenceDomainLog();
+    const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockRejectedValue(new Error("stamp seam down"));
+
+    try {
+      const session = await AuthService.login(loginFixtureEmail, FIXTURE_CURRENT_PASSWORD, "en");
+
+      // Login succeeded — the stamp rejection must not propagate.
+      expect(session.user.id).toBe(loginFixtureId);
+      expect(stampSpy).toHaveBeenCalledTimes(1);
+
+      // One macrotask turn drains the microtask the fire-and-forget
+      // rejection queued before the swallow-and-log contract is asserted.
+      await sleep(0);
+      expect(domainLogSpy).toHaveBeenCalledWith(
+        "Failed to update lastActiveAt on login",
+        expect.objectContaining({
+          code: "LOGIN_LAST_ACTIVE_UPDATE_FAILED",
+          entity: "users",
+          entityId: loginFixtureId,
+          locale: "en",
+          // Only the error NAME crosses the log boundary — never the
+          // full error (DB internals stay out of the logs).
+          errorName: "Error",
+        })
+      );
+    } finally {
+      stampSpy.mockRestore();
+      domainLogSpy.mockRestore();
+    }
+  });
+});
+
+describe("AuthService.login — stamp consolidation dead-code sweep (source pin)", () => {
+  test("the raw-db private touch helper is fully gone; the stamp flows through the repo primitive", () => {
+    // Lexical source scan by design (the repo's static-assertion pin
+    // style): the service file must carry ZERO occurrences of the deleted
+    // raw-db helper and its raw `db.update` seam — the fire-and-forget
+    // bump now delegates to the UserRepository primitive directly.
+    const source = readFileSync(join(process.cwd(), "backend/services/auth/auth.service.ts"), "utf8");
+    expect(source).not.toContain("touchLastActiveAt");
+    expect(source).toContain("UserRepository.updateLastActiveAt(user.id, new Date())");
+    expect(source).not.toContain("db.update(");
+  });
+});
+
+/**
+ * Probe id for the heartbeat describe — the repo seam is SPIED, so no row
+ * is ever read or written and the id never reaches the database (a large
+ * in-range integer, deliberately not a committed fixture).
+ */
+const HEARTBEAT_PROBE_ID = 4_242_424;
+
+describe("AuthService.recordMyActivity — heartbeat stamp (one-tx repo seam)", () => {
+  test("stamps through UserRepository.updateLastActiveAt(userId, now, tx) inside its own transaction and returns true", async () => {
+    const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockResolvedValue(true);
+
+    try {
+      const windowStart = new Date();
+      const result = await AuthService.recordMyActivity(HEARTBEAT_PROBE_ID);
+      const windowEnd = new Date();
+
+      // The wire contract is the plain success scalar — the primitive's
+      // boolean miss (unknown id, already-fresh stamp) is a no-op, never a
+      // failure.
+      expect(result).toBe(true);
+
+      expect(stampSpy).toHaveBeenCalledTimes(1);
+      const [stampedId, stampedAt, stampedExecutor] = stampSpy.mock.calls[0] ?? [];
+      expect(stampedId).toBe(HEARTBEAT_PROBE_ID);
+      if (!(stampedAt instanceof Date)) throw new Error("expected a Date stamp instant");
+      // ONE captured `now` — server-side, inside the call window.
+      expect(stampedAt.getTime()).toBeGreaterThanOrEqual(windowStart.getTime());
+      expect(stampedAt.getTime()).toBeLessThanOrEqual(windowEnd.getTime());
+      // The DEFINED executor is the discriminator vs. login's
+      // fire-and-forget bump (whose executor stays undefined): the
+      // heartbeat composes the stamp INSIDE its own transaction.
+      expect(stampedExecutor).toBeDefined();
+    } finally {
+      stampSpy.mockRestore();
+    }
+  });
+
+  test("a repo failure propagates uncaught — the service adds no swallow (the error finalizer owns the wire failure)", async () => {
+    const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockRejectedValue(new Error("stamp seam down"));
+
+    try {
+      const error = await expectRepoError(() => AuthService.recordMyActivity(HEARTBEAT_PROBE_ID));
+
+      expect(stampSpy).toHaveBeenCalledTimes(1);
+      expect(error.message).toContain("stamp seam down");
+    } finally {
+      stampSpy.mockRestore();
+    }
   });
 });

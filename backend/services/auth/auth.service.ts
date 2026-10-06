@@ -34,6 +34,11 @@
  *    admin (the write is fenced on the observed hash) all produce the SAME
  *    single `CURRENT_PASSWORD_INVALID` shape (field-targeted, so the UI can
  *    render it inline on the current-password field).
+ *  - `recordMyActivity(userId)` — the heartbeat server leg: stamps the
+ *    caller's `last_active_at` through the repository primitive inside one
+ *    transaction. Argless by contract — identity is always the authenticated
+ *    caller; returns `true` (the monotonic write's boolean miss is a no-op,
+ *    never a failure).
  *
  * i18n: all messages resolve through `getServerTranslations(locale)` — never
  * hardcoded strings, never `console.*` (uses `logger.logDomainError` for
@@ -50,10 +55,8 @@
  *    throw `ForbiddenError` with a localized "account blocked" message.
  */
 
-import { eq } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { UserRepository } from "@/backend/db/repo";
-import { users } from "@/backend/db/schema/users/users";
 import { generateSessionId, signAccessToken, signRefreshToken, verifyRefreshToken } from "@/backend/lib/auth/jwt";
 import { comparePassword, hashPassword } from "@/backend/lib/auth/password";
 import { isSuspensionActive } from "@/backend/lib/auth/suspension-window";
@@ -203,7 +206,7 @@ export namespace AuthService {
     // Fire-and-forget: bump `lastActiveAt` so the dashboard "last seen"
     // indicator stays current. We don't block login on this — a transient
     // DB error here shouldn't fail authentication.
-    void touchLastActiveAt(user.id).catch(error => {
+    void UserRepository.updateLastActiveAt(user.id, new Date()).catch(error => {
       logger.logDomainError("Failed to update lastActiveAt on login", {
         code: "LOGIN_LAST_ACTIVE_UPDATE_FAILED",
         entity: "users",
@@ -496,21 +499,25 @@ export namespace AuthService {
     }
     return stripPasswordHash(updated);
   }
-}
 
-/**
- * Updates `last_active_at` for a user. Fire-and-forget — failures are
- * swallowed + logged by the caller (login). Uses Drizzle's `update` API
- * directly (no service indirection) since this is a trivial touch.
- *
- * NOTE: the `role` claim on the rotated access token is set to a literal
- * "student" because we don't have the user's role in the refresh-token
- * payload. A future fix can either (a) include the role in the
- * refresh-token payload, or (b) fetch the user from the DB on refresh.
- * Today the role claim is unused (the context factory fetches the
- * user from DB by id), so this is a known cosmetic issue, not a security
- * regression.
- */
-async function touchLastActiveAt(userId: number): Promise<void> {
-  await db.update(users).set({ lastActiveAt: new Date() }).where(eq(users.id, userId));
+  /**
+   * Heartbeat server leg — stamps the caller's last-activity timestamp.
+   * Argless by contract: identity is always the authenticated caller.
+   *
+   * One captured `now` for the whole transaction (one-now discipline); the
+   * guarded monotonic write runs in its own top-level transaction (the
+   * production no-`outerTx` arm — this signal is never composed with other
+   * writes). The repository primitive's boolean miss (an id matching no row,
+   * or a stored stamp already as fresh as `now`) is deliberately ignored:
+   * the wire contract is a plain success signal, so the field returns
+   * `true` either way and a repo FAILURE propagates to the standard error
+   * finalizer instead.
+   */
+  export async function recordMyActivity(userId: number): Promise<boolean> {
+    const now = new Date();
+    return withTransaction(undefined, async tx => {
+      await UserRepository.updateLastActiveAt(userId, now, tx);
+      return true;
+    });
+  }
 }

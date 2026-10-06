@@ -21,6 +21,18 @@
 export interface AvailabilityLabels {
   /** Card heading — the availability card title on the teacher dashboard. */
   readonly cardTitle: string;
+  /**
+   * Status-chip label rendered when the teacher IS online (`is_online` true):
+   * the word that names the current availability state next to the state
+   * icon — the chip is never icon-only.
+   */
+  readonly statusAvailable: string;
+  /**
+   * Status-chip label rendered when the teacher is OFFLINE (`is_online`
+   * false — incl. the auto-offline sweep outcome): the word that names the
+   * current state next to the state icon.
+   */
+  readonly statusUnavailable: string;
   /** CTA button label — toggle the teacher's status to Available (open to sessions). */
   readonly toggleToAvailableCta: string;
   /** CTA button label — toggle the teacher's status to Unavailable (closed to sessions). */

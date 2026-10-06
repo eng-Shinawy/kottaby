@@ -1,5 +1,5 @@
 /**
- * User mutations — `updateMyLocale` + `changeMyPassword`.
+ * User mutations — `updateMyLocale` + `changeMyPassword` + `recordMyActivity`.
  *
  * Contract:
  *  - `updateMyLocale(locale: AppLocale!): User!`
@@ -23,14 +23,25 @@
  *      The closed two-field `ChangeMyPasswordInput` (both members plaintext,
  *      hashed/verified by the service before persistence) is defined beside
  *      the canonical `User` object in `pothos/users/user.pothos.ts`.
+ *  - `recordMyActivity: Boolean!`
+ *      The presence heartbeat's server leg: stamps the CALLER's
+ *      `last_active_at` (the monotonic activity-stamp primitive) inside one
+ *      transaction and returns the plain success scalar. Argless by design —
+ *      the field admits NO argument of any kind (BOPLA: no client-owned
+ *      value, no input object to seal), so a BOLA probe dies as a GraphQL
+ *      validation failure before a resolver ever runs, exactly like
+ *      `updateMyLocale` / `changeMyPassword`. The repository primitive's
+ *      boolean miss (unknown id, already-fresh stamp) is a no-op — the wire
+ *      contract stays `true`; a repo failure propagates uncaught to the
+ *      standard error finalizer.
  *
- * Scope semantics (both fields are self-scoped — no role, permission, or
+ * Scope semantics (all fields are self-scoped — no role, permission, or
  * superAdmin scope participates):
  *  - Each field carries EXACTLY `authScopes: { authenticated: true }`
  *    (the `me` query precedent): every authenticated role owns a locale
- *    preference and a credential. Anonymous callers hit the `authenticated`
- *    scope's UnauthorizedError throw (extensions.code UNAUTHORIZED / 401
- *    semantics).
+ *    preference, a credential, and an activity signal. Anonymous callers
+ *    hit the `authenticated` scope's UnauthorizedError throw (extensions.code
+ *    UNAUTHORIZED / 401 semantics).
  *
  * Thin-resolver discipline:
  *  - `updateMyLocale` normalizes the wire value (the enum member's runtime
@@ -51,6 +62,11 @@
  *    per-field UI errors); the resolver adds none of it.
  *  - `ctx.locale` propagates so localized errors resolve through the
  *    service's translation seam.
+ *  - `recordMyActivity` is the purest delegation of the three: the field
+ *    admits ZERO arguments (no client-owned input exists to normalize) and
+ *    delegates `ctx.user.id` verbatim — the one-now capture, the transaction
+ *    composition, and the repository primitive call all live in
+ *    `AuthService.recordMyActivity`.
  *
  * Per `backend/graphql/mutation/AGENTS.md`:
  *  - This file has NO named exports — the root field registers at import
@@ -142,6 +158,40 @@ gqlSchemaBuilder.mutationField("changeMyPassword", t =>
         { currentPassword: args.input.currentPassword, newPassword: args.input.newPassword },
         ctx.locale
       );
+    },
+  })
+);
+
+// Side-effect: register the `recordMyActivity` mutation field.
+gqlSchemaBuilder.mutationField("recordMyActivity", t =>
+  t.field({
+    type: "Boolean",
+    description:
+      "Heartbeat server leg — stamps the caller's last-activity timestamp and returns true. Argless: identity is derived from the verified context, never from arguments.",
+    // Requires an authenticated context (UNAUTHORIZED otherwise) — every
+    // authenticated role owns an activity signal, so no role/permission
+    // scope applies (the `me` query / `updateMyLocale` precedent).
+    authScopes: {
+      authenticated: true,
+    },
+    resolve: async (_root, _args, ctx) => {
+      // The `authenticated` scope guarantees a verified user row at
+      // resolution time (anonymous callers never get past the scope step).
+      // This branch exists purely for TypeScript narrowing — the repo-wide
+      // no-non-null-assertion rule forbids dereferencing the nullable
+      // context directly. Unreachable in practice; per the resolver-i18n
+      // rule the message flows through ctx.t (its en copy is identical to
+      // builder.ts's `authenticated` scope literal).
+      if (!ctx.user) {
+        const tErrors = await ctx.t("errorsTranslations");
+        throw new UnauthorizedError(tErrors.unauthorized);
+      }
+      // Argless by design (BOPLA): identity is server-derived from the
+      // authenticated context — there is no client-owned value and no
+      // input object to seal. One-line delegation: the one-now capture,
+      // the transaction composition, and the repository primitive call
+      // all live in the service.
+      return AuthService.recordMyActivity(ctx.user.id);
     },
   })
 );

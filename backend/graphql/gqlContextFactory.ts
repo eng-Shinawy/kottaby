@@ -16,17 +16,24 @@
  *    context-build time. We also accept the cookie for the SSR refresh
  *    path / dev convenience.
  *  - Keeps `ctx.user` null if no valid token is present (anonymous).
+ *  - After a verified user resolves, issues ONE throttled, fire-and-forget
+ *    activity stamp (`UserRepository.updateLastActiveAtIfStale`) so
+ *    authenticated GraphQL traffic keeps the user's activity freshness
+ *    current. The stamp is NEVER awaited — a transient failure is logged
+ *    and swallowed so the request proceeds — and anonymous requests issue
+ *    nothing.
  *  - Exposes `authCookieOut` — a per-request accumulator that mutation
  *    resolvers (`login`, `refreshToken`) push `Set-Cookie` header values
  *    into. The route handler reads it after Apollo processes the request
  *    and merges them onto the outgoing response.
  */
 import type { NextRequest } from "next/server";
-import { UserRepository } from "@/backend/db/repo";
+import { USER_ACTIVITY_COALESCE_WINDOW_MS, UserRepository } from "@/backend/db/repo";
 import { toUserRole, UserRole } from "@/backend/enum/users/user-role.enum";
 import { resolveRequestId } from "@/backend/lib/api";
 import { AUTH_COOKIE_NAMES, type AuthCookieOut, createAuthCookieOut, parseCookies } from "@/backend/lib/auth/cookies";
 import { verifyAccessToken } from "@/backend/lib/auth/jwt";
+import { logger } from "@/backend/lib/logger";
 import type { RegistrationReturnType } from "@/backend/types";
 import { LOCALE_COOKIE_NAME } from "@/shared/locale/server-cookies";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
@@ -271,6 +278,28 @@ export async function createGraphQLContext(request: NextRequest | Request): Prom
         role = toUserRole(payload.role);
       }
     }
+  }
+
+  // Per-request activity stamp — issued for the verified user ONLY, exactly
+  // once per construction, and NEVER awaited: context build must not block
+  // on (or fail with) the stamp. One `now` capture anchors both the fresh
+  // instant and its coalesce boundary; the throttled primitive commits a
+  // write only when the stored stamp is NULL or older than
+  // `USER_ACTIVITY_COALESCE_WINDOW_MS` (60s) — fresh arrivals are zero-row
+  // probes — and the monotonic guard inside the same statement can never
+  // move the stored stamp backwards. A transient failure is logged (error
+  // NAME only — details could carry DB internals) and swallowed: the
+  // request proceeds without its stamp.
+  if (user) {
+    const activityNow = new Date();
+    const staleBefore = new Date(activityNow.getTime() - USER_ACTIVITY_COALESCE_WINDOW_MS);
+    const activityUserId = user.id;
+    void UserRepository.updateLastActiveAtIfStale(activityUserId, staleBefore, activityNow).catch(error => {
+      logger.warn("Per-request activity stamp failed", {
+        userId: activityUserId,
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+    });
   }
 
   return {

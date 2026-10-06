@@ -403,6 +403,7 @@ const KNOWN_LIVE_MUTATION_FIELDS = [
   "openSessionDispute",
   "purchaseSubscription",
   "purchaseVerificationPlan",
+  "recordMyActivity",
   "refreshToken",
   "registerUser",
   "rejectWithdrawal",

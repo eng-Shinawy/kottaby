@@ -6,6 +6,7 @@ import type {
   LoginMutationVariables,
   LogoutMutation,
   MeQuery,
+  RecordMyActivityMutation,
   RefreshTokenMutation,
   RefreshTokenMutationVariables,
   RegisterUserMutation,
@@ -212,5 +213,26 @@ export const logoutMutationDocument: TypedDocumentNode<LogoutMutation> = gql`
     logout {
       success
     }
+  }
+`;
+
+/**
+ * `recordMyActivity` mutation — the client presence heartbeat.
+ *
+ * Argless by contract: identity is derived server-side from the verified
+ * context, never from arguments, and the payload is a bare non-nullable
+ * `Boolean` (the server's activity stamp always reports success once the
+ * request is authenticated). Because nothing object-typed is selected, the
+ * shared-documents `id` Field Requirement does not apply here — there is no
+ * normalized cache entry to write.
+ *
+ * Fired by the shell-mounted presence heartbeat while the document is
+ * visible. Every beat is a monotonic activity stamp server-side, so the
+ * operation is idempotent; a failed beat is logged and swallowed by the
+ * heartbeat — this mutation must never surface UI.
+ */
+export const recordMyActivityMutationDocument: TypedDocumentNode<RecordMyActivityMutation> = gql`
+  mutation RecordMyActivity {
+    recordMyActivity
   }
 `;

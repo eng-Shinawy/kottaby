@@ -22,7 +22,7 @@
  *      `deferred`             → exists on disk but envelope adoption is owned by
  *                                a later change.
  *
- * Current ground truth: SIX routes exist on disk —
+ * Current ground truth: EIGHT routes exist on disk —
  * `app/api/graphql/route.ts` (gateway), `app/api/set-locale/route.ts`
  * (envelope), `app/api/health/route.ts` (envelope from the start — the
  * GET-only LB liveness probe, second sanctioned health surface; no other
@@ -35,7 +35,11 @@
  * provider both answer a bare 404 documented on the route),
  * `app/api/cron/expire-subscriptions/route.ts` (envelope — the
  * subscription-expiry sweep job, the sessions sweep's fail-closed sibling
- * with the same bearer gate + bare-404 kill switch documented on the route)
+ * with the same bearer gate + bare-404 kill switch documented on the route),
+ * `app/api/cron/sweep-inactive-teachers/route.ts` (envelope — the
+ * externally triggered teacher-inactivity auto-offline sweep job, the
+ * sessions sweep's fail-closed sibling with the same bearer gate +
+ * bare-404 kill switch documented on the route)
  * and `app/api/payments/webhook/route.ts` (provider-ack-exempt — gateway
  * callback surface whose disabled kill switch and inactive paymob
  * branch both answer a bare 404, registered in the exemptions inventory).
@@ -75,6 +79,10 @@ export const ROUTE_INVENTORY: readonly RouteInventoryEntry[] = [
   // sweep's bearer-gated REST envelope sibling; the disabled mode answers
   // a bare 404 (documented on the route).
   { path: "/api/cron/expire-subscriptions", classification: "envelope" },
+  // Externally triggered teacher-inactivity auto-offline sweep job — the
+  // sessions sweep's bearer-gated REST envelope sibling; the disabled mode
+  // answers a bare 404 (documented on the route).
+  { path: "/api/cron/sweep-inactive-teachers", classification: "envelope" },
   // Gateway callback ack — enveloped success/failure replies; the disabled
   // kill switch and the inactive paymob-branch mode gate both answer a bare
   // 404 (exemption row in the error-handling contract's exemptions

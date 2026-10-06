@@ -2,6 +2,8 @@ import type { AvailabilityLabels } from "@/shared/locale/types/availability";
 
 export const availabilityEn: AvailabilityLabels = {
   cardTitle: "Availability",
+  statusAvailable: "Available",
+  statusUnavailable: "Offline",
   toggleToAvailableCta: "Set as Available",
   toggleToUnavailableCta: "Set as Unavailable",
   certificationRequiredHint: "Complete your teacher certification to enable availability.",

@@ -5,7 +5,9 @@
  *  - `getAvailability` — read the closed three-field availability
  *    projection (`id`, `isOnline`, `isApproved`) for the calling teacher.
  *  - `setAvailability` — write the MANUAL availability toggle inside ONE
- *    transaction. The certification gate and the in-session gate fire on
+ *    transaction and stamp the acting teacher's `last_active_at` inside
+ *    that SAME transaction (the fresh toggle carries fresh activity).
+ *    The certification gate and the in-session gate fire on
  *    the Available direction ONLY; the Unavailable direction is always
  *    allowed (an uncertified teacher may still go offline, and a teacher
  *    inside a session is already offline by the lifecycle lock).
@@ -22,7 +24,8 @@
  *    `ValidationError` (`VALIDATION` code, HTTP 422) and touches ZERO
  *    rows — no repository call ever fires for a malformed input.
  *  - Transaction composition: every write path composes lock → gates →
- *    write inside ONE `withTransaction(tx, async innerTx => …)` call.
+ *    write → activity stamp inside ONE `withTransaction(tx, async innerTx
+ *    => …)` call, with ONE captured `now` for the whole transaction.
  *    The caller's outer transaction is joined, never bypassed, and the
  *    global `db` handle is never touched inside the write path.
  *  - Gate order: on the Available (`isOnline === true`) direction, the
@@ -46,7 +49,7 @@
  *    bundle + property access); no hardcoded messages, no `console.*`.
  */
 
-import { TeacherRepository } from "@/backend/db/repo";
+import { TeacherRepository, UserRepository } from "@/backend/db/repo";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
@@ -154,6 +157,14 @@ export namespace TeacherAvailabilityService {
    * are idempotent by construction (the guarded UPDATE returns the row
    * for a redundant same-value write).
    *
+   * Activity stamp — after the guarded write lands (and the post-write
+   * zero-row guard holds), the flow stamps the acting teacher's
+   * `users.last_active_at` with ONE captured `now` inside the SAME
+   * transaction, so the toggle and the freshness signal commit — or roll
+   * back — atomically. The stamp is the repository's monotonic guarded
+   * write; a boolean miss (an equal-or-fresher stored stamp) is a safe
+   * no-op here, never a toggle failure.
+   *
    * The happy path emits NOTHING. Each service-owned denial
    * (certification gate, not-found, post-write zero-row guard) emits
    * exactly ONE bounded `logger.logDomainError` call carrying
@@ -240,6 +251,10 @@ export namespace TeacherAvailabilityService {
         });
         throw new NotFoundError("TEACHER", t.teacherNotFound);
       }
+
+      // One captured now for the whole transaction (one-now discipline).
+      const activityNow = new Date();
+      await UserRepository.updateLastActiveAt(teacherId, activityNow, innerTx);
 
       return toAvailabilityReturnType(updated.id, updated.isOnline, locked.isApproved);
     });

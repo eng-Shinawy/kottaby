@@ -43,7 +43,13 @@
  *    value (runs on pglite); forced inner failure AFTER `setOnline` writes
  *    ⇒ `teacher.is_online` unchanged (rollback of the whole
  *    `withTransaction`); the honest zero-row guard (a `setOnline` spy
- *    returning `null` ⇒ `TEACHER_NOT_FOUND` post-write denial).
+ *    returning `null` ⇒ `TEACHER_NOT_FOUND` post-write denial). The
+ *    in-tx activity stamp tier: the stamp and the write share ONE
+ *    `innerTx` (spy-arg identity) and one captured now within the test
+ *    window; a forced failure AFTER the stamp rolls back
+ *    `last_active_at` AND `is_online` together; a fresh toggle carries a
+ *    fresh `last_active_at` (both toggle directions; a stamp boolean
+ *    miss never fails the toggle).
  *  - Tier 4 (security/abuse): hostile-id fuzz with a repo/read spy proving
  *    ZERO DB calls before a `VALIDATION` denial; the certification gate
  *    NEVER lets an uncertified teacher reach `setOnline(true)` (BFLA/INV-A1
@@ -59,7 +65,7 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
-import { TeacherRepository } from "@/backend/db/repo";
+import { TeacherRepository, UserRepository } from "@/backend/db/repo";
 import { session } from "@/backend/db/schema/classes/session";
 import { students } from "@/backend/db/schema/students/students";
 import { teacher } from "@/backend/db/schema/teachers/teacher";
@@ -77,7 +83,7 @@ import { DomainError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
 import { TeacherAvailabilityService } from "@/backend/services/teachers/teacher-availability.service";
-import type { TeacherAvailabilityReturnType } from "@/backend/types";
+import type { DBQueryExecutor, TeacherAvailabilityReturnType } from "@/backend/types";
 import { defaultLocale } from "@/shared/locale/AppLocale";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 import { isPgliteProvider } from "@/test/helpers/skip-when-pglite";
@@ -186,6 +192,16 @@ async function absentTeacherId(tx: DBTransaction): Promise<number> {
 async function readTeacherRow(tx: DBTransaction, teacherId: number) {
   const rows = await tx.select().from(teacher).where(eq(teacher.id, teacherId));
   return rows[0] ?? null;
+}
+
+/**
+ * Independent read-back oracle for the in-tx activity stamp — a direct
+ * Drizzle select of `users.last_active_at`, not via the service or the
+ * repository, so the assertion cannot share the code path under test.
+ */
+async function readUserLastActiveAt(tx: DBTransaction, userId: number): Promise<Date | null> {
+  const rows = await tx.select({ lastActiveAt: users.lastActiveAt }).from(users).where(eq(users.id, userId));
+  return rows[0]?.lastActiveAt ?? null;
 }
 
 /**
@@ -1059,6 +1075,160 @@ describe("TeacherAvailabilityService.setAvailability", () => {
         expect(reread?.isApproved).toBe(true);
       } finally {
         setOnlineSpy.mockRestore();
+      }
+    });
+  });
+
+  // ─── In-tx activity stamp (atomic with the toggle) ──────────────────
+
+  test("the activity stamp joins the toggle's transaction: the stamp and the write share ONE innerTx and one captured now", async () => {
+    await runInRollback(async tx => {
+      // Backdate the fixture's activity so the stamp's monotonic guarded
+      // write has a strictly older value to advance (a same-millisecond
+      // stored stamp would be a legitimate zero-row miss).
+      const backdated = new Date(Date.now() - 10 * 60_000);
+      const user = await createTestUser(tx, { role: "teacher", lastActiveAt: backdated });
+      await createTestTeacherRow(tx, user.id, { isOnline: false });
+      silenceDomainLog();
+
+      // Both write seams are spied with call-through (restored in a
+      // `finally` so an assertion failure cannot leak the spies into the
+      // next test) — the spies record arguments WITHOUT changing the
+      // committed behavior.
+      const realSetOnline = TeacherRepository.setOnline;
+      const realStamp = UserRepository.updateLastActiveAt;
+      const setOnlineSpy = spyOn(TeacherRepository, "setOnline").mockImplementation(
+        async (id: number, online: boolean, innerTx: DBTransaction) => realSetOnline(id, online, innerTx)
+      );
+      const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockImplementation(
+        async (userId: number, now: Date, innerTx?: DBQueryExecutor) => realStamp(userId, now, innerTx)
+      );
+      try {
+        const windowStart = new Date();
+        await TeacherAvailabilityService.setAvailability(user.id, true, LOCALE_EN, tx);
+        const windowEnd = new Date();
+
+        // Exactly ONE stamp call — carrying the toggle's teacher id and a
+        // `now` captured inside the transaction (within the test window,
+        // strictly fresher than the backdated fixture value).
+        expect(stampSpy.mock.calls).toHaveLength(1);
+        const [stampUserId, stampNow, stampInnerTx] = stampSpy.mock.calls[0];
+        expect(stampUserId).toBe(user.id);
+        expect(stampNow.getTime()).toBeGreaterThanOrEqual(windowStart.getTime());
+        expect(stampNow.getTime()).toBeLessThanOrEqual(windowEnd.getTime());
+        expect(stampNow.getTime()).toBeGreaterThan(backdated.getTime());
+
+        // In-transaction composition — the stamp received the SAME tx
+        // handle the write received (one shared atomic unit).
+        expect(setOnlineSpy.mock.calls).toHaveLength(1);
+        const [, , writeInnerTx] = setOnlineSpy.mock.calls[0];
+        expect(stampInnerTx).toBe(writeInnerTx);
+
+        // Read-your-writes — the stamped value is visible inside the same
+        // outer transaction, byte-exact against the captured instant.
+        const stampedAt = await readUserLastActiveAt(tx, user.id);
+        expect(stampedAt?.getTime()).toBe(stampNow.getTime());
+      } finally {
+        setOnlineSpy.mockRestore();
+        stampSpy.mockRestore();
+      }
+    });
+  });
+
+  test("a forced failure AFTER the stamp rolls back last_active_at AND is_online together (one transaction, one fate)", async () => {
+    await runInRollback(async tx => {
+      const backdated = new Date(Date.now() - 10 * 60_000);
+      const user = await createTestUser(tx, { role: "teacher", lastActiveAt: backdated });
+      await createTestTeacherRow(tx, user.id, { isOnline: false });
+      silenceDomainLog();
+
+      // The stamp spy calls through (the real guarded UPDATE fires on the
+      // SAVEPOINT) and THEN throws — the same forced-inner-failure shape
+      // as the post-write sentinel above, one seam later. Restored in a
+      // `finally` so an assertion failure cannot leak the spy.
+      const realStamp = UserRepository.updateLastActiveAt;
+      const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockImplementation(
+        async (userId: number, now: Date, innerTx?: DBQueryExecutor) => {
+          await realStamp(userId, now, innerTx);
+          throw new Error(FORCED_INNER_FAILURE);
+        }
+      );
+      try {
+        const error = await expectRepoError(() =>
+          TeacherAvailabilityService.setAvailability(user.id, true, LOCALE_EN, tx)
+        );
+
+        expect(error).toBeInstanceOf(Error);
+        expect(error.message).toBe(FORCED_INNER_FAILURE);
+
+        // The SAVEPOINT rolled back: the stamp is un-applied — the stored
+        // activity is still the backdated fixture value.
+        const stampedAt = await readUserLastActiveAt(tx, user.id);
+        expect(stampedAt?.getTime()).toBe(backdated.getTime());
+
+        // ...and the toggle is un-applied with it: is_online unchanged.
+        const reread = await readTeacherRow(tx, user.id);
+        expect(reread?.isOnline).toBe(false);
+      } finally {
+        stampSpy.mockRestore();
+      }
+    });
+  });
+
+  test("a fresh toggle carries fresh activity: last_active_at advances into the test window (Available direction)", async () => {
+    await runInRollback(async tx => {
+      const backdated = new Date(Date.now() - 10 * 60_000);
+      const user = await createTestUser(tx, { role: "teacher", lastActiveAt: backdated });
+      await createTestTeacherRow(tx, user.id, { isOnline: false });
+      silenceDomainLog();
+
+      // The REAL production path — no stamp spy. The toggle's transaction
+      // captures its own `now` and commits the stamp atomically with the
+      // flag write.
+      const windowStart = new Date();
+      const projection = await TeacherAvailabilityService.setAvailability(user.id, true, LOCALE_EN, tx);
+      const windowEnd = new Date();
+
+      expect(projection).toEqual({ id: user.id, isOnline: true, isApproved: true });
+      const stampedAt = await readUserLastActiveAt(tx, user.id);
+      expect(stampedAt).toBeInstanceOf(Date);
+      expect(stampedAt?.getTime()).toBeGreaterThanOrEqual(windowStart.getTime());
+      expect(stampedAt?.getTime()).toBeLessThanOrEqual(windowEnd.getTime());
+      // Freshness — the stored activity strictly advanced past the
+      // backdated fixture value.
+      expect(stampedAt?.getTime()).toBeGreaterThan(backdated.getTime());
+      const reread = await readTeacherRow(tx, user.id);
+      expect(reread?.isOnline).toBe(true);
+    });
+  });
+
+  test("the Unavailable direction stamps too, and a stamp boolean miss never fails the toggle", async () => {
+    await runInRollback(async tx => {
+      const backdated = new Date(Date.now() - 10 * 60_000);
+      const user = await createTestUser(tx, { role: "teacher", lastActiveAt: backdated });
+      await createTestTeacherRow(tx, user.id, { isOnline: true });
+      silenceDomainLog();
+
+      // The stamp is stubbed to a boolean MISS (zero rows written) — the
+      // service treats the miss as "nothing to do": the toggle still
+      // succeeds and the projection is still returned. Restored in a
+      // `finally` so an assertion failure cannot leak the spy.
+      const stampSpy = spyOn(UserRepository, "updateLastActiveAt").mockResolvedValue(false);
+      try {
+        const windowStart = new Date();
+        const projection = await TeacherAvailabilityService.setAvailability(user.id, false, LOCALE_EN, tx);
+        const windowEnd = new Date();
+
+        expect(projection).toEqual({ id: user.id, isOnline: false, isApproved: true });
+        expect(stampSpy.mock.calls).toHaveLength(1);
+        const [stampUserId, stampNow] = stampSpy.mock.calls[0];
+        expect(stampUserId).toBe(user.id);
+        expect(stampNow.getTime()).toBeGreaterThanOrEqual(windowStart.getTime());
+        expect(stampNow.getTime()).toBeLessThanOrEqual(windowEnd.getTime());
+        const reread = await readTeacherRow(tx, user.id);
+        expect(reread?.isOnline).toBe(false);
+      } finally {
+        stampSpy.mockRestore();
       }
     });
   });

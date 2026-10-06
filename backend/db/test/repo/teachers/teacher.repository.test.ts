@@ -55,6 +55,23 @@
  *    `teacher_average_rating_check` violation (untranslated, savepoint
  *    probe), and static pins assert the guarded REQUIRED-tx write shape.
  *
+ * sweepInactiveOnlineOnce tier (the inactivity auto-offline batch,
+ * runInRollback):
+ *  - Tier 1: the guarded predicate legs — a stale online teacher is swept;
+ *    NULL activity counts as expired; fresh activity, already-offline, and
+ *    started-session rows are skipped; a merely scheduled session does NOT
+ *    exempt.
+ *  - Tier 2: the strict `<` boundary — activity exactly at the cutoff and
+ *    14:59 old stays online, 15:01 old is swept; `updated_at` is stamped
+ *    with the caller-captured now (one clock read per pass).
+ *  - Tier 3: a replay after the sweep is a zero-row no-op; the count is
+ *    honest across mixed states (drain pass first — never assume an empty
+ *    table).
+ *  - Tier 4: static pins — REQUIRED tx, predicate-only victim selection,
+ *    enum-member binding (never a string literal), no prepared statements,
+ *    and the lock-then-recheck shape (candidates pinned FOR UPDATE, the
+ *    UPDATE re-running the same predicates scoped to the pinned ids).
+ *
  * listMatchingCandidates suite (the student-facing matching read):
  *  - Eligibility matrix: online + certified fail-closed, governance via
  *    IS DISTINCT FROM true (legacy NULL rows kept), in-session exclusion
@@ -394,20 +411,26 @@ describe("TeacherRepository.lockForCertificationCheck", () => {
   const repoSource = readFileSync(REPO_FILE, "utf8");
 
   /**
-   * The lockForCertificationCheck slice of the repository source (the static
-   * pin target). The no-interpolation ban is scoped to this slice: the lock
-   * query is a pure bound-parameter read, while the file's OTHER reads
-   * legitimately interpolate Drizzle column references / enum values inside
-   * `sql` templates — which renders as bound parameters, not SQL text.
+   * The lockForCertificationCheck slice — the injection-surface pin target.
+   * The no-interpolation ban is scoped to this slice: the lock query is a
+   * pure bound-parameter read, while the file's OTHER reads (incl. the
+   * batch sweep's parameterized EXISTS probes) legitimately interpolate
+   * Drizzle column references / enum values inside `sql` templates — which
+   * renders as bound parameters, not SQL text.
    */
-  function lockSource(): string {
+  function repoLockSource(): string {
     const start = repoSource.indexOf("export async function lockForCertificationCheck(");
-    return repoSource.slice(start, repoSource.indexOf("\n  }\n", start));
+    return repoSource.slice(start, repoSource.indexOf("\n  }", start));
   }
 
-  test("source: the id reaches the query only as a bound parameter (no injection surface)", () => {
+  test("source: the lock's id reaches the query only as a bound parameter (no injection surface)", () => {
+    // Whole-file: no SQL comment markers anywhere in the repository. The
+    // `${` probe is scoped to the lock read: the batch sweep's parameterized
+    // EXISTS probes interpolate schema columns by design, and every one of
+    // those reaches the driver as a bound value or a quoted identifier —
+    // never a concatenated string.
     expect(repoSource.includes("--")).toBe(false);
-    expect(lockSource().includes("${")).toBe(false);
+    expect(repoLockSource().includes("${")).toBe(false);
   });
 
   test("source: no prepared statements and no module-level query state", () => {
@@ -651,6 +674,327 @@ describe("TeacherRepository.setOnline (the INV-S6 lock primitive)", () => {
     expect(source).toContain("eq(teacher.id, id)");
     // No raw-SQL string building around the id; no LIKE/ILIKE scan surface.
     expect(source).not.toMatch(/\b(ilike|like)\s*\(/i);
+  });
+});
+
+/** The 15-minute inactivity threshold the sweep tests derive their cutoffs from. */
+const FIFTEEN_MINUTES_MS = 15 * 60_000;
+
+/**
+ * Second-precision instant — the resolution the boundary legs stay provable
+ * at through a write/read round-trip (sweeper fixtures build every stamp and
+ * sweep instant from this so the strict `<` comparison has no sub-second
+ * ambiguity).
+ */
+function secondPrecisionInstant(ms: number): Date {
+  return new Date(Math.floor(ms / 1000) * 1000);
+}
+
+/** An instant `minutes` before the given one (second-precision preserved). */
+function minutesBefore(instant: Date, minutes: number): Date {
+  return new Date(instant.getTime() - minutes * 60_000);
+}
+
+/**
+ * Online-teacher fixture with a controlled activity stamp: `lastActiveAt` is
+ * caller-backdated (NULL = never active). Returns the teacher row id (shared
+ * PK with the owning user).
+ */
+async function createOnlineTeacher(tx: DBTransaction, lastActiveAt: Date | null): Promise<number> {
+  const user = await createTestUser(tx, { role: "teacher", lastActiveAt });
+  await createTeacherRowFixture(tx, user.id, { isOnline: true });
+  return user.id;
+}
+
+/** Stale-OFFLINE control fixture — the `is_online` victim gate never matches it. */
+async function createStaleOfflineTeacher(tx: DBTransaction, lastActiveAt: Date): Promise<number> {
+  const user = await createTestUser(tx, { role: "teacher", lastActiveAt });
+  await createTeacherRowFixture(tx, user.id);
+  return user.id;
+}
+
+/** Attaches a session in the given status to the teacher (the in-session exemption fixture). */
+async function attachSession(tx: DBTransaction, teacherId: number, status: SessionStatus): Promise<void> {
+  const student = await createTestUser(tx);
+  await createTestSession(tx, teacherId, student.id, { status });
+}
+
+/** Read-back oracle — the persisted availability flag of one teacher row. */
+async function isOnlineOf(tx: DBTransaction, teacherId: number): Promise<boolean | null> {
+  const [row] = await tx.select({ isOnline: teacher.isOnline }).from(teacher).where(eq(teacher.id, teacherId));
+  return row?.isOnline ?? null;
+}
+
+/** The sweep slice of the repository source (the static pin target). */
+function repoSweepSource(): string {
+  const source = readFileSync(join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts"), "utf8");
+  const start = source.indexOf("export async function sweepInactiveOnlineOnce(");
+  return source.slice(start, source.indexOf("\n  }", start));
+}
+
+describe("TeacherRepository.sweepInactiveOnlineOnce (the inactivity auto-offline batch)", () => {
+  // Every count-asserting test opens with a DRAIN pass: the sweep's
+  // predicate is global (unlike row-scoped writes), so any pre-existing
+  // stale-online row — seed residue or a leaked fixture — is transitioned
+  // BEFORE the fixtures are created, and the fixture pass below counts only
+  // what the test itself created (never assume an empty table). All instants
+  // are second-precision so the strict `<` boundary is provable at stored
+  // resolution, and fixtures are BACKDATED rows — no fake timers.
+
+  // ─── Tier 1: branch/statement (the guarded predicate legs) ──────────
+
+  test("sweeps a stale online teacher and flips is_online to false", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, minutesBefore(now, 30));
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(1);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
+  });
+
+  test("sweeps an online teacher whose activity is NULL (never active counts as expired)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, null);
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(1);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
+  });
+
+  test("skips a fresh-activity online teacher (the staleness probe fails)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, minutesBefore(now, 1));
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(0);
+      expect(await isOnlineOf(tx, teacherId)).toBe(true);
+    });
+  });
+
+  test("skips an already-offline teacher even with stale activity (the victim gate fails)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createStaleOfflineTeacher(tx, minutesBefore(now, 30));
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(0);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
+  });
+
+  test("skips an online stale teacher holding a STARTED session (the lock takes priority)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, minutesBefore(now, 30));
+      await attachSession(tx, teacherId, SessionStatus.Started);
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(0);
+      expect(await isOnlineOf(tx, teacherId)).toBe(true);
+    });
+  });
+
+  test("a merely SCHEDULED session does not exempt an otherwise stale online teacher", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, minutesBefore(now, 30));
+      await attachSession(tx, teacherId, SessionStatus.Scheduled);
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(1);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
+  });
+
+  // ─── Tier 2: the strict `<` boundary ─────────────────────────────────
+
+  test("activity EXACTLY at the cutoff is NOT swept; one second older is (strict <)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const atCutoff = await createOnlineTeacher(tx, cutoff);
+      const oneSecondOlder = await createOnlineTeacher(tx, new Date(cutoff.getTime() - 1_000));
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(1);
+      expect(await isOnlineOf(tx, atCutoff)).toBe(true);
+      expect(await isOnlineOf(tx, oneSecondOlder)).toBe(false);
+    });
+  });
+
+  test("activity 14:59 old is NOT swept (inside the threshold stays online)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, new Date(cutoff.getTime() + 1_000));
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(0);
+      expect(await isOnlineOf(tx, teacherId)).toBe(true);
+    });
+  });
+
+  test("activity 15:01 old IS swept (past the threshold flips offline)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, new Date(cutoff.getTime() - 1_000));
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(1);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
+  });
+
+  test("updated_at is bumped to the caller-captured now on every swept row (one clock read)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      // The row's stamp is pinned to the epoch so the refresh is unambiguous.
+      const user = await createTestUser(tx, { role: "teacher", lastActiveAt: minutesBefore(now, 30) });
+      await createTeacherRowFixture(tx, user.id, { isOnline: true, updatedAt: new Date(0) });
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(offlined).toBe(1);
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, user.id));
+      expect(reread?.isOnline).toBe(false);
+      // The write stamps the CALLER's captured instant — not a fresh clock
+      // read inside the primitive.
+      expect(reread?.updatedAt.getTime()).toBe(now.getTime());
+    });
+  });
+
+  // ─── Tier 3: replay + honest counts ─────────────────────────────────
+
+  test("a replay immediately after the sweep is a zero-row no-op (the victim gate never re-matches)", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createOnlineTeacher(tx, minutesBefore(now, 30));
+
+      const first = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const replay = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      expect(first).toBe(1);
+      expect(replay).toBe(0);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
+  });
+
+  test("the returned count is honest across mixed teacher states", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = new Date(now.getTime() - FIFTEEN_MINUTES_MS);
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      const staleOnline = await createOnlineTeacher(tx, minutesBefore(now, 30));
+      const neverActive = await createOnlineTeacher(tx, null);
+      const freshOnline = await createOnlineTeacher(tx, minutesBefore(now, 1));
+      const staleOffline = await createStaleOfflineTeacher(tx, minutesBefore(now, 30));
+      const inSession = await createOnlineTeacher(tx, minutesBefore(now, 30));
+      await attachSession(tx, inSession, SessionStatus.Started);
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      // Exactly the two stale-or-expired ONLINE teachers not in session.
+      expect(offlined).toBe(2);
+      expect(await isOnlineOf(tx, staleOnline)).toBe(false);
+      expect(await isOnlineOf(tx, neverActive)).toBe(false);
+      expect(await isOnlineOf(tx, freshOnline)).toBe(true);
+      expect(await isOnlineOf(tx, staleOffline)).toBe(false);
+      expect(await isOnlineOf(tx, inSession)).toBe(true);
+    });
+  });
+
+  // ─── Tier 4: static surface pins ────────────────────────────────────
+
+  test("source: REQUIRED-tx guarded batch write stamping the caller-captured now", () => {
+    const source = repoSweepSource();
+    expect(source).toContain(
+      "export async function sweepInactiveOnlineOnce(now: Date, cutoff: Date, tx: DBTransaction)"
+    );
+    expect(source).toContain(": Promise<number>");
+    expect(source).toContain("isOnline: false");
+    expect(source).toContain("updatedAt: now");
+    expect(source).toContain(".returning(");
+    // One-now discipline: the primitive never reads the clock itself.
+    expect(source.includes("new Date(")).toBe(false);
+  });
+
+  test("source: victim selection is predicate-only (no row-identity or client parameters)", () => {
+    const source = repoSweepSource();
+    expect(source).toContain("eq(teacher.isOnline, true)");
+    // The staleness probe EXISTS-joins the owning users row; the exemption
+    // NOT-EXISTS-probes the session table (both parameterized schema
+    // interpolation — bound values and quoted identifiers, never strings).
+    expect(/EXISTS \(SELECT 1 FROM \$\{users\}/.test(source)).toBe(true);
+    expect(source).toContain("users.lastActiveAt");
+    expect(/NOT EXISTS \(SELECT 1 FROM \$\{session\}/.test(source)).toBe(true);
+    expect(source).toContain("session.status");
+    expect(source.includes("id: number")).toBe(false);
+  });
+
+  test("source: the in-session exemption binds the SessionStatus enum member, never a string literal", () => {
+    const source = repoSweepSource();
+    expect(source).toContain("SessionStatus.Started");
+    expect(source.includes("'started'")).toBe(false);
+  });
+
+  test("source: no prepared statements, no placeholder batching in the sweep", () => {
+    const source = repoSweepSource();
+    expect(source.includes(".prepare(")).toBe(false);
+    expect(source.includes("sql.placeholder")).toBe(false);
+  });
+
+  test("source: lock-then-recheck — candidates pinned FOR UPDATE, then re-checked under a fresh snapshot", () => {
+    const source = repoSweepSource();
+    // Statement 1 pins the candidates under row locks held to the caller's
+    // commit; statement 2 re-runs the SAME predicates scoped to the pinned
+    // ids, under the fresh READ COMMITTED snapshot its own start captures —
+    // a confirmation stamp that committed while the locks were acquired is
+    // then visible and spares the row (the EvalPlanQual staleness hole a
+    // single-statement form cannot close). Both probes therefore appear
+    // exactly TWICE: once per statement.
+    expect(source).toContain('.for("update")');
+    expect(source).toContain("inArray(");
+    expect(source.match(/EXISTS \(SELECT 1 FROM \$\{users\}/g)?.length).toBe(2);
+    expect(source.match(/NOT EXISTS \(SELECT 1 FROM \$\{session\}/g)?.length).toBe(2);
+    expect(source.match(/eq\(teacher\.isOnline, true\)/g)?.length).toBe(2);
+    // One-now discipline survives the two-statement form: the primitive
+    // never reads the clock itself.
+    expect(source.includes("new Date(")).toBe(false);
   });
 });
 
@@ -1519,6 +1863,11 @@ describe("TeacherRepository.listMatchingCandidates", () => {
 
   const MATCHING_REPO_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.ts");
   const matchingRepoSource = readFileSync(MATCHING_REPO_FILE, "utf8");
+  // The matching WHERE-chain builders live in the sibling helpers module
+  // (`teacher.repository.helpers.ts`, extracted under the oxlint max-lines
+  // budget) — the builder pins below read THAT file's source.
+  const MATCHING_HELPERS_FILE = join(import.meta.dir, "../../../repo/teachers/teacher.repository.helpers.ts");
+  const matchingHelpersSource = readFileSync(MATCHING_HELPERS_FILE, "utf8");
 
   /** Reads the source slice that starts at `anchor` and ends at its two-space closing brace. */
   function sourceSlice(anchor: string, endAnchor?: string): string {
@@ -1528,16 +1877,26 @@ describe("TeacherRepository.listMatchingCandidates", () => {
   }
 
   test("source: patterns are bound, never re-escaped or re-wrapped (one escape point at the service)", () => {
-    const chain = sourceSlice("function buildTeacherMatchingFilterChain(", "function buildTeacherMatchingCountryTier(");
+    const chain = matchingHelpersSource.slice(
+      matchingHelpersSource.indexOf("function buildTeacherMatchingFilterChain("),
+      matchingHelpersSource.indexOf("function buildTeacherMatchingCountryTier(")
+    );
     expect(chain).toContain("ilike(teacher.recitations, filters.recitationPattern)");
     expect(chain).toContain("ilike(teacher.subjects, filters.subjectPattern)");
     expect(chain).toContain("ilike(teacher.languages, filters.languagePattern)");
+    // No layer of the repo re-escapes or re-wraps: neither the namespace file
+    // nor the helpers module may own an escape point.
     expect(matchingRepoSource.includes("escape-like-wildcards")).toBe(false);
     expect(matchingRepoSource.includes('"%')).toBe(false);
+    expect(matchingHelpersSource.includes("escape-like-wildcards")).toBe(false);
+    expect(matchingHelpersSource.includes('"%')).toBe(false);
   });
 
   test("source: the eligibility chain is online+approved, IS DISTINCT FROM governance, started-session NOT EXISTS", () => {
-    const chain = sourceSlice("function buildTeacherMatchingFilterChain(");
+    const chain = matchingHelpersSource.slice(
+      matchingHelpersSource.indexOf("function buildTeacherMatchingFilterChain("),
+      matchingHelpersSource.indexOf("function buildTeacherMatchingCountryTier(")
+    );
     expect(chain).toContain("eq(teacher.isOnline, true)");
     expect(chain).toContain("eq(teacher.isApproved, true)");
     expect(chain).toContain(`\${users.isDeleted} is distinct from true`);
@@ -1548,7 +1907,10 @@ describe("TeacherRepository.listMatchingCandidates", () => {
   });
 
   test("source: the country tier is a soft case-expression arm per caller shape (code, text, constant)", () => {
-    const tier = sourceSlice("function buildTeacherMatchingCountryTier(", "export namespace TeacherRepository {");
+    const tier = matchingHelpersSource.slice(
+      matchingHelpersSource.indexOf("function buildTeacherMatchingCountryTier("),
+      matchingHelpersSource.indexOf("function buildTeacherMatchingCountryTier(") + 400
+    );
     expect(tier).toContain(`case when \${users.countryCode} = \${filters.studentCountryCode} then 0 else 1 end`);
     expect(tier).toContain(
       `case when lower(\${users.country}) = lower(\${filters.studentCountryText}) then 0 else 1 end`

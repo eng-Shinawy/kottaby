@@ -17,8 +17,8 @@
  *   4. `id` field requirement — every object-typed selection set the Apollo
  *      cache normalizes (`registerUser`, `me`, `login.user`, `updateMyLocale`,
  *      EVERY `Session` payload + `SessionPage.items`) selects `id`;
- *      scalar-only payloads (`refreshToken`, `logout`, `recitationReadings`)
- *      correctly select no objects needing one.
+ *      scalar-only payloads (`refreshToken`, `logout`, `recordMyActivity`,
+ *      `recitationReadings`) correctly select no objects needing one.
  *   5. Barrel parity — deep-import and top-level barrel paths resolve to the
  *      IDENTICAL document instance (consumer import conventions table).
  *
@@ -69,6 +69,7 @@ import type {
   MyTeacherSessionsQuery,
   MyTeacherSessionsQueryVariables,
   RecitationReadingsQuery,
+  RecordMyActivityMutation,
   RefreshTokenMutation,
   RefreshTokenMutationVariables,
   RegisterUserMutation,
@@ -101,6 +102,7 @@ import {
   loginMutationDocument,
   logoutMutationDocument,
   meQueryDocument,
+  recordMyActivityMutationDocument,
   refreshTokenMutationDocument,
   registerUserMutationDocument,
   updateMyLocaleMutationDocument,
@@ -217,6 +219,16 @@ const DOCUMENT_CONTRACT_TABLE: readonly DocumentContractRow[] = [
     document: logoutMutationDocument,
     operationName: "Logout",
     channel: "mutation",
+    variables: [],
+    objectSelections: [],
+  },
+  {
+    document: recordMyActivityMutationDocument,
+    operationName: "RecordMyActivity",
+    channel: "mutation",
+    // Argless heartbeat: identity is server-derived, the payload is a bare
+    // non-nullable `Boolean` — no variables, no object selection, hence no
+    // `id`-normalization requirement.
     variables: [],
     objectSelections: [],
   },
@@ -489,6 +501,7 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
       updateMyLocaleMutationDocument;
     const typedChangeMyPassword: TypedDocumentNode<ChangeMyPasswordMutation, ChangeMyPasswordMutationVariables> =
       changeMyPasswordMutationDocument;
+    const typedRecordMyActivity: TypedDocumentNode<RecordMyActivityMutation> = recordMyActivityMutationDocument;
 
     // The session lifecycle documents (compile-time proof that every
     // `Session` selection conforms to the generated operation types).
@@ -569,6 +582,7 @@ describe("consumer import conventions — barrel ≡ deep import identity", () =
     expect(typedAdminSessionJoin.loc).toBeDefined();
     expect(typedUpdateMyLocale.loc).toBeDefined();
     expect(typedChangeMyPassword.loc).toBeDefined();
+    expect(typedRecordMyActivity.loc).toBeDefined();
     expect(typedMyTeacherEvaluations.loc).toBeDefined();
     expect(typedSubmitTeacherEvaluation.loc).toBeDefined();
     expect(typedBookEvaluationSession.loc).toBeDefined();

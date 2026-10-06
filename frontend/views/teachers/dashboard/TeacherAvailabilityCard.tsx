@@ -129,7 +129,7 @@ function SettledAvailabilityCard({ state, t, refetch }: Readonly<SettledAvailabi
           <Typography variant="h5" component="h2" sx={{ fontWeight: 700 }}>
             {t.cardTitle}
           </Typography>
-          <AvailabilityStatusChip isOnline={isOnline} />
+          <AvailabilityStatusChip isOnline={isOnline} label={isOnline ? t.statusAvailable : t.statusUnavailable} />
         </Stack>
 
         {inline !== null ? (
@@ -161,7 +161,7 @@ function SettledAvailabilityCard({ state, t, refetch }: Readonly<SettledAvailabi
           onClick={() => {
             void toggle();
           }}
-          sx={focusVisibleRingSx}
+          sx={[{ justifySelf: { xs: "stretch", sm: "start" }, minHeight: { xs: 54 } }, focusVisibleRingSx]}
         >
           {ctaLabel}
         </Button>

@@ -1,6 +1,7 @@
 /**
  * `backend/lib/env.ts` — env-seam registration suite
- * (realtime-notification keys + Paymob gateway provider keys + ngrok dev-tunnel keys).
+ * (realtime-notification keys + Paymob gateway provider keys + ngrok
+ * dev-tunnel keys + the teacher-inactivity auto-offline sweep knob).
  *
  * Coverage map (the three mandated tiers + the guard/security tiers of the
  * repo's env-manipulating suites):
@@ -25,7 +26,9 @@
  *    integer coercion (floats, signs, garbage → null), empty-string secrets
  *    rejected (never observable as empty strings), timeout/sweep-window
  *    positive-int fallbacks, checkout-URL override verbatim (including the
- *    legacy unifiedcheckout fallback value), tunnel-port bounds.
+ *    legacy unifiedcheckout fallback value), tunnel-port bounds, and the
+ *    teacher-inactivity window (unset → 15; garbage/zero/negative → 15
+ *    without ever throwing).
  *  - Security: a wildcard origin is unreachable in ANY resolution shape
  *    (default, explicit mixed, all-wildcard); credential-bearing Redis URLs
  *    never cross the non-URL config disclosure surface; paymob secret
@@ -48,6 +51,7 @@ import {
   getNotificationFanoutTransport,
   getPaymobConfig,
   getRedisUrl,
+  getTeacherInactivityTimeoutMinutes,
   getWebSocketAllowedOrigins,
   getWebSocketHost,
   getWebSocketMaxConnections,
@@ -488,6 +492,89 @@ describe("security posture", () => {
     expect(source.includes("console.")).toBe(false);
     expect(source.includes("logDomainError")).toBe(false);
     expect(source.includes("@/backend/lib/logger")).toBe(false);
+  });
+});
+
+// ─── Teacher inactivity fixture (restored after every case) ─────────────
+
+/** The auto-offline sweep's inactivity-window key. */
+const TEACHER_INACTIVITY_ENV_KEYS = ["TEACHER_INACTIVITY_TIMEOUT_MINUTES"] as const;
+
+const originalTeacherInactivityEnv: Record<string, string | undefined> = {};
+for (const key of TEACHER_INACTIVITY_ENV_KEYS) {
+  originalTeacherInactivityEnv[key] = process.env[key];
+}
+
+/** Removes the inactivity key — the deterministic base for default probes. */
+function clearTeacherInactivityEnv(): void {
+  for (const key of TEACHER_INACTIVITY_ENV_KEYS) {
+    delete process.env[key];
+  }
+}
+
+function restoreTeacherInactivityEnv(): void {
+  for (const key of TEACHER_INACTIVITY_ENV_KEYS) {
+    const value = originalTeacherInactivityEnv[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  resetEnvironmentCache();
+}
+
+// ─── Teacher inactivity registry inclusion + invalidation + defaults ────────
+
+describe("teacher inactivity timeout — the auto-offline sweep knob resolves through the env seam", () => {
+  beforeEach(() => {
+    clearTeacherInactivityEnv();
+    resetEnvironmentCache();
+  });
+  afterEach(restoreTeacherInactivityEnv);
+
+  test("TEACHER_INACTIVITY_TIMEOUT_MINUTES is observable through getTeacherInactivityTimeoutMinutes()", () => {
+    process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES = "20";
+    resetEnvironmentCache();
+    expect(getTeacherInactivityTimeoutMinutes()).toBe(20);
+  });
+
+  test("stale until reset, re-read after reset, default after removal", () => {
+    expect(getTeacherInactivityTimeoutMinutes()).toBe(15); // builds the cache from cleared env
+    process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES = "20";
+    expect(getTeacherInactivityTimeoutMinutes()).toBe(15); // STALE — reads go through the cache
+    resetEnvironmentCache();
+    expect(getTeacherInactivityTimeoutMinutes()).toBe(20); // reset re-reads the key
+    delete process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES;
+    resetEnvironmentCache();
+    expect(getTeacherInactivityTimeoutMinutes()).toBe(15); // removal + reset → default returns
+  });
+
+  test("unset defaults to 15 — the resolved inactivity-timeout decision (B.15)", () => {
+    expect(getTeacherInactivityTimeoutMinutes()).toBe(15);
+    expect(getEnvironmentConfig().teacherInactivityTimeoutMinutes).toBe(15);
+  });
+
+  test("accepts the 1 lower bound", () => {
+    process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES = "1";
+    resetEnvironmentCache();
+    expect(getTeacherInactivityTimeoutMinutes()).toBe(1);
+  });
+
+  test("garbage/zero/negative values fall back to 15 — resolution never throws", () => {
+    const invalidValues = ["0", "-3", "1.5", "abc", "", "   ", "15min", "0x10", "+5"];
+    for (const invalid of invalidValues) {
+      process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES = invalid;
+      resetEnvironmentCache();
+      expect(getTeacherInactivityTimeoutMinutes()).toBe(15);
+    }
+  });
+
+  test("the cached snapshot carries the teacherInactivityTimeoutMinutes number member", () => {
+    process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES = "20";
+    resetEnvironmentCache();
+    expect(typeof getEnvironmentConfig().teacherInactivityTimeoutMinutes).toBe("number");
+    expect(getEnvironmentConfig().teacherInactivityTimeoutMinutes).toBe(20);
   });
 });
 

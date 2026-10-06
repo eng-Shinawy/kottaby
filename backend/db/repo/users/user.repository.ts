@@ -7,17 +7,30 @@
  *    config) and keep read queries stateless + transport-cheap.
  *  - Writes take a REQUIRED `tx: DBTransaction` (last param) — every insert
  *    must run inside a caller-supplied transaction so the registration flow
- *    can guarantee atomicity.
+ *    can guarantee atomicity. The single exception is the activity-stamp
+ *    pair: a bare single-row guarded UPDATE needs no wrapping transaction,
+ *    so those two primitives accept an OPTIONAL dual-branch executor
+ *    (fire-and-forget callers omit it; in-tx callers pass their `innerTx`).
  *  - No business logic, no permission checks, no hardcoded error strings —
  *    repository methods surface raw Drizzle errors; the service layer maps
  *    `23505` → `ConflictError` via `translateDbError`.
  */
-import { and, eq, inArray } from "drizzle-orm";
-import { queryDb } from "@/backend/db";
+import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { db, queryDb } from "@/backend/db";
 import { users } from "@/backend/db/schema/users/users";
 import type { UserRole } from "@/backend/enum/users/user-role.enum";
 import type { DBQueryExecutor, DBTransaction, UserInsertType, UserSelectType } from "@/backend/types";
 import type { AppLocale } from "@/shared/locale/AppLocale";
+
+/**
+ * Coalesce window for per-request activity stamps — a request only commits a
+ * write when the stored stamp is older than this (throttle folded into the
+ * UPDATE predicate, never a read-then-write). At one minute the stamp is
+ * coarsened by at most one minute of drift — negligible against the
+ * inactivity threshold the stamp feeds, and well within the accuracy the
+ * recently-active analytics window needs.
+ */
+export const USER_ACTIVITY_COALESCE_WINDOW_MS = 60_000;
 
 /**
  * Type guard — narrows `DBQueryExecutor` to `DBTransaction`.
@@ -29,6 +42,38 @@ import type { AppLocale } from "@/shared/locale/AppLocale";
  */
 function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
   return typeof tx === "object" && "select" in tx;
+}
+
+/**
+ * Narrows the optional dual-branch executor down to a Drizzle query builder.
+ *
+ * `DBQueryExecutor` unions the transaction with raw `pg` pool/client handles,
+ * which cannot build queries. The `isDBTransaction` guard picks the
+ * transactional branch; everything else (no executor, or a bare pool
+ * handle) falls back to the pool-backed `db` singleton — the same dual-branch
+ * convention the read methods express with `queryDb`, kept on the Drizzle
+ * side so a write stays a single composable statement.
+ */
+function drizzleExecutorOf(tx: DBQueryExecutor | undefined): DBTransaction | typeof db {
+  return tx && isDBTransaction(tx) ? tx : db;
+}
+
+/**
+ * WHERE predicate shared by both activity-stamp primitives — pins the row to
+ * the caller's id and composes the monotonic guard: the stored stamp must be
+ * NULL or STRICTLY older than the incoming instant (strict `<` keeps an
+ * equal-timestamp re-stamp a zero-row miss, so an out-of-order or duplicate
+ * write can never move `last_active_at` backwards). When `staleBefore` is
+ * supplied the coalesce throttle is folded into the same statement: the
+ * stored stamp must ALSO be NULL or strictly older than the coalesce
+ * boundary, bounding write amplification to at most one committing write per
+ * user per window (fresh-stamp arrivals are zero-row primary-key probes).
+ */
+function activityStampWhere(userId: number, now: Date, staleBefore?: Date) {
+  const monotonic = or(isNull(users.lastActiveAt), lt(users.lastActiveAt, now));
+  const throttle =
+    staleBefore === undefined ? undefined : or(isNull(users.lastActiveAt), lt(users.lastActiveAt, staleBefore));
+  return and(eq(users.id, userId), monotonic, throttle);
 }
 
 export namespace UserRepository {
@@ -324,6 +369,74 @@ export namespace UserRepository {
       .update(users)
       .set({ role: toRole })
       .where(and(eq(users.id, userId), eq(users.role, fromRole)))
+      .returning({ id: users.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Monotonic activity stamp — flips `last_active_at` to `now` in ONE
+   * guarded UPDATE whose WHERE carries the guard: the row must belong to
+   * `userId` and its stored stamp must be NULL or strictly older than `now`
+   * (strict `<` makes an equal-timestamp re-stamp a no-op miss). Predicate
+   * and mutation share the single statement under the row lock — there is no
+   * read-then-write window, and an out-of-order or duplicate stamp can never
+   * move the stored value backwards.
+   *
+   * The write is identity-scoped by construction: the row is pinned by the
+   * bound `userId` alone, so no other user's row can ever match, and every
+   * parameter is a server-captured value (identity + instant), never a
+   * client-owned payload. A zero-row match is a SIGNAL, never an error — the
+   * id is absent, or the stored stamp already matches or exceeds `now`
+   * (replaying the same instant is a safe no-op); the service tier decides
+   * what that means.
+   *
+   * `tx` is OPTIONAL: a single-row guarded UPDATE needs no wrapping
+   * transaction, so standalone (fire-and-forget) callers omit it and the
+   * write runs on the pool; in-transaction callers pass their `innerTx` and
+   * the stamp commits — or rolls back — atomically with the surrounding
+   * writes. No prepared statement (writes are excluded —
+   * `docs/drizzle/prepared-statements.md`).
+   *
+   * @returns `true` when the guarded predicate matched and the stamp was
+   *          written, `false` when it matched zero rows.
+   */
+  export async function updateLastActiveAt(userId: number, now: Date, tx?: DBQueryExecutor): Promise<boolean> {
+    const rows = await drizzleExecutorOf(tx)
+      .update(users)
+      .set({ lastActiveAt: now })
+      .where(activityStampWhere(userId, now))
+      .returning({ id: users.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Throttled activity stamp — the monotonic write of `updateLastActiveAt`
+   * with the coalesce throttle folded into the SAME single statement: the
+   * stored stamp must additionally be NULL or strictly older than
+   * `staleBefore` (the coalesce boundary — callers derive it as
+   * `now − USER_ACTIVITY_COALESCE_WINDOW_MS`). Requests arriving while the
+   * stored stamp is still fresh match zero rows and write nothing — bounded
+   * primary-key probes, not deferred writes — so stamping on every
+   * request/heartbeat costs at most one committing write per user per
+   * coalesce window while the monotonic guarantee stays unchanged.
+   *
+   * Same single-statement discipline, identity scoping, optional-executor
+   * and boolean-miss contract as `updateLastActiveAt`.
+   *
+   * @returns `true` when the stored stamp was stale enough to write, `false`
+   *          when the throttle, the monotonic guard, or the id matched zero
+   *          rows.
+   */
+  export async function updateLastActiveAtIfStale(
+    userId: number,
+    staleBefore: Date,
+    now: Date,
+    tx?: DBQueryExecutor
+  ): Promise<boolean> {
+    const rows = await drizzleExecutorOf(tx)
+      .update(users)
+      .set({ lastActiveAt: now })
+      .where(activityStampWhere(userId, now, staleBefore))
       .returning({ id: users.id });
     return rows.length > 0;
   }
