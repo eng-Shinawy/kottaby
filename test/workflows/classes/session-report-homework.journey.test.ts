@@ -3,8 +3,7 @@
  * (submit gates → atomic co-creation → participant reads → null collapse →
  * one-shot grading → forced mid-transaction rollback → wallet purity).
  *
- * Assertion oracle — the cross-actor side-effect matrix (living spec, copied
- * verbatim from the implementation design's "Cross-Actor Journey Design" §4.4;
+ * Assertion oracle — the cross-actor side-effect matrix (living spec;
  * every row below is asserted by the correspondingly numbered step):
  *
  * | Step | Actor → action | `reports` rows | `home_work` rows | `notifications` rows | Publishes (spied transport) | Denial |
@@ -20,6 +19,7 @@
  * | 10a owner submits σ₃ with grades — the NEXT submission grades the student's NEWEST row (σ₂'s assignment): Assigned → Graded | +1 report (σ₃) | 0 new rows (σ₂'s row UPDATED grades in place) | +1 student, +1 parent | student×1, parent×1 | — |
  * | 10b owner re-grade attempt via σ₄ — the newest row is ALREADY graded | 0 | 0 | 0 | 0 | `CONFLICT` (already graded) |
  * | 11 forced mid-tx failure on σ₄ (homework insert fails after report) | 0 | 0 | 0 | 0 | 0 | masked/internal at wire; journey asserts unit rollback |
+ * | 12 owner far-vocabulary accept on σ₄ (post-rollback): Jadid SurahAnNasr #110 + Madi Juz3 | +1 report | +1 assignment σ₄ (NULL grades) | +1 (student), +1 (parent) | student×1, parent×1 | — |
  *
  * Layer contract (`test/workflows/AGENTS.md` + docs/testing/workflow-journey-tests.md):
  * - NO `runInRollback` — fixtures COMMIT in `beforeAll` inside ONE committing
@@ -135,6 +135,15 @@ const MADI_BLOCK: HomeWorkBlockInput = { fromAyah: 1, toAyah: 5, surahJuz: Surah
 const PRIME_MADI: HomeWorkBlockInput = { fromAyah: 2, toAyah: 6, surahJuz: SurahJuzRef.Juz3 };
 const SIGMA2_JADID: HomeWorkBlockInput = { fromAyah: 8, toAyah: 12, surahJuz: SurahJuzRef.Juz2 };
 const SIGMA2_MADI: HomeWorkBlockInput = { fromAyah: 3, toAyah: 9, surahJuz: SurahJuzRef.Juz4 };
+
+/**
+ * The far-vocabulary pairing of the post-rollback accept step: a surah
+ * member deep past the historical five-surah window (SurahAnNasr, #110 of
+ * the 114) paired with a juz member — proving the full 144-member canon
+ * round-trips resolver → service → repo → DB → read surface.
+ */
+const FAR_JADID: HomeWorkBlockInput = { fromAyah: 1, toAyah: 4, surahJuz: SurahJuzRef.SurahAnNasr };
+const FAR_MADI: HomeWorkBlockInput = { fromAyah: 11, toAyah: 20, surahJuz: SurahJuzRef.Juz3 };
 
 /** Raw failure thrown by the step-11 fault probe in place of the homework INSERT. */
 const FORCED_HOMEWORK_FAILURE = "journey fault probe: forced home_work insert failure after the report insert";
@@ -743,8 +752,10 @@ describe("cross-actor journey: session report + homework (gates → co-creation 
       // unknown-SurahJuzRef payload is built with the runtime tamper pattern
       // (no casts): the block is typed with a real member, then the surahJuz
       // field is overwritten with a non-member string exactly as the wire
-      // would deliver it ("surah_an_nuh" is outside the shipped enum window
-      // surah_al_fatihah..surah_al_maidah + juz_1..30).
+      // would deliver it ("surah_an_nuh" stays a NON-member of the full
+      // 144-member vocabulary — the canonical dataset names surah 71
+      // "surah_nuh", so the an-prefixed near-miss spelling must stay invalid
+      // no matter how wide the surah list grows).
       const hostileBlock: HomeWorkBlockInput = { fromAyah: 1, toAyah: 5, surahJuz: SurahJuzRef.SurahAlFatihah };
       Object.assign(hostileBlock, { surahJuz: "surah_an_nuh" });
       const hostileCases: readonly HostileCase[] = [
@@ -1546,6 +1557,119 @@ describe("cross-actor journey: session report + homework (gates → co-creation 
     expectNoDeltas(before, after);
   });
 
+  test("step 12 — far-vocabulary accept on σ₄ (post-rollback): jadid SurahAnNasr #110 + madi Juz3 stored and read back", async () => {
+    const before = await sideEffectSnapshot(
+      [sigma.id, sigma2.id, sigma3.id, sigma4.id],
+      {
+        studentS,
+        studentSPrime,
+        parentP,
+        teacherT,
+        teacherFt,
+        adminA,
+      },
+      studentS.id,
+      transportSpy.publishCount
+    );
+
+    // The fault probe left σ₄ completed and report-less: a plain assignment
+    // submit (no previousGrades — the newest row is already graded and a
+    // grade attempt would conflict) is the ACCEPT path for a member deep
+    // past the historical five-surah window. The full service pipeline runs:
+    // guards → block mapping → repo insert → committed rows → read surface.
+    const submits = await SessionReportService.submitSessionReport(
+      teacherT.id,
+      sigma4.id,
+      baseSubmitInput({ homework: { jadid: FAR_JADID, madi: FAR_MADI } }),
+      LOCALE,
+      undefined,
+      engineOptions
+    );
+
+    const reportRow = await reportRowBySessionId(sigma4.id);
+    if (!reportRow) {
+      throw new Error("journey: expected the σ₄ report row to exist after the far-vocabulary submit");
+    }
+    expect(reportRow).toEqual(submits);
+    tracked.register(reports, reportRow.id);
+
+    // The stored assignment carries BOTH far-vocabulary members verbatim
+    // (the 144-member vocabulary accepts any shipped member, not just the
+    // historically-seeded ones), grades structurally NULL.
+    const homeworkRow = await homeworkRowBySessionId(sigma4.id);
+    if (!homeworkRow) {
+      throw new Error("journey: expected the σ₄ home_work row to exist after the far-vocabulary submit");
+    }
+    expect(homeworkRow.currentFromAyah).toBe(FAR_JADID.fromAyah);
+    expect(homeworkRow.currentToAyah).toBe(FAR_JADID.toAyah);
+    expect(homeworkRow.currentSurahJuz).toBe(SurahJuzRef.SurahAnNasr);
+    expect(homeworkRow.revisionFromAyah).toBe(FAR_MADI.fromAyah);
+    expect(homeworkRow.revisionToAyah).toBe(FAR_MADI.toAyah);
+    expect(homeworkRow.revisionSurahJuz).toBe(SurahJuzRef.Juz3);
+    expect(homeworkRow.currentGrade).toBeNull();
+    expect(homeworkRow.revisionGrade).toBeNull();
+    tracked.register(homeWork, homeworkRow.id);
+
+    // Read-surface round-trip: the service read returns the SAME stored
+    // members (participant and owner channels agree with the direct row).
+    const studentRead = await SessionReportService.getSessionHomework(studentS.id, sigma4.id, LOCALE);
+    const teacherRead = await SessionReportService.getSessionHomework(teacherT.id, sigma4.id, LOCALE);
+    if (!studentRead || !teacherRead) {
+      throw new Error("journey: expected the σ₄ homework read to return the far-vocabulary row");
+    }
+    expect(studentRead.currentSurahJuz).toBe(SurahJuzRef.SurahAnNasr);
+    expect(studentRead.revisionSurahJuz).toBe(SurahJuzRef.Juz3);
+    expect(withSecondTruncatedStamps(teacherRead)).toEqual(withSecondTruncatedStamps(studentRead));
+
+    // The accept path waves BOTH recipients exactly once (same contract as
+    // every other accepted submission — the vocabulary is irrelevant to the
+    // fan-out).
+    const farStudentWaves = await completionRowsFor(studentS.id, sigma4.id);
+    const farParentWaves = await completionRowsFor(parentP.id, sigma4.id);
+    expect(farStudentWaves).toHaveLength(1);
+    expect(farParentWaves).toHaveLength(1);
+    const farStudentWave = farStudentWaves[0];
+    const farParentWave = farParentWaves[0];
+    if (!farStudentWave || !farParentWave) {
+      throw new Error("journey: expected one student wave and one parent wave for σ₄");
+    }
+    expect(farStudentWave.body).toBe(NOTIFS_EN.eventSessionReportReadyBody(teacherT.fullName));
+    expect(farParentWave.body).toBe(NOTIFS_AR.eventSessionReportReadyParentBody(studentS.fullName, teacherT.fullName));
+    tracked.register(notifications, farStudentWave.id);
+    tracked.register(notifications, farParentWave.id);
+    expect(transportSpy.publishCount).toBe(before.publishes + 2);
+    const newPublishes = transportSpy.calls.slice(before.publishes);
+    expect(newPublishes.map(publish => JSON.stringify(publish.userIds)).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      [parentP.id, studentS.id].map(id => JSON.stringify([id])).toSorted((a, b) => a.localeCompare(b))
+    );
+
+    // The far-vocabulary submit is the ONLY delta the snapshot may show:
+    // +1 report, +1 home_work, +1 student wave, +1 parent wave, +2 publishes
+    // — every other field byte-identical to the pre-step baseline.
+    expect(
+      await sideEffectSnapshot(
+        [sigma.id, sigma2.id, sigma3.id, sigma4.id],
+        {
+          studentS,
+          studentSPrime,
+          parentP,
+          teacherT,
+          teacherFt,
+          adminA,
+        },
+        studentS.id,
+        transportSpy.publishCount
+      )
+    ).toEqual({
+      ...before,
+      reportRows: before.reportRows + 1,
+      homeworkRows: before.homeworkRows + 1,
+      notificationsS: before.notificationsS + 1,
+      notificationsP: before.notificationsP + 1,
+      publishes: before.publishes + 2,
+    });
+  });
+
   test("denial coverage — anonymous-equivalent caller + governed teacher; governance restore proven by the duplicate conflict", async () => {
     const before = await sideEffectSnapshot(
       [sigma.id, sigma2.id, sigma3.id, sigma4.id],
@@ -1660,18 +1784,19 @@ describe("cross-actor journey: session report + homework (gates → co-creation 
     // All four S bookings consumed their lanes; the report steps moved nothing.
     expect(await readBookingLanes(studentS.id)).toEqual({ hifz: 0, trial: 0 });
 
-    // Final ledger: σ/σ₂/σ₃/σ′ reports (σ₃'s forward-grade submit; the σ₄
-    // re-grade attempt and the step-11 fault probe both rolled back),
-    // homework rows σ/σ₂/σ′; 7 waves; 7 publishes.
-    expect(await countReportRows([sigma.id, sigma2.id, sigma3.id, sigma4.id, sigmaPrime.id])).toBe(4);
-    expect(await countHomeWorkRows([sigma.id, sigma2.id, sigma3.id, sigma4.id, sigmaPrime.id])).toBe(3);
-    expect(await reportWaveCountFor(studentS.id)).toBe(3);
-    expect(await reportWaveCountFor(parentP.id)).toBe(3);
+    // Final ledger: σ/σ₂/σ₃/σ′/σ₄ reports (σ₃'s forward-grade submit and the
+    // step-12 far-vocabulary accept; the σ₄ re-grade attempt and the step-11
+    // fault probe both rolled back), homework rows σ/σ₂/σ′/σ₄; 9 waves;
+    // 9 publishes.
+    expect(await countReportRows([sigma.id, sigma2.id, sigma3.id, sigma4.id, sigmaPrime.id])).toBe(5);
+    expect(await countHomeWorkRows([sigma.id, sigma2.id, sigma3.id, sigma4.id, sigmaPrime.id])).toBe(4);
+    expect(await reportWaveCountFor(studentS.id)).toBe(4);
+    expect(await reportWaveCountFor(parentP.id)).toBe(4);
     expect(await reportWaveCountFor(studentSPrime.id)).toBe(1);
     expect(await reportWaveCountFor(teacherT.id)).toBe(0);
     expect(await reportWaveCountFor(teacherFt.id)).toBe(0);
     expect(await reportWaveCountFor(adminA.id)).toBe(0);
-    expect(transportSpy.publishCount).toBe(7);
+    expect(transportSpy.publishCount).toBe(9);
     // Every envelope ever published was addressed to a wave recipient only.
     const addressees = new Set(transportSpy.publishedUserIds);
     expect(addressees.has(teacherT.id)).toBe(false);

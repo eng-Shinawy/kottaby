@@ -43,7 +43,7 @@ final gate (Task 7) runs `bun quality-gate` instead.
 
 ### Task 0: Pre-Implementation Baseline (MANDATORY)
 
-- [ ] 0. Establish error baseline and verify the ledger
+- [x] 0. Establish error baseline and verify the ledger
   - Read ALL files in `outcome/` (none yet on first run — proceed)
   - Record baselines: `bun tsgo 2>&1 | grep "error TS" | wc -l`,
     `bun biome:check 2>&1 | grep -c "warn"`,
@@ -65,7 +65,7 @@ Rationale for order: the shipped exhaustive switches compile only while the pgEn
 ≤ their case coverage — growing the vocabulary first breaks tsgo
 (`const exhaustive: never` at `home-work.pothos.ts:125`). Refactor first, grow second.
 
-- [ ] 1. **Mapper refactors — 35-member world stays green**
+- [x] 1. **Mapper refactors — 35-member world stays green**
   - Read `outcome/` first
   - **1.1 Backend:** `backend/graphql/pothos/classes/home-work.pothos.ts` — replace
     `toSurahJuzRef` (`:54-127`) with the guard-narrowing form from plan §8.C (value-import
@@ -78,19 +78,19 @@ Rationale for order: the shipped exhaustive switches compile only while the pgEn
   - **1.3 Test:** create `frontend/views/teacher/sessions/sessionReportConversions.test.ts` —
     round-trip ALL current members backend→codegen, unknown value throws fail-closed,
     `toCodegenSubmitInput` field-by-field mapping (incl. `undefined` → `null` legs)
-  - [ ] 1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts <each file> --lifecycle duplicates` (exit 0)
-  - [ ] 1.TE **Test Engineering**:
+  - [x] 1.QL **Quality Loop**: `bun run scripts/health/sub-loop.ts <each file> --lifecycle duplicates` (exit 0)
+  - [x] 1.TE **Test Engineering**:
     • Tier 1: both mapper arms (member hit, unknown throw); conversions round-trip over `Object.values(SurahJuzRef)`
     • Tier 2: boundary near-misses (`"surah_an_nuh"`, case/whitespace variants) all throw
     • Tier 3: deterministic fuzz strings never leak through as values
     • Tier 4: prototype/`__proto__`/function payloads throw, never coerce
     • Layer rules: pure unit tier (no DB, no mocks needed); wire/journey suites re-run at Task 5
     • Run: `bun run test/scripts/run-test.ts frontend/views/teacher/sessions/sessionReportConversions.test.ts`
-  - [ ] 1.SEC **Security & Tenancy Audit**: mappers are pure value transforms — assert no
+  - [x] 1.SEC **Security & Tenancy Audit**: mappers are pure value transforms — assert no
     tenant/identity surface change; fail-closed throw preserved on both sides (never silent null)
-  - [ ] 1.SR **Semantic Review**: no dead branches; enums value-imported; no cross-layer
+  - [x] 1.SR **Semantic Review**: no dead branches; enums value-imported; no cross-layer
     imports beyond the shipped backend-enum import precedent; map is module-scope read-only
-  - [ ] 1.IV **Instruction Verification**: read the AGENTS.md + instruction files printed by
+  - [x] 1.IV **Instruction Verification**: read the AGENTS.md + instruction files printed by
     sub-loop for each file; validate against them
   - Write `outcome/1-mapper-refactor-outcome.md`; mark subtasks `[x]`
   - _Requirements: REQ-6 (all), REQ-0.5_
@@ -100,7 +100,7 @@ Rationale for order: the shipped exhaustive switches compile only while the pgEn
 All non-locale mirrors land together so every suite is green at task end (locale tests assert
 only their own 35-member list until Task 3).
 
-- [ ] 2. **The 114-surah expansion lands on every structural mirror**
+- [x] 2. **The 114-surah expansion lands on every structural mirror**
   - Read `outcome/` first
   - **2.1 Dataset verification:** verify plan.md §9 row-by-row against a canonical mushaf
     listing (number, transliteration, Arabic name); copy the exact `ʿ`/`ʾ`/macron glyphs from
@@ -130,9 +130,9 @@ only their own 35-member list until Task 3).
     both before and after expansion); the round-trip loop auto-grows via `Object.values`
   - **2.8 SDL pin verification:** `bun run test:graphql` — `schema-surface.test.ts`,
     `sdl-static-assertions.test.ts`, `session-sdl.test.ts` pass with ZERO pin edits
-  - [ ] 2.QL **Quality Loop**: sub-loop `duplicates` on every touched file (enum, enums.ts,
+  - [x] 2.QL **Quality Loop**: sub-loop `duplicates` on every touched file (enum, enums.ts,
     both tests, generated SDL excluded from manual lint — codegen artifacts are generated)
-  - [ ] 2.TE **Test Engineering**:
+  - [x] 2.TE **Test Engineering**:
     • Tier 1: 144/144 through `isSurahJuzRef`; parity describe asserts order + byte-identity
     • Tier 2: near-miss invalids stay invalid (`juz_31`, `surah_an_nuh`, `juz_0`, case variants)
     • Tier 3: fuzz/unicode/RTL suites unchanged and green
@@ -140,19 +140,19 @@ only their own 35-member list until Task 3).
       (`bun run test:db` — `home-work.repository.test.ts` 22P02 probe)
     • Run: `bun run test/scripts/run-test.ts backend/enum/shared/surah-juz-ref.enum.test.ts`,
       `…surah-juz-ref.locale-conformance.test.ts` lands in Task 3 (not yet)
-  - [ ] 2.SEC **Security & Tenancy Audit**: additive-only migration (no rewrite, no data
+  - [x] 2.SEC **Security & Tenancy Audit**: additive-only migration (no rewrite, no data
     change); closed vocabulary intact; no new endpoint; push/generate only (no reset)
-  - [ ] 2.SR **Semantic Review**: existing 35 members byte-identical (diff the 5 frozen rows);
+  - [x] 2.SR **Semantic Review**: existing 35 members byte-identical (diff the 5 frozen rows);
     declaration order = §9; migration matches drizzle schema exactly; enums value-imported;
     zero stale "35" references in touched files
-  - [ ] 2.IV **Instruction Verification**: read printed AGENTS.md/instructions (schema layer
+  - [x] 2.IV **Instruction Verification**: read printed AGENTS.md/instructions (schema layer
     rules esp. `backend/db/schema/AGENTS.md` push/migrate policy); validate
   - Write `outcome/2-vocabulary-expansion-outcome.md`; mark subtasks `[x]`
   - _Requirements: REQ-1 (all), REQ-2.4, REQ-5.1, REQ-5.2, REQ-8 (all)_
 
 ### Task 3: Locale Label Growth (en/ar) + Completeness Guards
 
-- [ ] 3. **All 144 members carry localized labels, machine-enforced**
+- [x] 3. **All 144 members carry localized labels, machine-enforced**
   - Read `outcome/` first
   - **3.1 Contract:** `shared/locale/types/sessions/labels.ts:383-390` — reword the
     `surahJuzLabel` doc ("exhaustive over the 144-member vocabulary (114 surahs + 30 juz)");
@@ -170,8 +170,8 @@ only their own 35-member list until Task 3).
     — for EVERY `Object.values(SurahJuzRef)`: EN label non-empty + Latin script +
     "Surah "/"Juz " prefix; AR label non-empty + Arabic script + "سورة "/"الجزء " prefix
     (backend-side so importing the shared leaves is legal)
-  - [ ] 3.QL **Quality Loop**: sub-loop `duplicates` per touched file (exit 0)
-  - [ ] 3.TE **Test Engineering**:
+  - [x] 3.QL **Quality Loop**: sub-loop `duplicates` per touched file (exit 0)
+  - [x] 3.TE **Test Engineering**:
     • Tier 1: 144/144 labels resolve in BOTH locales; unknown-ref passthrough rides raw
     • Tier 2: empty-string ref → raw empty (never throws); Arabic-Indic digit spot-checks
     • Tier 3: n/a (pure data) — keep fuzz inputs hitting the `?? ref` fallback
@@ -179,11 +179,11 @@ only their own 35-member list until Task 3).
     • Run: `bun run test/scripts/run-test.ts shared/locale/sessions-namespace.parity.test.ts`,
       `… backend/enum/shared/surah-juz-ref.locale-conformance.test.ts`,
       `… shared/locale/errors-namespace.parity.test.ts` (adjacent belt stays green)
-  - [ ] 3.SEC **Security & Tenancy Audit**: leaf purity (no logic beyond the one-line
+  - [x] 3.SEC **Security & Tenancy Audit**: leaf purity (no logic beyond the one-line
     fallback); no `shared/` → backend imports (conformance test lives backend-side)
-  - [ ] 3.SR **Semantic Review**: fail-closed passthrough preserved; no hardcoded UI strings;
+  - [x] 3.SR **Semantic Review**: fail-closed passthrough preserved; no hardcoded UI strings;
     group keys typed in the contract; zero dead entries (every label reachable)
-  - [ ] 3.IV **Instruction Verification**: `shared/locale/AGENTS.md` leaf-purity +
+  - [x] 3.IV **Instruction Verification**: `shared/locale/AGENTS.md` leaf-purity +
     single-export rules (`:27-31`) + `shared/AGENTS.md` namespace rules;
     validate each leaf against them
   - Write `outcome/3-locale-labels-outcome.md`; mark subtasks `[x]`
@@ -191,7 +191,7 @@ only their own 35-member list until Task 3).
 
 ### Task 4: Teacher Picker Upgrade — Grouped Searchable Autocomplete
 
-- [ ] 4. **The 144-option picker becomes searchable and grouped**
+- [x] 4. **The 144-option picker becomes searchable and grouped**
   - Read `outcome/` first
   - **4.1 Picker:** `frontend/views/teacher/sessions/TeacherSessionReportDialog.parts.tsx` —
     replace the `FormControl`+`Select` block (`:70-84`) with a grouped, filtering MUI
@@ -209,8 +209,8 @@ only their own 35-member list until Task 3).
     new members via `t.surahJuzLabel` with no edits; run their helper tests; re-confirm no
     `frontend/stories/` entry or component test pins the picker's option count (REQ-7.4 —
     verified absent at plan time)
-  - [ ] 4.QL **Quality Loop**: sub-loop `duplicates` on every touched file (exit 0)
-  - [ ] 4.TE **Test Engineering**:
+  - [x] 4.QL **Quality Loop**: sub-loop `duplicates` on every touched file (exit 0)
+  - [x] 4.TE **Test Engineering**:
     • Tier 1: picker renders 144 options grouped 114/30; clear → block null; pick → block set
     • Tier 2: empty/unknown label fallback (raw ref rides); RTL rendering of AR labels
     • Tier 3: rapid re-type filtering; null-option edge; memo re-render parity with the
@@ -219,20 +219,20 @@ only their own 35-member list until Task 3).
       (normalizeBlock arm re-asserted)
     • Layer rules: pure component/helper unit tests; the E2E Paymob suite is unrelated — do
       NOT touch; run helper suites via run-test wrapper
-  - [ ] 4.SEC **Security & Tenancy Audit**: BOPLA — submit payload still built
+  - [x] 4.SEC **Security & Tenancy Audit**: BOPLA — submit payload still built
     field-by-field (`buildSubmitPayload`); no `{ ...block }` spread into the mutation input
     beyond the shipped shape; picker is pure UI (no authz surface)
-  - [ ] 4.SR **Semantic Review**: no hardcoded strings (labels via `t`); MUI v9 style
+  - [x] 4.SR **Semantic Review**: no hardcoded strings (labels via `t`); MUI v9 style
     compliance (`sx` callbacks, no style props, no hardcoded colors); no dead Select imports;
     comments describe domain behavior only
-  - [ ] 4.IV **Instruction Verification**: read printed AGENTS.md/instructions
+  - [x] 4.IV **Instruction Verification**: read printed AGENTS.md/instructions
     (`frontend/views/AGENTS.md`, `frontend.instructions.md`); validate
   - Write `outcome/4-picker-upgrade-outcome.md`; mark subtasks `[x]`
   - _Requirements: REQ-7 (all), REQ-4.3_
 
 ### Task 5: Wire + Journey + Service Regression Locks
 
-- [ ] 5. **The four ticket scenarios are pinned end-to-end, including the wire gap**
+- [x] 5. **The four ticket scenarios are pinned end-to-end, including the wire gap**
   - Read `outcome/` first
   - **5.1 Wire probes (NEW):** `backend/graphql/test/session-report.wire.test.ts` — add the
     invalid-enum-VALUE denials on BOTH closed channels per the suite's pinned preset contract
@@ -258,8 +258,8 @@ only their own 35-member list until Task 3).
     `createTestHomeWork` needs no
     change (override takes members — spot-add one new-member fixture row to the insert test if
     the suite's coverage rules call for it)
-  - [ ] 5.QL **Quality Loop**: sub-loop `duplicates` on every touched file (exit 0)
-  - [ ] 5.TE **Test Engineering**:
+  - [x] 5.QL **Quality Loop**: sub-loop `duplicates` on every touched file (exit 0)
+  - [x] 5.TE **Test Engineering**:
     • Tier 1: each new test's both arms (deny + accept) execute
     • Tier 2: value near-misses (`Juz99`, `Juz0`, casing) denied; far-vocabulary pair stored
     • Tier 3: hostile sweep stays sequential (await-in-loop rule); no concurrency in suites
@@ -269,20 +269,20 @@ only their own 35-member list until Task 3).
       committed fixtures + tracked `afterAll`, NO `runInRollback`
     • Run: `bun run test/scripts/run-test.ts test/workflows/classes/session-report-homework.journey.test.ts`,
       then `bun run test:graphql` (wire + SDL), `bun run test:db` (backstop)
-  - [ ] 5.SEC **Security & Tenancy Audit**: denial asserts ZERO side effects (BOLA/BFLA
+  - [x] 5.SEC **Security & Tenancy Audit**: denial asserts ZERO side effects (BOLA/BFLA
     unchanged — no new operation); pre-resolver death means no service/DB execution for bad
     values (assert no report row, no homework row, no notification publish)
-  - [ ] 5.SR **Semantic Review**: no `expect().rejects.toThrow` inside `runInRollback`;
+  - [x] 5.SR **Semantic Review**: no `expect().rejects.toThrow` inside `runInRollback`;
     `tx` threaded to every repo call in db-tier tests; journey cleanup tracked; zero plan-artifact
     references in test comments
-  - [ ] 5.IV **Instruction Verification**: read printed AGENTS.md/instructions
+  - [x] 5.IV **Instruction Verification**: read printed AGENTS.md/instructions
     (`test/workflows/AGENTS.md`, `backend/db/test/AGENTS.md`, `tests.instructions.md`)
   - Write `outcome/5-regression-locks-outcome.md`; mark subtasks `[x]`
   - _Requirements: REQ-2 (all), REQ-3 (all), REQ-9 (all), REQ-5 (verification)_
 
 ### Task 6: Documentation & Knowledge Propagation
 
-- [ ] 6. **Canonical docs reflect the 144-member reality**
+- [x] 6. **Canonical docs reflect the 144-member reality**
   - Read `outcome/` first
   - **6.1 Canonical doc:** `docs/sessions/session-report-homework.md` — §5 "Surah/Juz UI" row
     (`:89`): "(5 surahs + 30 juz)" → "(114 surahs + 30 juz)", describe the record-literal label
@@ -297,20 +297,20 @@ only their own 35-member list until Task 3).
   - **6.3 Decision + readiness:** `docs/specs/open-decisions-and-gaps.md:135-139` — append a
     runtime-status note to B.11 (all 114 surahs shipped as of this plan);
     `docs/planning/PRODUCTION_READINESS.md:328` — tick row 8.21 with verification reference
-  - [ ] 6.QL **Quality Loop**: sub-loop `duplicates` on each touched doc-adjacent file (docs
+  - [x] 6.QL **Quality Loop**: sub-loop `duplicates` on each touched doc-adjacent file (docs
     are markdown — run the loop where the tool accepts them; otherwise lint-scope the code files)
-  - [ ] 6.TE **Test Engineering**: n/a (documentation) — verify all cited `path:line` refs in
+  - [x] 6.TE **Test Engineering**: n/a (documentation) — verify all cited `path:line` refs in
     the new doc resolve (grep each)
-  - [ ] 6.SEC **Security & Tenancy Audit**: no credentials/PII in docs; no env keys leaked
-  - [ ] 6.SR **Semantic Review**: docs describe behavior, not plan artifacts; AGENTS.md and
+  - [x] 6.SEC **Security & Tenancy Audit**: no credentials/PII in docs; no env keys leaked
+  - [x] 6.SR **Semantic Review**: docs describe behavior, not plan artifacts; AGENTS.md and
     `.agents/instructions/` are NOT touched (hand-curated only)
-  - [ ] 6.IV **Instruction Verification**: root AGENTS.md doc rules; docs/ structure rules
+  - [x] 6.IV **Instruction Verification**: root AGENTS.md doc rules; docs/ structure rules
   - Write `outcome/6-docs-propagation-outcome.md`; mark subtasks `[x]`
   - _Requirements: REQ-10, REQ-1 (verification), Success Criteria (docs)_
 
 ### Task 7: Final Quality Gate & Deferred-Items Enforcement
 
-- [ ] 7. **Zero unresolved ledger rows · zero new baseline errors · full matrix green**
+- [x] 7. **Zero unresolved ledger rows · zero new baseline errors · full matrix green**
   - Read `outcome/` first
   - **7.1 Deferred enforcement (row-scoped — the ledger's legend prose legitimately contains
     the glyphs, so the gate scopes to table rows):**
@@ -340,7 +340,7 @@ only their own 35-member list until Task 3).
     comment-only edits, no assertion changes
   - **7.5 Quality gate:** `bun quality-gate` green (resumes from last failed stage; NEVER clear
     caches)
-  - [ ] 7.QL · 7.TE · 7.SEC · 7.SR · 7.IV: the gate IS the verification (matrix + gate + sweep);
+  - [x] 7.QL · 7.TE · 7.SEC · 7.SR · 7.IV: the gate IS the verification (matrix + gate + sweep);
     semantic review = confirm every REQ's acceptance criteria demonstrably green
   - Write `outcome/7-final-gate-outcome.md` (matrix results, baseline delta, ledger state);
     mark subtasks `[x]`

@@ -9,20 +9,22 @@
  * because they share the form-state setters the dialog owns.
  */
 
-import { FormControl, InputLabel, MenuItem, Rating, Select, Stack, TextField, Typography } from "@mui/material";
-import { memo, type ReactNode, useId } from "react";
+import { Autocomplete, Rating, Stack, TextField, Typography } from "@mui/material";
+import { memo, type ReactNode } from "react";
 import { SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
 import type { HomeWorkBlockInput } from "@/backend/types";
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
 
-/** The 35-member Surah/Juz vocabulary for the dialog's `Select`. */
-const SURAH_JUZ_OPTIONS: readonly SurahJuzRef[] = Object.values(SurahJuzRef);
+/** The full 144-member Surah/Juz vocabulary for the dialog's picker. */
+const SURAH_JUZ_OPTIONS: SurahJuzRef[] = Object.values(SurahJuzRef);
 
 interface AssignmentBlockProps {
   readonly title: string;
   readonly fromAyahLabel: string;
   readonly toAyahLabel: string;
   readonly surahJuzPickerLabel: string;
+  readonly surahJuzSurahGroupLabel: string;
+  readonly surahJuzJuzGroupLabel: string;
   readonly block: HomeWorkBlockInput | null;
   readonly onChange: (block: HomeWorkBlockInput | null) => void;
   readonly t: SessionsLabels;
@@ -38,14 +40,13 @@ export const AssignmentBlock = memo(function AssignmentBlock({
   fromAyahLabel,
   toAyahLabel,
   surahJuzPickerLabel,
+  surahJuzSurahGroupLabel,
+  surahJuzJuzGroupLabel,
   block,
   onChange,
   t,
 }: Readonly<AssignmentBlockProps>): ReactNode {
   const defaultSurah = SurahJuzRef.SurahAlFatihah;
-  // Per-instance label id: the block renders twice (Jadid + Madi), so a
-  // static id would duplicate across the dialog and break the association.
-  const surahJuzLabelId = useId();
   return (
     <Stack sx={{ gap: 1 }}>
       <Typography variant="subtitle2">{title}</Typography>
@@ -63,25 +64,34 @@ export const AssignmentBlock = memo(function AssignmentBlock({
           onChange={event => handleAyahChange(event.target.value, "toAyah", block, onChange, defaultSurah)}
         />
       </Stack>
-      {/* A bare `Select` ignores its `label` prop — the FormControl +
-          InputLabel pairing is what actually renders the floating label
-          (previously the pickers rendered as unlabeled empty boxes). The
-          labelId wires the visible label to the control for screen readers. */}
-      <FormControl fullWidth size="small">
-        <InputLabel id={surahJuzLabelId}>{surahJuzPickerLabel}</InputLabel>
-        <Select
-          labelId={surahJuzLabelId}
-          label={surahJuzPickerLabel}
-          value={block?.surahJuz ?? ""}
-          onChange={event => handleSurahChange(event.target.value, block, onChange)}
-        >
-          {SURAH_JUZ_OPTIONS.map(option => (
-            <MenuItem key={option} value={option}>
-              {t.surahJuzLabel(option)}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      {/* A searchable picker over the 144-option vocabulary: a flat
+          Select menu does not scale to 144 rows, so the Autocomplete's
+          type-to-filter + grouped listbox takes over. The TextField from
+          renderInput carries the floating label directly (and MUI wires
+          its id association per instance — Jadid + Madi never collide). */}
+      <Autocomplete
+        fullWidth
+        size="small"
+        options={SURAH_JUZ_OPTIONS}
+        groupBy={option => (option.startsWith("juz_") ? surahJuzJuzGroupLabel : surahJuzSurahGroupLabel)}
+        getOptionLabel={option => t.surahJuzLabel(option)}
+        value={block?.surahJuz ?? null}
+        onChange={(_event, value) => handleSurahChange(value, block, onChange)}
+        slotProps={{
+          listbox: {
+            sx: {
+              // The Surahs/Ajzaa categorical boundary: a hairline above every
+              // group label but the first keeps the 114/30 sections scannable
+              // in a 144-option list (block-start border = RTL-safe).
+              "& li:not(:first-child) .MuiAutocomplete-groupLabel": {
+                borderBlockStart: "1px solid",
+                borderColor: "var(--mui-palette-divider)",
+              },
+            },
+          },
+        }}
+        renderInput={params => <TextField {...params} label={surahJuzPickerLabel} />}
+      />
     </Stack>
   );
 });
@@ -104,11 +114,11 @@ function handleAyahChange(
 }
 
 function handleSurahChange(
-  value: SurahJuzRef | "",
+  value: SurahJuzRef | null,
   block: HomeWorkBlockInput | null,
   onChange: (block: HomeWorkBlockInput | null) => void
 ): void {
-  if (value === "") {
+  if (value === null) {
     onChange(null);
     return;
   }

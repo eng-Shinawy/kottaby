@@ -295,7 +295,8 @@ export interface SessionsLabels {
   readonly adminDisputeAnalyticsOutcomes: string;
 
   // ─── Session Report Submission (Jadid & Madi) ───────────────────────────────
-  // Teacher CTA labels (pinned names — consumed by Task 4's arms matrix).
+  // Teacher CTA labels (pinned names — consumed verbatim by the teacher
+  // sessions CTA surface).
   /** Teacher row action — submit the report for a completed session. */
   readonly sessionReportAction: string;
   /** Teacher row action — view the homework of a started session. */
@@ -394,9 +395,13 @@ export interface SessionsLabels {
    * Resolves a `SurahJuzRef` enum member value to its localized display
    * label. Returns the raw ref on an unknown key (fail-closed — never
    * throws, never renders an empty string). Same signature in both locales;
-   * exhaustive over the 35-member vocabulary (5 surahs + 30 juz).
+   * exhaustive over the 144-member vocabulary (114 surahs + 30 juz).
    */
   readonly surahJuzLabel: (ref: string) => string;
+
+  /** Option-group headings for the 144-member Surah/Juz picker. */
+  readonly surahJuzSurahGroupLabel: string;
+  readonly surahJuzJuzGroupLabel: string;
 
   // ─── Rubric Evaluation Submission (evaluator dialog) ────────────────────────
   /** Teacher row action — submit the rubric evaluation for one of the teacher's completed evaluation sessions. */

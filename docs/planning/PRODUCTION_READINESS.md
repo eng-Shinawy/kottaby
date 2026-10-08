@@ -325,7 +325,7 @@ This document defines the comprehensive production launch criteria for Draft Aca
 | 8.18 | B.8/C.2: subscriptions.user_id (generic) | Verify column name and FK | ☐ |
 | 8.19 | B.9: Offline payment fields on subscriptions | Verify payment_method, payment_reference, payment_verified_at | ☐ |
 | 8.20 | B.10: On-demand matching model | Verify no fixed assignments | ☐ |
-| 8.21 | B.11: Surah/Juz enum for homework | Verify surah_juz_ref enum and columns | ☐ |
+| 8.21 | B.11: Surah/Juz enum for homework | Verify surah_juz_ref enum and columns | ✅ kottaby#300 (Tasks 2/5 — `surah_juz_ref` pgEnum + TS enum at 144 members (114 surahs + 30 juz); mirror-parity + 22P02 backstop green; see `docs/curriculum/surah-juz-ref-vocabulary.md`) |
 | 8.22 | B.12: One parent per student | Verify single parent_id FK | ☐ |
 | 8.23 | B.13: Parent links multiple children | Verify multiple students with same parent_id | ☐ |
 | 8.24 | B.14: 7-day link request expiry | Verify expiry logic | ☐ |

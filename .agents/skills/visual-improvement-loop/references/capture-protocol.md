@@ -290,3 +290,16 @@ contradiction signature), not "fixed".
   (turbopack HMR), and the gate's grep counts it as an error entry. This is harness noise, not a
   page error: `agent-browser console --clear` + one verified reload + re-run the gate before
   treating it as a HIGH finding (same discipline as the stale-buffer lesson above).
+
+## Sticky-band contradiction cycle (added 2026-10-07)
+
+- A sticky/pinned action band introduced into a scored dialog draws MUTUALLY CONTRADICTORY
+  separation findings across passes: one pass reports "band overlaps the content — add
+  separation", the next reports "shadow detaches the band from the dialog — remove the seam",
+  on identical pixels. Before the first re-inspection that includes a sticky band, inline the
+  band's geometry in the ledger as DO-NOT-RE-REPORT facts: the negative-margin flush-with-paper
+  construction (a gap is geometrically impossible), the computed boxShadow, and the hairline
+  border token. Contradicting findings are then dismissed on the contradiction signature, not
+  "fixed" in a loop.
+- Related: a MEDIUM claiming the band "obscures a button beneath the dialog" is the
+  modal-semantics delusion — the page behind the backdrop is out of scope for the capture.

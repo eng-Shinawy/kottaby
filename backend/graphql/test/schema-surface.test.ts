@@ -877,8 +877,8 @@ const ADMIN_ACADEMIC_QUERY_FIELDS = ["adminAcademicDashboard", "adminStudentAcad
  * The ONE new GraphQL enum of the academic-tracking surface — the
  * needs-attention reason vocabulary (a transient service derivation with
  * no pgEnum column behind it; the wire members are `lowGrade` /
- * `staleProgress`). `SurahJuzRef` is the pre-registered recitation enum —
- * never re-registered.
+ * `staleProgress`). `SurahJuzRef` is the pre-registered surah/juz
+ * homework-vocabulary enum — never re-registered.
  */
 const ADMIN_ACADEMIC_ENUMS = ["AdminAcademicAttentionReason"] as const;
 /**
@@ -1573,8 +1573,8 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     // adds NO new enum (the governance surface reuses the
     // registered SessionStatus/SessionType vocabularies);
     // BroadcastAudienceType + LinkStatus arrive from the merged PRs #53
-    // and #49 respectively (4.4 re-anchor); the `SurahJuzRef` recitation
-    // enum is the sanctioned addition; the subscription-purchase
+    // and #49 respectively (4.4 re-anchor); the `SurahJuzRef` surah/juz
+    // homework-vocabulary enum is the sanctioned addition; the subscription-purchase
     // settlement quartet (`PaymentGateway`, `PaymentStatus`,
     // `SubscriptionCreditLane`, `SubscriptionStatus`) is the
     // sanctioned addition; the `WalletAdjustmentDirection`

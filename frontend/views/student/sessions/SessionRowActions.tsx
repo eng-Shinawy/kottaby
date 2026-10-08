@@ -49,7 +49,32 @@ export function SessionRowActions({
             disabled={action.disabled === true}
             onClick={() => action.onIntent?.(sessionId)}
             data-testid={`session-action-${sessionId}-${action.id}`}
-            sx={{ minHeight: { xs: 44, sm: 40 }, px: 3 }}
+            sx={theme => ({
+              minHeight: { xs: 44, sm: 40 },
+              px: 3,
+              // Dark-scheme outlined CTAs ride the brighter primary.light
+              // rung: the midnight-blue main measures ~3.3:1 on the navy
+              // card surface — below the 4.5:1 AA bar for normal-size
+              // labels — while the ladder's light rung clears AA without
+              // touching contained buttons (white-on-main stays 5.4:1).
+              // Light mode keeps the main token (navy on cream is ~9:1).
+              // Only the primary arm overrides — the bright success/warning
+              // tones already clear AA on the dark card.
+              ...((action.color ?? "primary") === "primary"
+                ? theme.applyStyles("dark", {
+                    color: "var(--mui-palette-primary-light)",
+                    borderColor: "color-mix(in srgb, var(--mui-palette-primary-light) 50%, transparent)",
+                    // A whisper of fill keeps the outlined CTA from reading
+                    // as pale/flat against the navy card (perceived
+                    // affordance) without competing with contained buttons.
+                    bgcolor: "color-mix(in srgb, var(--mui-palette-primary-light) 8%, transparent)",
+                    "&:hover": {
+                      borderColor: "var(--mui-palette-primary-light)",
+                      bgcolor: "color-mix(in srgb, var(--mui-palette-primary-light) 16%, transparent)",
+                    },
+                  })
+                : {}),
+            })}
           >
             {action.label}
           </Button>

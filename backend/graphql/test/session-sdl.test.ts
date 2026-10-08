@@ -551,7 +551,7 @@ describe("session-report surface — plan §3.1 exact shapes", () => {
       throw new Error("SurahJuzRef must be registered as a GraphQL enum type");
     }
     const values = enumType.getValues();
-    expect(values).toHaveLength(35);
+    expect(values).toHaveLength(144);
     // Wire values are the enum KEYS (CamelCase) over the snake_case DB
     // values — same key-on-the-wire convention as NotificationType.
     expect(values.map(value => value.name).toSorted((a, b) => a.localeCompare(b))).toEqual(

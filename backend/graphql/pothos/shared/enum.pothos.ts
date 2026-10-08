@@ -29,7 +29,7 @@
  *  - `BroadcastStatus` (active|stopped — one-way broadcast lifecycle state)
  *  - `AppLocale` (the per-user UI/copy preference — "ar" | "en")
  *  - `LinkStatus` (pending|confirmed|rejected|expired — parent-child link request lifecycle)
- *  - `SurahJuzRef` (5 surahs + 30 juz — home_work assignment/ref vocabulary)
+ *  - `SurahJuzRef` (114 surahs + 30 juz — home_work assignment/ref vocabulary)
  *  - `RubricWeaknessArea` (tajweed|hifz — rubric evaluation weakness vocabulary)
  *  - `TeacherMatchingSort` (RATING_DESC|NAME_ASC|NEWEST — student browse ordering choice)
  *
@@ -419,8 +419,8 @@ export const BroadcastStatusPothosEnum = gqlSchemaBuilder.enumType(BroadcastStat
 });
 
 /**
- * GraphQL `SurahJuzRef` enum (5 surahs `SurahAlFatihah`…`SurahAlMaidah`
- * followed by 30 juz `Juz1`…`Juz30`).
+ * GraphQL `SurahJuzRef` enum (114 surahs in mushaf order
+ * `SurahAlFatihah`…`SurahAnNasr` followed by 30 juz `Juz1`…`Juz30`).
  *
  * Registered ONCE from the canonical TS enum
  * (`backend/enum/shared/surah-juz-ref.enum.ts`), which mirrors the

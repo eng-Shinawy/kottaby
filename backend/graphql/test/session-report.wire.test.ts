@@ -1,11 +1,11 @@
 /**
- * Consolidated GraphQL wire matrix — Task 5.1: the role ×
+ * Consolidated GraphQL wire matrix — the role ×
  * operation × validation tier for the session-report/homework surface
  * (`submitSessionReport` + `sessionReport` + `sessionHomework`) over the
  * REAL wire (HTTP → gateway pipeline → scope-auth → resolver →
  * SessionReportService → PostgreSQL → back).
  *
- * Every cell of plan §3.4's permission matrix is asserted ONE-TO-ONE
+ * Every cell of the session-surface permission matrix is asserted ONE-TO-ONE
  * (8 caller classes × 3 operations = 24 cells):
  *
  *  | caller              | submitSessionReport      | sessionReport | sessionHomework |
@@ -29,6 +29,14 @@
  *    (the validation preset), and the same smuggle through the variables JSON
  *    dies as BAD_USER_INPUT (Apollo's variable-coercion preset — per
  *    error-contract-matrix.test.ts PRESET_ROWS), both with `data` absent.
+ *  - **Invalid enum VALUE probes** — the same two closed channels refuse a
+ *    non-member `SurahJuzRef` VALUE (perfectly legal input shape, closed
+ *    vocabulary): an out-of-vocabulary surah/juz value in the variables JSON
+ *    (`"Juz99"`, and a `SurahAlFurqanTypo`-style near-miss) dies as
+ *    BAD_USER_INPUT at variable coercion, and the same non-member as an
+ *    unquoted DOCUMENT literal dies as GRAPHQL_VALIDATION_FAILED — both
+ *    pre-resolver with `data` absent and zero DB side effects (no report
+ *    row, no homework row, no notification publish for any cast actor).
  *  - **Id-shape fuzz** — non-numeric / negative / zero / float / overflow
  *    session ids answer the SAME typed VALIDATION denial (the boundary
  *    guard) — never a masked 500 — on both the mutation and both queries.
@@ -44,13 +52,13 @@
  *    the bun-test process and the warm dev server hold SEPARATE in-memory
  *    PGlite instances over the same data dir (see
  *    `test/helpers/skip-when-pglite.ts`): a test-process service read can
- *    never observe server-process writes. Carry-forward for 5.2: on the
+ *    never observe server-process writes. Follow-up: on the
  *    real-PG CI tier, strengthen these three cells to the direct
  *    service-oracle call.
  *  - **Null-collapse byte identity** — the foreign-teacher read response
  *    vs the nonexistent-session read response are BYTE-IDENTICAL
  *    normalized GraphQL response bodies for both queries (raw
- *    serialize-and-compare; D9 oracle safety), while the participant read
+ *    serialize-and-compare; oracle-safety discipline), while the participant read
  *    returns the row.
  *  - **Domain errors at the wire** — wrong-state submit →
  *    SESSION_INVALID_TRANSITION; duplicate submit →
@@ -85,13 +93,14 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ApolloClient, gql, HttpLink, InMemoryCache } from "@apollo/client";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { homeWork } from "@/backend/db/schema/classes/home-work";
 import { reports } from "@/backend/db/schema/classes/reports";
 import { notifications } from "@/backend/db/schema/notifications/notifications";
 import { students } from "@/backend/db/schema/students/students";
 import { createTestParent, createTestUser } from "@/backend/db/test/entity-setup";
+import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { signAccessToken } from "@/backend/lib/auth/jwt";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 import { expectMutationError, setupTestServerLifecycle, TEST_PORT, testClient } from "@/test/helpers";
@@ -142,10 +151,16 @@ let parentLinked: ApolloClient;
 let parentOther: ApolloClient;
 let adminActor: ApolloClient;
 
-// ─── Locale-key expected copy (never hardcoded strings — 5.1.SR) ─────────────
+// ─── Locale-key expected copy (never hardcoded strings) ──────────────────────
 
 const tEn = getServerTranslations("en").errorsTranslations;
 const tAr = getServerTranslations("ar").errorsTranslations;
+
+// Notification copy slots for the submit path's report-ready wave (the
+// side-effect oracle scopes its notification count to this copy slot —
+// the journey suites' wave oracle discipline).
+const tNotifsEn = getServerTranslations("en").notificationsTranslations;
+const tNotifsAr = getServerTranslations("ar").notificationsTranslations;
 
 // ─── Documents (id-first selections — Apollo cache normalization pin) ────────
 
@@ -519,7 +534,7 @@ function expectWireReportContentMatches(row: Record<string, unknown>, anchor: Re
  *
  * The actor-scoped clients are Apollo `InMemoryCache` pipelines, whose
  * normalization step injects `__typename` into every returned object
- * CLIENT-side — the raw wire body itself never carries it (the §8
+ * CLIENT-side — the raw wire body itself never carries it (the
  * byte-identity probes pin the raw shape: `{ data: { sessionReport: null } }`).
  * Strip the injected key before the exact-key comparison so the probe keeps
  * asserting what the WIRE exposed (canonical columns only, zero leakage).
@@ -645,7 +660,7 @@ afterAll(async () => {
 
 // ─── Section 1 — anonymous tier (401): one cell per operation ────────────────
 
-describe("matrix §3.4 — anonymous tier (401, pre-resolver)", () => {
+describe("permission matrix — anonymous tier (401, pre-resolver)", () => {
   test("submitSessionReport × anonymous → UNAUTHORIZED", async () => {
     const result = await testClient.mutate({
       mutation: SUBMIT_REPORT_DOC,
@@ -697,7 +712,7 @@ describe("matrix §3.4 — anonymous tier (401, pre-resolver)", () => {
 
 // ─── Section 2 — submitSessionReport wrong-role scope denials (403) ──────────
 
-describe("matrix §3.4 — submitSessionReport × non-teacher callers (403, pre-resolver scope)", () => {
+describe("permission matrix — submitSessionReport × non-teacher callers (403, pre-resolver scope)", () => {
   test("submitSessionReport × student-participant → FORBIDDEN", async () => {
     const result = await studentParticipant.mutate({
       mutation: SUBMIT_REPORT_DOC,
@@ -756,7 +771,7 @@ describe("matrix §3.4 — submitSessionReport × non-teacher callers (403, pre-
 
 // ─── Section 3 — submitSessionReport service-tier denials at the wire ────────
 
-describe("matrix §3.4 — submitSessionReport × teacher-foreign (SESSION_NOT_FOUND oracle)", () => {
+describe("permission matrix — submitSessionReport × teacher-foreign (SESSION_NOT_FOUND oracle)", () => {
   test("submitSessionReport × teacher-foreign → SESSION_NOT_FOUND (owner-scoped gate)", async () => {
     const body = await postDocument(
       "mutation M($id: ID!, $input: SubmitSessionReportInput!) { submitSessionReport(id: $id, input: $input) { id } }",
@@ -962,9 +977,118 @@ describe("closed-input smuggle probes — extraneous fields die pre-resolver", (
   });
 });
 
+// ─── Section 5b — invalid enum VALUE probes (closed vocabulary, pre-resolver) ─
+
+describe("invalid enum VALUE probes — a non-member SurahJuzRef dies on BOTH closed channels", () => {
+  /**
+   * DB side-effect oracle for this tier: scoped row counts for the probe's
+   * session (reports + home_work) and the SUBMIT path's notification rows
+   * across every cast actor's inbox. These deaths happen BEFORE any resolver
+   * runs, so no report row, no homework row, and no report-ready
+   * notification row may ever appear — and at this point in the suite the
+   * target session is still report-less, so the pre-probe baseline is
+   * expected to be all zeros. The notification count scopes to the
+   * report-ready wave copy slot (the journey suites' wave-oracle
+   * discipline): σ's real-lifecycle booking already persisted the sibling
+   * handshake completion-prompt row, which no submit may ever write.
+   */
+  async function wireSideEffectCounts(): Promise<{
+    reportRows: number;
+    homeworkRows: number;
+    notificationRows: number;
+  }> {
+    const castUserIds = [
+      cast.primaryStudent.userId,
+      cast.secondStudent.userId,
+      cast.teacher.userId,
+      cast.secondTeacher.userId,
+      cast.parent.userId,
+      parentOtherUserId,
+      cast.admin.userId,
+    ].filter(id => id > 0);
+    const [reportRows, homeworkRows, notificationRows] = await Promise.all([
+      db.$count(reports, eq(reports.sessionId, Number(sigmaId))),
+      db.$count(homeWork, eq(homeWork.sessionId, Number(sigmaId))),
+      db.$count(
+        notifications,
+        and(
+          inArray(notifications.userId, castUserIds),
+          eq(notifications.type, NotificationType.SessionCompletion),
+          inArray(notifications.title, [tNotifsEn.eventSessionReportReadyTitle, tNotifsAr.eventSessionReportReadyTitle])
+        )
+      ),
+    ]);
+    return { reportRows, homeworkRows, notificationRows };
+  }
+
+  /** The submit variables with ONE jadid block field overridden (no casts). */
+  function hostileVariablesInput(jadidOverride: Record<string, unknown>): Record<string, unknown> {
+    const hostileInput: Record<string, unknown> = { ...SIGMA_SUBMIT_INPUT };
+    hostileInput.homework = {
+      ...(SIGMA_SUBMIT_INPUT.homework as Record<string, unknown>),
+      jadid: jadidOverride,
+    };
+    return hostileInput;
+  }
+
+  test('variables JSON × jadid surahJuz "Juz99" → BAD_USER_INPUT (coercion preset), data absent, zero DB side effects', async () => {
+    const before = await wireSideEffectCounts();
+    const body = await postDocument(
+      "mutation M($id: ID!, $input: SubmitSessionReportInput!) { submitSessionReport(id: $id, input: $input) { id } }",
+      await signAccessToken({ userId: cast.teacher.userId, role: cast.teacher.user.role }),
+      {
+        id: sigmaId,
+        input: hostileVariablesInput({ fromAyah: 1, toAyah: 7, surahJuz: "Juz99" }),
+      }
+    );
+    // The Apollo variable-coercion preset — same channel death as the
+    // smuggled-field probe above, but here the input SHAPE is legal and the
+    // closed enum VALUE SET is what refuses it.
+    const item = expectDenialCode(body, "BAD_USER_INPUT", "absent");
+    expect(errorMessageOf(item)).toContain('Value "Juz99" does not exist in "SurahJuzRef" enum');
+    // Pre-resolver death: the service and the DB were never reached.
+    const after = await wireSideEffectCounts();
+    expect(before).toEqual({ reportRows: 0, homeworkRows: 0, notificationRows: 0 });
+    expect(after).toEqual(before);
+  });
+
+  test('variables JSON × jadid surahJuz "SurahAlFurqanTypo" (near-miss) → BAD_USER_INPUT, data absent, zero DB side effects', async () => {
+    const before = await wireSideEffectCounts();
+    const body = await postDocument(
+      "mutation M($id: ID!, $input: SubmitSessionReportInput!) { submitSessionReport(id: $id, input: $input) { id } }",
+      await signAccessToken({ userId: cast.teacher.userId, role: cast.teacher.user.role }),
+      {
+        id: sigmaId,
+        input: hostileVariablesInput({ fromAyah: 1, toAyah: 7, surahJuz: "SurahAlFurqanTypo" }),
+      }
+    );
+    const item = expectDenialCode(body, "BAD_USER_INPUT", "absent");
+    expect(errorMessageOf(item)).toContain('Value "SurahAlFurqanTypo" does not exist in "SurahJuzRef" enum');
+    const after = await wireSideEffectCounts();
+    expect(before).toEqual({ reportRows: 0, homeworkRows: 0, notificationRows: 0 });
+    expect(after).toEqual(before);
+  });
+
+  test("document literal × surahJuz: Juz99 → GRAPHQL_VALIDATION_FAILED (validation preset), data absent, zero DB side effects", async () => {
+    const before = await wireSideEffectCounts();
+    const body = await postDocument(
+      `mutation M { submitSessionReport(id: "${sigmaId}", input: { teacherNotes: "x", studentRatingByTeacher: 5, homework: { jadid: { fromAyah: 1, toAyah: 7, surahJuz: Juz99 } } }) { id } }`,
+      await signAccessToken({ userId: cast.teacher.userId, role: cast.teacher.user.role })
+    );
+    // The validation preset — the unquoted non-member literal is refused while
+    // the document is being validated, before any execution (contrast the
+    // smuggled-FIELD probes: same pre-resolver tier, closed VALUE this time).
+    const item = expectDenialCode(body, "GRAPHQL_VALIDATION_FAILED", "absent");
+    expect(errorMessageOf(item)).toContain('Value "Juz99" does not exist in "SurahJuzRef" enum');
+    const after = await wireSideEffectCounts();
+    expect(before).toEqual({ reportRows: 0, homeworkRows: 0, notificationRows: 0 });
+    expect(after).toEqual(before);
+  });
+});
+
 // ─── Section 6 — teacher-owner submit happy path + wire ≡ service equality ───
 
-describe("matrix §3.4 — submitSessionReport × teacher-owner (happy path, wire ≡ service)", () => {
+describe("permission matrix — submitSessionReport × teacher-owner (happy path, wire ≡ service)", () => {
   test("teacher-owner submit succeeds; the wire payload is field-identical to the service row for the submitted input", async () => {
     const result = await teacherOwner.mutate({
       mutation: SUBMIT_REPORT_DOC,
@@ -979,7 +1103,7 @@ describe("matrix §3.4 — submitSessionReport × teacher-owner (happy path, wir
 
 // ─── Section 7 — reads matrix (both queries × all eight caller classes) ──────
 
-describe("matrix §3.4 — sessionReport × caller classes (participant rows + null collapse)", () => {
+describe("permission matrix — sessionReport × caller classes (participant rows + null collapse)", () => {
   test("sessionReport × student-participant → the row (content ≡ the submit's service row)", async () => {
     const result = await studentParticipant.query({ query: SESSION_REPORT_DOC, variables: { sessionId: sigmaId } });
     const payload = payloadOf(result, "sessionReport");
@@ -1032,7 +1156,7 @@ describe("matrix §3.4 — sessionReport × caller classes (participant rows + n
   });
 });
 
-describe("matrix §3.4 — sessionHomework × caller classes (participant rows + null collapse)", () => {
+describe("permission matrix — sessionHomework × caller classes (participant rows + null collapse)", () => {
   test("sessionHomework × student-participant → the row (≡ the submitted assignment, field-for-field)", async () => {
     const result = await studentParticipant.query({ query: SESSION_HOMEWORK_DOC, variables: { sessionId: sigmaId } });
     const payload = payloadOf(result, "sessionHomework");
@@ -1086,7 +1210,7 @@ describe("matrix §3.4 — sessionHomework × caller classes (participant rows +
   });
 });
 
-// ─── Section 8 — null-collapse byte identity (D9 oracle safety) ──────────────
+// ─── Section 8 — null-collapse byte identity (oracle safety) ─────────────────
 
 describe("null-collapse byte identity — foreign-teacher read ≡ nonexistent-session read", () => {
   test("sessionReport: foreign-teacher and nonexistent-session responses are BYTE-IDENTICAL", async () => {

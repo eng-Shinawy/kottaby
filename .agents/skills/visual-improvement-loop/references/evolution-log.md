@@ -539,3 +539,28 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
 - VLM inspector status-chip claims (icon-only chip "missing", offline icon "blue") were resolved
   by code/DOM reading (no `label` prop existed; theme-token slate colors) — one real HIGH fix, one
   dark-scheme misperception. Reinforces existing DOM-arbitration rules; no new reference.
+
+### 2026-10-07 — surah-juz-enum-homework-tracking (visual loop, dev-server rig)
+
+- A flipped (upward) Autocomplete popper inside a near-viewport-height dialog is usually a
+  SYMPTOM of the field sitting too low in the form, not a popper defect: reordering the form
+  so the picker sits high restored `placement=bottom` on desktop AND mobile with zero
+  PopperProps hacks. → landed: `references/fix-patterns.md` (new row).
+- Selected filter pill on a paper bar in dark palettes: the primaryContainer token measured
+  1.34:1 against paper — the active state is invisible. Scoped dark-scheme selection as
+  filled `primary.main` + `contrastText` (white-on-main stays 5.4:1) via `theme.applyStyles`.
+  → landed: `references/fix-patterns.md` (new row).
+- Sticky action bands attract a contradiction cycle: pass N demands MORE separation (add
+  shadow), pass N+1 reads the shadow as "detached from the dialog". Inline the band's
+  geometry (negative-margin flush construction + computed boxShadow) in the re-inspection
+  ledger BEFORE the first re-pass. → landed: `references/capture-protocol.md` (re-inspection
+  context rule extension).
+- Re-running an idempotent inspector after re-capturing a shot at the SAME path silently
+  returns the stale verdict — verdict keys are image PATHS. Delete verdict files of every
+  re-taken shot first. → landed: already recorded 2026-10-06 (verdict-staleness); hit again,
+  reinforcing note in the outcome file.
+- PIL pixel-audit of EVERY batch png (not spot-checks) caught a 1440px capture saved into the
+  mobile slot after a silent CDP viewport reset mid-batch. → reinforces the 2026-10-01
+  viewport-proofing lesson; no new landing needed.
+- z-ai vision at ~10 calls with sleep-8 spacing: no 429s (the 2026-10-02 quota lesson holds
+  with a lower call rate).

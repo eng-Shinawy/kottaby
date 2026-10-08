@@ -6,8 +6,9 @@
  * keep both files under the oxlint `max-lines` ceiling.
  */
 
-import { Alert, Box, Button, Rating, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Rating, Stack, TextField, Typography } from "@mui/material";
 import { type ReactNode, useCallback } from "react";
+import { TeacherSessionReportActions } from "@/frontend/views/teacher/sessions/TeacherSessionReportActions";
 import { AssignmentBlock } from "@/frontend/views/teacher/sessions/TeacherSessionReportDialog.parts";
 import type {
   FormGradeFields,
@@ -86,6 +87,28 @@ export function SubmitForm({
   );
   return (
     <Stack sx={{ gap: 2 }}>
+      <AssignmentBlock
+        title={t.jadidSectionTitle}
+        fromAyahLabel={t.fromAyahLabel}
+        toAyahLabel={t.toAyahLabel}
+        surahJuzPickerLabel={t.surahJuzPickerLabel}
+        surahJuzSurahGroupLabel={t.surahJuzSurahGroupLabel}
+        surahJuzJuzGroupLabel={t.surahJuzJuzGroupLabel}
+        block={form.jadid ?? null}
+        onChange={handleJadidBlock}
+        t={t}
+      />
+      <AssignmentBlock
+        title={t.madiSectionTitle}
+        fromAyahLabel={t.fromAyahLabel}
+        toAyahLabel={t.toAyahLabel}
+        surahJuzPickerLabel={t.surahJuzPickerLabel}
+        surahJuzSurahGroupLabel={t.surahJuzSurahGroupLabel}
+        surahJuzJuzGroupLabel={t.surahJuzJuzGroupLabel}
+        block={form.madi ?? null}
+        onChange={handleMadiBlock}
+        t={t}
+      />
       {mode === "submit" ? (
         <Stack sx={{ gap: 1 }}>
           <TextField
@@ -100,38 +123,11 @@ export function SubmitForm({
           <Rating value={form.studentRatingByTeacher ?? 0} onChange={(_event, value) => handleRating(value)} />
         </Stack>
       ) : null}
-      <AssignmentBlock
-        title={t.jadidSectionTitle}
-        fromAyahLabel={t.fromAyahLabel}
-        toAyahLabel={t.toAyahLabel}
-        surahJuzPickerLabel={t.surahJuzPickerLabel}
-        block={form.jadid ?? null}
-        onChange={handleJadidBlock}
-        t={t}
-      />
-      <AssignmentBlock
-        title={t.madiSectionTitle}
-        fromAyahLabel={t.fromAyahLabel}
-        toAyahLabel={t.toAyahLabel}
-        surahJuzPickerLabel={t.surahJuzPickerLabel}
-        block={form.madi ?? null}
-        onChange={handleMadiBlock}
-        t={t}
-      />
       {mode === "submit" && newestRow && isNewestUngraded ? (
         <PreviousGradesSection form={form} handleGrade={handleGrade} t={t} />
       ) : null}
       {mode === "submit" && !newestRow ? <Alert severity="info">{t.reportFirstSessionHint}</Alert> : null}
-      {mode === "submit" ? (
-        <Box>
-          <Button type="submit" variant="contained" disabled={submitLoading}>
-            {t.reportSubmitLabel}
-          </Button>
-          <Button onClick={onClose} disabled={submitLoading}>
-            {t.reportCancelLabel}
-          </Button>
-        </Box>
-      ) : null}
+      {mode === "submit" ? <TeacherSessionReportActions t={t} submitLoading={submitLoading} onClose={onClose} /> : null}
     </Stack>
   );
 }

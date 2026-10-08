@@ -1,5 +1,157 @@
 import type { SessionsLabels } from "@/shared/locale/types/sessions";
 
+/**
+ * Localized labels for every `SurahJuzRef` member — 114 surahs in mushaf
+ * order plus the 30 juz. An unknown ref falls through to the raw value at
+ * the lookup site (fail-closed — the UI never renders an empty string).
+ */
+const SURAH_JUZ_LABELS: Readonly<Record<string, string>> = {
+  surah_al_fatihah: "Surah Al-Fātihah",
+  surah_al_baqarah: "Surah Al-Baqarah",
+  surah_aal_imran: "Surah Āl ʿImrān",
+  surah_an_nisa: "Surah An-Nisāʾ",
+  surah_al_maidah: "Surah Al-Māʾidah",
+  surah_al_anam: "Surah Al-Anʿām",
+  surah_al_araf: "Surah Al-Aʿrāf",
+  surah_al_anfal: "Surah Al-Anfāl",
+  surah_at_tawbah: "Surah At-Tawbah",
+  surah_yunus: "Surah Yūnus",
+  surah_hud: "Surah Hūd",
+  surah_yusuf: "Surah Yūsuf",
+  surah_ar_rad: "Surah Ar-Raʿd",
+  surah_ibrahim: "Surah Ibrāhīm",
+  surah_al_hijr: "Surah Al-Ḥijr",
+  surah_an_nahl: "Surah An-Naḥl",
+  surah_al_isra: "Surah Al-Isrāʾ",
+  surah_al_kahf: "Surah Al-Kahf",
+  surah_maryam: "Surah Maryam",
+  surah_ta_ha: "Surah Ṭā-Hā",
+  surah_al_anbiya: "Surah Al-Anbiyāʾ",
+  surah_al_hajj: "Surah Al-Ḥajj",
+  surah_al_muminun: "Surah Al-Muʾminūn",
+  surah_an_nur: "Surah An-Nūr",
+  surah_al_furqan: "Surah Al-Furqān",
+  surah_ash_shuara: "Surah Ash-Shuʿarāʾ",
+  surah_an_naml: "Surah An-Naml",
+  surah_al_qasas: "Surah Al-Qaṣaṣ",
+  surah_al_ankabut: "Surah Al-ʿAnkabūt",
+  surah_ar_rum: "Surah Ar-Rūm",
+  surah_luqman: "Surah Luqmān",
+  surah_as_sajdah: "Surah As-Sajdah",
+  surah_al_ahzab: "Surah Al-Aḥzāb",
+  surah_saba: "Surah Sabaʾ",
+  surah_fatir: "Surah Fāṭir",
+  surah_ya_sin: "Surah Yā-Sīn",
+  surah_as_saffat: "Surah Aṣ-Ṣāffāt",
+  surah_sad: "Surah Ṣād",
+  surah_az_zumar: "Surah Az-Zumar",
+  surah_ghafir: "Surah Ghāfir",
+  surah_fussilat: "Surah Fuṣṣilat",
+  surah_ash_shura: "Surah Ash-Shūrā",
+  surah_az_zukhruf: "Surah Az-Zukhruf",
+  surah_ad_dukhan: "Surah Ad-Dukhān",
+  surah_al_jathiyah: "Surah Al-Jāthiyah",
+  surah_al_ahqaf: "Surah Al-Aḥqāf",
+  surah_muhammad: "Surah Muḥammad",
+  surah_al_fath: "Surah Al-Fatḥ",
+  surah_al_hujurat: "Surah Al-Ḥujurāt",
+  surah_qaf: "Surah Qāf",
+  surah_ad_dhariyat: "Surah Adh-Dhāriyāt",
+  surah_at_tur: "Surah Aṭ-Ṭūr",
+  surah_an_najm: "Surah An-Najm",
+  surah_al_qamar: "Surah Al-Qamar",
+  surah_ar_rahman: "Surah Ar-Raḥmān",
+  surah_al_waqiah: "Surah Al-Wāqiʿah",
+  surah_al_hadid: "Surah Al-Ḥadīd",
+  surah_al_mujadilah: "Surah Al-Mujādilah",
+  surah_al_hashr: "Surah Al-Ḥashr",
+  surah_al_mumtahanah: "Surah Al-Mumtaḥanah",
+  surah_as_saff: "Surah Aṣ-Ṣaff",
+  surah_al_jumuah: "Surah Al-Jumuʿah",
+  surah_al_munafiqun: "Surah Al-Munāfiqūn",
+  surah_at_taghabun: "Surah At-Taghābun",
+  surah_at_talaq: "Surah Aṭ-Ṭalāq",
+  surah_at_tahrim: "Surah At-Taḥrīm",
+  surah_al_mulk: "Surah Al-Mulk",
+  surah_al_qalam: "Surah Al-Qalam",
+  surah_al_haqqah: "Surah Al-Ḥāqqah",
+  surah_al_maarij: "Surah Al-Maʿārij",
+  surah_nuh: "Surah Nūḥ",
+  surah_al_jinn: "Surah Al-Jinn",
+  surah_al_muzzammil: "Surah Al-Muzzammil",
+  surah_al_muddaththir: "Surah Al-Muddaththir",
+  surah_al_qiyamah: "Surah Al-Qiyāmah",
+  surah_al_insan: "Surah Al-Insān",
+  surah_al_mursalat: "Surah Al-Mursalāt",
+  surah_an_naba: "Surah An-Nabaʾ",
+  surah_an_naziat: "Surah An-Nāziʿāt",
+  surah_abasa: "Surah ʿAbasa",
+  surah_at_takwir: "Surah At-Takwīr",
+  surah_al_infitar: "Surah Al-Infiṭār",
+  surah_al_mutaffifin: "Surah Al-Muṭaffifīn",
+  surah_al_inshiqaq: "Surah Al-Inshiqāq",
+  surah_al_buruj: "Surah Al-Burūj",
+  surah_at_tariq: "Surah Aṭ-Ṭāriq",
+  surah_al_ala: "Surah Al-Aʿlā",
+  surah_al_ghashiyah: "Surah Al-Ghāshiyah",
+  surah_al_fajr: "Surah Al-Fajr",
+  surah_al_balad: "Surah Al-Balad",
+  surah_ash_shams: "Surah Ash-Shams",
+  surah_al_layl: "Surah Al-Layl",
+  surah_ad_duha: "Surah Aḍ-Ḍuḥā",
+  surah_ash_sharh: "Surah Ash-Sharḥ",
+  surah_at_tin: "Surah At-Tīn",
+  surah_al_alaq: "Surah Al-ʿAlaq",
+  surah_al_qadr: "Surah Al-Qadr",
+  surah_al_bayyinah: "Surah Al-Bayyinah",
+  surah_az_zalzalah: "Surah Az-Zalzalah",
+  surah_al_adiyat: "Surah Al-ʿĀdiyāt",
+  surah_al_qariah: "Surah Al-Qāriʿah",
+  surah_at_takathur: "Surah At-Takāthur",
+  surah_al_asr: "Surah Al-ʿAṣr",
+  surah_al_humazah: "Surah Al-Humazah",
+  surah_al_fil: "Surah Al-Fīl",
+  surah_quraysh: "Surah Quraysh",
+  surah_al_maun: "Surah Al-Māʿūn",
+  surah_al_kawthar: "Surah Al-Kawthar",
+  surah_al_kafirun: "Surah Al-Kāfirūn",
+  surah_an_nasr: "Surah An-Naṣr",
+  surah_al_masad: "Surah Al-Masad",
+  surah_al_ikhlas: "Surah Al-Ikhlāṣ",
+  surah_al_falaq: "Surah Al-Falaq",
+  surah_an_nas: "Surah An-Nās",
+  juz_1: "Juz 1",
+  juz_2: "Juz 2",
+  juz_3: "Juz 3",
+  juz_4: "Juz 4",
+  juz_5: "Juz 5",
+  juz_6: "Juz 6",
+  juz_7: "Juz 7",
+  juz_8: "Juz 8",
+  juz_9: "Juz 9",
+  juz_10: "Juz 10",
+  juz_11: "Juz 11",
+  juz_12: "Juz 12",
+  juz_13: "Juz 13",
+  juz_14: "Juz 14",
+  juz_15: "Juz 15",
+  juz_16: "Juz 16",
+  juz_17: "Juz 17",
+  juz_18: "Juz 18",
+  juz_19: "Juz 19",
+  juz_20: "Juz 20",
+  juz_21: "Juz 21",
+  juz_22: "Juz 22",
+  juz_23: "Juz 23",
+  juz_24: "Juz 24",
+  juz_25: "Juz 25",
+  juz_26: "Juz 26",
+  juz_27: "Juz 27",
+  juz_28: "Juz 28",
+  juz_29: "Juz 29",
+  juz_30: "Juz 30",
+};
+
 export const sessionsEn: SessionsLabels = {
   studentPageTitle: "My Sessions",
   teacherPageTitle: "Teaching Sessions",
@@ -174,83 +326,9 @@ export const sessionsEn: SessionsLabels = {
   reportSessionDateLabel: "Session date",
   reportReviewedNotesLabel: "Teacher notes",
   reportReviewedRatingLabel: "Student rating",
-  surahJuzLabel: (ref: string): string => {
-    // Five surah legs as equality-guard early returns (the function-size
-    // lint ceiling forbids 35 two-line cases in one switch body); the juz
-    // legs ride a switch below. The trailing default is the fail-closed
-    // fallback for an unknown ref.
-    if (ref === "surah_al_fatihah") return "Surah Al-Fātihah";
-    if (ref === "surah_al_baqarah") return "Surah Al-Baqarah";
-    if (ref === "surah_aal_imran") return "Surah Āl ʿImrān";
-    if (ref === "surah_an_nisa") return "Surah An-Nisāʾ";
-    if (ref === "surah_al_maidah") return "Surah Al-Māʾidah";
-    switch (ref) {
-      case "juz_1":
-        return "Juz 1";
-      case "juz_2":
-        return "Juz 2";
-      case "juz_3":
-        return "Juz 3";
-      case "juz_4":
-        return "Juz 4";
-      case "juz_5":
-        return "Juz 5";
-      case "juz_6":
-        return "Juz 6";
-      case "juz_7":
-        return "Juz 7";
-      case "juz_8":
-        return "Juz 8";
-      case "juz_9":
-        return "Juz 9";
-      case "juz_10":
-        return "Juz 10";
-      case "juz_11":
-        return "Juz 11";
-      case "juz_12":
-        return "Juz 12";
-      case "juz_13":
-        return "Juz 13";
-      case "juz_14":
-        return "Juz 14";
-      case "juz_15":
-        return "Juz 15";
-      case "juz_16":
-        return "Juz 16";
-      case "juz_17":
-        return "Juz 17";
-      case "juz_18":
-        return "Juz 18";
-      case "juz_19":
-        return "Juz 19";
-      case "juz_20":
-        return "Juz 20";
-      case "juz_21":
-        return "Juz 21";
-      case "juz_22":
-        return "Juz 22";
-      case "juz_23":
-        return "Juz 23";
-      case "juz_24":
-        return "Juz 24";
-      case "juz_25":
-        return "Juz 25";
-      case "juz_26":
-        return "Juz 26";
-      case "juz_27":
-        return "Juz 27";
-      case "juz_28":
-        return "Juz 28";
-      case "juz_29":
-        return "Juz 29";
-      case "juz_30":
-        return "Juz 30";
-      default:
-        // Fail-closed: an unknown ref rides the raw value verbatim so the
-        // UI never renders an empty string and the bug surfaces visibly.
-        return ref;
-    }
-  },
+  surahJuzLabel: (ref: string): string => SURAH_JUZ_LABELS[ref] ?? ref,
+  surahJuzSurahGroupLabel: "Surahs",
+  surahJuzJuzGroupLabel: "Juzs",
 
   // ─── Rubric Evaluation Submission (evaluator dialog) ────────────────────────
   submitEvaluationAction: "Submit evaluation",

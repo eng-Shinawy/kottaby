@@ -153,12 +153,21 @@ const AYAH_POOL = [
   2_147_483_648,
 ];
 
-/** Deliberate NON-members (wrong case, whitespace, near-miss, overflow, unicode). */
+/**
+ * Deliberate NON-members of the 144-member vocabulary (wrong case, whitespace,
+ * near-miss, overflow, unicode) — every entry audited against the canonical
+ * mushaf dataset: `juz_0`/`juz_31`/`juz_300` are outside the 1..30 juz range,
+ * `page_1` names no member of ANY family, and `surah_an_nuh` is the naming
+ * trap — surah 71 ships as `surah_nuh`, so the an-prefixed spelling stays a
+ * non-member at every vocabulary size.
+ */
 const INVALID_SURAH_STRINGS = [
   "",
   "juz_0",
   "juz_31",
   "juz_300",
+  "page_1",
+  "surah_an_nuh",
   "SURAH_AL_FATIHAH",
   "surah_al_fatihah ",
   " surah_al_fatihah",
@@ -435,16 +444,20 @@ describe("assertHomeWorkBlock", () => {
       );
     });
 
-    test("rejects a non-member surah/juz reference with the vocabulary key", () => {
+    test("rejects a non-member surah/juz reference with the vocabulary key (fixtures audited against the canonical dataset)", () => {
       const en = t();
       expectValidationError(() => assertHomeWorkBlock(wireBlock(1, 5, "juz_31"), en), en.homeworkSurahJuzInvalid);
+      expectValidationError(() => assertHomeWorkBlock(wireBlock(1, 5, "juz_0"), en), en.homeworkSurahJuzInvalid);
+      expectValidationError(() => assertHomeWorkBlock(wireBlock(1, 5, "page_1"), en), en.homeworkSurahJuzInvalid);
+      expectValidationError(() => assertHomeWorkBlock(wireBlock(1, 5, "surah_an_nuh"), en), en.homeworkSurahJuzInvalid);
       expectValidationError(
         () => assertHomeWorkBlock(wireBlock(1, 5, "SURAH_AL_FATIHAH"), en),
         en.homeworkSurahJuzInvalid
       );
+      expectValidationError(() => assertHomeWorkBlock(wireBlock(1, 5, "Juz_3"), en), en.homeworkSurahJuzInvalid);
     });
 
-    test("accepts EVERY shipped SurahJuzRef member (enum-value integration, 35/35)", () => {
+    test("accepts EVERY shipped SurahJuzRef member (enum-value integration, 144/144)", () => {
       const en = t();
       for (const member of Object.values(SurahJuzRef)) {
         expect(() => assertHomeWorkBlock(blockWith({ surahJuz: member }), en)).not.toThrow();

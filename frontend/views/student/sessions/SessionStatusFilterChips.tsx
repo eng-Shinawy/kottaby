@@ -162,6 +162,19 @@ export function SessionStatusFilterChips({ value, onChange }: Readonly<SessionSt
                   "&:hover": {
                     bgcolor: theme.palette.primaryContainer,
                   },
+                  // Dark-scheme state legibility: the primaryContainer fill
+                  // (#1B3358) measures only ~1.34:1 against the paper bar it
+                  // sits on — the selected pill reads identical to the
+                  // unselected ones. The filled primary tone carries the
+                  // active state clearly in the dark scheme (white-on-main
+                  // stays 5.4:1); light mode keeps the container pair.
+                  ...theme.applyStyles("dark", {
+                    bgcolor: "var(--mui-palette-primary-main)",
+                    color: "var(--mui-palette-primary-contrastText)",
+                    "&:hover": {
+                      bgcolor: "var(--mui-palette-primary-main)",
+                    },
+                  }),
                 },
               })}
             >

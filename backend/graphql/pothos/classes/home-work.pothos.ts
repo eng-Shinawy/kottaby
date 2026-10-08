@@ -14,116 +14,41 @@
  *
  * Enum fields map the `surah_juz_ref` pgEnum string unions carried by the
  * canonical select row onto the `SurahJuzRef` TS enum registered ONCE in
- * `shared/enum.pothos.ts` through an exhaustive, type-safe mapping helper —
- * never `as` casts. The helper's switch is exhaustive over the pgEnum
- * vocabulary (no `default`); an unrecognized value cannot pass through
- * silently — it fails the helper's compile-time `never` guard and surfaces
- * as a resolver error at runtime. Timestamps use the `DateTime` scalar
- * (registered in `shared/scalar.pothos.ts`, backed by `DateTimeResolver`
- * from `graphql-scalars`): `Date` on the canonical shape, ISO-8601 UTC on
- * the wire.
+ * `shared/enum.pothos.ts` through a fail-closed vocabulary-guard mapper —
+ * never `as` casts. The mapper is a single membership guard over the shared
+ * `SurahJuzRef` vocabulary, so the mapping stays total and lint-clean at any
+ * vocabulary size; an unrecognized value (a pgEnum ahead of the TS enum)
+ * cannot pass through silently — it surfaces as a resolver error at runtime.
+ * The guard's runtime totality is machine-compensated by the pgEnum↔TS
+ * mirror-parity test and the locale-completeness conformance test, which
+ * replace the retired compile-time switch-exhaustiveness check. Timestamps
+ * use the `DateTime` scalar (registered in `shared/scalar.pothos.ts`, backed
+ * by `DateTimeResolver` from `graphql-scalars`): `Date` on the canonical
+ * shape, ISO-8601 UTC on the wire.
  *
  * Consumed by the session-report query/mutation resolver modules, whose
  * imports transitively register the type through the `gqlSchema.ts`
  * side-effect chain.
  */
-import { SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
+import { isSurahJuzRef, type SurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { SurahJuzRefPothosEnum } from "@/backend/graphql/pothos/shared/enum.pothos";
 import type { HomeWorkReturnType, StudentHomeworkPageReturnType } from "@/backend/types";
 
 /**
- * Maps the `surah_juz_ref` pgEnum value carried by the canonical
- * `HomeWorkReturnType` row onto the `SurahJuzRef` TS enum.
- *
- * EXHAUSTIVE over the pgEnum vocabulary — one branch per member, NO
- * `default`: the scrutinee is the canonical row column's literal union, so
- * a future `surah_juz_ref` pgEnum member added to
- * `backend/db/schema/enums.ts` WITHOUT a matching branch here fails the
- * trailing `never` assignment at compile time (the silent
- * `default → null` escape hatch is deliberately absent). The five surah
- * legs sit as equality-guard early returns ahead of the switch (the
- * function-size lint ceiling forbids 35 two-line cases in one body);
- * sequential guards narrow the scrutinee just the same, and the switch
- * carries the remaining 30 juz members exhaustively. The trailing throw is
- * the fail-closed fallback for that impossible branch: unreachable while
- * the branches stay exhaustive, it still guards a runtime-only drift (a DB
- * enum ahead of the TS schema) by surfacing a resolver error instead of
- * passing an unmapped value through.
+ * Maps the `surah_juz_ref` pgEnum value carried by the canonical row onto
+ * the `SurahJuzRef` TS enum. The shipped pgEnum string union and the TS
+ * enum values are byte-identical, so the fail-closed vocabulary guard is
+ * the whole mapping; an unrecognized value (a DB enum ahead of the TS
+ * vocabulary) surfaces as a resolver error instead of passing through.
+ * Vocabulary totality is enforced by the pgEnum↔TS mirror-parity test and
+ * the locale-completeness conformance test.
  */
 function toSurahJuzRef(value: NonNullable<HomeWorkReturnType["currentSurahJuz"]>): SurahJuzRef {
-  if (value === "surah_al_fatihah") return SurahJuzRef.SurahAlFatihah;
-  if (value === "surah_al_baqarah") return SurahJuzRef.SurahAlBaqarah;
-  if (value === "surah_aal_imran") return SurahJuzRef.SurahAalImran;
-  if (value === "surah_an_nisa") return SurahJuzRef.SurahAnNisa;
-  if (value === "surah_al_maidah") return SurahJuzRef.SurahAlMaidah;
-  switch (value) {
-    case "juz_1":
-      return SurahJuzRef.Juz1;
-    case "juz_2":
-      return SurahJuzRef.Juz2;
-    case "juz_3":
-      return SurahJuzRef.Juz3;
-    case "juz_4":
-      return SurahJuzRef.Juz4;
-    case "juz_5":
-      return SurahJuzRef.Juz5;
-    case "juz_6":
-      return SurahJuzRef.Juz6;
-    case "juz_7":
-      return SurahJuzRef.Juz7;
-    case "juz_8":
-      return SurahJuzRef.Juz8;
-    case "juz_9":
-      return SurahJuzRef.Juz9;
-    case "juz_10":
-      return SurahJuzRef.Juz10;
-    case "juz_11":
-      return SurahJuzRef.Juz11;
-    case "juz_12":
-      return SurahJuzRef.Juz12;
-    case "juz_13":
-      return SurahJuzRef.Juz13;
-    case "juz_14":
-      return SurahJuzRef.Juz14;
-    case "juz_15":
-      return SurahJuzRef.Juz15;
-    case "juz_16":
-      return SurahJuzRef.Juz16;
-    case "juz_17":
-      return SurahJuzRef.Juz17;
-    case "juz_18":
-      return SurahJuzRef.Juz18;
-    case "juz_19":
-      return SurahJuzRef.Juz19;
-    case "juz_20":
-      return SurahJuzRef.Juz20;
-    case "juz_21":
-      return SurahJuzRef.Juz21;
-    case "juz_22":
-      return SurahJuzRef.Juz22;
-    case "juz_23":
-      return SurahJuzRef.Juz23;
-    case "juz_24":
-      return SurahJuzRef.Juz24;
-    case "juz_25":
-      return SurahJuzRef.Juz25;
-    case "juz_26":
-      return SurahJuzRef.Juz26;
-    case "juz_27":
-      return SurahJuzRef.Juz27;
-    case "juz_28":
-      return SurahJuzRef.Juz28;
-    case "juz_29":
-      return SurahJuzRef.Juz29;
-    case "juz_30":
-      return SurahJuzRef.Juz30;
+  if (isSurahJuzRef(value)) {
+    return value;
   }
-  // Exhaustiveness guard — the pgEnum union above guarantees this is
-  // unreachable (the registration.service.ts fail-closed idiom, without a
-  // `default` clause).
-  const exhaustive: never = value;
-  throw new Error(`Unexpected surah/juz ref: ${String(exhaustive)}`);
+  throw new Error(`Unexpected surah/juz ref: ${value}`);
 }
 
 /**
@@ -145,9 +70,8 @@ export const SessionHomeWorkPothosObject = gqlSchemaBuilder.objectRef<HomeWorkRe
     currentFromAyah: t.exposeInt("currentFromAyah", { nullable: true }),
     currentToAyah: t.exposeInt("currentToAyah", { nullable: true }),
     currentGrade: t.exposeInt("currentGrade", { nullable: true }),
-    // Mapped exhaustively onto the registered `SurahJuzRef` enum; an
-    // unmapped value fails the mapper's compile-time exhaustiveness guard
-    // and throws fail-closed at runtime.
+    // Mapped onto the registered `SurahJuzRef` enum through the fail-closed
+    // vocabulary guard; an unmapped value throws a resolver error.
     currentSurahJuz: t.field({
       type: SurahJuzRefPothosEnum,
       nullable: true,

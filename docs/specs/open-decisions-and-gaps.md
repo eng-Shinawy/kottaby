@@ -137,6 +137,7 @@
 >
 > **Decision:** Use enum for Surah/Juz representation in homework.
 > **Schema impact:** `home_work.current_surah_juz` and `home_work.revision_surah_juz` columns added (`surah_juz_ref` enum). New `surah_juz_ref` enum created with all 114 Surahs (represented as examples) and all 30 Juz. This allows non-contiguous review assignments (e.g., "Surah Al-Baqarah" or "Juz 30").
+> **Runtime status (kottaby#300):** the "(represented as examples)" caveat is retired — all 114 surahs + 30 juz (144 members) are shipped live end-to-end on every mirror (TS enum, pgEnum, SDL/codegen, en+ar labels), enforced by mirror-parity/conformance suites. Mirror map, naming rules, and fixture near-collision rules: `docs/curriculum/surah-juz-ref-vocabulary.md`.
 
 ### B.12: Multiple Parents per Student
 > **✅ RESOLVED**

@@ -224,6 +224,38 @@ describe("resolveNewestRow + isNewestRowUngraded — history derivation table", 
   });
 });
 
+describe("vocabulary guard — a non-member surahJuz ref never reaches the payload or passes validation", () => {
+  // The suite's single deliberate type-erosion point: a REAL typed block
+  // with a non-member ref written on via Object.assign (no cast, no any) —
+  // the same forge seam the conversions suite documents. The picker sends
+  // only enum members, but form state is untrusted input at this boundary.
+  function blockWithForgedRef(ref: string): typeof VALID_JADID {
+    const block = { ...VALID_JADID };
+    Object.assign(block, { surahJuz: ref });
+    return block;
+  }
+
+  test("normalizeBlock drops the whole block from the submit payload", () => {
+    const payload = buildSubmitPayload(validForm({ jadid: blockWithForgedRef("juz_31"), madi: null }));
+    expect(payload.homework).toBeUndefined();
+  });
+
+  test("validateReportForm flags the block with the picker's required message", () => {
+    const errors = validateReportForm(validForm({ jadid: blockWithForgedRef("surah_an_nuh") }), t);
+    expect(errors.jadid).toBe(t.reportSurahJuzRequiredMessage);
+  });
+
+  test("near-miss spellings never ride the fallback through (case/whitespace stay non-members)", () => {
+    for (const nearMiss of ["JUZ_1", " juz_1", "juz_1 ", "SurahAlBaqarah"]) {
+      const errors = validateReportForm(validForm({ jadid: blockWithForgedRef(nearMiss) }), t);
+      expect(errors.jadid).toBe(t.reportSurahJuzRequiredMessage);
+      expect(
+        buildSubmitPayload(validForm({ jadid: blockWithForgedRef(nearMiss), madi: null })).homework
+      ).toBeUndefined();
+    }
+  });
+});
+
 /** Builds a canonical 12-field homework row with the given id + grade overrides. */
 function makeHistoryRow(overrides: {
   id: string;

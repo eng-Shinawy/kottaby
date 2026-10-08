@@ -2,11 +2,13 @@
  * sessionReportConversions — runtime-validated conversions between the
  * backend `SessionReportSubmitInput` (uses backend `SurahJuzRef` enum)
  * and the codegen `SubmitSessionReportInput` (uses codegen `SurahJuzRef`
- * enum). The two enums carry the same underlying string values but
- * TypeScript treats them as distinct nominal types. The exhaustive
- * switches below perform a real per-branch mapping — no `as unknown as`
- * cast (which would trip `no-unsafe-type-assertion`). Pattern mirrors
- * `frontend/views/admin/users/utils/directoryConversions.ts`.
+ * enum). The two enums carry different underlying values (snake_case refs
+ * vs PascalCase wire names) and TypeScript treats them as distinct nominal
+ * types. The Surah/Juz conversion resolves through a module-scope,
+ * membership-guarded lookup map — no `as` cast and no `as unknown as`
+ * double cast (either would trip `no-unsafe-type-assertion`); an unmapped
+ * value fails closed with a thrown error, never a silent passthrough.
+ * Pattern mirrors `frontend/views/admin/users/utils/directoryConversions.ts`.
  */
 
 import { SurahJuzRef as BackendSurahJuzRef } from "@/backend/enum/shared/surah-juz-ref.enum";
@@ -24,83 +26,44 @@ import {
   type SubmitSessionReportInput,
 } from "@/frontend/graphql/generated/gql/graphql";
 
-/** Converts a backend SurahJuzRef value to the codegen enum value.
- *  Backend values are snake_case (`surah_al_fatihah`); codegen values
- *  are PascalCase (`SurahAlFatihah`). The 5 surah legs use early-return
- *  equality guards ahead of the 30-case juz switch (the
- *  `max-switch-cases` rule caps at 30). No `as` cast — exhaustive. */
+/**
+ * Membership set over the codegen `SurahJuzRef` wire values — allocated
+ * once at module scope so the guard below is an O(1) check with no
+ * per-call array allocations.
+ */
+const CODEGEN_MEMBERS: ReadonlySet<string> = new Set(Object.values(CodegenSurahJuzRef));
+
+/** Type guard narrowing an unknown wire value to the codegen enum. */
+function isCodegenSurahJuzRef(value: unknown): value is CodegenSurahJuzRef {
+  return typeof value === "string" && CODEGEN_MEMBERS.has(value);
+}
+
+/**
+ * Backend ref → codegen wire-name lookup, built once at module scope.
+ * Wire values for `SurahJuzRef` are the TS enum KEYS (the Pothos enumType
+ * maps keys to the wire; the codegen enum mirrors them), while
+ * `Object.entries` yields `[memberName, snakeRef]` pairs — so the map is
+ * INVERTED to ref → member name: the lookup key is the snake_case ref, the
+ * value is the PascalCase wire name. The explicit `[string, string]` tuple
+ * annotation keeps the flip cast-free.
+ */
+const CODEGEN_WIRE_BY_REF: ReadonlyMap<string, string> = new Map<string, string>(
+  Object.entries(BackendSurahJuzRef).map(([member, ref]): [string, string] => [ref, member])
+);
+
+/**
+ * Converts a backend `SurahJuzRef` value to the codegen enum value through
+ * the module-scope lookup map. The map is total over the shared vocabulary
+ * (pinned by the round-trip conversion suite and the codegen key-parity
+ * test), so an unmapped value is a cross-mirror drift — it fails closed
+ * here with a thrown error, never a silent null or passthrough.
+ */
 function toCodegenSurahJuzRef(value: BackendSurahJuzRef): CodegenSurahJuzRef {
-  if (value === BackendSurahJuzRef.SurahAlFatihah) return CodegenSurahJuzRef.SurahAlFatihah;
-  if (value === BackendSurahJuzRef.SurahAlBaqarah) return CodegenSurahJuzRef.SurahAlBaqarah;
-  if (value === BackendSurahJuzRef.SurahAalImran) return CodegenSurahJuzRef.SurahAalImran;
-  if (value === BackendSurahJuzRef.SurahAnNisa) return CodegenSurahJuzRef.SurahAnNisa;
-  if (value === BackendSurahJuzRef.SurahAlMaidah) return CodegenSurahJuzRef.SurahAlMaidah;
-  switch (value) {
-    case BackendSurahJuzRef.Juz1:
-      return CodegenSurahJuzRef.Juz1;
-    case BackendSurahJuzRef.Juz2:
-      return CodegenSurahJuzRef.Juz2;
-    case BackendSurahJuzRef.Juz3:
-      return CodegenSurahJuzRef.Juz3;
-    case BackendSurahJuzRef.Juz4:
-      return CodegenSurahJuzRef.Juz4;
-    case BackendSurahJuzRef.Juz5:
-      return CodegenSurahJuzRef.Juz5;
-    case BackendSurahJuzRef.Juz6:
-      return CodegenSurahJuzRef.Juz6;
-    case BackendSurahJuzRef.Juz7:
-      return CodegenSurahJuzRef.Juz7;
-    case BackendSurahJuzRef.Juz8:
-      return CodegenSurahJuzRef.Juz8;
-    case BackendSurahJuzRef.Juz9:
-      return CodegenSurahJuzRef.Juz9;
-    case BackendSurahJuzRef.Juz10:
-      return CodegenSurahJuzRef.Juz10;
-    case BackendSurahJuzRef.Juz11:
-      return CodegenSurahJuzRef.Juz11;
-    case BackendSurahJuzRef.Juz12:
-      return CodegenSurahJuzRef.Juz12;
-    case BackendSurahJuzRef.Juz13:
-      return CodegenSurahJuzRef.Juz13;
-    case BackendSurahJuzRef.Juz14:
-      return CodegenSurahJuzRef.Juz14;
-    case BackendSurahJuzRef.Juz15:
-      return CodegenSurahJuzRef.Juz15;
-    case BackendSurahJuzRef.Juz16:
-      return CodegenSurahJuzRef.Juz16;
-    case BackendSurahJuzRef.Juz17:
-      return CodegenSurahJuzRef.Juz17;
-    case BackendSurahJuzRef.Juz18:
-      return CodegenSurahJuzRef.Juz18;
-    case BackendSurahJuzRef.Juz19:
-      return CodegenSurahJuzRef.Juz19;
-    case BackendSurahJuzRef.Juz20:
-      return CodegenSurahJuzRef.Juz20;
-    case BackendSurahJuzRef.Juz21:
-      return CodegenSurahJuzRef.Juz21;
-    case BackendSurahJuzRef.Juz22:
-      return CodegenSurahJuzRef.Juz22;
-    case BackendSurahJuzRef.Juz23:
-      return CodegenSurahJuzRef.Juz23;
-    case BackendSurahJuzRef.Juz24:
-      return CodegenSurahJuzRef.Juz24;
-    case BackendSurahJuzRef.Juz25:
-      return CodegenSurahJuzRef.Juz25;
-    case BackendSurahJuzRef.Juz26:
-      return CodegenSurahJuzRef.Juz26;
-    case BackendSurahJuzRef.Juz27:
-      return CodegenSurahJuzRef.Juz27;
-    case BackendSurahJuzRef.Juz28:
-      return CodegenSurahJuzRef.Juz28;
-    case BackendSurahJuzRef.Juz29:
-      return CodegenSurahJuzRef.Juz29;
-    case BackendSurahJuzRef.Juz30:
-      return CodegenSurahJuzRef.Juz30;
+  const wire = CODEGEN_WIRE_BY_REF.get(value);
+  if (wire !== undefined && isCodegenSurahJuzRef(wire)) {
+    return wire;
   }
-  // Exhaustive-switch fallback — TS knows BackendSurahJuzRef is fully
-  // covered. Throwing on a future enum member addition without a case
-  // update is the canonical fail-closed posture.
-  throw new Error(`Unmapped SurahJuzRef value: ${String(value)}`);
+  throw new Error(`Unmapped SurahJuzRef value: ${value}`);
 }
 
 /** Converts a backend HomeWorkBlockInput to the codegen HomeWorkBlockInput. */

@@ -146,7 +146,10 @@ import {
  * (`setTeacherAvailability` — the teacher-role-gated single-arg
  * `isOnline: Boolean!` mutation; identity derived server-side from the
  * verified access token; NO id-taking argument) is then pinned on top
- * as the sanctioned post-reconciliation addition.
+ * as the sanctioned post-reconciliation addition. The self-service
+ * activity stamp write (`recordMyActivity` — the argless
+ * inactivity-heartbeat mutation shipped by the auto-offline round but
+ * never enumerated here) is re-anchored in the same documented fashion.
  */
 const FROZEN_MUTATION_FIELDS = [
   "adjustTeacherWallet",
@@ -190,6 +193,7 @@ const FROZEN_MUTATION_FIELDS = [
   "openSessionDispute",
   "purchaseSubscription",
   "purchaseVerificationPlan",
+  "recordMyActivity",
   "refreshToken",
   "registerUser",
   "rejectWithdrawal",
@@ -490,7 +494,7 @@ describe("BFLA structural verdict — zero notification CUD surface (REQ-032)", 
     }
   });
 
-  test("Mutation root is EXACTLY the refreshed frozen 58-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the admin-ordered paid re-evaluation write + the teacher availability toggle write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
+  test("Mutation root is EXACTLY the refreshed frozen 59-op baseline — the reconciled admin-user trio + quartet + dispute pair + post-confirmation dispute entry + confirm + payout + the sanctioned admin-governance pair + the session-governance quartet + the subscription purchase write + the verification-plan purchase write + the admin subscription-management quartet + the session-report write + the student-evaluation rating write + the financial-auditing trio + the curriculum lesson CRUD trio + the evaluation-booking write + the admin broadcast stop write + the admin direct-onboarding write + the applicant-cooldown extension write + the admin evaluation-override write + the credential-rotation write + the self-service credential write + the self-service activity stamp write + the admin-ordered paid re-evaluation write + the teacher availability toggle write on top of the auth quartet + notification read-latch pair + users-locale surface", () => {
     const names = fieldSurfaces("Mutation").map(surface => surface.name);
     expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual([...FROZEN_MUTATION_FIELDS]);
   });

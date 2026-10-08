@@ -206,6 +206,8 @@ const MANDATED_SESSIONS_KEYS = [
   "fromAyahLabel",
   "toAyahLabel",
   "surahJuzPickerLabel",
+  "surahJuzSurahGroupLabel",
+  "surahJuzJuzGroupLabel",
   "gradePreviousSectionTitle",
   "reportFirstSessionHint",
   "reportAlreadyGradedLabel",
@@ -613,18 +615,133 @@ describe("sync resolution — getTranslations(locale) resolves the new keys", ()
 });
 
 // ===========================================================================
-describe("surahJuzLabel — exhaustive 35-member vocabulary (Jadid & Madi)", () => {
-  /** The full `SurahJuzRef` enum vocabulary — 5 surahs + 30 juz. */
+describe("surahJuzLabel — exhaustive 144-member vocabulary (Jadid & Madi)", () => {
+  /**
+   * The full `SurahJuzRef` enum vocabulary — 114 surahs (mushaf order) plus
+   * the 30 juz. Listed literally because the shared layer must not import
+   * backend modules; the backend-side locale-conformance suite re-derives
+   * the same list from `Object.values(SurahJuzRef)`, so any vocabulary
+   * drift fails one of the two suites.
+   */
   const SURAH_JUZ_REFS = [
     "surah_al_fatihah",
     "surah_al_baqarah",
     "surah_aal_imran",
     "surah_an_nisa",
     "surah_al_maidah",
+    "surah_al_anam",
+    "surah_al_araf",
+    "surah_al_anfal",
+    "surah_at_tawbah",
+    "surah_yunus",
+    "surah_hud",
+    "surah_yusuf",
+    "surah_ar_rad",
+    "surah_ibrahim",
+    "surah_al_hijr",
+    "surah_an_nahl",
+    "surah_al_isra",
+    "surah_al_kahf",
+    "surah_maryam",
+    "surah_ta_ha",
+    "surah_al_anbiya",
+    "surah_al_hajj",
+    "surah_al_muminun",
+    "surah_an_nur",
+    "surah_al_furqan",
+    "surah_ash_shuara",
+    "surah_an_naml",
+    "surah_al_qasas",
+    "surah_al_ankabut",
+    "surah_ar_rum",
+    "surah_luqman",
+    "surah_as_sajdah",
+    "surah_al_ahzab",
+    "surah_saba",
+    "surah_fatir",
+    "surah_ya_sin",
+    "surah_as_saffat",
+    "surah_sad",
+    "surah_az_zumar",
+    "surah_ghafir",
+    "surah_fussilat",
+    "surah_ash_shura",
+    "surah_az_zukhruf",
+    "surah_ad_dukhan",
+    "surah_al_jathiyah",
+    "surah_al_ahqaf",
+    "surah_muhammad",
+    "surah_al_fath",
+    "surah_al_hujurat",
+    "surah_qaf",
+    "surah_ad_dhariyat",
+    "surah_at_tur",
+    "surah_an_najm",
+    "surah_al_qamar",
+    "surah_ar_rahman",
+    "surah_al_waqiah",
+    "surah_al_hadid",
+    "surah_al_mujadilah",
+    "surah_al_hashr",
+    "surah_al_mumtahanah",
+    "surah_as_saff",
+    "surah_al_jumuah",
+    "surah_al_munafiqun",
+    "surah_at_taghabun",
+    "surah_at_talaq",
+    "surah_at_tahrim",
+    "surah_al_mulk",
+    "surah_al_qalam",
+    "surah_al_haqqah",
+    "surah_al_maarij",
+    "surah_nuh",
+    "surah_al_jinn",
+    "surah_al_muzzammil",
+    "surah_al_muddaththir",
+    "surah_al_qiyamah",
+    "surah_al_insan",
+    "surah_al_mursalat",
+    "surah_an_naba",
+    "surah_an_naziat",
+    "surah_abasa",
+    "surah_at_takwir",
+    "surah_al_infitar",
+    "surah_al_mutaffifin",
+    "surah_al_inshiqaq",
+    "surah_al_buruj",
+    "surah_at_tariq",
+    "surah_al_ala",
+    "surah_al_ghashiyah",
+    "surah_al_fajr",
+    "surah_al_balad",
+    "surah_ash_shams",
+    "surah_al_layl",
+    "surah_ad_duha",
+    "surah_ash_sharh",
+    "surah_at_tin",
+    "surah_al_alaq",
+    "surah_al_qadr",
+    "surah_al_bayyinah",
+    "surah_az_zalzalah",
+    "surah_al_adiyat",
+    "surah_al_qariah",
+    "surah_at_takathur",
+    "surah_al_asr",
+    "surah_al_humazah",
+    "surah_al_fil",
+    "surah_quraysh",
+    "surah_al_maun",
+    "surah_al_kawthar",
+    "surah_al_kafirun",
+    "surah_an_nasr",
+    "surah_al_masad",
+    "surah_al_ikhlas",
+    "surah_al_falaq",
+    "surah_an_nas",
     ...Array.from({ length: 30 }, (_, index) => `juz_${index + 1}`),
   ] as const;
 
-  test("every ref in the 35-value vocabulary resolves to a non-empty string in BOTH locales", () => {
+  test("every ref in the 144-value vocabulary resolves to a non-empty string in BOTH locales", () => {
     for (const ref of SURAH_JUZ_REFS) {
       expect(typeof sessionsEn.surahJuzLabel(ref)).toBe("string");
       expect(sessionsEn.surahJuzLabel(ref).length).toBeGreaterThan(0);
@@ -657,14 +774,47 @@ describe("surahJuzLabel — exhaustive 35-member vocabulary (Jadid & Madi)", () 
     // Empty string input rides as the raw empty string (the function never throws).
     expect(sessionsEn.surahJuzLabel("")).toBe("");
     expect(sessionsAr.surahJuzLabel("")).toBe("");
+    // Hostile and near-miss strings ride raw too — lookup + fallback never
+    // interpret, coerce, or reformat the input (format-string metacharacters,
+    // a lone underscore, a path separator, out-of-vocabulary refs, case and
+    // whitespace variants of real members).
+    for (const hostile of ["%", "_", "\\", "%s{juz}", "juz_31", "surah_an_nuh", "JUZ_1", " juz_1"]) {
+      expect(sessionsEn.surahJuzLabel(hostile)).toBe(hostile);
+      expect(sessionsAr.surahJuzLabel(hostile)).toBe(hostile);
+    }
+  });
+
+  test("Arabic-Indic digit spot-checks on the juz labels", () => {
+    expect(sessionsAr.surahJuzLabel("juz_1")).toBe("الجزء ١");
+    expect(sessionsAr.surahJuzLabel("juz_9")).toBe("الجزء ٩");
+    expect(sessionsAr.surahJuzLabel("juz_10")).toBe("الجزء ١٠");
+    expect(sessionsAr.surahJuzLabel("juz_15")).toBe("الجزء ١٥");
+    expect(sessionsAr.surahJuzLabel("juz_20")).toBe("الجزء ٢٠");
+    expect(sessionsAr.surahJuzLabel("juz_21")).toBe("الجزء ٢١");
+    expect(sessionsAr.surahJuzLabel("juz_30")).toBe("الجزء ٣٠");
+    expect(sessionsEn.surahJuzLabel("juz_15")).toBe("Juz 15");
+    expect(sessionsEn.surahJuzLabel("juz_30")).toBe("Juz 30");
+  });
+
+  test("the two picker group labels resolve as non-empty strings in BOTH locales", () => {
+    // Compile-time schema presence — Reflect-only additions are prohibited
+    // by the SessionsLabels contract.
+    expect(Object.hasOwn(sessionsEn, "surahJuzSurahGroupLabel")).toBe(true);
+    expect(Object.hasOwn(sessionsAr, "surahJuzSurahGroupLabel")).toBe(true);
+    expect(Object.hasOwn(sessionsEn, "surahJuzJuzGroupLabel")).toBe(true);
+    expect(Object.hasOwn(sessionsAr, "surahJuzJuzGroupLabel")).toBe(true);
+    expect(sessionsEn.surahJuzSurahGroupLabel.length).toBeGreaterThan(0);
+    expect(sessionsEn.surahJuzJuzGroupLabel.length).toBeGreaterThan(0);
+    expect(sessionsAr.surahJuzSurahGroupLabel.length).toBeGreaterThan(0);
+    expect(sessionsAr.surahJuzJuzGroupLabel.length).toBeGreaterThan(0);
   });
 
   test("the surah names start with the localized 'Surah' / 'سورة' word and juz names start with 'Juz' / 'الجزء'", () => {
-    for (const ref of SURAH_JUZ_REFS.slice(0, 5)) {
+    for (const ref of SURAH_JUZ_REFS.slice(0, 114)) {
       expect(sessionsEn.surahJuzLabel(ref).startsWith("Surah ")).toBe(true);
       expect(sessionsAr.surahJuzLabel(ref).startsWith("سورة ")).toBe(true);
     }
-    for (const ref of SURAH_JUZ_REFS.slice(5)) {
+    for (const ref of SURAH_JUZ_REFS.slice(114)) {
       expect(sessionsEn.surahJuzLabel(ref).startsWith("Juz ")).toBe(true);
       expect(sessionsAr.surahJuzLabel(ref).startsWith("الجزء ")).toBe(true);
     }
