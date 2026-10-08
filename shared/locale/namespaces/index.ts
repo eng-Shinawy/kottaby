@@ -22,6 +22,7 @@ export * from "./lessons";
 export * from "./notifications";
 export * from "./parentLink";
 export * from "./parentMonitoring";
+export * from "./phoneInput";
 export * from "./plans";
 export * from "./recitation";
 export * from "./registry";

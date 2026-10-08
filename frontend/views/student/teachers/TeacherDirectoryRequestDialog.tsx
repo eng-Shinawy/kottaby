@@ -9,14 +9,18 @@
  * Qira'ah certifications resolved through the `recitation` namespace's
  * per-reading names + the fluency tokens through the presentation
  * vocabulary's honest known/unknown resolution); the subject-intent
- * select (preselected from the APPLIED browse filter on every open); the
- * prepaid-credits strip (the caller's own `mySessionBalance` lanes,
+ * select (preselected from the APPLIED browse filter ONLY when it
+ * narrowed a subject — with the browse's subject filter defaulting to
+ * `null`, an un-narrowed applied set opens the select on its
+ * placeholder, and `createSession` still requires a concrete subject);
+ * the prepaid-credits strip (the caller's own `mySessionBalance` lanes,
  * rendered ONLY when that read resolves — the selected intent's chip is
  * emphasized, an empty effective prepaid surface earns the honest
- * MAY-decline caption); the localized note stating the server validates
+ * MAY-decline caption, and while no subject is chosen the chips render
+ * plain with no caption); the localized note stating the server validates
  * the balance/trial lane and holds the fee; and the Cancel/Confirm
  * action pair (≥44px, the confirm rides the mutation's loading state and
- * is disabled while submitting).
+ * is disabled while submitting OR while no subject is chosen).
  *
  * The write path — mutation, per-open idempotency key, typed outcome
  * lanes — lives in {@link useSessionRequest}; the transient notices render
@@ -60,8 +64,12 @@ interface TeacherDirectoryRequestDialogProps {
   readonly open: boolean;
   /** The selected teacher (`null` while closed — one instance, keyed per open). */
   readonly teacher: BrowseAvailableTeachersQuery_browseAvailableTeachers_items | null;
-  /** The intent preselected on open — the applied browse filter's intent. */
-  readonly appliedIntent: BrowseIntent;
+  /**
+   * The intent preselected on open — the applied browse filter's intent
+   * (`null` when the browse isn't narrowed to a subject: the select opens
+   * on its placeholder and Confirm stays disabled until a pick).
+   */
+  readonly appliedIntent: BrowseIntent | null;
   /** Dismisses the dialog (backdrop, close icon, cancel affordance). */
   readonly onClose: () => void;
   /** Refetches the directory browse after outcomes that change it. */
@@ -152,7 +160,7 @@ export function TeacherDirectoryRequestDialog({
           <Button
             onClick={handleConfirm}
             variant="contained"
-            disabled={submitting}
+            disabled={submitting || intent === null}
             loading={submitting}
             autoFocus
             startIcon={<RequestIcon />}

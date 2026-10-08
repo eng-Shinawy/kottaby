@@ -38,7 +38,7 @@ export interface CreateUserFormState {
   email: string;
   phone: string;
   password: string;
-  gender: "" | "Male" | "Female" | "Other";
+  gender: "" | "Male" | "Female";
   /** Selected ISO 3166-1 alpha-2 code, or "" while nothing is picked. */
   country: CountryCode | "";
   role: CreateUserDialogRole;
@@ -93,12 +93,12 @@ export function CreateUserFormGrid({ labels, form, setForm, fieldErrors }: Creat
         <AdminDialogFieldLabel htmlFor={CREATE_PHONE_ID} text={labels.createDialog.phone} required />
         <PhoneInput
           id={CREATE_PHONE_ID}
-          value={form.phone}
-          onChange={e => setForm({ ...form, phone: e.target.value })}
+          value={form.phone === "" ? null : form.phone}
+          onChangeAction={value => setForm({ ...form, phone: value ?? "" })}
           required
+          hideLabel
           error={phoneError}
           helperText={phoneErrorText}
-          aria-invalid={phoneError}
         />
       </Box>
       <Box>

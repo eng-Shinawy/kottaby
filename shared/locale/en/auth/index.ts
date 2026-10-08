@@ -48,7 +48,6 @@ export const authEn: AuthLabels = {
   welcomeBack: "Welcome back",
   genderMale: "Male",
   genderFemale: "Female",
-  genderOther: "Other",
   showPassword: "Show password",
   hidePassword: "Hide password",
   registrationSuccess: "Account created successfully! Redirecting to sign in...",

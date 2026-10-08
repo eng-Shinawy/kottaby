@@ -11,19 +11,19 @@ import type {
  * One operation over the matching SDL surface:
  * - `browseAvailableTeachers(recitation, intent, search, minRating, sort,
  *   page, pageSize)` — the paged, filtered browse of eligible teachers
- *   carrying the six per-browse choices (the hard Qira'ah filter, the
- *   subject intent, the optional name search + minimum-rating floor, the
- *   post-tier ordering choice, and the page bounds).
+ *   carrying the six per-browse choices (the optional Qira'ah recitation
+ *   and subject-intent filters — `null` = no constraint, browse across
+ *   ALL readings/subjects — the optional name search + minimum-rating
+ *   floor, the post-tier ordering choice, and the page bounds).
  *
  * Caller identity is NEVER wire-visible: the query declares only the six
  * per-browse CHOICES — the browsing student is derived server-side from
  * the authenticated caller (`ctx.user.id`), so a BOLA probe has no
- * identity surface to address. The three optional pairings
- * (`search`/`minRating` name-and-rating narrowing, `sort` the ordering
- * choice with the SDL default `RATING_DESC`, and `page`/`pageSize` with
- * SDL defaults 1/25) are all nullable on the wire; the container always
- * sends `page`/`pageSize` explicitly so the pagination echo is
- * deterministic, and forwards `search` as `null` when empty.
+ * identity surface to address. All six variables are nullable on the
+ * wire (`sort` carries the SDL default `RATING_DESC`, and `page`/`pageSize`
+ * the SDL defaults 1/25); the container always sends `page`/`pageSize`
+ * explicitly so the pagination echo is deterministic, and forwards
+ * `search` as `null` when empty.
  *
  * `id` is selected FIRST inside `items` so Apollo Client normalizes each
  * `TeacherMatchingItem` row into the cache; the surrounding
@@ -51,11 +51,11 @@ export const browseAvailableTeachersQueryDocument: TypedDocumentNode<
   BrowseAvailableTeachersQueryVariables
 > = gql`
   query BrowseAvailableTeachers(
-    $intent: SessionIntent!
+    $intent: SessionIntent
     $minRating: Float
     $page: Int
     $pageSize: Int
-    $recitation: RecitationReading!
+    $recitation: RecitationReading
     $search: String
     $sort: TeacherMatchingSort
   ) {

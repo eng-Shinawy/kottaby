@@ -256,6 +256,8 @@ import { outlinedInputSx, timeInputOutlinedSx, AppTimePicker } from "@/frontend/
 
 Reference implementations: `TimezoneSelect`, `CountrySelect`, `CurrencySelect`, `PhoneInput`.
 
+`PhoneInput` is the two-slot phone field: a country-picker flag button plus a borderless calling-code prefix in the start adornment, and the national number as the main input. The flag/dial-code adornment is built in (no `startAdornment`), `aria-invalid` is computed internally from the error state, and the value contract is E.164 — full `+{callingCode}{national}` when valid, a partial `+{prefix}` while typing, `null` when empty — emitted through `onChangeAction`. Bind it to React Hook Form via `PhoneFormField` (`name` + `control`, optional `rules`); the admin dialogs bind it as a controlled field (`value: string | null`, `onChangeAction`).
+
 ### Available styles
 
 | Export                    | Use case                                          |

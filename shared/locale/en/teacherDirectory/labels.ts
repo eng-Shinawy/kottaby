@@ -5,7 +5,9 @@ export const teacherDirectoryEn: TeacherDirectoryLabels = {
   browseTitle: "Find Teachers",
   browseSubtitle: "Browse certified teachers by Qira'ah and subject.",
   recitationLabel: "Recitation (Qira'ah)",
+  recitationAny: "All recitations",
   intentLabel: "Subject",
+  subjectAny: "All subjects",
   intentHifz: "Memorization (Hifz)",
   intentTajweed: "Tajweed & Tilawa",
   applyFilters: "Apply Filters",
@@ -25,6 +27,7 @@ export const teacherDirectoryEn: TeacherDirectoryLabels = {
   requestSessionCta: "Request Session",
   requestDialogTitle: "Request a Session",
   requestDialogIntentLabel: "Subject for this session",
+  requestDialogIntentPlaceholder: "Choose a subject",
   requestDialogNote:
     "The request is confirmed instantly. Your free trial is used first, then your plan balance — the fee is held until the session completes.",
   requestDialogCreditsLabel: "Your credits",

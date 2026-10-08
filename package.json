@@ -48,7 +48,7 @@
     "check:deps": "bun run scripts/lib/run-locked-cmd.ts check:deps depcruise --config .dependency-cruiser.js app backend frontend shared",
     "quality-gate": "bun run scripts/quality-gate.ts",
     "quality-gate:fresh": "bun run scripts/quality-gate.ts --fresh",
-    "storybook": "NODE_OPTIONS='--no-deprecation' storybook dev -p 6006",
+    "storybook": "NODE_OPTIONS='--no-deprecation' storybook dev -p 6066",
     "build-storybook": "NODE_OPTIONS='--no-deprecation' storybook build",
     "prepare": "husky",
     "postinstall": "rm -rf node_modules/*/node_modules/typescript",
@@ -126,6 +126,7 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "1.0.0-rc.4",
     "eslint-plugin-drizzle": "^0.2.3",
+    "google-libphonenumber": "^3.2.46",
     "graphql": "^17.0.2",
     "graphql-scalars": "^2.0.0",
     "ioredis": "^6.0.0",
@@ -146,6 +147,7 @@
     "@chromatic-com/storybook": "^5.3.1",
     "@cspell/dict-ar": "^1.1.7",
     "@eslint/js": "^10.0.1",
+    "@graphql-codegen/typed-document-node": "^7.1.0",
     "@graphql-codegen/typescript-operations": "^6.1.6",
     "@graphql-eslint/eslint-plugin": "^4.4.1",
     "@mdx-js/react": "^3.1.0",
@@ -159,6 +161,7 @@
     "@storybook/nextjs-vite": "^10.6.0",
     "@storybook/react": "^10.6.0",
     "@types/crypto-js": "^4.2.2",
+    "@types/google-libphonenumber": "^7.4.30",
     "@types/node": "^26.4.1",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
@@ -177,6 +180,7 @@
     "eslint": "^10.10.0",
     "eslint-config-next": "16.3.5",
     "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.6",
     "eslint-plugin-sonarjs": "^4.2.0",
     "eslint-plugin-storybook": "^10.6.0",
@@ -195,8 +199,6 @@
     "typescript": "~7.0.2",
     "typescript-eslint": "^8.70.0",
     "vite": "^8.3.0",
-    "vitest": "^5.0.0",
-    "@graphql-codegen/typed-document-node": "^7.1.0",
-    "eslint-plugin-react-hooks": "^7.1.1"
+    "vitest": "^5.0.0"
   }
 }

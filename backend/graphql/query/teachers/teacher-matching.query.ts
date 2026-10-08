@@ -10,8 +10,11 @@
  *    resolves the caller's own student context (languages + country pair)
  *    internally.
  *  - Args are the per-browse choices ONLY:
- *      `recitation: RecitationReading!` (hard Qira'ah filter),
- *      `intent: SessionIntent!` (hard subject filter — narrowed to the
+ *      `recitation: RecitationReading` (optional Qira'ah narrowing
+ *      filter — `null` means no constraint / all; validated against the
+ *      shared catalog service-side when supplied),
+ *      `intent: SessionIntent` (optional subject narrowing filter —
+ *      `null` means no constraint; when supplied it is narrowed to the
  *      student browse vocabulary by `isBrowseIntent`; the staff-driven
  *      `evaluation` value denies with the localized `ValidationError`
  *      before any database work),
@@ -79,12 +82,18 @@ gqlSchemaBuilder.queryField("browseAvailableTeachers", t =>
   t.field({
     type: TeacherMatchingPagePothosObject,
     args: {
-      // The hard Qira'ah certification filter — a required browse choice.
-      recitation: t.arg({ type: RecitationReadingPothosEnum, required: true }),
-      // The hard subject filter — carried on the wire as the scheduling
-      // `SessionIntent` enum (a real TS enum per the Pothos enum rule);
-      // the resolver narrows it to the student browse vocabulary below.
-      intent: t.arg({ type: SessionIntentPothosEnum, required: true }),
+      // The OPTIONAL Qira'ah certification narrowing filter — `null`
+      // (absent or explicit) means no constraint / all teachers; a
+      // supplied value is validated against the shared catalog
+      // service-side.
+      recitation: t.arg({ type: RecitationReadingPothosEnum, required: false }),
+      // The OPTIONAL subject narrowing filter — carried on the wire as
+      // the scheduling `SessionIntent` enum (a real TS enum per the
+      // Pothos enum rule); `null` means no constraint. When supplied,
+      // the resolver narrows it to the student browse vocabulary below
+      // (a student without a subject filter still picks one in the
+      // session-request dialog — enforced there, not here).
+      intent: t.arg({ type: SessionIntentPothosEnum, required: false }),
       // SDL defaults (`page: Int = 1`, `pageSize: Int = 25`); the service
       // re-normalizes the effective bounds pre-DB (1..100) and echoes them
       // honestly — the resolver forwards, never clamps. The `??` restores
@@ -110,7 +119,7 @@ gqlSchemaBuilder.queryField("browseAvailableTeachers", t =>
       pageSize: t.arg.int({ required: false, defaultValue: 25 }),
     },
     description:
-      "Student-only paged browse of eligible teachers for one Qira'ah + subject choice, narrowed optionally by a case-insensitive name search and a minimum rating, ordered by same-country affinity first, then the chosen sort (top-rated by default, with unrated last within a tier), then a stable id tiebreak. PII-minimal cards (display name, country, subjects, recitations, languages, average rating, online flag). Eligibility composes the availability flag with the no-active-session rule; out-of-range pages return empty items next to the honest total.",
+      "Student-only paged browse of eligible teachers, narrowed optionally by Qira'ah recitation, subject (intent), a case-insensitive name search, and a minimum rating (each null means no constraint), ordered by same-country affinity first, then the chosen sort (top-rated by default, with unrated last within a tier), then a stable id tiebreak. PII-minimal cards (display name, country, subjects, recitations, languages, average rating, online flag). Eligibility composes the availability flag with the no-active-session rule; out-of-range pages return empty items next to the honest total.",
     authScopes: {
       $all: {
         authenticated: true,
@@ -130,11 +139,12 @@ gqlSchemaBuilder.queryField("browseAvailableTeachers", t =>
       }
       // TypeScript narrowing belt for the wire `SessionIntent` → browse
       // vocabulary: the staff-driven `evaluation` intent is not a browse
-      // choice. The localized denial mirrors the service's own
-      // `ValidationError` copy and is unreachable for honest clients (the
-      // UI offers only the two browse intents); the service re-validates
-      // against the same set (defense-in-depth).
-      if (!isBrowseIntent(args.intent)) {
+      // choice, and a `null` intent means "no constraint" — the probe
+      // runs only for a supplied value. The localized denial mirrors the
+      // service's own `ValidationError` copy and is unreachable for
+      // honest clients (the UI offers only the two browse intents); the
+      // service re-validates against the same set (defense-in-depth).
+      if (args.intent !== undefined && args.intent !== null && !isBrowseIntent(args.intent)) {
         throw new ValidationError((await ctx.t("errorsTranslations")).validation);
       }
       // Identity is server-derived (BOLA — no id argument of any kind);
@@ -143,8 +153,8 @@ gqlSchemaBuilder.queryField("browseAvailableTeachers", t =>
       return TeacherMatchingService.browseAvailableTeachers(
         ctx.user.id,
         {
-          recitation: args.recitation,
-          intent: args.intent,
+          recitation: args.recitation ?? null,
+          intent: args.intent ?? null,
           search: args.search ?? null,
           minRating: args.minRating ?? null,
           sort: args.sort ?? TeacherMatchingSort.RatingDesc,

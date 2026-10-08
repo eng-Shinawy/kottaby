@@ -305,8 +305,8 @@ describe("TeacherMatchingTypes — Static Structural Assertions", () => {
     const body = interfaceBody(code, /export interface TeacherMatchingSubmitInput\b/);
     expect(body).not.toBe("");
 
-    expect(body).toContain("readonly recitation: RecitationReading;");
-    expect(body).toContain("readonly intent: TeacherMatchingIntent;");
+    expect(body).toContain("readonly recitation: RecitationReading | null;");
+    expect(body).toContain("readonly intent: TeacherMatchingIntent | null;");
     expect(body).toContain("readonly page: number | null;");
     expect(body).toContain("readonly pageSize: number | null;");
     expect(body).toContain("readonly search: string | null;");
@@ -332,6 +332,10 @@ describe("TeacherMatchingTypes — Static Structural Assertions", () => {
     v(searchNullableExact);
     const minRatingNullableExact: Equal<TeacherMatchingSubmitInput["minRating"], number | null> = true;
     v(minRatingNullableExact);
+    const recitationNullableExact: Equal<TeacherMatchingSubmitInput["recitation"], RecitationReading | null> = true;
+    v(recitationNullableExact);
+    const intentNullableExact: Equal<TeacherMatchingSubmitInput["intent"], TeacherMatchingIntent | null> = true;
+    v(intentNullableExact);
     const sortEnumExact: Equal<TeacherMatchingSubmitInput["sort"], TeacherMatchingSort> = true;
     v(sortEnumExact);
 

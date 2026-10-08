@@ -15,7 +15,6 @@ Enum user_role {
 Enum gender {
   male
   female
-  other
 }
 
 Enum session_status {

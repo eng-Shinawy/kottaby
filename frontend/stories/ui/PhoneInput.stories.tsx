@@ -1,98 +1,124 @@
-import { PhoneOutlined } from "@mui/icons-material";
-import { Box, InputAdornment, Stack } from "@mui/material";
+import { Box, Stack } from "@mui/material";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { type ReactNode, useState } from "react";
-import { PhoneInput } from "@/frontend/components/ui/PhoneInput";
+import { useForm } from "react-hook-form";
+import { expect, userEvent, within } from "storybook/test";
+import { PhoneFormField, type PhoneFormFieldProps } from "@/frontend/components/ui/PhoneFormField";
+import { PhoneInput, type PhoneInputProps } from "@/frontend/components/ui/PhoneInput";
 
 /**
- * Storybook surface for `PhoneInput` — the shared `tel` field behind the register
- * form, the admin create/edit dialogs, and student onboarding.
+ * Storybook surface for `PhoneInput` — the two-slot phone field (flag +
+ * calling-code prefix adornment, national number input) with the attached
+ * country picker.
  *
- * The Default story mirrors only the `name`-only member of the register
- * form's React Hook Form `{...register("phone")}` spread — the change/blur
- * handlers and ref are not expressible as Storybook args — while the
- * controlled `value`/`onChange` shape the admin surfaces bind to their own
- * form state is demonstrated by the `WithValue` and `RtlContext` stories
- * (via the controlled harness). The stories also pin the error/helper-line
- * contract and the bidi guarantee — the phone value stays
- * laid out left-to-right even inside a right-to-left (Arabic) container. The
- * preview shell is locale-aware too: the toolbar `locale` global flips the whole
- * document between LTR and RTL.
+ * Every story runs through the controlled harness: the component's value
+ * contract is E.164 (`"+201234567890"`), a partial prefix (`"+20"`), or
+ * `null` when empty, so the harness binds `value`/`onChangeAction` to local
+ * state exactly like the admin dialogs and register form do. The preview
+ * shell is locale-aware: the toolbar `locale` global flips the whole document
+ * between LTR and RTL, and the `Rtl` story mirrors an explicit RTL container.
  */
 
-/** Controlled harness — mirrors the admin dialogs' `value` + `onChange` form-state binding. */
-function ControlledPhoneInput({ initialValue, label }: Readonly<{ initialValue: string; label?: string }>): ReactNode {
-  const [phone, setPhone] = useState(initialValue);
-  return <PhoneInput label={label} value={phone} onChange={event => setPhone(event.target.value)} />;
+type PhoneInputStoryProps = Readonly<
+  Omit<PhoneInputProps, "value" | "onChangeAction"> & { readonly initialValue?: string | null }
+>;
+
+/** Controlled harness — binds the E.164 value contract to local state. */
+function PhoneInputStory({ initialValue = null, ...props }: PhoneInputStoryProps): ReactNode {
+  const [phone, setPhone] = useState<string | null>(initialValue);
+  return (
+    <Box sx={{ width: 400, p: 2 }}>
+      <PhoneInput value={phone} onChangeAction={setPhone} {...props} />
+    </Box>
+  );
 }
 
 const meta = {
   title: "Form/PhoneInput",
-  component: PhoneInput,
+  component: PhoneInputStory,
   parameters: {
     layout: "padded",
   },
   tags: ["autodocs"],
-} satisfies Meta<typeof PhoneInput>;
+} satisfies Meta<typeof PhoneInputStory>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Empty field bound by name only — mirrors the `name` member of the register form's `{...register("phone")}` spread (the RHF change/blur handlers and ref cannot be expressed as Storybook args). */
+/** Empty field on the default (EG) region — the register form's starting state. */
 export const Default: Story = {
   args: {
-    name: "phone",
-    label: "Phone number",
-    fullWidth: true,
-    startAdornment: (
-      <InputAdornment position="start">
-        <PhoneOutlined fontSize="small" />
-      </InputAdornment>
-    ),
+    defaultRegion: "EG",
+    initialValue: null,
+  },
+};
+
+/** Controlled with a full E.164 value — flag, prefix, and formatted national number all render. */
+export const WithValue: Story = {
+  args: {
+    defaultRegion: "EG",
+    initialValue: "+201234567890",
+  },
+};
+
+/** Country picker opened via the flag button — attached list anchored under the field. */
+export const WithCountryPickerOpen: Story = {
+  args: {
+    defaultRegion: "EG",
+    initialValue: null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The attached list renders in a MUI portal on the document body — outside
+    // the canvas root — so the listbox assertion must query the page scope.
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.click(await canvas.findByRole("button"));
+    await expect(await page.findByRole("listbox")).toBeVisible();
+  },
+};
+
+/** Incomplete number — the live invalid-phone hint appears under the field. */
+export const InvalidPhone: Story = {
+  args: {
+    defaultRegion: "EG",
+    initialValue: "+20123",
+  },
+};
+
+/** Consumer/server error — passed-in copy takes precedence over the live hint. */
+export const ServerError: Story = {
+  args: {
+    defaultRegion: "EG",
+    initialValue: null,
+    error: true,
+    helperText: "This phone number is already registered.",
   },
 };
 
 /** Mandatory field — the floating label carries the required asterisk. */
 export const Required: Story = {
   args: {
-    name: "phone",
-    label: "Phone number",
+    defaultRegion: "EG",
+    initialValue: null,
     required: true,
-    fullWidth: true,
   },
 };
 
-/** Controlled with a prefilled value — typing routes through the harness state. */
-export const WithValue: Story = {
-  render: () => <ControlledPhoneInput initialValue="+201234567890" label="Phone number" />,
-};
-
-/** Validation failure — error styling, `aria-invalid`, and the polite live-region helper line. */
-export const ErrorState: Story = {
-  args: {
-    label: "Phone number",
-    error: true,
-    helperText: "Please enter a valid phone number.",
-    fullWidth: true,
-  },
-};
-
-/** Disabled field. */
+/** Disabled field — both slots and the country picker are inert. */
 export const Disabled: Story = {
   args: {
-    label: "Phone number",
+    defaultRegion: "EG",
+    initialValue: "+201234567890",
     disabled: true,
-    fullWidth: true,
   },
 };
 
 /**
- * RTL container — the field sits inside a `dir="rtl"` region (like a section of an
- * Arabic page) while the phone value itself still renders left-to-right: the
- * component pins `dir: "ltr"` on the underlying `<input>` regardless of its
- * surroundings.
+ * RTL container — the field sits inside a `dir="rtl"` region (like an Arabic
+ * page section) while the flag, prefix, and number still read left-to-right:
+ * the component wraps the field in `dir="ltr"` regardless of surroundings.
  */
-export const RtlContext: Story = {
+export const Rtl: Story = {
   render: () => (
     <Box
       dir="rtl"
@@ -104,8 +130,32 @@ export const RtlContext: Story = {
       })}
     >
       <Stack spacing={2} sx={{ maxWidth: 400 }}>
-        <ControlledPhoneInput initialValue="+201234567890" label="رقم الهاتف" />
+        <PhoneInputStory initialValue="+201234567890" label="رقم الهاتف" />
       </Stack>
     </Box>
   ),
+};
+
+type PhoneFormValues = { readonly phone: string };
+
+/** React Hook Form binder harness — the admin dialogs' `<PhoneFormField name control/>` shape. */
+function PhoneFormFieldStory(): ReactNode {
+  const { control } = useForm<PhoneFormValues>({ defaultValues: { phone: "+201234567890" } });
+  const fieldProps: Omit<PhoneFormFieldProps<PhoneFormValues>, "name" | "control"> = {
+    label: "Phone number",
+    fullWidth: true,
+  };
+  return (
+    <Box sx={{ width: 400, p: 2 }}>
+      <PhoneFormField name="phone" control={control} {...fieldProps} />
+    </Box>
+  );
+}
+
+/**
+ * React Hook Form binder — the controller projects RHF's string field onto
+ * the component's E.164 contract (`""` ↔ `null`) and back.
+ */
+export const ReactHookForm: Story = {
+  render: () => <PhoneFormFieldStory />,
 };

@@ -21,6 +21,24 @@
  *    case-insensitive, returns the value unchanged — normalization +
  *    curated-set membership stay in the service; frontend codegen maps it to
  *    `string`).
+ *  - `PhoneNumber` — `PhoneNumberScalar` from
+ *    `backend/graphql/scalars/phoneNumberScalar.ts`. Validates E.164
+ *    SEMANTICALLY via the ported google-libphonenumber library
+ *    (`shared/lib/phone/`, deep-import `@/shared/lib/phone/parse` — the
+ *    bare `@/shared/lib/phone` alias resolves to the legacy zod shape gate
+ *    in `shared/lib/phone.ts`): input coercion accepts a String, returns
+ *    the canonical E.164 form when valid, and otherwise throws a
+ *    `GraphQLError` whose message is the machine code `PHONE_INVALID`
+ *    (never the submitted value); serialization is a lenient String
+ *    pass-through for future output fields that may expose legacy stored
+ *    values. Registered for FUTURE input fields — existing phone mutation
+ *    inputs intentionally remain `String`: the localized VALIDATION
+ *    field-error envelope (`extensions.fields[]` with
+ *    `{field:"phone", code, message}`) produced by the service-level
+ *    `validatePhoneField` gate is the documented wire contract
+ *    (docs/validation/phone-validation.md), and scalar-level coercion
+ *    errors cannot be localized per-request-locale. Frontend codegen maps
+ *    it to `string` (codegen.ts).
  *
  * After registering a new scalar here, update the builder's `Scalars` type,
  * then run `bun run generate:gqlSchema` and `bun codegen` to refresh the SDL
@@ -28,6 +46,7 @@
  */
 import { CountryCodeResolver, DateTimeResolver } from "graphql-scalars";
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
+import { PhoneNumberScalar } from "@/backend/graphql/scalars/phoneNumberScalar";
 
 // ISO-8601 UTC date-time scalar (serializes `Date`; accepts ISO strings
 // pass-through) — registered by side effect when this module loads; domain
@@ -40,3 +59,16 @@ gqlSchemaBuilder.addScalarType("DateTime", DateTimeResolver, {});
 // stay in the service layer) — registered by side effect when this module
 // loads; domain Pothos fields reference it by NAME (`type: "CountryCode"`).
 gqlSchemaBuilder.addScalarType("CountryCode", CountryCodeResolver, {});
+
+// E.164 phone-number scalar (semantic validation via the ported
+// google-libphonenumber library in `shared/lib/phone/`; input coercion
+// returns the canonical E.164 form or throws the machine code
+// `PHONE_INVALID`; serialization is a lenient String pass-through).
+// Registered for FUTURE input fields — existing phone mutation inputs
+// intentionally remain `String` because the localized VALIDATION
+// field-error envelope (`extensions.fields[]` with
+// `{field:"phone", code, message}`) from the service-level
+// `validatePhoneField` gate is the documented wire contract
+// (docs/validation/phone-validation.md), and scalar-level coercion errors
+// cannot be localized per-request-locale.
+gqlSchemaBuilder.addScalarType("PhoneNumber", PhoneNumberScalar, {});

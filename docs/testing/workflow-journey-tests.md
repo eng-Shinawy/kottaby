@@ -119,6 +119,21 @@ Mirror the sibling journeys' specifier form verbatim.
 - Run the suite with `bun run test/scripts/run-test.ts test/workflows`; while iterating on a
   single journey use `bun run test/scripts/run-test.ts test/workflows/<domain>/<workflow>.test.ts`.
 
+## Diagram documentation (mandatory)
+
+Every journey ships with a Mermaid diagram in its domain's diagram file
+(`test/workflows/<domain>/DIAGRAMS.md`): one section per journey test — a heading named after the
+test file, a 1-2 sentence intro, and a single ```` ```mermaid ```` block (`sequenceDiagram` for
+actor flows, `stateDiagram-v2` for state machines, `flowchart` for decision logic). Actor and
+step names must match the real service calls. Create or update the diagram in the **same change**
+as the journey, and validate before finishing:
+
+```bash
+bun run validate:mermaid test/workflows/<domain>/DIAGRAMS.md   # every block must report OK
+```
+
+Existing example: `test/workflows/sessions/DIAGRAMS.md`.
+
 ## Recording journeys from specs
 
 Cross-actor journeys are part of the spec workflow — integrated in

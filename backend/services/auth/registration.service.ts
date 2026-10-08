@@ -333,7 +333,7 @@ export namespace RegistrationService {
 
   /** Runtime guard for the `Gender` enum (defensive — the type already narrows). */
   function isValidGender(value: unknown): value is Gender {
-    return value === Gender.Male || value === Gender.Female || value === Gender.Other;
+    return value === Gender.Male || value === Gender.Female;
   }
 
   /**

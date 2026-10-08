@@ -27,7 +27,7 @@ export interface OnboardStudentFormState {
   /** The admin-authored initial password (exact-value input, never trimmed). */
   readonly password: string;
   /** Gender select token ("" = leave unset — the select's unspecified slot). */
-  readonly gender: "" | "Male" | "Female" | "Other";
+  readonly gender: "" | "Male" | "Female";
   /** The student's country of residence. */
   readonly country: string;
   /** Picked parent user id; null onboards without a parent link. */
@@ -68,7 +68,6 @@ export const EMPTY_ONBOARD_STUDENT_FORM: OnboardStudentFormState = {
 const GENDER_BY_TOKEN: Record<string, Gender> = {
   [Gender.Male]: Gender.Male,
   [Gender.Female]: Gender.Female,
-  [Gender.Other]: Gender.Other,
 };
 
 /** Offline-method token → generated member (the three settled offline gateways). */

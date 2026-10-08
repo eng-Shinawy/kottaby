@@ -8,7 +8,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
 
 export const userRole = pgEnum("user_role", ["admin", "teacher", "student", "parent"]);
 
-export const gender = pgEnum("gender", ["male", "female", "other"]);
+export const gender = pgEnum("gender", ["male", "female"]);
 
 /**
  * App locale for per-user UI/copy preference (`users.locale`).

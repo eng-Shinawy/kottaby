@@ -113,7 +113,6 @@ export const adminUsersEn: AdminUsersLabels = {
     unspecified: "—",
     male: "Male",
     female: "Female",
-    other: "Other",
   },
   createDialog: {
     title: "Create user",

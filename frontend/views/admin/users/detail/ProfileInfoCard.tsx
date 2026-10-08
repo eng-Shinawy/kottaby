@@ -49,7 +49,6 @@ function genderLabel(gender: Gender | null, labels: ProfileLabels): string {
   const genderLabels: Record<Gender, string> = {
     [Gender.Male]: labels.genderOptions.male,
     [Gender.Female]: labels.genderOptions.female,
-    [Gender.Other]: labels.genderOptions.other,
   };
   return genderLabels[gender];
 }

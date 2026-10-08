@@ -889,7 +889,6 @@ input ExtendSubscriptionInput {
 enum Gender {
   Female
   Male
-  Other
 }
 
 type HandshakeCodeLookup {
@@ -1414,6 +1413,9 @@ enum PaymentStatus {
   Refunded
 }
 
+"""A type representing a validated phone number (E.164)"""
+scalar PhoneNumber
+
 """A subscription plan in the Kottaby catalog."""
 type Plan {
   """
@@ -1655,9 +1657,9 @@ type Query {
   availableEvaluators(page: Int, pageSize: Int): EvaluationEvaluatorOptionPage!
 
   """
-  Student-only paged browse of eligible teachers for one Qira'ah + subject choice, narrowed optionally by a case-insensitive name search and a minimum rating, ordered by same-country affinity first, then the chosen sort (top-rated by default, with unrated last within a tier), then a stable id tiebreak. PII-minimal cards (display name, country, subjects, recitations, languages, average rating, online flag). Eligibility composes the availability flag with the no-active-session rule; out-of-range pages return empty items next to the honest total.
+  Student-only paged browse of eligible teachers, narrowed optionally by Qira'ah recitation, subject (intent), a case-insensitive name search, and a minimum rating (each null means no constraint), ordered by same-country affinity first, then the chosen sort (top-rated by default, with unrated last within a tier), then a stable id tiebreak. PII-minimal cards (display name, country, subjects, recitations, languages, average rating, online flag). Eligibility composes the availability flag with the no-active-session rule; out-of-range pages return empty items next to the honest total.
   """
-  browseAvailableTeachers(intent: SessionIntent!, minRating: Float, page: Int = 1, pageSize: Int = 25, recitation: RecitationReading!, search: String, sort: TeacherMatchingSort = RatingDesc): TeacherMatchingPage!
+  browseAvailableTeachers(intent: SessionIntent, minRating: Float, page: Int = 1, pageSize: Int = 25, recitation: RecitationReading, search: String, sort: TeacherMatchingSort = RatingDesc): TeacherMatchingPage!
   findStudentByHandshakeCode(code: String!): HandshakeCodeLookup
 
   """

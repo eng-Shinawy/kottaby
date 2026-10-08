@@ -4,13 +4,17 @@
  *
  * The repo has no DOM component-test layer (no happy-dom/jsdom, no DOM
  * testing utilities), so the suite renders the real hook + section through
- * react-dom/server with two render-through test doubles registered via
+ * react-dom/server with three render-through test doubles registered via
  * `mock.module` (same mechanism as the CountrySelector suite):
  *
  *  - `@/frontend/components/ui/CountrySelector` is replaced with a capture
  *    double so the suite asserts the exact props the identity grid hands to
  *    the picker (controller name, pinned value, error/helperText, required)
  *    and can drive its `onChange`/`onBlur` like a real selection would.
+ *  - `@/frontend/components/ui/PhoneInput` is replaced with a capture double
+ *    so the suite asserts the PhoneFormField binder's projection (the ""
+ *    default reaching the field as `null`, the E.164 `onChangeAction` seam)
+ *    without the real component's `LocaleProvider` dependency.
  *  - `@apollo/client/react` (`useQuery`/`useMutation`) and the Next.js
  *    navigation/link modules are stubbed because the register barrel pulls
  *    the submit pipeline in — no network, no router.
@@ -66,6 +70,40 @@ void mock.module("@/frontend/components/ui/CountrySelector", () => ({
   CountrySelector: stubCountrySelector,
 }));
 
+interface StubbedPhoneInputProps {
+  value: string | null;
+  onChangeAction: (e164: string | null) => void;
+  onBlurAction?: () => void;
+  label?: string;
+  required?: boolean;
+  error?: boolean;
+  helperText?: string;
+}
+
+let lastPhoneInputProps: StubbedPhoneInputProps | null = null;
+
+function currentPhoneInputProps(): StubbedPhoneInputProps {
+  if (lastPhoneInputProps === null) {
+    throw new Error("the PhoneInput double was never rendered");
+  }
+  return lastPhoneInputProps;
+}
+
+// camelCase on purpose: render-through test double, not a component decl.
+function stubPhoneInput(props: StubbedPhoneInputProps): ReactNode {
+  lastPhoneInputProps = props;
+  return (
+    <div data-testid="stub-phone-input">
+      {props.label}
+      {props.helperText}
+    </div>
+  );
+}
+
+void mock.module("@/frontend/components/ui/PhoneInput", () => ({
+  PhoneInput: stubPhoneInput,
+}));
+
 void mock.module("@apollo/client/react", () => ({
   useQuery: () => ({ data: undefined, loading: false }),
   useMutation: () => [async () => ({ data: {} }), { loading: false }],
@@ -110,7 +148,13 @@ function RegisterHarness({ t }: Readonly<{ t: AuthLabels }>): ReactNode {
     throw new Error("the register state harness was never recorded");
   }
   return (
-    <RegisterIdentityFields register={state.register} errors={state.errors} t={t} countryField={state.countryField} />
+    <RegisterIdentityFields
+      register={state.register}
+      control={state.control}
+      errors={state.errors}
+      t={t}
+      countryField={state.countryField}
+    />
   );
 }
 
@@ -136,7 +180,9 @@ type SubmitOutcome =
  * Fills every required field EXCEPT country through its own registration /
  * controller callbacks (the same callbacks the rendered sections hand to
  * MUI) so the submit attempts below fail or pass on the country contract
- * alone. The rules mirror the sections' registrations 1:1.
+ * alone. The rules mirror the sections' registrations 1:1; the phone field
+ * seeds through its rendered E.164 seam (the PhoneInput double's
+ * `onChangeAction`) because the section binds it through `PhoneFormField`.
  */
 function seedValidRegistrant(state: RegisterFormState): void {
   void state.register("fullName", { required: t.nameRequired }).onChange({
@@ -148,9 +194,7 @@ function seedValidRegistrant(state: RegisterFormState): void {
       validate: value => (isValidEmailShape(value) ? true : t.emailInvalid),
     })
     .onChange({ target: { value: "amr@example.com", name: "email" } });
-  void state.register("phone", { required: t.phoneRequired }).onChange({
-    target: { value: "+201000000000", name: "phone" },
-  });
+  currentPhoneInputProps().onChangeAction("+201000000000");
   void state
     .register("password", {
       required: t.passwordRequired,
@@ -218,6 +262,27 @@ test("selecting a country sets the form country to the ISO code and submits it",
   expect(outcome.valid).toBe(true);
   if (outcome.valid) {
     expect(outcome.data.country).toBe("EG");
+  }
+});
+
+test("the phone field binds through the PhoneFormField projection (null default, E.164 seam)", async () => {
+  renderRegisterFields();
+  const state = currentRegisterState();
+  const phoneProps = currentPhoneInputProps();
+
+  // The controller projects the "" form default onto the component's null
+  // contract and threads the section's label/required wiring verbatim.
+  expect(phoneProps.value).toBeNull();
+  expect(phoneProps.label).toBe(t.phone);
+  expect(phoneProps.required).toBe(true);
+  // The E.164 change seam writes through to the form state: seed the rest,
+  // pick a country, and the seeded number rides the submit payload.
+  seedValidRegistrant(state);
+  currentCountrySelectorProps().onChange("EG");
+  const outcome = await submitRegisterState(state);
+  expect(outcome.valid).toBe(true);
+  if (outcome.valid) {
+    expect(outcome.data.phone).toBe("+201000000000");
   }
 });
 

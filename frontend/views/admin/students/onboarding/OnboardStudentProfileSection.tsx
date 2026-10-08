@@ -11,9 +11,10 @@
  * (single source of the four option labels), the label rows are the shared
  * `AdminDialogFieldLabel`, the initial credential is the extracted
  * `OnboardStudentCredentialField` (masked input + in-place reveal toggle),
- * and the phone row is the shared `PhoneInput` (tel semantics, an LTR-safe
- * value on RTL pages, a reserved helper line); the section's own copy comes
- * from the `StudentOnboarding` namespace.
+ * and the phone row is the shared `PhoneInput` (two-slot E.164 field — flag +
+ * dial-code prefix built in, an LTR-safe value on RTL pages, a reserved
+ * helper line); the section's own copy comes from the `StudentOnboarding`
+ * namespace.
  */
 
 import { PersonOutlined as PersonIcon } from "@mui/icons-material";
@@ -126,13 +127,13 @@ export function OnboardStudentProfileSection({
             {field.errorKey === "phone" ? (
               <PhoneInput
                 id={field.id}
-                value={form.phone}
-                onChange={event => setForm(prev => ({ ...prev, phone: event.target.value }))}
+                value={form.phone === "" ? null : form.phone}
+                onChangeAction={value => setForm(prev => ({ ...prev, phone: value ?? "" }))}
                 required
                 disabled={submitting}
+                hideLabel
                 error={phoneError}
                 helperText={phoneErrorText}
-                aria-invalid={phoneError}
               />
             ) : (
               <TextField

@@ -28,8 +28,13 @@
  *   masked 500s) → the generic `requestGenericFailure` lane, dialog stays
  *   open, retry replays the SAME kept idempotency key in place.
  *
- * The intent select preselects the APPLIED browse filter's intent on every
- * open (the close/settle path resets it, mirroring the booking precedent).
+ * The intent select preselects the APPLIED browse filter's intent ONLY when
+ * that filter narrowed a subject; the browse's subject filter defaults to
+ * `null` (all subjects), so an un-narrowed applied set opens the select on
+ * its placeholder instead and the confirm gate no-ops until the student
+ * picks one (`createSession` requires a concrete subject). The
+ * close/settle path resets the intent back to the applied filter's value
+ * (mirroring the booking precedent).
  *
  * While the dialog is OPEN, the hook also runs the caller's own
  * `mySessionBalance` observer (skipToken while closed — no request, the
@@ -138,8 +143,12 @@ interface SessionRequestWiring {
    * identity surfaces to the wire ONLY inside the `createSession` input.
    */
   readonly teacherId: number | null;
-  /** The intent preselected on every open — the applied filter's intent. */
-  readonly initialIntent: BrowseIntent;
+  /**
+   * The intent preselected on every open — the applied filter's intent
+   * (`null` when the browse isn't narrowed to a subject: the select then
+   * opens on its placeholder and Confirm stays disabled until a pick).
+   */
+  readonly initialIntent: BrowseIntent | null;
   /** Closes the dialog (every settle lane + dismiss affordance routes here). */
   readonly onClose: () => void;
   /** Refetches the directory browse after outcomes that change it. */
@@ -147,9 +156,12 @@ interface SessionRequestWiring {
 }
 
 interface SessionRequest {
-  /** The dialog's selected subject intent (reset per open). */
-  readonly intent: BrowseIntent;
-  /** Marks one intent as the confirm target (pre-narrowed by the dialog). */
+  /**
+   * The dialog's selected subject intent (`null` = none chosen yet — an
+   * un-narrowed applied filter; Confirm stays disabled until a pick).
+   */
+  readonly intent: BrowseIntent | null;
+  /** Marks one subject intent as the confirm target (confirm requires a concrete subject). */
   readonly selectIntent: (intent: BrowseIntent) => void;
   /** `true` while the create mutation is in flight. */
   readonly submitting: boolean;
@@ -160,7 +172,7 @@ interface SessionRequest {
   readonly closeRequest: () => void;
   /** The transient request notice (null = idle; survives the dialog close). */
   readonly notice: RequestNotice | null;
-  /** Confirms the request against the selected teacher + intent. */
+  /** Confirms the request against the selected teacher + intent (no-op while no subject is chosen). */
   readonly confirmRequest: () => Promise<void>;
   /** Dismisses the transient notice. */
   readonly dismissNotice: () => void;
@@ -179,7 +191,7 @@ export function useSessionRequest(wiring: SessionRequestWiring): SessionRequest 
   const router = useRouter();
   const { teacherId, initialIntent, onClose, refetchDirectory } = wiring;
   const [notice, setNotice] = useState<RequestNotice | null>(null);
-  const [intent, setIntent] = useState<BrowseIntent>(initialIntent);
+  const [intent, setIntent] = useState<BrowseIntent | null>(initialIntent);
   // Per-open idempotency key — minted on every close/settle (kept until
   // success or close), stable across in-place retries so domain
   // rejections replay the same claim server-side.
@@ -214,7 +226,9 @@ export function useSessionRequest(wiring: SessionRequestWiring): SessionRequest 
   };
 
   const confirmRequest = async (): Promise<void> => {
-    if (teacherId === null || submitting) {
+    // No subject chosen yet (an un-narrowed applied filter) — the write is
+    // a no-op; the dialog's Confirm affordance is disabled in this state.
+    if (teacherId === null || intent === null || submitting) {
       return;
     }
     try {

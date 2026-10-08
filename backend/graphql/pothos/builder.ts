@@ -81,9 +81,15 @@ export const gqlSchemaBuilder = new SchemaBuilder<{
      *  `graphql-scalars` (ISO-8601 UTC serialization; Date out, accepts
      *  pre-serialized ISO strings pass-through). `CountryCode` is backed by
      *  `CountryCodeResolver` from `graphql-scalars` (ISO 3166-1 alpha-2;
-     *  strings in, value returned unchanged — no normalization). */
+     *  strings in, value returned unchanged — no normalization).
+     *  `PhoneNumber` is backed by `PhoneNumberScalar` from
+     *  `backend/graphql/scalars/phoneNumberScalar.ts` (semantic E.164
+     *  validation via google-libphonenumber; String in → canonical E.164
+     *  String out, `PHONE_INVALID` machine-code error otherwise; lenient
+     *  String pass-through serialization). */
     DateTime: { Input: Date; Output: Date | string };
     CountryCode: { Input: string; Output: string };
+    PhoneNumber: { Input: string; Output: string };
   };
   AuthScopes: {
     /** Caller must have a verified `ctx.user` (401 otherwise). */

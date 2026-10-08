@@ -261,8 +261,6 @@ export interface AdminUsersLabels {
     readonly male: string;
     /** Select-option label for the `Female` gender enum value. */
     readonly female: string;
-    /** Select-option label for the `Other` gender enum value. */
-    readonly other: string;
   };
 
   /** Create-user dialog field labels, button labels, and dialog title. */

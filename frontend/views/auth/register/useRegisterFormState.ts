@@ -20,8 +20,10 @@ const REGISTER_FORM_DEFAULTS: RegisterFormValues = {
 };
 
 /**
- * Owns the RegisterForm's React Hook Form state: the `useForm` instance,
- * compiler-safe watched values, the select-field controllers whose
+ * Owns the RegisterForm's React Hook Form state: the `useForm` instance
+ * (its `control` returned for controller-bound fields like the shared
+ * `PhoneFormField`), compiler-safe watched values, the select-field
+ * controllers whose
  * `.value` degrades to `string` under tsgo — each select pins its value back
  * through the pure *FromSelectValue tables instead of trusting the raw field
  * value — and the country picker controller, gated inline by the shared
@@ -105,6 +107,7 @@ export function useRegisterFormState(t: AuthLabels) {
       : "";
 
   return {
+    control,
     errors,
     isSubmitting,
     handleSubmit,

@@ -26,7 +26,11 @@
  *    Cartesian (code+text / legacy text only / neither) pinned on the
  *    captured filters, the hostile enum matrix (bogus/empty recitation,
  *    evaluation and bogus intent) denying with `VALIDATION` before ANY
- *    repository read, and both caller-miss branches (absent `users` row;
+ *    repository read, the null narrowing choices (`recitation: null` /
+ *    `intent: null` meaning NO constraint — captured as null patterns
+ *    with the other members untouched, and behaviorally surfacing
+ *    teachers certified for different readings and offering different
+ *    subjects), and both caller-miss branches (absent `users` row;
  *    real teacher user with no `students` row) denying with the localized
  *    `NotFoundError`.
  *  - Tier 2 (boundary): the 50/51-character language-token edge,
@@ -168,13 +172,16 @@ function recordedLogCall(logSpy: ReturnType<typeof silenceDomainLog>, index = 0)
 }
 
 /**
- * A student's browse choices (explicit `null`s restore the defaults).
- * The intent union is the student browse vocabulary — the staff-driven
- * evaluation flow is not a browse intent.
+ * A student's browse choices. A `null` recitation or intent means NO
+ * constraint on that axis (the service skips its token probe, builds a
+ * `null` pattern, and the repository drops the predicate from the WHERE
+ * chain); explicit `null`s restore the defaults for the remaining
+ * members. The intent union is the student browse vocabulary — the
+ * staff-driven evaluation flow is not a browse intent.
  */
 function browseInput(
-  recitation: RecitationReading,
-  intent: SessionIntent.Hifz | SessionIntent.Tajweed,
+  recitation: RecitationReading | null,
+  intent: SessionIntent.Hifz | SessionIntent.Tajweed | null,
   page: number | null = null,
   pageSize: number | null = null,
   search: string | null = null,
@@ -426,13 +433,14 @@ describe("TeacherMatchingService.browseAvailableTeachers", () => {
   );
 
   // ─── Tier 1: branch/statement — hostile enum payloads (pre-DB) ──────
+  // A `null` recitation or intent is NOT hostile — it is the valid
+  // "no constraint" input (covered by the null-filter tests below).
 
   test.each([
     { label: "evaluation intent (the staff-driven flow)", overrides: { intent: "evaluation" } },
     { label: "bogus intent token", overrides: { intent: "hifz_jadid" } },
     { label: "bogus recitation token", overrides: { recitation: "bogus_reading" } },
     { label: "empty recitation token", overrides: { recitation: "" } },
-    { label: "null recitation token", overrides: { recitation: null } },
   ])("denies $label with the localized VALIDATION before any repository read", async ({ overrides }) => {
     await runInRollback(async tx => {
       const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
@@ -450,6 +458,99 @@ describe("TeacherMatchingService.browseAvailableTeachers", () => {
       expect(listSpy.mock.calls).toHaveLength(0);
       userSpy.mockRestore();
       listSpy.mockRestore();
+    });
+  });
+
+  // ─── Tier 1: branch/statement — null narrowing filters (no constraint) ──
+
+  test("null recitation and intent choices capture null patterns with every other member untouched", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const { captured, stop } = captureMatchingFilters();
+      silenceDomainLog();
+
+      await TeacherMatchingService.browseAvailableTeachers(callerId, browseInput(null, null), LOCALE_EN, tx);
+      stop();
+
+      // A `null` narrowing choice means NO constraint: both patterns are
+      // built as `null` and the repository drops both predicates.
+      expect(captured).toHaveLength(1);
+      const filters = captured.at(0);
+      expect(filters?.recitationPattern).toBeNull();
+      expect(filters?.subjectPattern).toBeNull();
+      // Every other member is unchanged by the null narrowing choices
+      // (Arabic baseline → no language filter; defaults elsewhere).
+      expect(filters?.languagePattern).toBeNull();
+      expect(filters?.namePattern).toBeNull();
+      expect(filters?.minRating).toBeNull();
+      expect(filters?.sort).toBe(TeacherMatchingSort.RatingDesc);
+      expect(filters?.studentCountryCode).toBeNull();
+      expect(filters?.studentCountryText).toBeNull();
+    });
+  });
+
+  test("a null recitation surfaces teachers certified for different readings in the same page (behavioral)", async () => {
+    await runInRollback(async tx => {
+      // The per-run unique fluency token isolates the page to THIS
+      // suite's two fixtures even on a shared database; the recitation
+      // axis is the member under test (no constraint → both readings).
+      const token = uniqueLanguageToken("recitation-null");
+      const callerId = await createStudentCaller(tx, { primaryLanguage: token });
+      const rareCertified = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+        languages: [token],
+        averageRating: "5.00",
+      });
+      const hafsCertified = await createDirectoryTeacher(tx, {
+        recitations: [HAFS],
+        subjects: [HIFZ_SUBJECT],
+        languages: [token],
+        averageRating: "4.00",
+      });
+
+      const page = await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(null, HIFZ_SUBJECT),
+        LOCALE_EN,
+        tx
+      );
+
+      // RATING_DESC puts the 5.00-rated rare reading first; the
+      // Hafs-certified teacher surfaces in the SAME page.
+      expect(page.items.map(item => item.id)).toEqual([rareCertified, hafsCertified]);
+      expect(page.total).toBe(2);
+    });
+  });
+
+  test("a null intent surfaces teachers offering different subjects in the same page (behavioral)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      // RARE_READING isolates the page to THIS suite's fixtures; the
+      // subject axis is the member under test (no constraint → both
+      // subjects).
+      const hifzTeacher = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [SessionIntent.Hifz],
+        averageRating: "5.00",
+      });
+      const tajweedTeacher = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [SessionIntent.Tajweed],
+        averageRating: "4.00",
+      });
+
+      const page = await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(RARE_READING, null),
+        LOCALE_EN,
+        tx
+      );
+
+      // RATING_DESC puts the 5.00-rated Hifz teacher first; the
+      // Tajweed-only teacher surfaces in the SAME page.
+      expect(page.items.map(item => item.id)).toEqual([hifzTeacher, tajweedTeacher]);
+      expect(page.total).toBe(2);
     });
   });
 

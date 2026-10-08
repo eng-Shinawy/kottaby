@@ -43,7 +43,6 @@ export function isRegisterFieldPath(value: string): value is RegisterFieldPath {
 const GENDER_BY_SELECT_VALUE: Readonly<Record<string, Gender>> = {
   [Gender.Male]: Gender.Male,
   [Gender.Female]: Gender.Female,
-  [Gender.Other]: Gender.Other,
 };
 
 /** Pins a raw select value back to {@link Gender} (else `null`). */

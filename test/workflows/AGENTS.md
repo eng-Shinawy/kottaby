@@ -52,6 +52,15 @@ through the real service layer against the real test database.
     denial probe — a non-owner's read/mutation attempt fails oracle-safely through the real
     authorization path while the owner's row remains byte-identical.
 
+13. **Every journey has a Mermaid diagram.** Each `<workflow>.test.ts` has a matching section in
+    the domain's diagram file (`test/workflows/<domain>/DIAGRAMS.md`): a heading named after the
+    test file, a 1-2 sentence intro, then a single ```mermaid block (`sequenceDiagram` for actor
+    flows, `stateDiagram-v2` for state machines, `flowchart` for decision logic). Actor and step
+    names must match the real service calls. Creating or updating a journey means creating or
+    updating its diagram in the same change — never let them drift. Validate before considering
+    the task done: `bun run validate:mermaid test/workflows/<domain>/DIAGRAMS.md` — every block
+    must report `OK`.
+
 ## Shared helpers (`test/workflows/helpers/`)
 
 The helpers directory is the ONLY shared-scaffolding home for this layer. Import via the barrel:

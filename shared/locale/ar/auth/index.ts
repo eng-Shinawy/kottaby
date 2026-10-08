@@ -48,7 +48,6 @@ export const authAr: AuthLabels = {
   welcomeBack: "مرحباً بعودتك",
   genderMale: "ذكر",
   genderFemale: "أنثى",
-  genderOther: "آخر",
   showPassword: "إظهار كلمة المرور",
   hidePassword: "إخفاء كلمة المرور",
   registrationSuccess: "تم إنشاء الحساب بنجاح! جاري التحويل لتسجيل الدخول...",

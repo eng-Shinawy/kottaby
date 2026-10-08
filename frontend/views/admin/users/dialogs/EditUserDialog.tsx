@@ -100,7 +100,7 @@ export function EditUserDialog({ labels, user, loading, onClose, onSubmit }: Edi
       onClose={onClose}
       fullWidth
       maxWidth="sm"
-      slotProps={{ paper: { sx: { borderRadius: "16px", overflow: "hidden" } } }}
+      slotProps={{ paper: { sx: { borderRadius: "16px", overflowY: "auto" } } }}
     >
       <form onSubmit={handleSubmit}>
         <AdminDialogHeaderBand

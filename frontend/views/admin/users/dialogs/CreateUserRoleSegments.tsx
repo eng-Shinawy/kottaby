@@ -22,11 +22,15 @@ import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 const CREATE_ROLE_LABEL_ID = "admin-users-create-role-label";
 
 /** Segmented-role button styling — selected segment is a success-tinted
- *  pill with a 2px success border and a soft card shadow; unselected renders
- *  fully transparent inside the track (the transparent border keeps segment
- *  height stable across states). The tinted fill (not bare paper) keeps the
- *  selected state unambiguous in dark mode, where `background.paper` reads
- *  DARKER than the `surfaceContainerHigh` track and the pill visually sinks. */
+ *  pill with a 2px success border; unselected renders fully transparent
+ *  inside the track (the transparent border keeps segment height stable
+ *  across states). The tinted fill (not bare paper) keeps the selected
+ *  state unambiguous in dark mode, where `background.paper` reads DARKER
+ *  than the `surfaceContainerHigh` track and the pill visually sinks.
+ *  No elevation shadow: inside a 4px-gap track a drop shadow spills onto
+ *  the transparent neighbors and past the track edge, making the state
+ *  borders read as interleaved/overflowing — border + tint + text weight
+ *  carry the selected state on their own. */
 function roleSegmentSx(selected: boolean) {
   return (theme: Theme) => ({
     flex: 1,
@@ -39,7 +43,7 @@ function roleSegmentSx(selected: boolean) {
       ? `color-mix(in srgb, ${theme.palette.success.main} 16%, ${theme.palette.background.paper})`
       : "transparent",
     border: `2px solid ${selected ? theme.palette.success.main : "transparent"}`,
-    boxShadow: selected ? theme.palette.shadow.card : "none",
+    boxShadow: "none",
     "&:hover": {
       backgroundColor: selected
         ? `color-mix(in srgb, ${theme.palette.success.main} 16%, ${theme.palette.background.paper})`
@@ -82,7 +86,8 @@ export function CreateUserRoleSegments({ labels, value, onChange }: CreateUserRo
           display: "flex",
           gap: 0.5,
           p: 0.5,
-          borderRadius: "10px",
+          // Concentric with the 8px segment radius + 4px track inset (M3).
+          borderRadius: "12px",
           backgroundColor: theme.palette.surfaceContainerHigh,
         })}
       >
@@ -102,9 +107,16 @@ export function CreateUserRoleSegments({ labels, value, onChange }: CreateUserRo
                 flexDirection: { xs: "column", sm: "row" },
                 gap: { xs: 0.25, sm: 1 },
                 fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                whiteSpace: { xs: "normal", sm: "nowrap" },
+                // Labels wrap at EVERY width (never nowrap): equal flex
+                // lanes give long localized phrases (e.g. "Teacher
+                // Applicant") zero headroom, and a nowrap label clips
+                // mid-glyph at the segment's own border. Wrapping keeps
+                // the full role name readable; wide lanes stay one line.
+                whiteSpace: "normal",
                 textAlign: "center",
-                lineHeight: { xs: 1.2, sm: 1.75 },
+                // 1.4 keeps a wrapped two-line label inside the 54px
+                // segment floor (2 × 14px × 1.4 + 12px padding < 54px).
+                lineHeight: { xs: 1.2, sm: 1.4 },
               },
             ]}
           >

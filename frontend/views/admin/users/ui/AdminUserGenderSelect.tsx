@@ -11,7 +11,7 @@ import { AdminDialogFieldLabel } from "@/frontend/views/admin/users/dialogs";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
 /** Gender option values shared by the create- and edit-user dialogs. */
-type AdminUserGenderValue = "" | "Male" | "Female" | "Other";
+type AdminUserGenderValue = "" | "Male" | "Female";
 
 interface AdminUserGenderSelectProps {
   readonly labels: AdminUsersLabels;
@@ -40,7 +40,7 @@ interface AdminUserGenderSelectProps {
 /**
  * Gender select shared by `EditUserDialog` and the directory's
  * `CreateUserDialog` — identical option set, option copy, and label wiring
- * on both surfaces (single source for the four `genderOptions` MenuItems).
+ * on both surfaces (single source for the three `genderOptions` MenuItems).
  * The label renders above the field via `AdminDialogFieldLabel` (prototype
  * label pattern) and is wired to the Select through `labelId`.
  * `Select`'s generic is pinned by the `value` prop type, so
@@ -64,7 +64,6 @@ export function AdminUserGenderSelect({
     "": labels.genderOptions.unspecified,
     Male: labels.genderOptions.male,
     Female: labels.genderOptions.female,
-    Other: labels.genderOptions.other,
   };
   return (
     <FormControl fullWidth error={!!error}>
@@ -95,7 +94,6 @@ export function AdminUserGenderSelect({
         <MenuItem value="">{labels.genderOptions.unspecified}</MenuItem>
         <MenuItem value="Male">{labels.genderOptions.male}</MenuItem>
         <MenuItem value="Female">{labels.genderOptions.female}</MenuItem>
-        <MenuItem value="Other">{labels.genderOptions.other}</MenuItem>
       </Select>
       {error && <FormHelperText>{error}</FormHelperText>}
     </FormControl>

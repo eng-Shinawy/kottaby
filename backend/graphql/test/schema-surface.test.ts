@@ -1688,7 +1688,7 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
     expect(participantFields.fullName?.type.toString()).toBe("String!");
   });
 
-  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum + the credential-change input pair + the id-less re-evaluation order receipt object + the student session-balance value object", () => {
+  test("whole-schema named-type delta is pinned: refreshed baseline delta (DateTime + CountryCode + PhoneNumber scalars + HealthCheck probe + handshake surface) + session objects/inputs + scheduling/arbitration/ledger enums + wallet surface + admin-user-management surface + the parent-link objects (extend step) + the eleven analytics value objects + the governance inputs + the subscription purchase surface (objects, input, root operations) + the reconciled audit/broadcast/directory surfaces + the R5 export envelopes + the session-report surface (2 objects + 4 inputs + the recitation enum) + the recitation record pair + the student-evaluation record object + input + the admin subscription-management surface + the wallet ledger page + the academic-tracking surface (13 objects + the attention-reason enum) + the parent upcoming-sessions block pair + the direct-onboarding input/result pair + the curriculum-progress read object + the applicant-cooldown state enum + the evaluation-override direction enum + the credential-change input pair + the id-less re-evaluation order receipt object + the student session-balance value object", () => {
     const post = new Set(sdlTypeNames());
 
     for (const name of PRE_3_1_TYPE_NAMES) {
@@ -1701,6 +1701,11 @@ describe("Surface freeze — pinned additions vs the baseline inventory", () => 
         "DateTime",
         "HandshakeCodeLookup",
         "HealthCheck",
+        // E.164 phone scalar — registered for future input fields; every
+        // existing phone mutation input intentionally stays `String` (the
+        // localized VALIDATION `extensions.fields[]` envelope is the wire
+        // contract — see docs/validation/phone-validation.md).
+        "PhoneNumber",
         ...SESSION_LIFECYCLE_TYPE_NAMES,
         ...SESSION_LIFECYCLE_ENUMS,
         ...DISPUTE_ENUMS,

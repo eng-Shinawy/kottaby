@@ -109,7 +109,6 @@ export const adminUsersAr: AdminUsersLabels = {
     unspecified: "—",
     male: "ذكر",
     female: "أنثى",
-    other: "غير ذلك",
   },
   createDialog: {
     title: "إنشاء مستخدم",

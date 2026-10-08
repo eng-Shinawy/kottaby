@@ -1,20 +1,18 @@
 "use client";
 
 /**
- * DirectoryToolbarActions — the admin user directory toolbar's right-aligned
- * action group:
- *  1. a "clear filters" text button (rendered only while at least one
- *     filter is set),
- *  2. the shareable-view **Copy link** action (the directory-shared
+ * DirectoryToolbarActions — the admin user directory toolbar's dedicated
+ * actions row (the toolbar's first row):
+ *  1. the shareable-view **Copy link** action (the directory-shared
  *     `DirectoryCopyLinkButton` primitive),
- *  3. the primary **Create User** button (44px tall, `flexShrink: 0`,
+ *  2. the primary **Create User** button (54px tall, `flexShrink: 0`,
  *     never wraps its label).
  *
- * Auto margin right-aligns the group on ITS line — both on the shared
- * single line (xl+) and when the group wraps onto its own row below the
- * filters (md–lg). Extracted from `DirectoryToolbar` (file-size cap);
- * visual output identical. Label slices are passed down narrowed —
- * nothing is hardcoded.
+ * Auto margin right-aligns the group along its own row, keeping the
+ * primary action anchored to the card's trailing edge at every md+ width
+ * without ever competing for space with the filter controls below it
+ * (they live on the separate filters row in `DirectoryToolbar`).
+ * Label slices are passed down narrowed — nothing is hardcoded.
  */
 
 import { AddOutlined as AddIcon } from "@mui/icons-material";
@@ -23,14 +21,10 @@ import type { ReactNode } from "react";
 import { DirectoryCopyLinkButton } from "@/frontend/views/admin/directory-shared/DirectoryCopyLinkButton";
 import type { AdminUsersLabels } from "@/shared/locale/types/adminUsers";
 
-type ToolbarActionsLabels = Pick<AdminUsersLabels, "filters" | "quickActions" | "createDialog">;
+type ToolbarActionsLabels = Pick<AdminUsersLabels, "quickActions" | "createDialog">;
 
 interface DirectoryToolbarActionsProps {
   readonly labels: ToolbarActionsLabels;
-  /** True while at least one filter is set — gates the clear action. */
-  readonly hasFilters: boolean;
-  /** Clears every filter draft (each hook setter also restarts paging). */
-  readonly onClearFilters: () => void;
   /** Reports the successful copy-link through the surface's shared snackbar. */
   readonly onCopyLink: () => void;
   readonly onCreateUser: () => void;
@@ -43,22 +37,13 @@ export function DirectoryToolbarActions(props: DirectoryToolbarActionsProps): Re
         display: "flex",
         gap: 2,
         alignItems: "center",
-        // Auto margin right-aligns the action group on ITS line — both
-        // on the shared single line (xl+) and when the group wraps onto
-        // its own row below the filters (md–lg).
+        // Auto margin right-aligns the actions along the toolbar's first
+        // row, pinning the primary Create action to the card's trailing
+        // edge at every md+ width.
         marginInlineStart: "auto",
         flexShrink: 0,
       }}
     >
-      {props.hasFilters && (
-        <Button
-          variant="text"
-          onClick={props.onClearFilters}
-          sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
-        >
-          {props.labels.filters.clear}
-        </Button>
-      )}
       <DirectoryCopyLinkButton copyLinkLabel={props.labels.quickActions.copyLink} onCopyLink={props.onCopyLink} />
       <Button
         variant="contained"

@@ -10,7 +10,10 @@
  * Pure presentational — no hooks, no GraphQL: the caller passes the
  * already-resolved balance payload (`null` while the read is loading or
  * failed — the strip renders NOTHING in both states: silent honest
- * degradation, booking still works) plus the dialog's selected intent.
+ * degradation, booking still works) plus the dialog's selected intent
+ * (`null` while no subject is chosen yet — an un-narrowed applied browse
+ * filter: no chip is emphasized and the insufficiency caption is withheld
+ * until a subject is picked).
  *
  * Wire-null lanes coalesce to 0 for display: only `balanceTrial` is a
  * NOT NULL column — the three purchased lanes are nullable columns
@@ -18,9 +21,10 @@
  * credits (same presentation rationale as the dashboard's credits sum).
  *
  * The chip matching the SELECTED intent (fail-closed `CREDIT_LANE_BY_INTENT`
- * Record) renders tinted/emphasized. When the selected intent's EFFECTIVE
- * credits are 0 — `balanceTrial + selected lane`, because the server's
- * trial-first debit ladder (`debitBookingLadder` in
+ * Record) renders tinted/emphasized; while NO subject is selected
+ * (`selectedIntent === null`) every chip renders plain. When the selected
+ * intent's EFFECTIVE credits are 0 — `balanceTrial + selected lane`,
+ * because the server's trial-first debit ladder (`debitBookingLadder` in
  * `backend/services/classes/session-lifecycle.booking.ts`) spends the trial
  * lane before the intent lane — the chip tints with the error-container
  * palette and ONE muted caption states the booking MAY be declined for
@@ -78,8 +82,8 @@ const CREDIT_LANE_BY_INTENT: Record<BrowseIntent, Exclude<CreditLaneKey, "trial"
 interface RequestCreditsStripProps {
   /** The resolved balance payload (`null` = loading or failed → render nothing). */
   readonly balance: MySessionBalanceQuery_mySessionBalance | null;
-  /** The dialog's currently selected subject intent. */
-  readonly selectedIntent: BrowseIntent;
+  /** The dialog's currently selected subject intent (`null` = none chosen yet). */
+  readonly selectedIntent: BrowseIntent | null;
   /** Compile-time localized copy handles (property access only). */
   readonly labels: TeacherDirectoryLabels;
 }
@@ -95,11 +99,14 @@ export function RequestCreditsStrip({
     // degradation; booking still works, the server remains authoritative).
     return null;
   }
-  const selectedLane = CREDIT_LANE_BY_INTENT[selectedIntent];
+  // No subject chosen yet (an un-narrowed applied filter): no lane to
+  // emphasize and none to warn about — the four chips render plain and
+  // the insufficiency caption is withheld until a subject is picked.
+  const selectedLane = selectedIntent === null ? null : CREDIT_LANE_BY_INTENT[selectedIntent];
   // Effective credits for the selected intent: the debit ladder spends the
   // trial lane FIRST, then the intent lane — so both must be empty for the
   // prepaid surface to read zero (subscription coverage is not probed here).
-  const effectiveCredits = LANE_COUNT.trial(balance) + LANE_COUNT[selectedLane](balance);
+  const effectiveCredits = selectedLane === null ? null : LANE_COUNT.trial(balance) + LANE_COUNT[selectedLane](balance);
   const insufficient = effectiveCredits === 0;
   return (
     <Stack sx={{ gap: 1 }}>

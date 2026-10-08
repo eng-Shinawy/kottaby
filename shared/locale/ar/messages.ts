@@ -21,6 +21,7 @@ import { lessonsAr } from "@/shared/locale/ar/lessons";
 import { notificationsAr } from "@/shared/locale/ar/notifications";
 import { parentLinkAr } from "@/shared/locale/ar/parentLink";
 import { parentMonitoringAr } from "@/shared/locale/ar/parentMonitoring";
+import { phoneInputAr } from "@/shared/locale/ar/phoneInput";
 import { plansAr } from "@/shared/locale/ar/plans";
 import { recitationAr } from "@/shared/locale/ar/recitation";
 import { scheduleAr } from "@/shared/locale/ar/schedule";
@@ -48,6 +49,7 @@ export const arMessages: Translations = {
   upNextTranslations: upNextAr,
   checkoutTranslations: checkoutAr,
   countrySelectorTranslations: countrySelectorAr,
+  phoneInputTranslations: phoneInputAr,
   adminAcademicTranslations: adminAcademicAr,
   adminUsersTranslations: adminUsersAr,
   adminTeachersTranslations: adminTeachersAr,

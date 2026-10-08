@@ -107,7 +107,7 @@ export function CreateUserDialog({ labels, loading, onClose, onSubmit }: CreateU
       onClose={onClose}
       fullWidth
       maxWidth="sm"
-      slotProps={{ paper: { sx: { maxWidth: 640, borderRadius: "16px", overflow: "hidden" } } }}
+      slotProps={{ paper: { sx: { maxWidth: 640, borderRadius: "16px", overflowY: "auto" } } }}
     >
       <form onSubmit={handleSubmit}>
         <AdminDialogHeaderBand

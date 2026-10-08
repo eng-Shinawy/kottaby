@@ -54,7 +54,7 @@ export function getRoleLabel(
 /** Maps a Gender to its translated display label (via the Auth namespace). */
 export function getGenderLabel(
   gender: Gender | null | undefined,
-  t: { readonly genderMale: string; readonly genderFemale: string; readonly genderOther: string }
+  t: { readonly genderMale: string; readonly genderFemale: string }
 ): string | null {
   if (!gender) return null;
   switch (gender) {
@@ -62,8 +62,6 @@ export function getGenderLabel(
       return t.genderMale;
     case Gender.Female:
       return t.genderFemale;
-    case Gender.Other:
-      return t.genderOther;
     default:
       return null;
   }

@@ -163,7 +163,11 @@
  *    name-search pattern matches the display name case-insensitively with
  *    `%`/`_` bound literally (the service escapes; the repo binds), the
  *    minimum-rating floor is the honest SQL `>=` (unrated NULL excluded),
- *    and the post-tier ordering keys — RATING_DESC byte-identical to the
+ *    the nullable recitation/subject token patterns drop their `ilike`
+ *    predicates from the WHERE chain when null (browse-all eligibility —
+ *    the same null-drop shape as `languagePattern`/`namePattern`/`minRating`)
+ *    while concrete quoted-token patterns narrow to the matching rows, and
+ *    the post-tier ordering keys — RATING_DESC byte-identical to the
  *    legacy order, NAME_ASC alphabetical, NEWEST id-first — always tiered
  *    first and tiebroken by id DESC.
  *  - Binding discipline + static pins: finished patterns bound verbatim
@@ -3160,7 +3164,7 @@ describe("TeacherRepository.listMatchingCandidates", () => {
       "function buildTeacherMatchingOrderBy(",
       "export async function listMatchingCandidates("
     );
-    expect(orderHelper).toContain("sql`${countryTier} asc`");
+    expect(orderHelper).toContain(`sql\`\${countryTier} asc\``);
     expect(orderHelper).toContain("desc(teacher.id)");
     const sortKeys = sourceSlice("const POST_TIER_SORT_KEY_BY_SORT", "function buildTeacherMatchingOrderBy");
     expect(sortKeys).toContain("desc nulls last");
@@ -3180,7 +3184,9 @@ describe("TeacherRepository.listMatchingCandidates", () => {
 
 /**
  * The EXTENDED browse filters — the name-search pattern, the minimum-rating
- * floor, and the post-tier ordering choice. Self-contained fixtures in a
+ * floor, the nullable recitation/subject token patterns (null drops the
+ * `ilike` predicate from the WHERE chain — the browse-all arm), and the
+ * post-tier ordering choice. Self-contained fixtures in a
  * DEDICATED country tier (callers key `studentCountryCode` on "ZA", the
  * fixtures carry the same code): every ordering assertion therefore lives
  * in a tier of its own and cannot collide with the unrated window fixtures
@@ -3207,10 +3213,20 @@ describe("TeacherRepository.listMatchingCandidates — extended browse filters",
     studentCountryText: null,
   } as const;
 
-  /** Creates one online, certified, ZA-tiered teacher with overridable name/rating. */
+  /**
+   * Creates one online, certified, ZA-tiered teacher with overridable
+   * name/rating/token payloads. Omitted fields keep the eligible defaults
+   * (the payloads matching the default filter patterns), so a fixture can
+   * diverge on exactly ONE axis for null-drop vs concrete-pattern probes.
+   */
   async function createZATeacher(
     tx: DBTransaction,
-    profile: { readonly fullName?: string; readonly averageRating?: string | null } = {}
+    profile: {
+      readonly fullName?: string;
+      readonly averageRating?: string | null;
+      readonly recitations?: string;
+      readonly subjects?: string;
+    } = {}
   ): Promise<number> {
     const user = await createTestUser(tx, {
       role: "teacher",
@@ -3222,6 +3238,8 @@ describe("TeacherRepository.listMatchingCandidates — extended browse filters",
       isOnline: true,
       ...ELIGIBLE_TOKENS,
       ...(profile.averageRating === undefined ? {} : { averageRating: profile.averageRating }),
+      ...(profile.recitations === undefined ? {} : { recitations: profile.recitations }),
+      ...(profile.subjects === undefined ? {} : { subjects: profile.subjects }),
     });
     return user.id;
   }
@@ -3255,6 +3273,80 @@ describe("TeacherRepository.listMatchingCandidates — extended browse filters",
       const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
 
       expect(page.rows.some(row => row.id === unratedId)).toBe(true);
+      expect(page.total).toBe(baseline + 1);
+    });
+  });
+
+  // ─── Optional token patterns: null drops the predicate (browse-all) ──
+
+  test("recitationPattern null drops the predicate — a concrete pattern narrows to the matching reading", async () => {
+    await runInRollback(async tx => {
+      const nullFilters = matchingFilters({ ...TIERED_FILTERS, recitationPattern: null });
+      // The concrete arm rides the default quoted-token pattern
+      // (`%"hafs_an_asim"%`) — the service-normalized shape the repo binds.
+      const concreteFilters = matchingFilters(TIERED_FILTERS);
+      const nullBaseline = await baselineTotal(tx, nullFilters);
+      const concreteBaseline = await baselineTotal(tx, concreteFilters);
+      const hafsId = await createZATeacher(tx); // the default '["hafs_an_asim"]' payload
+      const warshId = await createZATeacher(tx, { recitations: '["warsh"]' });
+
+      // Null arm: the recitation ilike predicate drops out of the WHERE
+      // chain, so teachers certified for DIFFERENT readings both stay
+      // eligible (same null-drop shape as languagePattern/minRating).
+      const nullPage = await TeacherRepository.listMatchingCandidates(nullFilters, 100, 0, tx);
+      expect(nullPage.rows.some(row => row.id === hafsId)).toBe(true);
+      expect(nullPage.rows.some(row => row.id === warshId)).toBe(true);
+      expect(nullPage.total).toBe(nullBaseline + 2);
+
+      // Concrete arm: the quoted-token pattern binds verbatim and narrows
+      // to the matching reading only.
+      const concretePage = await TeacherRepository.listMatchingCandidates(concreteFilters, 100, 0, tx);
+      expect(concretePage.rows.some(row => row.id === hafsId)).toBe(true);
+      expect(concretePage.rows.some(row => row.id === warshId)).toBe(false);
+      expect(concretePage.total).toBe(concreteBaseline + 1);
+    });
+  });
+
+  test("subjectPattern null drops the predicate — a concrete pattern narrows to the matching subject", async () => {
+    await runInRollback(async tx => {
+      const nullFilters = matchingFilters({ ...TIERED_FILTERS, subjectPattern: null });
+      // The concrete arm rides the default quoted-token pattern
+      // (`%"hifz"%`) — the service-normalized shape the repo binds.
+      const concreteFilters = matchingFilters(TIERED_FILTERS);
+      const nullBaseline = await baselineTotal(tx, nullFilters);
+      const concreteBaseline = await baselineTotal(tx, concreteFilters);
+      const hifzId = await createZATeacher(tx); // the default '["hifz"]' payload
+      const tajweedId = await createZATeacher(tx, { subjects: '["tajweed"]' });
+
+      // Null arm: the subject ilike predicate drops out of the WHERE chain,
+      // so teachers teaching DIFFERENT subjects both stay eligible.
+      const nullPage = await TeacherRepository.listMatchingCandidates(nullFilters, 100, 0, tx);
+      expect(nullPage.rows.some(row => row.id === hifzId)).toBe(true);
+      expect(nullPage.rows.some(row => row.id === tajweedId)).toBe(true);
+      expect(nullPage.total).toBe(nullBaseline + 2);
+
+      // Concrete arm: the quoted-token pattern narrows to the matching
+      // subject only.
+      const concretePage = await TeacherRepository.listMatchingCandidates(concreteFilters, 100, 0, tx);
+      expect(concretePage.rows.some(row => row.id === hifzId)).toBe(true);
+      expect(concretePage.rows.some(row => row.id === tajweedId)).toBe(false);
+      expect(concretePage.total).toBe(concreteBaseline + 1);
+    });
+  });
+
+  test("both token patterns null matches the no-filter eligibility baseline (online, approved, ungoverned, session-free)", async () => {
+    await runInRollback(async tx => {
+      const filters = matchingFilters({ ...TIERED_FILTERS, recitationPattern: null, subjectPattern: null });
+      const baseline = await baselineTotal(tx, filters);
+      // The fixture matches NEITHER default token pattern — only a chain
+      // with both predicates dropped can admit it, and it still satisfies
+      // every remaining eligibility leg (online, certified, ungoverned, no
+      // started session) by construction.
+      const alienId = await createZATeacher(tx, { recitations: '["warsh"]', subjects: '["tajweed"]' });
+
+      const page = await TeacherRepository.listMatchingCandidates(filters, 100, 0, tx);
+
+      expect(page.rows.some(row => row.id === alienId)).toBe(true);
       expect(page.total).toBe(baseline + 1);
     });
   });

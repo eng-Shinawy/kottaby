@@ -56,6 +56,9 @@ function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
  *    make the match exact-token (the pattern `"hifz"` does not match a
  *    stored `"hifz_jadid"` member) while still riding the varchar index
  *    path of a substring scan.
+ *  - `recitationPattern` / `subjectPattern` are `null` when the student
+ *    browses without the corresponding narrowing choice (optional filters)
+ *    — the predicate then drops out of the WHERE chain.
  *  - `languagePattern` is `null` when no language constraint applies
  *    (the Arabic-baseline caller browses without a language hard filter) —
  *    the predicate then drops out of the WHERE chain.
@@ -74,8 +77,8 @@ function isDBTransaction(tx: DBQueryExecutor): tx is DBTransaction {
  *    row.
  */
 export interface NormalizedTeacherMatchingFilters {
-  readonly recitationPattern: string;
-  readonly subjectPattern: string;
+  readonly recitationPattern: string | null;
+  readonly subjectPattern: string | null;
   readonly languagePattern: string | null;
   readonly namePattern: string | null;
   readonly minRating: number | null;
@@ -118,21 +121,22 @@ export interface TeacherMatchingRowType {
  *    `(teacher_id, status)` index serves it on the hot browse path. It
  *    composes WITH the online flag rather than trusting it: a row can
  *    carry a stale-true `is_online` while a session is still running;
- *  - the recitation and subject quoted-token patterns match (the subject
- *    vocabulary IS the session-intent vocabulary).
- * The language, name-search, and minimum-rating predicates join the chain
- * only when a pattern/floor was resolved; `null` means no constraint and
- * leaves the chain unchanged. The rating floor is the honest SQL `>=` —
- * a NULL `average_rating` never satisfies it, so setting a floor excludes
- * the unrated by construction (never `coalesce`d into a fabricated zero).
+ *  - the recitation and subject quoted-token patterns match when
+ *    supplied (the subject vocabulary IS the session-intent vocabulary).
+ * The recitation, subject, language, name-search, and minimum-rating
+ * predicates join the chain only when a pattern/floor was resolved;
+ * `null` means no constraint and leaves the chain unchanged. The rating
+ * floor is the honest SQL `>=` — a NULL `average_rating` never satisfies
+ * it, so setting a floor excludes the unrated by construction (never
+ * `coalesce`d into a fabricated zero).
  */
 function buildTeacherMatchingFilterChain(filters: NormalizedTeacherMatchingFilters): SQL {
   const chain = and(
     eq(teacher.isOnline, true),
     eq(teacher.isApproved, true),
     sql`${users.isDeleted} is distinct from true and ${users.suspended} is distinct from true and ${users.isBlocked} is distinct from true`,
-    ilike(teacher.recitations, filters.recitationPattern),
-    ilike(teacher.subjects, filters.subjectPattern),
+    filters.recitationPattern === null ? undefined : ilike(teacher.recitations, filters.recitationPattern),
+    filters.subjectPattern === null ? undefined : ilike(teacher.subjects, filters.subjectPattern),
     sql`not exists (select 1 from ${session} where ${session.teacherId} = ${teacher.id} and ${session.status} = ${SessionStatus.Started})`,
     filters.languagePattern === null ? undefined : ilike(teacher.languages, filters.languagePattern),
     filters.namePattern === null ? undefined : ilike(users.fullName, filters.namePattern),
@@ -196,11 +200,11 @@ function buildTeacherMatchingOrderBy(filters: NormalizedTeacherMatchingFilters, 
 /**
  * Lists the student-facing matching candidates: `teacher` rows INNER
  * JOINed to their `users` accounts on the shared PK, filtered by the
- * eligibility + token-filter chain (plus the optional name-search and
- * minimum-rating predicates), ordered country-tier first, then by the
- * caller-selected post-tier sort key, and always tiebroken by `id DESC` so
- * consecutive pages never duplicate or drop a row inserted
- * mid-pagination.
+ * eligibility chain plus whichever optional token-filter, name-search,
+ * and minimum-rating predicates were resolved, ordered country-tier
+ * first, then by the caller-selected post-tier sort key, and always
+ * tiebroken by `id DESC` so consecutive pages never duplicate or drop a
+ * row inserted mid-pagination.
  *
  * Runs the page query and the same-filter `count(*)` in one round-trip
  * pair so the caller can surface an honest `total` — an out-of-range

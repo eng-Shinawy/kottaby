@@ -80,7 +80,7 @@ const readStoredParentId = (value: unknown): number | null =>
 
 /** Literal-equality narrowing — an unknown token reads back unset. */
 const readStoredGender = (value: unknown): OnboardStudentFormState["gender"] => {
-  if (value === "Male" || value === "Female" || value === "Other") return value;
+  if (value === "Male" || value === "Female") return value;
   return "";
 };
 

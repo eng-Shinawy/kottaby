@@ -63,7 +63,6 @@ export interface AuthLabels {
   /** Gender options (translated) */
   readonly genderMale: string;
   readonly genderFemale: string;
-  readonly genderOther: string;
   /** Password visibility toggle */
   readonly showPassword: string;
   readonly hidePassword: string;

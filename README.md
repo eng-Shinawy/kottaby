@@ -130,7 +130,7 @@ bun run tsgo                # Fast type checking
 |---|---|
 | `bun run dev` | Development server (port 3000) |
 | `bun run build` | Production build |
-| `bun run storybook` | Component workshop (port 6006) |
+| `bun run storybook` | Component workshop (port 6066) |
 | `bun run generate:gqlSchema` | Regenerate GraphQL schema |
 | `bun codegen` | Regenerate GraphQL TypeScript types |
 

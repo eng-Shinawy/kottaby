@@ -73,7 +73,7 @@ export const UserRolePothosEnum = gqlSchemaBuilder.enumType(UserRole, {
   name: "UserRole",
 });
 
-/** GraphQL `Gender` enum (male|female|other). */
+/** GraphQL `Gender` enum (male|female). */
 export const GenderPothosEnum = gqlSchemaBuilder.enumType(Gender, {
   name: "Gender",
 });

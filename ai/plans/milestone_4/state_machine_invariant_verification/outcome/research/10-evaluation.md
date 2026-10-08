@@ -1,0 +1,109 @@
+# Research Dossier — Evaluation Records (INV-E1..INV-E6)
+
+Scope: docs/specs/state-machine-invariants.md §10 "Evaluation Lifecycle". Distinguishes the three flows sharing the domain: (a) certified-evaluator rubric scoring of teacher applicants (verification loop — INV-TV sibling dossier), (b) student→teacher session rating (INV-E4), (c) student performance aggregation from reports/grades (INV-E5 — lives in the academic-tracking surface, NOT the `evaluations` table).
+
+## 1. Invariants in scope
+
+| ID | doc line | Verbatim statement |
+|---|---|---|
+| INV-E1 | docs/specs/state-machine-invariants.md:336 | "`evaluations.score` is 0-100 (check constraint)." |
+| INV-E2 | docs/specs/state-machine-invariants.md:337 | "Evaluations can be soft-deleted (`is_deleted`, `deleted_at`) but not hard-deleted." |
+| INV-E3 | docs/specs/state-machine-invariants.md:338 | "An evaluation is linked to a `user_id` (the evaluated user) and optionally a `session_id`." |
+| INV-E4 | docs/specs/state-machine-invariants.md:339 | "Teacher evaluations (submitted by students) update `teacher.average_rating` (0-5 scale)." |
+| INV-E5 | docs/specs/state-machine-invariants.md:340 | "Student evaluations are aggregated from session reports and grades for cumulative performance metrics." |
+| INV-E6 | docs/specs/state-machine-invariants.md:341 | "Evaluation records are permanently retained for dispute resolution and teacher re-evaluations." |
+
+## 2. Enforcement map
+
+| ID | Mechanism | Path:line | Symbol | Short fragment |
+|---|---|---|---|---|
+| INV-E1 | DB CHECK (nullable column!) | backend/db/schema/teachers/evaluations.ts:60 | `evaluations_score_check` | `check("evaluations_score_check", sql\`${t.score} >= 0 AND ${t.score} <= 100\`)` |
+| INV-E1 | service guard — rubric flow 0..100 | backend/services/teachers/evaluation-rubric.service.ts:105-112 | `RUBRIC_SCORE_INVALID` | `!Number.isInteger(input.score) \|\| input.score < 0 \|\| input.score > 100` → `ValidationError` |
+| INV-E1 | service guard — rating flow whole stars 1..5 | backend/services/teachers/student-evaluation.service.ts:269-277 (constants :77,:80,:83) | `RATING_MIN`/`RATING_MAX`/`SCORE_POINTS_PER_STAR` | non-integer or outside 1..5 → `ValidationError` (score stored = `rating * 20`, :185) |
+| INV-E2 | soft-delete columns | backend/db/schema/teachers/evaluations.ts:51-52 | `isDeleted`/`deletedAt` | `is_deleted` boolean default false; `deleted_at` timestamp |
+| INV-E2 | read-side NULL-safe exclusion | backend/db/repo/teachers/evaluation.repository.ts:168 (also :181, :228) | `or(eq(isDeleted,false), isNull(...))` | "only an explicit deleted flag excludes" |
+| INV-E2 | hard-delete prevention | NONE — no repo delete method (file exports only `insertOnce` :127, `listByEvaluator` :157, `aggregateLiveRatings` :213, `findBySessionAndEvaluator` :257, `listCycleRubricSubmissions` :298); no `prevent_evaluations_delete` trigger — the only `prevent_*` guards are audit_logs/student_payments/teacher_transaction (backend/drizzle/20260904084152_custom_3-immutability-triggers/migration.sql:30-101) | — | enforcement is by absence of a delete surface |
+| INV-E3 | evaluated FK NOT NULL cascade | backend/db/schema/teachers/evaluations.ts:41-43 | `evaluatedId` | `.references(() => users.id, { onDelete: "cascade" })` |
+| INV-E3 | evaluator FK NOT NULL restrict | backend/db/schema/teachers/evaluations.ts:44-46 | `evaluatorId` | `.references(() => users.id, { onDelete: "restrict" })` |
+| INV-E3 | session FK nullable set-null | backend/db/schema/teachers/evaluations.ts:47 | `sessionId` | `.references(() => session.id, { onDelete: "set null" })` (survives session deletion — schema comment :28-30) |
+| INV-E3 | writers always set session_id | backend/services/teachers/student-evaluation.service.ts:180-188; backend/services/teachers/evaluation-rubric.helpers.ts:266-271 | `insertOnce` payloads | NULL session rows are legacy-only (repo docstring evaluation.repository.ts:14-16) |
+| INV-E4 | rating→average pipeline | backend/services/teachers/student-evaluation.service.ts:180-197 | `submitWithinTransaction` | insert `score = rating*20` → `aggregateLiveRatings` → `(avg/20).toFixed(2)` → `TeacherRepository.updateAverageRating` |
+| INV-E4 | guarded single-statement UPDATE | backend/db/repo/teachers/teacher.repository.ts:843-854 | `updateAverageRating` | `.update(teacher).set({ averageRating, updatedAt: sql`now()` }).where(eq(teacher.id, teacherId)).returning()` — zero rows → null |
+| INV-E4 | DB clamp 0-5 | backend/db/schema/teachers/teacher.ts:61 | `teacher_average_rating_check` | `${t.averageRating} >= 0 AND ${t.averageRating} <= 5` |
+| INV-E4 | student-only authScopes | backend/graphql/mutation/classes/student-evaluation.mutation.ts:66-71 (field :54) | `submitTeacherEvaluation` | `$all: { authenticated: true, role: [UserRole.Student] }` |
+| INV-E5 | grades aggregation (stats) | backend/db/repo/admin/academic-tracking.repository.ts:298-302 (`getAcademicStats` :290) | `averageJadidGrade`/`averageMadiGrade` | `round(avg(${homeWork.currentGrade})::numeric, 2)::float8` |
+| INV-E5 | per-student cumulative composition | backend/services/admin/admin-academic-tracking.service.ts:405-441 (`getStudentAcademicDetail` :378) | drill-down | homework history + report history + `progressRowCount` + attention flag, one snapshot |
+| INV-E5 | attention flag from grades | backend/services/admin/admin-academic-tracking.helpers.ts:123-150 | `composeAcademicAttentionFlag` | recent Jadid grades avg < threshold → `lowGrade`; stale → `staleProgress` |
+| INV-E5 | platform-wide evaluation-score aggregate | backend/db/repo/admin/platform-analytics.repository.ts:378-383 | `averageEvaluationScore` | `avg(evaluations.score)` over live rows (0-100, not 0-5) |
+| INV-E6 | retention guard | NONE — no DB trigger, no repo surface; FK design only: `session_id` set-null (evaluations.ts:47) preserves the row when its session is deleted; `evaluated_id` cascade (:43) means retention transitively depends on INV-U4's users no-hard-delete (sibling dossier) | — | doc comment evaluations.ts:28-30, :33 |
+
+## 3. Existing coverage
+
+| ID | Verdict | Test path:line | Test name | What it asserts |
+|---|---|---|---|---|
+| INV-E1 | PARTIAL | backend/db/test/repo/teachers/evaluation.repository.test.ts:420 | "score boundaries 0 and 100 are accepted raw (the table CHECK is the backstop)" | 0/100 accepted on insert + read-back; does NOT trip the CHECK |
+| INV-E1 | (same) | backend/services/teachers/evaluation-rubric.service.test.ts:595-609 | rubric denial probe matrix (scores 1.5 / -1 / 101) | service guard throws `RUBRIC_SCORE_INVALID` pre-DB |
+| INV-E1 | (same) | backend/services/teachers/student-evaluation.service.test.ts:410 | "score matrix — whole stars 1..5 map to 20..100 on the table's 0-100 scale" | rating→score conversion stays in-range by construction |
+| INV-E1 | missing | — | — | NO test trips `evaluations_score_check` (raw violation + constraint name); no static pin (contrast: report-homework-schema.static-assertions.test.ts:73 pins the reports CHECK) |
+| INV-E2 | PARTIAL | backend/db/test/repo/teachers/evaluation.repository.test.ts:388 | "only an explicit deleted flag excludes a row; another evaluator's row never leaks" | NULL-safe soft-delete exclusion in `listByEvaluator` |
+| INV-E2 | (same) | backend/db/test/repo/teachers/evaluation.repository.test.ts:663 | "sees a soft-deleted row — the unique arbiter's slot, which the pre-check must not filter" | pair read ignores soft-delete flag (write-once slot) |
+| INV-E2 | (same) | backend/db/test/repo/teachers/evaluation.repository.test.ts:929 | "soft-deleted rating rows are excluded from both the mean and the count" | `aggregateLiveRatings` exclusion |
+| INV-E2 | (same) | backend/services/teachers/student-evaluation.service.test.ts:780 | "cached average — a soft-deleted rating never folds into the mean" | service-level exclusion |
+| INV-E2 | missing | — | — | the "not hard-deleted" half: no test AND no DB guard; test teardowns hard-delete evaluations successfully (evaluation.repository.test.ts:290-292 afterAll `db.delete(evaluations)`; test/workflows/teachers/student-teacher-rating.journey.test.ts:482 registry hard-delete) |
+| INV-E3 | PARTIAL | backend/db/test/repo/teachers/evaluation.repository.test.ts:531 | "a nonexistent rated subject is rejected by the FK — the raw 23503 surfaces untranslated" | `evaluated_id` FK rejection, raw error |
+| INV-E3 | (same) | backend/db/test/repo/teachers/evaluation.repository.test.ts:366 | "a NULL session_id stores null and two NULL-session rows from the same evaluator coexist" | optional session link at column level |
+| INV-E3 | (same) | backend/graphql/test/student-evaluation.wire.test.ts:622 | "primary student rates σ (4★) → the row with score = rating × 20, server-derived identities" | evaluatedId resolved from session, evaluatorId = caller (no client identity) |
+| INV-E3 | missing | — | — | `evaluator_id` FK (restrict) rejection untested; session set-null survival (session deleted → evaluation survives, `session_id` NULL) untested |
+| INV-E4 | COVERED | backend/services/teachers/student-evaluation.service.test.ts:718 | "cached average — a single 4★ rating stores exactly \"4.00\" on the rated teacher's row" | scale conversion 0-100 → 0-5 decimal string |
+| INV-E4 | (same) | backend/services/teachers/student-evaluation.service.test.ts:733 | "recomputed from the live family, never incremented (seeded 60+50 ⇒ \"3.50\" after a 5★)" | recompute-not-merge semantics |
+| INV-E4 | (same) | backend/services/teachers/student-evaluation.service.test.ts:756 | "applicant evaluations (no session link) never fold into the mean" | family = session-linked live ratings only |
+| INV-E4 | (same) | backend/services/teachers/student-evaluation.service.test.ts:801 | "boundary families: an all-20 family stores \"1.00\" and an all-100 family stores \"5.00\"" | 0-5 scale boundaries |
+| INV-E4 | (same) | backend/db/test/repo/teachers/teacher.repository.test.ts:2443 | "a rating beyond the 0-5 clamp raises the RAW teacher_average_rating_check violation" | savepoint-probe trips the CHECK ("9.99" → raw violation, prior rating intact) |
+| INV-E4 | (same) | test/workflows/teachers/student-teacher-rating.journey.test.ts:530, :579, :586, :616 | steps 3/3a/3b/3c | cross-actor: score=rating×20, first commit maintains average, recompute over family, admin directory observes it |
+| INV-E4 | (same) | test/workflows/teachers/student-teacher-rating.journey.test.ts:671 | "two concurrent submits on a fresh dual-confirmed session: exactly ONE row, one loser denied" | concurrency (committed fixtures, no runInRollback) |
+| INV-E4 | (same) | backend/graphql/test/student-evaluation.wire.test.ts:654 | "rating 6 → VALIDATION with extensions.fields projecting ONLY the rating field" | wire-level 0-5 denial |
+| INV-E5 | PARTIAL | backend/db/test/repo/admin/academic-tracking.repository.test.ts:348 | "getAcademicStats: exact empty-platform row, then exact conditional aggregation" | grades aggregate (avg over graded rows only) |
+| INV-E5 | (same) | backend/db/test/repo/admin/academic-tracking.repository.test.ts:540 | "zero graded rows: averages null (never 0)..." | honest-null aggregation semantics |
+| INV-E5 | (same) | backend/db/test/repo/admin/academic-tracking.repository.test.ts:657 | "grade bounds 0/100 hold as exact averages and stay isolated per student" | per-student isolation |
+| INV-E5 | (same) | backend/db/test/logic/admin/platform-analytics.repository.test.ts:535-536 | evaluation count/average deltas | platform-wide `averageEvaluationScore` over live evaluations |
+| INV-E5 | (same) | backend/services/admin/admin-academic-tracking.service.test.ts:455 | "Tier 1 — admin happy path: echo, ordered histories, teacher identities, progress count" | drill-down composes reports + grades + progress |
+| INV-E5 | missing | — | — | no single test asserts the INV-E5 statement end-to-end; `reports.student_rating_by_teacher` (CHECK 0-5, backend/db/schema/classes/reports.ts:37-38) is surfaced passthrough (admin-academic-tracking.service.ts:277) but never aggregated into a cumulative metric |
+| INV-E6 | GAP | — | — | no test; no enforcement (see §2). Adjacent evidence: schema comment evaluations.ts:28-30 documents evaluation-survives-session-deletion (set-null) — untested |
+
+## 4. Recommended tests for PARTIAL/GAP
+
+| ID | Target test file | Layer rules | Assertion approach | Fixtures |
+|---|---|---|---|---|
+| INV-E1 | backend/db/test/repo/teachers/evaluation.repository.test.ts (extend, Tier 4 next to the unique-probe test :460) | DB repo test; `runInRollback(async tx => ...)`; ALL repo calls take `tx` | mirror the savepoint probe at teacher.repository.test.ts:2443-2461: `tx.execute(sql\`savepoint evaluations_score_check_probe\`)`; `insertOnce(..., score: 101)` and separately `score: -1` via `expectRepoError` (imported from `@/backend/db/test/test-utils`, evaluation.repository.test.ts:114; local `hasPostgresErrorCode` :247); assert `hasPostgresErrorCode(err, "23514")` and `constraintNameOf(err) === "evaluations_score_check"` (raw, untranslated — NOT ConflictError/DomainError); `rollback to savepoint`; reread proves no residue | `createTestUser` ×2 (subject+evaluator) via `createRatingCast(tx)` :161 |
+| INV-E1 (pin) | NEW backend/db/schema/teachers/evaluations-schema.static-assertions.test.ts (mirror report-homework-schema.static-assertions.test.ts) | schema static-assertions tier (no DB) | assert the table's CHECK list is exactly `["evaluations_score_check"]` and `isDeleted`/`deletedAt` columns exist (pin INV-E2 columns here too) — pattern: `report-homework-schema.static-assertions.test.ts:72-73` (`checkNames(reports)`) | none (schema introspection) |
+| INV-E2 | backend/db/test/repo/teachers/evaluation.repository.test.ts — add a "source pins" describe (pattern: student-evaluation.service.test.ts:1088-1159) | source-pin tier; no DB writes needed | read `evaluation.repository.ts` source and assert: no `.delete(` on `evaluations`, no exported delete/softDelete/update symbol — the "not hard-deleted" half is enforced ONLY by surface absence, so pin the surface. CAUTION: a raw `DELETE FROM evaluations` rejection test is IMPOSSIBLE (no DB guard — teardowns at evaluation.repository.test.ts:290-292 and student-teacher-rating.journey.test.ts:482 delete rows successfully); record the enforcement gap as a plan finding, do NOT write a failing test | none |
+| INV-E3 | backend/db/test/repo/teachers/evaluation.repository.test.ts (extend, Tier 4) | DB repo test; runInRollback + tx | evaluator-FK probe mirroring :531: `insertOnce({ evaluatedId: <valid>, evaluatorId: <nonexistent>, ... })` → raw 23503 with constraint name `evaluations_evaluator_id_users_id_fkey` (FK DDL: backend/drizzle/20260904084151_omniscient_karen_page/migration.sql:490) (savepoint bracket, then rollback) | `createTestUser` for the subject |
+| INV-E3/E6 | backend/db/test/repo/teachers/evaluation.repository.test.ts — committed-fixtures tier (pattern: `createCommittedCast` :281-288 + afterAll cleanup :290-292) | committed fixtures (NOT runInRollback — the session delete must commit); cleanup registers ids in `committedEvaluationIds`/`committedSessionIds` | set-null survival: insert session-linked evaluation; hard-delete the session row (`db.delete(session)`); reread evaluation — row survives with `sessionId === null`, score intact. This is the testable core of INV-E6 (retention across session loss) per schema comment evaluations.ts:28-30 | `createConfirmedSession(tx)` :170 + `EvaluationRepository.insertOnce` |
+| INV-E4 | none required | COVERED — cite existing (§3) | — | — |
+| INV-E5 | backend/services/admin/admin-academic-tracking.service.test.ts (extend, one composite test) OR mark covered-by-piecewise | service test; runInRollback + tx (existing file pattern :176+) | one labeled test asserting the drill-down composes the student's cumulative view: homework grades (both tracks) + report history (incl. `studentRatingByTeacher`) + `progressRowCount` + attention flag for one student with known fixtures — the INV-E5 statement as one assertion set | `createTestStudent`, `createTestSession`, `createTestSessionReport`, `createTestHomeWork` (grades via overrides) |
+| INV-E6 | covered by the INV-E3/E6 set-null survival test + the INV-E2 source pins | — | add plan note: full "permanent retention" (DB-level DELETE guard like student_payments/teacher_transaction have) would need a new migration — OUT OF SCOPE for this test-writing ticket | — |
+
+## 5. Fixture/helper needs (verified signatures — backend/db/test/entity-setup.ts)
+
+| Helper | Line | Signature (verified) | Notes |
+|---|---|---|---|
+| `createTestUser` | backend/db/test/entity-setup.ts:74 | `(tx: DBTransaction, overrides?: Partial<UserSelectType>) => Promise<UserSelectType>` | default role "student"; override `{ role: "teacher" }` |
+| `createTestStudent` | backend/db/test/entity-setup.ts:104 | `(tx: DBTransaction, userId: number) => Promise<StudentSelectType>` | unique handshakeCode per row |
+| `createTestSession` | backend/db/test/entity-setup.ts:303 | `(tx, teacherId, studentId, overrides?: Partial<SessionSelectType>)` | defaults Scheduled/StudentSession — rating fixtures must override `status`/`sessionType`/confirmation stamps (see in-file `createConfirmedSession` evaluation.repository.test.ts:170) |
+| `createTestSessionReport` | backend/db/test/entity-setup.ts:344 | `(tx, sessionId, overrides?: Partial<ReportSelectType>)` | `studentRatingByTeacher` defaults 5, CHECK 0-5 (`reports_student_rating_by_teacher_check` reports.ts:37-38) |
+| `createTestHomeWork` | backend/db/test/entity-setup.ts:376 | `(tx, sessionId, overrides?)` | grade columns default NULL; grades must stay 0-100 |
+| `createTestEvaluation` | backend/db/test/entity-setup.ts:440 | `(tx, evaluatedId, evaluatorId, sessionId: number \| null, overrides?: Partial<EvaluationSelectType>)` | score defaults 85 (CHECK 0-100); soft delete via overrides `{ isDeleted: true, deletedAt }` — there is NO production soft-delete writer |
+| `createTestTeacherRow` | backend/db/test/entity-setup.ts:550 | `(tx, userId, overrides?: Partial<TeacherSelectType>)` | `averageRating` default null; `isApproved` default true |
+| repo-test utilities | backend/db/test/repo/teachers/evaluation.repository.test.ts:114 | `import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils"` | plus local `hasPostgresErrorCode(error, pgCode)` at :247 |
+| journey registry | test/workflows/teachers/student-teacher-rating.journey.test.ts:141-142 | `const registry = createSessionFixtureRegistry()` (test/workflows/helpers/journey-fixture-registry.ts) | tracks ids; afterAll drains in FK-safe order — hard-deletes evaluations (:482) |
+
+## 6. Notes for the plan
+
+1. **DEFECT vs the ticket premise (INV-E2/E6)**: the task pointer said "hard-delete guard in migrations" — FALSE for evaluations. No `prevent_evaluations_delete` trigger exists; the only `prevent_*` guards are audit_logs / student_payments / teacher_transaction (backend/drizzle/20260904084152_custom_3-immutability-triggers/migration.sql:30-101, enumerated via grep of all migrations). Existing test teardowns successfully hard-delete evaluations rows (evaluation.repository.test.ts:290-292; student-teacher-rating.journey.test.ts:482). The plan MUST NOT write a "DELETE raises" test (it would fail); it should pin the no-delete-surface convention via source pins and record the enforcement gap as a finding. A real guard would need a new migration — out of scope for a test-writing ticket.
+2. **No production soft-delete writer exists** (INV-E2): `is_deleted`/`deleted_at` are fixture-override-only today; the tested behavior is read-side exclusion (list/aggregate/pair-read). Don't invent a soft-delete service in this plan.
+3. **Doc-vs-schema naming (INV-E3)**: doc says `user_id`; the actual columns are `evaluated_id` (cascade) + `evaluator_id` (restrict). "Optionally a session_id" is column-level only — BOTH production writers always set session_id (student-evaluation.service.ts:184; evaluation-rubric.helpers.ts:269); NULL-session rows are legacy-only (repo docstring evaluation.repository.ts:14-16).
+4. **INV-E1 nuance**: `score` is nullable (evaluations.ts:48) — the CHECK passes on NULL; tests should trip it with concrete out-of-range integers (101 / -1). The 0-5→0-20 conversion keeps the rating flow in-range by construction (student-evaluation.service.ts:185).
+5. **INV-E5 mapping risk**: the doc's "student evaluations" are NOT rows in `evaluations` (that table stores evaluator→applicant rubric scores AND student→teacher ratings). Student performance aggregation = admin academic tracking (home_work grades + reports + progress). Plan should map INV-E5 to the academic-tracking surface, and treat platform analytics' `averageEvaluationScore` (platform-analytics.repository.ts:378-383) as a secondary aggregation over the evaluations table (0-100 scale — NOT teacher ratings).
+6. **INV-E4 is the domain's best-covered invariant** (service + repo CHECK-trip + journey + wire + concurrency tiers). Plan should cite, not re-write.
+7. **Sibling overlap**: rubric submission lifecycle (5-distinct-evaluators, pass/fail verdict, weakness rules) belongs to the INV-TV dossier (evaluation-booking/evaluation-rubric/applicant-lifecycle services); home_work grade CHECKs and progress links belong to the INV-HW/PR dossier. This dossier claims only: evaluations CHECK trip, FK probes (evaluator leg + set-null survival), soft-delete read semantics pins, no-delete-surface pins, rating→average_rating pipeline citations.
+8. **Session-deletion set-null test needs committed fixtures** (not runInRollback) — the session DELETE must actually commit to observe the FK's set-null; register ids in the file's existing `committedEvaluationIds`/`committedSessionIds` arrays for afterAll cleanup.

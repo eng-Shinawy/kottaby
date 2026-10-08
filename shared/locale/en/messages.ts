@@ -21,6 +21,7 @@ import { lessonsEn } from "@/shared/locale/en/lessons";
 import { notificationsEn } from "@/shared/locale/en/notifications";
 import { parentLinkEn } from "@/shared/locale/en/parentLink";
 import { parentMonitoringEn } from "@/shared/locale/en/parentMonitoring";
+import { phoneInputEn } from "@/shared/locale/en/phoneInput";
 import { plansEn } from "@/shared/locale/en/plans";
 import { recitationEn } from "@/shared/locale/en/recitation";
 import { scheduleEn } from "@/shared/locale/en/schedule";
@@ -48,6 +49,7 @@ export const enMessages: Translations = {
   upNextTranslations: upNextEn,
   checkoutTranslations: checkoutEn,
   countrySelectorTranslations: countrySelectorEn,
+  phoneInputTranslations: phoneInputEn,
   adminAcademicTranslations: adminAcademicEn,
   adminUsersTranslations: adminUsersEn,
   adminTeachersTranslations: adminTeachersEn,

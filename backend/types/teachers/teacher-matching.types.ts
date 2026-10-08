@@ -27,18 +27,22 @@ import type { RecitationReading } from "@/shared/constants/recitation-reading.en
 export type TeacherMatchingIntent = Exclude<SessionIntent, SessionIntent.Evaluation>;
 
 /**
- * The six per-browse choices submitted by the student; explicit `null`
- * restores the default for the optional members (page bounds, name search,
- * minimum rating) and `sort` carries its SDL default (`RATING_DESC`).
- * `search` is the raw name-search substring (the finished LIKE pattern is
- * built at the service's single escape point); `minRating` is an
- * honest-SQL floor — `average_rating >= minRating`, so an unrated teacher
- * (NULL) is excluded whenever a floor is set; `sort` selects the
- * post-tier ordering key (the country tier ALWAYS sorts first).
+ * The seven per-browse choices submitted by the student. `recitation` and
+ * `intent` are OPTIONAL narrowing filters — explicit `null` drops the
+ * predicate (no constraint / all); when set, `recitation` is validated
+ * against the shared catalog and `intent` against the student browse
+ * vocabulary. `null` restores the default for the remaining optional
+ * members (page bounds, name search, minimum rating) and `sort` carries
+ * its SDL default (`RATING_DESC`). `search` is the raw name-search
+ * substring (the finished LIKE pattern is built at the service's single
+ * escape point); `minRating` is an honest-SQL floor —
+ * `average_rating >= minRating`, so an unrated teacher (NULL) is
+ * excluded whenever a floor is set; `sort` selects the post-tier
+ * ordering key (the country tier ALWAYS sorts first).
  */
 export interface TeacherMatchingSubmitInput {
-  readonly recitation: RecitationReading;
-  readonly intent: TeacherMatchingIntent;
+  readonly recitation: RecitationReading | null;
+  readonly intent: TeacherMatchingIntent | null;
   readonly page: number | null;
   readonly pageSize: number | null;
   readonly search: string | null;

@@ -55,6 +55,7 @@ export function RegisterForm() {
   const tRecitation = useAppTranslation(Recitation);
 
   const {
+    control,
     errors,
     isSubmitting,
     handleSubmit,
@@ -90,6 +91,7 @@ export function RegisterForm() {
         {/* === Section 1: Account Information === */}
         <RegisterAccountSection
           register={register}
+          control={control}
           errors={errors}
           t={t}
           passwordValue={passwordValue}

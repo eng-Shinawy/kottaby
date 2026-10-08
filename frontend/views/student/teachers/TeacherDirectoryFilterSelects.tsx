@@ -9,15 +9,18 @@
  * lookup tables (the narrowed member is the resolved return value —
  * never a bare boolean predicate, never an `as` cast) — the bar's submit
  * boundary stays the ONLY apply path. The name search is free text (the
- * container trims it on APPLY); the rating select's value space is the
- * explicit string tokens of `ratingTokenOf` (MUI select values
- * are strings; the "any rating" default never collapses to ""). MUI v9
- * `sx`-only styling, theme-palette colors, ≥44px targets, RTL-safe.
+ * container trims it on APPLY); the recitation, intent, and rating
+ * selects' value space is the explicit string tokens of their
+ * `*TokenOf` helpers (MUI select values are strings; the `null`
+ * "all / any" defaults — the browse defaults for the first two — never
+ * collapse to ""). MUI v9 `sx`-only styling, theme-palette colors, ≥44px
+ * targets, RTL-safe.
  */
 
 import { SearchOutlined } from "@mui/icons-material";
 import { InputAdornment, MenuItem, TextField } from "@mui/material";
 import { type ReactNode, useId } from "react";
+import type { RecitationReading } from "@/frontend/graphql/generated/gql/graphql";
 import {
   RATING_FILTER_OPTIONS,
   RATING_OPTION_BY_TOKEN,
@@ -30,9 +33,12 @@ import {
 import {
   BROWSE_INTENT_OPTIONS,
   type BrowseFilterChoices,
+  type BrowseIntent,
   INTENT_LABEL_KEY_BY_INTENT,
+  intentTokenOf,
   RECITATION_FILTER_OPTIONS,
   RECITATION_LABEL_KEY_BY_ENUM,
+  recitationTokenOf,
   resolveBrowseIntent,
   resolveRecitationReading,
 } from "@/frontend/views/student/teachers/teacherDirectoryPresentation";
@@ -105,24 +111,24 @@ export function TeacherDirectoryFilterSelects(props: {
 
   return (
     <>
-      <BrowseSelect
+      <BrowseSelect<RecitationReading | null>
         id={recitationId}
         label={t.recitationLabel}
         testId="student-teachers-filter-recitation"
         options={RECITATION_FILTER_OPTIONS}
-        tokenOf={option => option}
-        labelOf={option => recitationT[RECITATION_LABEL_KEY_BY_ENUM[option]]}
+        tokenOf={recitationTokenOf}
+        labelOf={option => (option === null ? t.recitationAny : recitationT[RECITATION_LABEL_KEY_BY_ENUM[option]])}
         narrow={resolveRecitationReading}
         value={draft.recitation}
         onCommit={recitation => onDraftChange({ ...draft, recitation })}
       />
-      <BrowseSelect
+      <BrowseSelect<BrowseIntent | null>
         id={intentId}
         label={t.intentLabel}
         testId="student-teachers-filter-intent"
         options={BROWSE_INTENT_OPTIONS}
-        tokenOf={option => option}
-        labelOf={option => t[INTENT_LABEL_KEY_BY_INTENT[option]]}
+        tokenOf={intentTokenOf}
+        labelOf={option => (option === null ? t.subjectAny : t[INTENT_LABEL_KEY_BY_INTENT[option]])}
         narrow={resolveBrowseIntent}
         value={draft.intent}
         onCommit={intent => onDraftChange({ ...draft, intent })}

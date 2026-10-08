@@ -191,7 +191,7 @@ function registrationInput(phone: string, role: RegisterPublicRole): Registratio
     email: `${PREFIX}-reg-${seq}@journey.test`,
     phone,
     password: REGISTRANT_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role,
   };
 }
@@ -204,7 +204,7 @@ function adminCreateInput(phone: string): AdminCreateUserSubmitInput {
     email: `${PREFIX}-admin-${seq}@journey.test`,
     phone,
     password: REGISTRANT_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role: "student",
   };
 }
@@ -217,7 +217,7 @@ function onboardInput(phone: string): AdminOnboardStudentSubmitInput {
     email: `${PREFIX}-onboard-${seq}@journey.test`,
     phone,
     password: REGISTRANT_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     parentId: null,
     planId,
     paymentMethod: PaymentGateway.OfflineCash,

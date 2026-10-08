@@ -38,7 +38,7 @@ export interface EditUserFormState {
   phone: string;
   /** Canonical dataset code (or "" while unset) — never raw display text. */
   country: CountryCode | "";
-  gender: "" | "Male" | "Female" | "Other";
+  gender: "" | "Male" | "Female";
   dateOfBirth: string;
 }
 
@@ -85,11 +85,11 @@ export function EditUserFormFields({
         <AdminDialogFieldLabel htmlFor={EDIT_PHONE_ID} text={labels.editDialog.phone} />
         <PhoneInput
           id={EDIT_PHONE_ID}
-          value={form.phone}
-          onChange={e => setForm({ ...form, phone: e.target.value })}
+          value={form.phone === "" ? null : form.phone}
+          onChangeAction={value => setForm({ ...form, phone: value ?? "" })}
+          hideLabel
           error={phoneError}
           helperText={phoneErrorText}
-          aria-invalid={phoneError}
         />
       </Box>
       <Box>

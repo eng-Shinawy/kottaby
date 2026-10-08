@@ -28,13 +28,17 @@ type BrowseItem = BrowseAvailableTeachersQuery_browseAvailableTeachers_items;
  * the container performs no role logic (the `browseAvailableTeachers` read
  * is student-gated server-side; the client sends the filter CHOICES only,
  * never an id). Filter state (the `PaymentsFilterBar` discipline): the bar
- * edits a DRAFT choice set (recitation + subject intent + the optional
- * name search / minimum rating / ordering trio) and ONLY the form submit
- * narrows the query; the applied set + the 1-based page drive the
- * stateful `useQuery` variables (`useLazyQuery` is banned; the search is
- * trimmed here — an empty remainder sends `null`, meaning "no search").
- * Applying or resetting ALWAYS returns to page 1; the applied set is
- * echoed back as the state chips under the bar.
+ * edits a DRAFT choice set (the OPTIONAL, default-`null` recitation +
+ * subject-intent filters — `null` = no constraint, browse across ALL
+ * readings/subjects — plus the optional name search, the minimum-rating
+ * floor, and the ordering key; the sort default stays top-rated
+ * `RATING_DESC` and the rating floor defaults to `null` = any rating)
+ * and ONLY the form submit narrows the query; the applied set + the
+ * 1-based page drive the stateful `useQuery` variables (`useLazyQuery`
+ * is banned; the search is trimmed here — an empty remainder sends
+ * `null`, meaning "no search"). Applying or resetting ALWAYS returns to
+ * page 1; the applied set is echoed back as the state chips under the
+ * bar.
  *
  * Render branches (resolved by `TeacherDirectoryBody` below the always-on
  * chrome — title + subtitle + filter bar + applied-filter chip render in
@@ -51,7 +55,11 @@ type BrowseItem = BrowseAvailableTeachersQuery_browseAvailableTeachers_items;
  *
  * The request-session dialog is ONE grid-level instance (never per card):
  * a card CTA sets `requestTarget`, the dialog reads it, and its success
- * lanes refetch the browse + route to `/student/sessions`.
+ * lanes refetch the browse + route to `/student/sessions`. Its
+ * `appliedIntent` seed is the applied set's subject filter — `null`
+ * while the browse isn't narrowed to a subject, in which case the
+ * dialog's select opens on its placeholder and Confirm stays disabled
+ * until the student picks one.
  *
  * Query errors classify through `extensions.code` (shared error utils) —
  * never the server `message`. All copy resolves through the compile-time

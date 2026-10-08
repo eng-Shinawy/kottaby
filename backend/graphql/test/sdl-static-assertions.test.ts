@@ -63,7 +63,8 @@
  *    query (the collapse channel), the six-field `SessionRecitation` object
  *    (id on the wire, every instant on the DateTime scalar), and the closed
  *    two-member `SessionRecitationInput`. The custom-scalar set is pinned:
- *    exactly `DateTime` + `CountryCode`, each registered exactly once.
+ *    exactly `DateTime` + `CountryCode` + `PhoneNumber`, each registered
+ *    exactly once.
  *  - **Apollo normalization** — the `Notification` object carries `id: ID!`
  *    among EXACTLY the eight inbox fields.
  *  - **Depth/complexity posture (REQ-069)** — `Notification` is FLAT: every
@@ -1209,21 +1210,25 @@ describe("Session-recitation surface — artifact-side pins", () => {
     expect(fields).toHaveLength(2);
   });
 
-  test("the artifact's custom-scalar set is EXACTLY DateTime + CountryCode — each registered EXACTLY once (no unnamed extras)", () => {
+  test("the artifact's custom-scalar set is EXACTLY DateTime + CountryCode + PhoneNumber — each registered EXACTLY once (no unnamed extras)", () => {
     // AST tier: the complete scalar-definition set of the artifact is
-    // `DateTime` + `CountryCode` — the session-recitation surface introduced
-    // zero new scalars, both record timestamps ride the pre-existing
-    // DateTime registration, and the country input adds the CountryCode
-    // registration (single scalar registry: `shared/scalar.pothos.ts`).
+    // `DateTime` + `CountryCode` + `PhoneNumber` — the session-recitation
+    // surface introduced zero new scalars, both record timestamps ride the
+    // pre-existing DateTime registration, the country input adds the
+    // CountryCode registration, and the phone scalar is registered for
+    // FUTURE input fields (every existing phone mutation input stays
+    // `String` — the localized VALIDATION envelope is the wire contract;
+    // single scalar registry: `shared/scalar.pothos.ts`).
     const scalarDefinitions = sdlDocument.definitions
       .filter(definition => definition.kind === Kind.SCALAR_TYPE_DEFINITION)
       .map(definition => definition.name.value);
-    expect(scalarDefinitions).toEqual(["CountryCode", "DateTime"]);
-    // Lexical belt-and-braces: exactly TWO scalar declaration lines exist,
-    // and they are the two sanctioned registrations.
-    expect(sdlText.match(/^scalar /gm) ?? []).toHaveLength(2);
+    expect(scalarDefinitions).toEqual(["CountryCode", "DateTime", "PhoneNumber"]);
+    // Lexical belt-and-braces: exactly THREE scalar declaration lines exist,
+    // and they are the three sanctioned registrations.
+    expect(sdlText.match(/^scalar /gm) ?? []).toHaveLength(3);
     expect(sdlText).toMatch(/^scalar DateTime$/gm);
     expect(sdlText).toMatch(/^scalar CountryCode$/gm);
+    expect(sdlText).toMatch(/^scalar PhoneNumber$/gm);
   });
 });
 

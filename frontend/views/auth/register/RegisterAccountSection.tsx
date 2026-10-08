@@ -2,7 +2,7 @@
 
 import { Box, FormControl, InputLabel, MenuItem, Select } from "@mui/material";
 import { useState } from "react";
-import type { FieldErrors, UseControllerReturn, UseFormRegister } from "react-hook-form";
+import type { Control, FieldErrors, UseControllerReturn, UseFormRegister } from "react-hook-form";
 import { PasswordField } from "@/frontend/components/AuthFormShared";
 import type { Gender } from "@/frontend/graphql/generated/gql/graphql";
 import {
@@ -17,6 +17,7 @@ import type { AuthLabels } from "@/shared/locale/types/auth";
 
 interface RegisterAccountSectionProps {
   readonly register: UseFormRegister<RegisterFormValues>;
+  readonly control: Control<RegisterFormValues>;
   readonly errors: FieldErrors<RegisterFormValues>;
   readonly t: AuthLabels;
   readonly passwordValue: string;
@@ -33,6 +34,7 @@ interface RegisterAccountSectionProps {
  */
 export function RegisterAccountSection({
   register,
+  control,
   errors,
   t,
   passwordValue,
@@ -59,7 +61,13 @@ export function RegisterAccountSection({
           gap: 2,
         }}
       >
-        <RegisterIdentityFields register={register} errors={errors} t={t} countryField={countryField} />
+        <RegisterIdentityFields
+          register={register}
+          control={control}
+          errors={errors}
+          t={t}
+          countryField={countryField}
+        />
         {/* Password holds its own full-width grid row so the strength
             meter (remote visual, reconciled onto the register() contract)
             sits flush under the field instead of a squeezed half-cell. */}
@@ -91,7 +99,6 @@ export function RegisterAccountSection({
           >
             <MenuItem value="Male">{t.genderMale}</MenuItem>
             <MenuItem value="Female">{t.genderFemale}</MenuItem>
-            <MenuItem value="Other">{t.genderOther}</MenuItem>
           </Select>
         </FormControl>
       </Box>

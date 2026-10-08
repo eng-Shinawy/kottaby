@@ -564,3 +564,49 @@ AGENTS.md and `.agents/instructions/` files are hand-curated; runs NEVER update 
   viewport-proofing lesson; no new landing needed.
 - z-ai vision at ~10 calls with sleep-8 spacing: no 429s (the 2026-10-02 quota lesson holds
   with a lower call rate).
+
+## 2026-10-08 — no-plan run: CreateUserRoleSegments (admin create-user role switcher, ai/plans/role-segments-visual-fix/)
+
+- Multiple Storybooks can share one host: port 6055 (named in the image-analysis skill) belonged to
+  ANOTHER project; kottaby's Storybook was on 6066. Verify port ownership via
+  `ss -ltnp` + `readlink /proc/<pid>/cwd` before ANY capture; a wrong-port capture silently scores
+  another app's component ("Couldn't find story" is the tell). → candidate: capture-protocol.md
+  Storybook line (this run banked it in the outcome header; promote on next Storybook run).
+- Storybook iframe URLs with MULTIPLE globals need semicolon separators, URL-encoded:
+  `globals=locale%3Aen%3Btheme%3Adark`. The comma form silently drops every global after the
+  first — an "EN" batch renders AR/RTL and only the DOM state guard catches it.
+  → landed: capture-protocol.md (globals format note).
+- `agent-browser hover` needs ~1s settle before the screenshot: MUI's hover transition leaves the
+  computed background mid-fade (alpha 0.024 vs resting 0.01 vs settled 0.08) — the state guard
+  must read the SETTLED value twice (pre AND post shot), or the capture banks a half-hover.
+  → landed: capture-protocol.md (hover settle rule).
+- A segmented control's selected-state DROP SHADOW is the "interleaving borders" bug class: the
+  shadow spills across tight gaps onto transparent neighbors (paints through their transparent
+  fill) and past the track padding; 3/7 vision frames flagged it as glow/seam/stray-ring with
+  different words. Fix = remove the shadow (border+tint+text carry the state).
+  → landed: fix-patterns.md (segmented-state-shadow row).
+- `whiteSpace: nowrap` on equal-flex segment labels is a guaranteed mid-glyph clip for long
+  localized phrases (8px on the real 192px lane; 28px on narrower lanes) — wrap-when-tight
+  (`whiteSpace: "normal"` + lineHeight 1.4 under a 54px floor) is the resilient policy; sibling
+  line-count asymmetry is the accepted trade. → landed: fix-patterns.md (nowrap-clip row).
+- Story-frame `width: "100%"` + margins overflows at mobile while the scrollWidth overflow gate
+  PASSES (margin-only overflow is not scrollable) — the offscreen gate is the only catcher.
+  → landed: fix-patterns.md (story-frame width row).
+- VLM segment-boundary misattribution class: icons at a segment's inner edge get attributed to the
+  NEIGHBOR segment ("green + on PARENT", "TEACHER lacks an icon") — one DOM count of
+  `.MuiButton-startIcon` per segment disproves both. Arbitrate icon-placement claims with DOM
+  before filing. → candidate: rubric.md contradiction-signature note (banked in this run's
+  outcome register).
+- `overflow: "hidden"` on a MUI Dialog paper silently kills `position: sticky; bottom: 0` footer
+  bands: no scrollport → the band rides up to the paper's bottom edge and paints over the last
+  ~60px of content (amputation, unreachable). `overflowY: "auto"` keeps the radius clipping AND
+  the sticky design; the tail becomes scroll-reachable behind the pinned band. Found via
+  `elementFromPoint` at the covered tail. → landed: fix-patterns.md (sticky-paper row).
+- A scrolled-to-bottom dialog capture attracts the fold-crop misread: content sliced at the
+  paper's top edge gets reported as "notched/scalloped edge damage" — arbitrate with
+  `dialog.scrollTop > 0` before filing. → candidate: capture-protocol (banked in this run's
+  outcome; the [r2-agents] fold-slice family already covers the principle).
+- Sibling-workstream live edits can crash the dev page mid-run (PhoneInput.tsx rewritten
+  4 minutes before a capture): record, wait for the edit window to settle, hard-reload, retry
+  once — never "fix" another lane's in-flight file, never score their surface from a frame
+  taken inside their edit window. → reinforces golden rule 5 (recorded here for the run).

@@ -5,7 +5,9 @@ export const teacherDirectoryAr: TeacherDirectoryLabels = {
   browseTitle: "اعثر على معلمك",
   browseSubtitle: "تصفّح المعلمين المعتمدين حسب القراءة والمادة.",
   recitationLabel: "القراءة (الروايات)",
+  recitationAny: "جميع الروايات",
   intentLabel: "المادة",
+  subjectAny: "جميع المواد",
   intentHifz: "الحفظ",
   intentTajweed: "التجويد والتلاوة",
   applyFilters: "تطبيق التصفية",
@@ -25,6 +27,7 @@ export const teacherDirectoryAr: TeacherDirectoryLabels = {
   requestSessionCta: "اطلب جلسة",
   requestDialogTitle: "اطلب جلسة",
   requestDialogIntentLabel: "مادة هذه الجلسة",
+  requestDialogIntentPlaceholder: "اختر المادة",
   requestDialogNote:
     "يُعتمد الطلب فورًا. تُستخدم جلسة التجربة المجانية أولًا ثم رصيد خطتك — ويُحجز الأجر حتى انتهاء الجلسة.",
   requestDialogCreditsLabel: "أرصدتك",

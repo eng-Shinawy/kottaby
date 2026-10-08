@@ -35,8 +35,12 @@ export interface TeacherDirectoryLabels {
   readonly browseSubtitle: string;
   /** Filter-bar label above the Qira'ah recitation select. */
   readonly recitationLabel: string;
+  /** Recitation choice: no constraint — browse across all recitations. */
+  readonly recitationAny: string;
   /** Filter-bar label above the subject (intent) select. */
   readonly intentLabel: string;
+  /** Subject choice: no constraint — browse across all subjects. */
+  readonly subjectAny: string;
   /** Browse-intent choice: memorization. */
   readonly intentHifz: string;
   /** Browse-intent choice: tajweed + tilawa. */
@@ -75,6 +79,8 @@ export interface TeacherDirectoryLabels {
   readonly requestDialogTitle: string;
   /** Label above the intent select inside the request dialog. */
   readonly requestDialogIntentLabel: string;
+  /** Placeholder inside the request dialog's intent select while no subject is chosen. */
+  readonly requestDialogIntentPlaceholder: string;
   /** Dialog note stating the server validates the caller's balance/trial lane before holding the fee. */
   readonly requestDialogNote: string;
   /**

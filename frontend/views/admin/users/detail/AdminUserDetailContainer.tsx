@@ -90,9 +90,10 @@ export function AdminUserDetailContainer({ userId }: AdminUserDetailContainerPro
   const governance = directoryGovernanceOf(user);
 
   return (
-    // Wide viewports: the measure stays digestible — the content caps at
-    // 840px and centers via LOGICAL margins (mirrors in RTL automatically).
-    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, width: "100%", maxWidth: 840, marginInline: "auto" }}>
+    // Wide viewports: the 5/12 + 7/12 grid fills the dashboard content width —
+    // the shell (DashboardStoryFrame in Storybook, the DashboardLayout main
+    // area in the app) owns the outer measure, so no local width cap here.
+    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, width: "100%" }}>
       {/* Back link — the direction-flipped arrow keeps the chevron pointing
           "back" in RTL (logical-direction UI affordance, not text). */}
       <Box>

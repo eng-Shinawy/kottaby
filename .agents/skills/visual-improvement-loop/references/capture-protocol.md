@@ -19,6 +19,16 @@ Used by the visual-improvement-loop skill. All screenshots must land in `scratch
   in-page identity (topbar user text) after every login switch.
 - Storybook (`localhost:6006`): NO auth needed. Capture from the raw iframe URL, not the full manager UI:
   `http://localhost:6006/iframe.html?id=<story-id>&viewMode=story&globals=locale:en|ar`
+- **Multiple Storybooks on one host (added 2026-10-08):** verify port OWNERSHIP before any capture —
+  `ss -ltnp` for the listener + `readlink /proc/<pid>/cwd` for the owning project. A wrong-port
+  capture silently scores ANOTHER app's Storybook ("Couldn't find story matching …" is the tell).
+- **Multi-global iframe URLs need semicolons (added 2026-10-08):** `globals=locale%3Aen%3Btheme%3Adark`
+  (URL-encoded `;` separators). The comma form silently drops every global after the first — an "EN"
+  batch renders AR/RTL and only the DOM state guard catches it.
+- **Hover captures need ~1s settle (added 2026-10-08):** after `agent-browser hover`, MUI's
+  transition leaves the computed background mid-fade (e.g. alpha 0.024 between resting 0.01 and
+  settled 0.08). Gate on the SETTLED computed value before AND after the shot, never on the
+  first post-hover read.
 - **Sandbox/process-reaper environments:** background dev servers die between tool-run calls, and a
   server started BEFORE file edits keeps serving the stale module graph (HMR churn → phantom console
   errors and stale page titles). Bundle server start + auth + all captures of one batch into a single

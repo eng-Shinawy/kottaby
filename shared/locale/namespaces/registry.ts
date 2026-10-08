@@ -27,6 +27,7 @@ import { Lessons } from "@/shared/locale/namespaces/lessons";
 import { Notifications } from "@/shared/locale/namespaces/notifications";
 import { ParentLink } from "@/shared/locale/namespaces/parentLink";
 import { ParentMonitoring } from "@/shared/locale/namespaces/parentMonitoring";
+import { PhoneInput } from "@/shared/locale/namespaces/phoneInput";
 import { Plans } from "@/shared/locale/namespaces/plans";
 import { Recitation } from "@/shared/locale/namespaces/recitation";
 import { Schedule } from "@/shared/locale/namespaces/schedule";
@@ -61,6 +62,7 @@ export const namespaces = {
   Notifications,
   ParentLink,
   ParentMonitoring,
+  PhoneInput,
   Plans,
   Recitation,
   Sessions,

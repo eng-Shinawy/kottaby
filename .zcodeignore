@@ -1,0 +1,152 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies & Package Managers
+node_modules
+/node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js, Build & Output Directories
+/.next/
+/.next-dev/
+/.next-test/
+/.next-test-*
+/.next-locale-snapshots-version
+/out/
+/dist/
+/build/
+!/scripts/build/
+/vercel.json
+.vercel
+
+# Testing & Storybook
+/coverage/
+.playwright-cli/
+.playwright-mcp/
+storybook-static/
+*storybook.log
+.graphql-test-ports
+.graphql-test-heartbeats/
+**/unRefactored_tests/
+scripts/run-test/feedback/feedback*.md
+
+# TypeScript, Linters & Caches
+*.tsbuildinfo
+next-env.d.ts
+.eslintcache
+.eslintcache-type-aware
+eslint-results.json
+.oxlint/
+.oxlint-baseline.json
+.scannerwork/
+.quality-gate-state.json
+.quality-gate-lock/
+.unused/
+
+# Reports & Duplication Scans
+/report/
+jscpd-admin
+jscpd-intra
+jscpd-output
+jscpd-all
+
+# Environment & Secrets (can opt-in for committing if needed)
+.env*
+!.env.example
+!.env.test.ci
+*.pem
+.mcp.json
+.browser-auth/
+
+# Debug, Logs & Process Artifacts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+/logs/
+*.log
+*.sql_ignore
+nohup.out
+
+# IDE & OS Metadata
+.DS_Store
+.idea/*
+!.idea/kottaby.iml
+!.idea/modules.xml
+
+# Local Storage & Database Runtime Artifacts (not backend/db or backend/storage)
+/storage/
+/db/
+/backups/
+db/app.sqlite
+db/pglite/
+db/pglite-test/
+
+# Local Skills, Sandbox & AI Tool Artifacts
+/skills/
+skills-lock.json
+/agent-ctx/
+.agent-canvas/
+.openhands/agent-canvas/logs/
+.aider*
+.gitwandrc
+.stakpak/
+/prompt/
+/scratch/
+/download/
+/worklog.md
+/qa-shots/
+/tool-results/
+.zscripts/
+.z-ai-config*
+sandbox.*.sh
+ai/.archive/
+verify-shots/qa/
+
+# Locale JS transpiled artifacts
+shared/locale/**/*.js
+
+# Python cache
+__pycache__/
+
+.tools
+# Visual-loop / escrow-e2e runtime artifacts (tokens, payloads)
+scripts/escrow-e2e/.token-*
+scripts/escrow-e2e/.payload-*
+scripts/escrow-e2e/.session-*
+scripts/visual-loop/*.log
+vi-out/
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
