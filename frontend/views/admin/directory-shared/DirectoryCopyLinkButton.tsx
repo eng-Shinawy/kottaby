@@ -17,6 +17,7 @@
 import { LinkOutlined as LinkIcon } from "@mui/icons-material";
 import { Button, Tooltip } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { useDirectoryCopyLink } from "@/frontend/views/admin/directory-copy-link";
 
 interface DirectoryCopyLinkButtonProps {
@@ -40,7 +41,7 @@ export function DirectoryCopyLinkButton({ copyLinkLabel, onCopyLink }: Directory
         }
         onClick={handleCopyLink}
         aria-label={copyLinkLabel}
-        sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
+        sx={theme => ({ ...focusVisibleRingSx, minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
       >
         {copyLinkLabel}
       </Button>

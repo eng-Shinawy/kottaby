@@ -22,6 +22,7 @@ import { VisibilityOutlined as ProfileIcon } from "@mui/icons-material";
 import { Box, IconButton, Stack, TableCell, Tooltip, Typography } from "@mui/material";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import type { AdminTeacherApplicantsQuery } from "@/frontend/graphql/generated/gql/graphql";
 import { DirectoryCopyEmailButton } from "@/frontend/views/admin/directory-shared/DirectoryCopyEmailButton";
 import { DirectoryNameLink } from "@/frontend/views/admin/directory-shared/DirectoryNameLink";
@@ -115,6 +116,7 @@ export function ViewProfileButton({ applicantId, applicantName, labels }: ViewPr
         href={`/admin/users/${applicantId}`}
         aria-label={`${labels.quickActions.viewProfile}: ${applicantName}`}
         sx={theme => ({
+          ...focusVisibleRingSx,
           // ≥44px touch target via transparent padding; the icon stays
           // visually 20px.
           p: 1.5,

@@ -24,6 +24,12 @@
  * gateway/status/recency filtering, oldest-first ordering, batch limit,
  * and the joined `payment_reference`.
  *
+ * Ledger column constraints: `amount` is CHECK-guarded (`> 0` — a zero
+ * amount is rejected exactly like a negative one) and `payment_gateway`
+ * is a NOT NULL closed pgEnum; both are pinned by savepoint-bracketed
+ * insert probes plus an `enum_range` closed-set pin over the nine
+ * shipped gateways.
+ *
  * Probe gotchas encoded here: `now()` is transaction-stable (financial
  * columns are snapshotted before any write and compared after), and the
  * savepoint is opened after the ledger row exists so trigger probes match a
@@ -38,9 +44,16 @@ import { studentPayments } from "@/backend/db/schema/billing/student-payments";
 import {
   createTestPlan,
   createTestStudent,
+  createTestStudentPayment,
   createTestSubscription,
   createTestUser,
 } from "@/backend/db/test/entity-setup";
+import {
+  expectCheckViolation,
+  expectEnumViolation,
+  expectNotNullViolation,
+  probeInsideSavepoint,
+} from "@/backend/db/test/logic/invariants/invariant-probe.helpers";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { PaymentGateway } from "@/backend/enum/billing/payment-gateway.enum";
 import { PaymentStatus } from "@/backend/enum/billing/payment-status.enum";
@@ -669,6 +682,73 @@ describe("StudentPaymentRepository — NULL student owner (verification-style ro
       const after = await StudentPaymentRepository.findBySubscriptionId(subscriptionId, tx);
       expect(after?.id).toBe(payment.id);
       expect(after?.studentId).toBeNull();
+    });
+  });
+});
+
+// ─── Ledger column constraints: amount CHECK + gateway closed set ─────────
+
+describe("StudentPaymentRepository — ledger column constraints", () => {
+  test("INV-PAY1: -1.00 and 0.00 inserts are both rejected by student_payments_amount_check (23514)", async () => {
+    await runInRollback(async tx => {
+      const user = await createTestUser(tx, { role: "student" });
+      const student = await createTestStudent(tx, user.id);
+
+      // The shipped CHECK is `amount > 0`: a zero amount is rejected
+      // exactly like a negative one — the ledger never records an empty
+      // or inverted charge. Only INSERTs are probed here: an amount
+      // UPDATE raises the immutability guard long before the CHECK is
+      // consulted (the amount-tamper matrix above pins that order).
+      const negativeError = await probeInsideSavepoint(tx, "pay_amount_negative_probe", () =>
+        createTestStudentPayment(tx, student.id, null, { amount: "-1.00" })
+      );
+      expectCheckViolation(negativeError, "student_payments_amount_check");
+
+      const zeroError = await probeInsideSavepoint(tx, "pay_amount_zero_probe", () =>
+        createTestStudentPayment(tx, student.id, null, { amount: "0.00" })
+      );
+      expectCheckViolation(zeroError, "student_payments_amount_check");
+
+      // Both rejected inserts rolled back to their savepoints: the
+      // fixture student's ledger slice is still empty and the outer
+      // transaction stayed queryable.
+      const leaked = await tx
+        .select({ id: studentPayments.id })
+        .from(studentPayments)
+        .where(eq(studentPayments.studentId, student.id));
+      expect(leaked).toHaveLength(0);
+    });
+  });
+
+  test("INV-PAY4: a bogus gateway raises 22P02, a NULL gateway raises 23502, and enum_range equals the 9 shipped values", async () => {
+    await runInRollback(async tx => {
+      // Raw SQL: the typed insert surface only accepts in-vocabulary
+      // gateways, so the closed-set rejection is probed with an
+      // out-of-enum text directly at the column.
+      const bogusError = await probeInsideSavepoint(tx, "pay_gateway_bogus_probe", () =>
+        tx.execute(sql`
+          insert into student_payments (student_id, subscription_id, amount, currency, payment_gateway, status)
+          values (null, null, '10.00', 'EGP', 'bogus_gateway', 'pending')
+        `)
+      );
+      expectEnumViolation(bogusError, "invalid input value for enum");
+
+      const nullError = await probeInsideSavepoint(tx, "pay_gateway_null_probe", () =>
+        tx.execute(sql`
+          insert into student_payments (student_id, subscription_id, amount, currency, payment_gateway, status)
+          values (null, null, '10.00', 'EGP', null, 'pending')
+        `)
+      );
+      expectNotNullViolation(nullError, "payment_gateway");
+
+      // Closed-set pin: the pgEnum carries exactly the nine shipped
+      // gateways, in the schema's declaration order — a value added or
+      // dropped on either side fails here before it can drift further.
+      const live = await tx.execute<{ gateway: string }>(
+        sql`select unnest(enum_range(null::payment_gateway))::text as gateway`
+      );
+      expect(live.rows.map(row => row.gateway)).toEqual(Object.values(PaymentGateway));
+      expect(live.rows).toHaveLength(9);
     });
   });
 });

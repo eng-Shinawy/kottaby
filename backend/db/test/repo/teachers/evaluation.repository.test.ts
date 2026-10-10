@@ -54,6 +54,22 @@
  *    write, no global-handle fallback, caller-scoped read (no rated-subject
  *    filter parameter), no i18n/logger/console, one namespace, no
  *    plan-artifact references.
+ *  - Invariant residual tier (runInRollback, savepoint-bracketed): the
+ *    score CHECK trips RAW `23514` on `evaluations_score_check` for the
+ *    concrete out-of-range integers 101 and -1 (the column is nullable —
+ *    NULL passes a CHECK, so only concrete integers can trip it); an
+ *    orphan evaluator id trips the restrict FK (RAW `23503` on
+ *    `evaluations_evaluator_id_users_id_fkey`). Both probes leave the
+ *    evaluator's history empty.
+ *  - Retention tier (committed fixtures): the session set-null survival
+ *    pin — a committed session-linked evaluation survives its session
+ *    row's hard-delete with `session_id` NULL and every scored column
+ *    intact (the schema's ON DELETE SET NULL is the entire retention
+ *    story; the table carries no delete guard).
+ *  - The Tier 4 source pins include the surface-absence pin: no
+ *    `.delete(` call, no DELETE statement, and no exported member named
+ *    for delete/softDelete/update — the "not hard-deleted" half of the
+ *    soft-delete invariant is enforced solely by this absence.
  *  - aggregateLiveRatings tier (runInRollback): the live family mean is
  *    the exact JS-number average with the honest sample count; applicant
  *    rows (NULL session), soft-deleted rows, and NULL-score rows are each
@@ -111,6 +127,11 @@ import {
   createTestTeacherRow,
   createTestUser,
 } from "@/backend/db/test/entity-setup";
+import {
+  expectCheckViolation,
+  expectFkViolation,
+  probeInsideSavepoint,
+} from "@/backend/db/test/logic/invariants/invariant-probe.helpers";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
@@ -492,6 +513,40 @@ describe("EvaluationRepository — transactional paths (runInRollback)", () => {
     });
   });
 
+  test("INV-E1: insertOnce with concrete 101/-1 raises raw 23514 on evaluations_score_check (savepoint; column nullable — concrete integers)", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const ratedSession = await createConfirmedSession(tx, cast);
+
+      // The score column is nullable, so NULL sails past the CHECK — the
+      // probes use concrete out-of-range integers on both sides of the
+      // 0-100 window, each in the session-linked production shape.
+      const aboveError = await probeInsideSavepoint(tx, "evaluations score ceiling probe", () =>
+        EvaluationRepository.insertOnce(
+          { evaluatedId: cast.evaluatedId, evaluatorId: cast.evaluatorId, sessionId: ratedSession.id, score: 101 },
+          tx
+        )
+      );
+      expectCheckViolation(aboveError, "evaluations_score_check");
+      // The raw driver error reaches the caller untouched — the
+      // service-level score guards are upstream and absent here.
+      expect(aboveError.constructor.name).not.toBe("ConflictError");
+      expect(aboveError.constructor.name).not.toBe("DomainError");
+
+      const belowError = await probeInsideSavepoint(tx, "evaluations score floor probe", () =>
+        EvaluationRepository.insertOnce(
+          { evaluatedId: cast.evaluatedId, evaluatorId: cast.evaluatorId, sessionId: ratedSession.id, score: -1 },
+          tx
+        )
+      );
+      expectCheckViolation(belowError, "evaluations_score_check");
+
+      // Both savepoint brackets rolled back — the evaluator's history
+      // carries no residue from either rejected insert.
+      expect(await EvaluationRepository.listByEvaluator(cast.evaluatorId, tx)).toEqual([]);
+    });
+  });
+
   // ─── tx propagation ─────────────────────────────────────────────────
 
   test("an insert made with the explicit tx inside runInRollback rolls back with the block", async () => {
@@ -546,6 +601,28 @@ describe("EvaluationRepository — transactional paths (runInRollback)", () => {
       // No domain translation: the raw driver error reaches the caller.
       expect(fkError.constructor.name).not.toBe("NotFoundError");
       expect(fkError.constructor.name).not.toBe("ConflictError");
+    });
+  });
+
+  test("INV-E3: an orphan evaluator id raises 23503 on evaluations_evaluator_id_users_id_fkey (savepoint)", async () => {
+    await runInRollback(async tx => {
+      const cast = await createRatingCast(tx);
+      const [absentUser] = await tx.select({ maxId: sql<number>`coalesce(max(${users.id}), 0)::int` }).from(users);
+      const enormousEvaluatorId = (absentUser?.maxId ?? 0) + 1_000_000;
+
+      // The evaluator leg is restrict-bound: a rater that does not exist
+      // can never own an evaluation row. The probe is savepoint-bracketed
+      // so the outer transaction stays queryable after the rejection.
+      const fkError = await probeInsideSavepoint(tx, "evaluations evaluator fk probe", () =>
+        EvaluationRepository.insertOnce(
+          { evaluatedId: cast.evaluatedId, evaluatorId: enormousEvaluatorId, sessionId: null, score: 80 },
+          tx
+        )
+      );
+      expectFkViolation(fkError, "evaluations_evaluator_id_users_id_fkey");
+
+      // The bracket rolled back — the real evaluator's history is empty.
+      expect(await EvaluationRepository.listByEvaluator(cast.evaluatorId, tx)).toEqual([]);
     });
   });
 });
@@ -1248,6 +1325,58 @@ describe("EvaluationRepository — standalone executor paths (committed fixtures
     expect(repoSource.includes("console.")).toBe(false);
     expect(repoSource.includes("export namespace EvaluationRepository")).toBe(true);
     expect(/REQ-\d|DEV3|Phase \d|Task \d|plan\.md|tasks\.md|specs\.md/.test(repoSource)).toBe(false);
+  });
+
+  test("INV-E2: EvaluationRepository exposes no .delete( call and no delete/softDelete/update symbol (surface-absence source pins)", () => {
+    // The "not hard-deleted" half of the soft-delete invariant is
+    // enforced solely by surface absence: the repository offers no
+    // hard-delete path at all — no builder delete call, no DELETE
+    // statement on the raw-SQL branch.
+    expect(repoSource.includes(".delete(")).toBe(false);
+    expect(/delete\s+from\s+evaluations/i.test(repoSource)).toBe(false);
+    // The exported surface is exactly the five write-once/read members —
+    // no symbol speaks of deleting, soft-deleting, or updating.
+    const memberNames = [...repoSource.matchAll(/export async function (\w+)/g)].map(match => match[1]);
+    expect(memberNames).toEqual([
+      "insertOnce",
+      "listByEvaluator",
+      "aggregateLiveRatings",
+      "findBySessionAndEvaluator",
+      "listCycleRubricSubmissions",
+    ]);
+    expect(memberNames.filter(name => /delete|update/i.test(name))).toEqual([]);
+  });
+});
+
+describe("EvaluationRepository — retention tier (committed fixtures): the session set-null survival pin", () => {
+  // The session DELETE must actually COMMIT for the FK's ON DELETE SET
+  // NULL to be observable, so this tier cannot live inside runInRollback.
+  // Every fixture id is registered for the module-level afterAll
+  // hard-delete (evaluations first, then sessions, then the role-child
+  // rows and users).
+  test("INV-E3: a session hard-deleted on a committed fixture ⇒ the evaluation survives with sessionId === null (set-null)", async () => {
+    const cast = await createCommittedCast();
+    const rated = await db.transaction(tx =>
+      EvaluationRepository.insertOnce(
+        { evaluatedId: cast.evaluatedId, evaluatorId: cast.evaluatorId, sessionId: cast.sessionId, score: 80 },
+        tx
+      )
+    );
+    committedEvaluationIds.push(rated.id);
+
+    await db.delete(session).where(eq(session.id, cast.sessionId));
+
+    const [survivor] = await db.select().from(evaluations).where(eq(evaluations.id, rated.id)).limit(1);
+    if (!survivor) {
+      throw new Error("expected the evaluation row to survive the session delete");
+    }
+    // The record outlives its referenced session: the FK's SET NULL
+    // cleared the link and nothing else about the row changed — the
+    // dispute-resolution/re-evaluation history stays on file.
+    expect(survivor.sessionId).toBeNull();
+    expect(survivor.score).toBe(80);
+    expect(survivor.evaluatedId).toBe(cast.evaluatedId);
+    expect(survivor.evaluatorId).toBe(cast.evaluatorId);
   });
 });
 

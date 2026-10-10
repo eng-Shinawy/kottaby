@@ -245,9 +245,9 @@ When a `prototype/` directory exists for a feature, the implementation MUST insp
 | `backend/types/parents/parent-monitoring.types.ts` | The ten closed read projections + `ParentPageInput` shared pagination input |
 | `backend/db/repo/classes/progress.repository.ts` | `ProgressRepository.countForStudent` — honest count read |
 | `backend/services/parents/parent-monitoring.helpers.ts` | `requireLinkedChild` gate + pure projection mappers + pagination clamp + fail-closed enum narrowing |
-| `backend/services/parents/parent-monitoring.service.ts` | `ParentMonitoringService` namespace — the five read methods |
+| `backend/services/parents/parent-monitoring.service.ts` | `ParentMonitoringService` namespace — the seven read methods |
 | `backend/graphql/pothos/parents/parent-monitoring.pothos.ts` | Ten `*PothosObject` refs (declarative, structural `t.expose*` passthroughs) |
-| `backend/graphql/query/parents/parent-monitoring.query.ts` | Side-effect module registering the five root query fields (zero named exports) |
+| `backend/graphql/query/parents/parent-monitoring.query.ts` | Side-effect module registering the seven root query fields (zero named exports) |
 
 ### Files modified (backend)
 
@@ -265,7 +265,7 @@ When a `prototype/` directory exists for a feature, the implementation MUST insp
 
 | File | Purpose |
 |---|---|
-| `frontend/graphql/sharedDocuments/parents/parent-monitoring.documents.ts` | `TypedDocumentNode` query documents for the five portal fields (id-first on every object) |
+| `frontend/graphql/sharedDocuments/parents/parent-monitoring.documents.ts` | `TypedDocumentNode` query documents for the seven portal fields (id-first on every object) |
 | `frontend/views/parent/children/*` | Portal root + detail views (client components, `useQuery` re-keyed by `studentId`) |
 
 ### Files modified (frontend)

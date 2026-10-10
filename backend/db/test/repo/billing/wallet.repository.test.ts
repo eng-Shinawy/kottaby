@@ -58,6 +58,10 @@ import {
   createTestUser,
   createTestWallet,
 } from "@/backend/db/test/entity-setup";
+import {
+  expectUniqueViolation,
+  probeInsideSavepoint,
+} from "@/backend/db/test/logic/invariants/invariant-probe.helpers";
 import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { TransactionStatus } from "@/backend/enum/billing/transaction-status.enum";
@@ -296,6 +300,33 @@ describe("WalletRepository — transactional paths (runInRollback)", () => {
     });
   });
 
+  test("INV-W7: creditEarningOnce ledger rows carry the fixture sessionId (signature-level enforcement)", async () => {
+    await runInRollback(async tx => {
+      const teacherUserId = await createTeacherFixture(tx);
+      const sessionId = await createSessionFixture(tx, teacherUserId);
+      const fixtureWallet = await WalletRepository.ensureWalletOnce(teacherUserId, tx);
+
+      const ledger = await WalletRepository.creditEarningOnce(
+        { walletId: fixtureWallet.id, sessionId, amount: "25.00", description: "session-linked earning" },
+        tx
+      );
+
+      // The earning row's session link is enforced at the repository
+      // signature — `sessionId` is a required parameter of the earning
+      // credit, while the ledger column itself is a plain nullable FK with
+      // no CHECK tying earning rows to a session. The honest pin is the
+      // positive read-back: the persisted row carries the fixture session.
+      expect(ledger.sessionId).toBe(sessionId);
+      const [row] = await tx
+        .select({ id: teacherTransaction.id, sessionId: teacherTransaction.sessionId })
+        .from(teacherTransaction)
+        .where(eq(teacherTransaction.id, ledger.id))
+        .limit(1);
+      expect(row?.id).toBe(ledger.id);
+      expect(row?.sessionId).toBe(sessionId);
+    });
+  });
+
   test("findByTeacherId returns the wallet row for the owning teacher and null for an absent teacher", async () => {
     await runInRollback(async tx => {
       const teacherUserId = await createTeacherFixture(tx);
@@ -523,6 +554,31 @@ describe("WalletRepository — CHECK constraint probes (savepoint-bracketed)", (
       expect(after.balance).toBe("10.00");
       expect(after.totalEarning).toBe("10.00");
       expect(await countLedgerRows(tx, fixtureWallet.id)).toBe(0);
+    });
+  });
+
+  test("INV-W3: a raw second wallet INSERT bypassing ON CONFLICT raises 23505 on wallet_teacher_id_unique", async () => {
+    await runInRollback(async tx => {
+      const teacherUserId = await createTeacherFixture(tx);
+      const fixtureWallet = await createTestWallet(tx, teacherUserId);
+
+      // A RAW insert is the only path that can reach the unique constraint:
+      // the repository's ensure flow absorbs the conflict with ON CONFLICT
+      // DO NOTHING, so the one-wallet-per-teacher rule is proven here at the
+      // tier that actually enforces it.
+      const error = await probeInsideSavepoint(tx, "wallet teacher unique probe", () =>
+        tx.insert(wallet).values({ teacherId: teacherUserId })
+      );
+      expectUniqueViolation(error, "wallet_teacher_id_unique");
+
+      // The savepoint rollback kept the fixture intact: still exactly one
+      // wallet row for the teacher.
+      expect(fixtureWallet.teacherId).toBe(teacherUserId);
+      const [row] = await tx
+        .select({ walletCount: sql<number>`count(*)::int` })
+        .from(wallet)
+        .where(eq(wallet.teacherId, teacherUserId));
+      expect(row?.walletCount ?? 0).toBe(1);
     });
   });
 });

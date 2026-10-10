@@ -31,14 +31,15 @@ interface NotificationRowProps {
 }
 
 /**
- * NotificationRow — one inbox row (REQ-063b): leading type icon → content
- * (title / body / type chip + timestamp) → mark-read action. The DOM order
+ * NotificationRow — one inbox row: leading type icon → content (title /
+ * body / type chip + timestamp) → mark-read action. The DOM order
  * icon→content→action mirrors visually under RTL (plain flex rows reverse
  * with `dir="rtl"` — no physical margins anywhere).
  *
- * Content renders as TEXT nodes through MUI `Typography` ONLY (REQ-028 —
- * emitter copy is untrusted; raw-HTML rendering is prohibited across
- * `frontend/views/notifications/**` and statically scanned).
+ * Content renders as TEXT nodes through MUI `Typography` ONLY — emitter
+ * copy is untrusted, so raw-HTML rendering is prohibited; the
+ * no-HTML-sink rule is machine-enforced repo-wide by
+ * `test/config/xss-static-locks.test.ts`.
  *
  * Performance: the row is memo-wrapped — an unchanged row skips re-render
  * when a sibling updates or the container's state moves.

@@ -13,7 +13,7 @@
  *   6. Upgrade; registration + cap enforcement happen atomically in open().
  */
 import { randomUUID } from "node:crypto";
-import { AUTH_COOKIE_NAMES, parseCookies } from "@/backend/lib/auth/cookies";
+import { AUTH_COOKIE_NAMES, extractCookieValue } from "@/backend/lib/auth/cookies";
 import { verifyAccessToken } from "@/backend/lib/auth/jwt";
 import { logger } from "@/backend/lib/logger";
 import { NOTIFICATION_WS_CLOSE_CODES } from "@/backend/ws/notification-ws-server-constants";
@@ -87,7 +87,7 @@ export async function handleNotificationWsHandshake(
 
   // (3) `access_token` httpOnly cookie — the ONLY identity source.
   const cookieHeader = request.headers.get("cookie");
-  const token = parseCookies(cookieHeader)[AUTH_COOKIE_NAMES.accessToken] ?? "";
+  const token = extractCookieValue(cookieHeader, AUTH_COOKIE_NAMES.accessToken) ?? "";
   if (token === "") {
     return upgradeRejectedHandshake(
       request,

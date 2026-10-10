@@ -1,9 +1,12 @@
 /**
- * Rate-limit middleware wrapper for the `/api/graphql` gateway — extracted
- * from `app/api/graphql/route.ts` (oversized-file split). The 429 rejection
- * envelope, fail-open posture, header vocabulary, and the embedded preview
- * CORS echo are behavior-identical to the pre-extraction route; the CORS
- * header application is delegated to `./space-z-cors`.
+ * Rate-limit middleware for the `/api/graphql` gateway: caps each client at
+ * the `graphqlRateLimiter` budget (100 requests / 60 s per resolved client
+ * IP) ahead of the engine invocation. An exhausted budget gets the 429
+ * `RATE_LIMIT_EXCEEDED` envelope with `X-RateLimit-*` + `Retry-After`
+ * headers; a passing request carries the live budget headers on the
+ * engine's response. Fail-open: a transient limiter-state failure never
+ * blocks a legitimate request. The preview-origin CORS echo is delegated
+ * to `./space-z-cors` and applied on both the rejection and pass paths.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -13,10 +16,21 @@ import { checkRateLimit, getClientIdentifier, graphqlRateLimiter } from "@/backe
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 /**
- * Rate-limit middleware wrapper. Fail-open: transient limiter errors never
- * block a legitimate request (mirrors the login cold-start resilience
- * pattern). The stub limiter (`@/backend/lib/ratelimit`) always returns
- * `success: true`; a real Redis-backed limiter lands in a future change.
+ * Rate-limit middleware wrapper over the in-memory sliding-window limiter
+ * (`@/backend/lib/ratelimit`): `checkRateLimit` against the
+ * `graphqlRateLimiter` config — 100 requests / 60 s per client IP, 429 +
+ * localized `RATE_LIMIT_EXCEEDED` on exhaustion. Fail-open: transient
+ * limiter errors never block a legitimate request (mirrors the login
+ * cold-start resilience pattern).
+ *
+ * Honest limits of the window store: it is in-memory and per-instance —
+ * not shared across server instances, reset on restart, and bounded to a
+ * tracked-identifier LRU (`MAX_TRACKED_IDENTIFIERS`). A shared
+ * (Redis-backed) store remains deferred work.
+ *
+ * The limiter key comes from the spoof-resistant `resolveClientIp` chain
+ * (`x-real-ip` → rightmost `x-forwarded-for` entry → "local") — the
+ * leftmost XFF entry is client-forgeable and never keys the window.
  *
  * Ordering (preserved from the live pipeline): the limiter runs AFTER the
  * transport guards (junk traffic never consumes limiter state) and BEFORE
@@ -49,9 +63,11 @@ export async function withRateLimit(
 
   const identifier = getClientIdentifier(request);
 
-  // Deferred security note: a batched-GraphQL-array amplification guard will
-  // land with the real limiter. Today only single-op POSTs are enforced
-  // (transport-tier guards above reject malformed shapes earlier).
+  // Batched-operation amplification is capped at the transport tier
+  // (`MAX_GRAPHQL_OPERATIONS_PER_REQUEST` in
+  // `backend/lib/gateway/transport-guard.ts`): an array POST longer than
+  // the cap is rejected 400 `BATCH_OPERATION_LIMIT` before this limiter
+  // runs, so junk over-cap batches consume zero limiter state.
 
   const { success, limit, remaining, reset } = await checkRateLimit(identifier, graphqlRateLimiter);
 

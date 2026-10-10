@@ -166,21 +166,25 @@ function composeHomeworkEntryTrack(
 
 /**
  * Resolves the owning-session rows for every DISTINCT session id referenced
- * by a drill-down page (homework + report entries share one lookup pass).
- * The foreign keys guarantee every existing entry's session exists, so a
- * miss fails closed as a corruption signal instead of degrading silently.
+ * by a drill-down page (homework + report entries share one lookup pass):
+ * ONE batched primary-key membership read instead of a per-id read per
+ * session. The foreign keys guarantee every existing entry's session
+ * exists, so a miss fails closed as a corruption signal instead of
+ * degrading silently.
  */
 async function resolveSessionRows(
   sessionIds: readonly number[],
   tx: DBTransaction
 ): Promise<Map<number, SessionSelectType>> {
-  const sessionRows = await Promise.all(sessionIds.map(sessionId => SessionRepository.findById(sessionId, tx)));
+  const sessionRows = await SessionRepository.findByIds(sessionIds, tx);
   const rowsById = new Map<number, SessionSelectType>();
   for (const sessionRow of sessionRows) {
-    if (sessionRow === null) {
+    rowsById.set(sessionRow.id, sessionRow);
+  }
+  for (const sessionId of sessionIds) {
+    if (!rowsById.has(sessionId)) {
       throw new Error("AdminAcademicTrackingService: owning session row missing for a history entry");
     }
-    rowsById.set(sessionRow.id, sessionRow);
   }
   return rowsById;
 }

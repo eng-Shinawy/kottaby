@@ -98,19 +98,23 @@ const BACKEND_TEST_LAYER_PATHS = [
  */
 const TEARDOWN_ALLOWLIST_PATHS = [
   "test/helpers/db-cleanup.ts",
+  "test/workflows/admin/admin-delete-with-history.journey.test.ts",
   "test/workflows/admin/admin-password-reset.journey.test.ts",
   "test/workflows/admin/admin-session-governance.journey.test.ts",
   "test/workflows/admin/audit-completeness.journey.test.ts",
   "test/workflows/admin/audit-trail.journey.test.ts",
   "test/workflows/admin/direct-student-onboarding.journey.test.ts",
   "test/workflows/billing/admin-financial-auditing.journey.test.ts",
+  "test/workflows/billing/plan-catalog-invariance.journey.test.ts",
   "test/workflows/billing/subscription-admin-lifecycle.journey.test.ts",
+  "test/workflows/billing/subscription-expiry-booking-denial.journey.test.ts",
   "test/workflows/billing/subscription-full-lifecycle.journey.test.ts",
   "test/workflows/helpers/journey-cleanup.ts",
   "test/workflows/notifications/broadcast-retraction.journey.test.ts",
   "test/workflows/sessions/in-session-lock-release.journey.test.ts",
   "test/workflows/sessions/post-confirmation-dispute.journey.test.ts",
   "test/workflows/sessions/session-state-machine.journey.test.ts",
+  "test/workflows/students/student-full-journey.journey.test.ts",
   "test/workflows/teachers/admin-ordered-re-evaluation.journey.test.ts",
 ] as const;
 

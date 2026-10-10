@@ -117,7 +117,7 @@ const PLAN_INTERVAL_DAYS = 30;
 
 /** Shared fixture profile fields (non-unique columns — `users.phone` carries no unique constraint). */
 const ONBOARD_PHONE = "+20100333000";
-const ONBOARD_COUNTRY = "Egypt";
+const ONBOARD_COUNTRY = "EG";
 
 /**
  * The admin-set initial credential for every onboarded student. Named

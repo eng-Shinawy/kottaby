@@ -206,7 +206,7 @@ sequenceDiagram
 
 ## parent-session-completion-deep-link.journey.test.ts
 
-The completion-notification deep link (steps 1→6): the teacher's report submission fans a session-pointer wave to the student and linked parent, `getSessionTarget` resolves the session id to the linked child pair, the reports read lands the URL, the unlinked child's wave fails closed, and every denial cause collapses to one constant ForbiddenError.
+The completion-notification deep link (steps 1→7): the teacher's report submission fans a session-pointer wave to the student and linked parent, `getSessionTarget` resolves the session id to the linked child pair, the reports read lands the URL, the unlinked child's wave fails closed, every denial cause collapses to one constant ForbiddenError — and the absence pin proves the completed flip alone never notifies the parent (the parent-facing producer is report submission alone).
 
 ```mermaid
 sequenceDiagram
@@ -219,6 +219,7 @@ sequenceDiagram
   participant s2 as "Student S2 - unlinked, owns sigma2"
   participant report as "SessionReportService"
   participant monitor as "ParentMonitoringService"
+  participant lifecycle as "SessionLifecycleService"
   participant spy as "SpiedFanoutTransport"
 
   system->>report: book start complete sigma1 and sigma2 - real lifecycle path, S1 linked only
@@ -241,6 +242,11 @@ sequenceDiagram
   monitor-->>t: byte-identical FORBIDDEN
   s1->>monitor: getSessionTarget sigma1 as student
   monitor-->>s1: byte-identical FORBIDDEN - four causes, one fingerprint, zero publishes
+  system->>lifecycle: credit S1 hifz lane then book start complete sigma3 - NO report submitted
+  lifecycle-->>system: completion prompt receipt targets S1 only - P absent from the wave, receipt unpublished
+  lifecycle->>lifecycle: persist the student confirm-prompt row for sigma3, zero rows for P
+  p->>monitor: inbox probe - ZERO sigma3 rows for P, whole-inbox count identical to baseline
+  system->>spy: ZERO publishes for the completed flip - the parent-facing producer is report submission alone
 ```
 
 ## student-confirmation-of-link.journey.test.ts

@@ -12,7 +12,8 @@
  * aborts; see `test/helpers/skip-when-pglite.ts`). The adaptation executes
  * THE PRODUCTION ROUTE PIPELINE IN-PROCESS: `POST` from
  * `@/app/api/graphql/route` driven by synthesized `NextRequest` objects —
- * transport guards → rate-limit wrapper (fail-open stub) → Apollo engine
+ * transport guards → rate-limit wrapper (per-client-IP in-memory sliding
+ * window; fail-open on transient errors) → Apollo engine
  * (validate → scope-auth/authScopes → resolver) with the REAL
  * `createGraphQLContext` (Bearer-token verification + requestId) → the
  * governance services → PostgreSQL → `finalizeGraphqlErrors`. The only

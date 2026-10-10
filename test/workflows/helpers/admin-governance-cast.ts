@@ -262,7 +262,7 @@ async function provisionRegisteredTeacher(
     email,
     phone: GOVERNANCE_PHONE,
     password: TEACHER_T_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role: "teacher",
   };
   // Real service, real top-level transaction, COMMITTED — no outerTx.
@@ -306,7 +306,7 @@ async function provisionRegisteredStudent(
     email,
     phone: GOVERNANCE_PHONE,
     password: STUDENT_S_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role: "student",
   };
   const registered = await RegistrationService.registerUser(input, GOVERNANCE_LOCALE);

@@ -195,7 +195,7 @@ function makeNewApplicantInput(): AdminCreateUserSubmitInput {
     email: newApplicantEmail,
     phone: "+10000000000",
     password: NEW_APPLICANT_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role: "teacher",
   };
 }
@@ -402,7 +402,7 @@ describe("Journey C — Anonymous & Non-Admin Denials (zero writes; zero audit r
       email: `${PREFIX}-c1-${randomUUID().slice(0, 8)}@journey.test`,
       phone: "+10000000000",
       password: ANONYMOUS_CREATE_CREDENTIAL,
-      country: "Egypt",
+      country: "EG",
       role: "student",
     };
     const createErr = await expectJourneyError(() =>
@@ -463,7 +463,7 @@ describe("Journey C — Anonymous & Non-Admin Denials (zero writes; zero audit r
           email: `${PREFIX}-c2-${actor.label}-${randomUUID().slice(0, 8)}@journey.test`,
           phone: "+10000000000",
           password: NON_ADMIN_CREATE_CREDENTIAL,
-          country: "Egypt",
+          country: "EG",
           role: "student",
         };
 
@@ -535,7 +535,7 @@ describe("Journey C — Anonymous & Non-Admin Denials (zero writes; zero audit r
       email: `${PREFIX}-c3-tampered-${randomUUID().slice(0, 8)}@journey.test`,
       phone: "+10000000000",
       password: TAMPERED_ADMIN_CREDENTIAL,
-      country: "Egypt",
+      country: "EG",
       // Base value is a valid `RegisterPublicRole` member so the static
       // type stays honest; the `Object.assign` below overrides it at
       // runtime with the hostile string `"admin"` to test the service's

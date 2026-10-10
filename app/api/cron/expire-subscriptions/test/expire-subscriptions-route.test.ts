@@ -46,9 +46,10 @@
  * INSTRUMENTED FAKE via Bun's module mock registry BEFORE the route module
  * loads (the graphql suite's exact mechanism): a fixed-window per-identifier
  * counter honoring the real limiter's contract, whose counters reset per
- * test. Today the real limiter is a fail-open stub (`checkRateLimit` always
- * returns success) — the fake proves the route's 429 path against the
- * behavior the real limiter will land with.
+ * test. The real limiter is an in-memory sliding window per identifier
+ * (`checkRateLimit`, `backend/lib/ratelimit.ts`) — the fake's fixed-window
+ * counter is a deterministic stand-in that refuses at the quota, so the
+ * route's 429 path is proven against a limiter that actually rejects.
  *
  * Runs via `bun run test/scripts/run-test.ts
  * app/api/cron/expire-subscriptions/test/expire-subscriptions-route.test.ts`.
@@ -81,15 +82,18 @@ void mock.module("@/backend/services/billing", () => ({
   },
 }));
 
-// Module-boundary mock #2 — the rate limiter: the lib's Redis semantics
-// belong to the lib (today `checkRateLimit` is a fail-open stub). This
-// instrumented fake honors the REAL limiter contract — a fixed-window
+// Module-boundary mock #2 — the rate limiter: the lib's in-memory window
+// semantics belong to the lib's own suite (`backend/lib/ratelimit.test.ts`).
+// This instrumented fake honors the REAL limiter contract — a fixed-window
 // per-identifier counter that flips to success:false the moment the quota
-// is crossed — so the route's 429 path is proven against the exact behavior
-// the real limiter will land with. `getClientIdentifier` mirrors the real
-// extractor (the constructed NextRequests carry no IP headers, so every
-// call shares the "local" identifier); `graphqlRateLimiter` re-provided to
-// keep the module shape complete.
+// is crossed — so the route's 429 path is proven against a limiter that
+// actually rejects (the real limiter is an in-memory sliding window over
+// `backend/lib/ratelimit.ts`, per-instance and reset on restart).
+// `getClientIdentifier` mirrors the real
+// extractor (rightmost `x-forwarded-for` entry, `x-real-ip` first — the
+// constructed NextRequests carry no IP headers, so every call shares the
+// "local" identifier); `graphqlRateLimiter` re-provided to keep the module
+// shape complete.
 const rateLimitCounters = new Map<string, { count: number; windowStart: number }>();
 let capturedLimiter: RateLimiterConfig | null = null;
 
@@ -114,13 +118,20 @@ void mock.module("@/backend/lib/ratelimit", () => ({
     };
   },
   getClientIdentifier: (request: Request): string => {
-    const xff = request.headers.get("x-forwarded-for");
-    if (xff) {
-      return xff.split(",")[0]?.trim() ?? "local";
-    }
     const realIp = request.headers.get("x-real-ip");
     if (realIp) {
-      return realIp.trim();
+      const candidate = realIp.trim();
+      if (candidate) {
+        return candidate;
+      }
+    }
+    const xff = request.headers.get("x-forwarded-for");
+    if (xff) {
+      const entries = xff.split(",");
+      const candidate = entries[entries.length - 1]?.trim();
+      if (candidate) {
+        return candidate;
+      }
     }
     return "local";
   },
@@ -167,8 +178,8 @@ function requestWithQueryStringSecret(): NextRequest {
 }
 
 function requestFromIp(bearer: string | null, ip: string): NextRequest {
-  // The limiter keys on the client IP (x-forwarded-for first entry), so a
-  // second IP must get a fresh window — this helper pins that keying.
+  // The limiter keys on the client IP (rightmost x-forwarded-for entry), so
+  // a second IP must get a fresh window — this helper pins that keying.
   const headers = new Headers();
   if (bearer !== null) {
     headers.set("authorization", `Bearer ${bearer}`);

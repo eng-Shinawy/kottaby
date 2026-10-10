@@ -1,0 +1,12 @@
+{
+  "tool": "ws-soak",
+  "url": "<scheme>://127.0.0.1:3211",
+  "sockets": 100,
+  "durationSeconds": 60,
+  "perUserCap": 5,
+  "openedCount": 100,
+  "heldCount": 100,
+  "openFailures": 0,
+  "unexplainedDrops": 0,
+  "midWindowCloseCodes": {}
+}

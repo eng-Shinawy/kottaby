@@ -35,7 +35,9 @@
  *   7. (b′) The fail cast books its own five-session cycle and completes it.
  *   8. (b′) Aggregation FAIL: one tajweed-79 poisons the cycle; the fifth
  *      submission finalizes `failed` with a cooldown ≈ now+30d while the
- *      teacher STAYS de-certified — no re-certification, no students row.
+ *      teacher row STAYS de-certified — no re-certification, and the #287
+ *      fail-conversion mints the ZEROED `students` row with the guarded
+ *      `teacher` → `student` role flip.
  *   9. (c) The low-balance teacher's order answers WALLET_INSUFFICIENT_FUNDS
  *      with the localized copy and ZERO committed rows (byte-identical state).
  *  10. (d) A REAL parent actor calling the service answers the governance
@@ -99,6 +101,7 @@ import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { RubricWeaknessArea } from "@/backend/enum/teachers/rubric-weakness-area.enum";
+import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { ConflictError, ForbiddenError, type ValidationError } from "@/backend/lib/errors";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
 import { NotificationEngine } from "@/backend/services/notifications";
@@ -112,6 +115,7 @@ import type {
   TeacherReEvaluationOrderReturnType,
   UserSelectType,
 } from "@/backend/types";
+import { HANDSHAKE_CODE_PATTERN } from "@/shared/constants/handshake-code.constants";
 import { RE_EVALUATION_FEE, RE_EVALUATION_FEE_CURRENCY } from "@/shared/constants/re-evaluation.constants";
 import { VERIFICATION_PLAN_SESSION_COUNT } from "@/shared/constants/verification-plan.constants";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
@@ -315,7 +319,7 @@ async function evaluationSessionCount(applicantUserId: number): Promise<number> 
   );
 }
 
-/** Number of `students` rows behind a user id — the conversion-absence probe. */
+/** Number of `students` rows behind a user id — the conversion-row probe. */
 async function studentsRowCount(userId: number): Promise<number> {
   return db.$count(students, eq(students.id, userId));
 }
@@ -1067,7 +1071,7 @@ describe("admin-ordered paid re-evaluation — cross-actor journey", () => {
     }
   });
 
-  test("step 8 — (b′) Aggregation FAIL: the tajweed-79 poisons the cycle — cooldown ≈ now+30d and the teacher STAYS de-certified", async () => {
+  test("step 8 — (b′) Aggregation FAIL: the tajweed-79 poisons the cycle — cooldown ≈ now+30d, the teacher STAYS de-certified, and the #287 conversion mints the zeroed students row", async () => {
     const publishesBefore = publishSpy.mock.calls.length;
 
     // E1 records the failing tajweed-79; the cycle is still pending.
@@ -1118,13 +1122,30 @@ describe("admin-ordered paid re-evaluation — cross-actor journey", () => {
     expect(cooldownUntil.getTime()).toBeGreaterThanOrEqual(windowStart + TAJWEED_COOLDOWN_MS - CLOCK_SKEW_MS);
     expect(cooldownUntil.getTime()).toBeLessThanOrEqual(windowEnd + TAJWEED_COOLDOWN_MS + CLOCK_SKEW_MS);
 
-    // The teacher STAYS de-certified — the FAIL verdict re-certifies nothing.
+    // The teacher row STAYS de-certified — the FAIL verdict re-certifies
+    // nothing — while the #287 fail-conversion mints the ZEROED `students`
+    // role-child row (shared PK, all four balances exactly zero, no parent
+    // linkage, a fresh unique `KSB-XXXXXXXX` handshake code) and flips the
+    // guarded `teacher` → `student` role.
     expect((await readTeacherRow(failCastUserId)).isApproved).toBe(false);
-    expect(await studentsRowCount(failCastUserId)).toBe(0);
+    expect(await studentsRowCount(failCastUserId)).toBe(1);
+    const studentRows = await db.select().from(students).where(eq(students.id, failCastUserId)).limit(1);
+    const studentRow = studentRows[0];
+    if (!studentRow) {
+      throw new Error("expected the fail conversion to commit a zeroed students row");
+    }
+    expect(studentRow.id).toBe(failCastUserId);
+    expect(studentRow.balanceHifz).toBe(0);
+    expect(studentRow.balanceTajweed).toBe(0);
+    expect(studentRow.balanceReviews).toBe(0);
+    expect(studentRow.balanceTrial).toBe(0);
+    expect(studentRow.parentId).toBeNull();
+    expect(studentRow.handshakeCode).toMatch(HANDSHAKE_CODE_PATTERN);
     const userRow = await readUserRow(failCastUserId);
     if (!userRow) {
       throw new Error("expected the fail-cast user row to survive finalization");
     }
+    expect(userRow.role).toBe(UserRole.Student);
     expect(userRow.suspended).toBe(false);
 
     // Exactly ONE fail-flavored evaluation_result notification, published

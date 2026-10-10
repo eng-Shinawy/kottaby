@@ -2,6 +2,7 @@
 
 import { Button, Paper, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 
 interface CatalogEmptyStateProps {
   /** Decorative icon rendered above the copy (caller sets the size/color). */
@@ -54,7 +55,7 @@ export function CatalogEmptyState({
           {description}
         </Typography>
         {actionLabel !== undefined && onAction !== undefined && (
-          <Button variant="contained" onClick={onAction} sx={{ mt: 1 }}>
+          <Button variant="contained" onClick={onAction} sx={{ ...focusVisibleRingSx, mt: 1 }}>
             {actionLabel}
           </Button>
         )}

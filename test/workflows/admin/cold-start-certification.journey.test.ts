@@ -486,9 +486,9 @@ describe("Journey J-1 — Cold-Start Certification (Create → Certify → Obser
     const input: AdminCreateUserSubmitInput = {
       fullName: `${PREFIX} Founding Sheikh`,
       email: `${PREFIX}-founding-sheikh@journey.test`,
-      phone: "+[PHONE_REDACTED]",
+      phone: "+10000000000",
       password: FOUNDING_SHEIKH_CREDENTIAL,
-      country: "Egypt",
+      country: "EG",
       role: "teacher",
     };
     const created = await AdminUserManagementService.createUser(input, adminA.userId, LOCALE);

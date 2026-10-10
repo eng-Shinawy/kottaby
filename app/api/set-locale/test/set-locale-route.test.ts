@@ -10,6 +10,10 @@
  *  - 403 cross-origin gating preservation (`FORBIDDEN`, localized);
  *  - 400 malformed JSON (transport-class, localized badRequest) and
  *    400 invalid-locale body/query (`BAD_REQUEST`);
+ *  - POST body-size cap (`MAX_SET_LOCALE_BODY_BYTES`): declared-length
+ *    checkpoint rejects before the stream is read, drained-length
+ *    checkpoint catches lying small declared headers, the cap is
+ *    unconditional (size wins over content), boundary bytes pass exactly;
  *  - masked unknown throw → 500 `INTERNAL_SERVER_ERROR` with
  *    `error.requestId` present in the body AND the identical id carried by
  *    exactly ONE correlated `logger.error` line (the lib-level masking
@@ -244,9 +248,10 @@ describe("set-locale route envelope adoption", () => {
         body: JSON.stringify({ locale: "en" }),
       });
       // Simulate an infrastructure-level body-read failure (NOT a client
-      // SyntaxError): escapes the transport-class branch, lands on the single
+      // SyntaxError): the handler drains via `request.text()`, so the fault
+      // escapes the transport-class parse branch and lands on the single
       // masked boundary hop of apiErrorResponse.
-      Object.defineProperty(faulted, "json", {
+      Object.defineProperty(faulted, "text", {
         value: () => Promise.reject(new Error("simulated stream fault")),
       });
 
@@ -537,5 +542,264 @@ describe("set-locale envelope matrix — executable taxonomy pin over route sour
     const source = readFileSync(join(process.cwd(), "app/api/set-locale/route.ts"), "utf8");
     const STATUS_LITERAL_RE = /\b(400|401|403|404|409|422|429|500|503)\b/u;
     expect(STATUS_LITERAL_RE.test(source)).toBe(false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// POST body-size cap (`MAX_SET_LOCALE_BODY_BYTES`): dual size checkpoints
+// (declared header BEFORE the stream is read; drained length after), then
+// JSON.parse. Mirrors the transport-tier dual checkpoint in
+// backend/lib/gateway/transport-guard.ts.
+// ══════════════════════════════════════════════════════════════════════════
+
+/** The route's cap, re-derived from the payload budget the tests pin. */
+const CAP_BYTES = 4_096;
+
+/** Pads a valid JSON payload with trailing spaces to EXACTLY totalLength bytes. */
+function padJsonToLength(json: string, totalLength: number): string {
+  return json + " ".repeat(totalLength - json.length);
+}
+
+describe("set-locale POST body-size cap — declared-length checkpoint (Tier 1)", () => {
+  test("declared content-length over the cap → 400 BAD_REQUEST and the body is NEVER read", async () => {
+    const request = new NextRequest(BASE_URL, {
+      method: "POST",
+      headers: {
+        origin: SAME_ORIGIN,
+        "accept-language": "en",
+        "content-type": "application/json",
+        "content-length": "5000",
+        "x-request-id": "corr-declared-cap",
+      },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    // Read-side-effect oracle: the runtime may eagerly buffer stream bodies
+    // on its own, so the HANDLER-side read is what we pin — if the route ever
+    // drains the body before the declared checkpoint, this seam fires.
+    let textCalls = 0;
+    Object.defineProperty(request, "text", {
+      value: () => {
+        textCalls += 1;
+        return Promise.resolve('{"locale":"en"}');
+      },
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    const body = await readJson(response);
+    const error = memberRecord(body, "error");
+    expect(ownKeys(error)).toEqual(["code", "message", "requestId"]);
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(tEn.badRequest);
+    expect(error.requestId).toBe("corr-declared-cap");
+    // The rejection happened BEFORE the handler consumed the body: the
+    // route never issued a body read.
+    expect(textCalls).toBe(0);
+  });
+
+  test("declared content-length exactly AT the cap passes the declared checkpoint (strict >)", async () => {
+    const response = await POST(
+      makeAllowedPostRequest(
+        { "content-length": String(CAP_BYTES), "x-request-id": "corr-declared-at-cap" },
+        padJsonToLength('{"locale":"en"}', CAP_BYTES)
+      )
+    );
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(memberRecord(body, "data")).toEqual({ locale: "en" });
+  });
+});
+
+describe("set-locale POST body-size cap — drained-length checkpoint + boundary (Tier 1/2)", () => {
+  test("drained 5000 B body with a LYING small declared header → 400 (declared check bypassed, drained check fires)", async () => {
+    const oversized = padJsonToLength('{"sentinel-marker":"never-echo-me"}', 5000);
+    expect(oversized).toHaveLength(5000);
+    const response = await POST(
+      makeAllowedPostRequest(
+        { "content-length": "100", "accept-language": "en", "x-request-id": "corr-drained-cap" },
+        oversized
+      )
+    );
+
+    expect(response.status).toBe(400);
+    const body = await readJson(response);
+    const error = memberRecord(body, "error");
+    expect(ownKeys(error)).toEqual(["code", "message", "requestId"]);
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(tEn.badRequest);
+    expect(error.requestId).toBe("corr-drained-cap");
+    // SEC: no body fragment is ever echoed back to the client.
+    expect(JSON.stringify(body).includes("never-echo-me")).toBe(false);
+  });
+
+  test('boundary: a 4096-byte body containing valid {"locale":"en"} → 200', async () => {
+    const boundaryBody = padJsonToLength('{"locale":"en"}', CAP_BYTES);
+    expect(boundaryBody).toHaveLength(CAP_BYTES);
+    const response = await POST(makeAllowedPostRequest({ "x-request-id": "corr-boundary-pass" }, boundaryBody));
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(memberRecord(body, "data")).toEqual({ locale: "en" });
+    expect(memberString(body, "requestId")).toBe("corr-boundary-pass");
+  });
+
+  test("boundary+1: a 4097-byte valid body → 400 (cap is strict)", async () => {
+    const overBoundary = padJsonToLength('{"locale":"en"}', CAP_BYTES + 1);
+    expect(overBoundary).toHaveLength(CAP_BYTES + 1);
+    const response = await POST(makeAllowedPostRequest({ "accept-language": "en" }, overBoundary));
+    expect(response.status).toBe(400);
+    const error = memberRecord(await readJson(response), "error");
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(tEn.badRequest);
+  });
+
+  test("oversize body containing a VALID locale payload still rejects (size wins over content — Tier 4)", async () => {
+    const validButHuge = padJsonToLength('{"locale":"en"}', CAP_BYTES * 3);
+    expect(validButHuge).toHaveLength(CAP_BYTES * 3);
+    const response = await POST(makeAllowedPostRequest({ "accept-language": "en" }, validButHuge));
+    expect(response.status).toBe(400);
+    const error = memberRecord(await readJson(response), "error");
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(tEn.badRequest);
+  });
+
+  test("empty body → 400 transport-class BAD_REQUEST (localized badRequest, regression-kept)", async () => {
+    const response = await POST(makeAllowedPostRequest({ "accept-language": "en" }, ""));
+    expect(response.status).toBe(400);
+    const error = memberRecord(await readJson(response), "error");
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(tEn.badRequest);
+  });
+
+  test("non-UTF8 payload → 400 transport-class BAD_REQUEST (lossy decode fails the parse)", async () => {
+    const request = new NextRequest(BASE_URL, {
+      method: "POST",
+      headers: {
+        origin: SAME_ORIGIN,
+        "accept-language": "en",
+        "content-type": "application/json",
+      },
+      // 0xff/0xfe are invalid UTF-8 sequences: request.text() decodes them
+      // lossily, JSON.parse then rejects the replacement-character text.
+      body: new Uint8Array([0xff, 0xfe, 0x41, 0xff]),
+    });
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const error = memberRecord(await readJson(response), "error");
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(tEn.badRequest);
+  });
+
+  test("garbage (non-numeric) declared content-length falls through to the drained checkpoint — legitimate body passes", async () => {
+    const response = await POST(
+      makeAllowedPostRequest(
+        { "content-length": "not-a-number", "x-request-id": "corr-garbage-cl" },
+        JSON.stringify({ locale: "en" })
+      )
+    );
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(memberRecord(body, "data")).toEqual({ locale: "en" });
+    expect(memberString(body, "requestId")).toBe("corr-garbage-cl");
+  });
+
+  test("absent content-length header (drained checkpoint is the only size gate) → small body passes", async () => {
+    // NextRequest does not auto-set content-length for string bodies, so the
+    // declared gate sees the `?? "0"` fallback and only the drained gate runs.
+    const response = await POST(makeAllowedPostRequest({}, JSON.stringify({ locale: "ar" })));
+    expect(response.status).toBe(200);
+    expect(memberRecord(await readJson(response), "data")).toEqual({ locale: "ar" });
+  });
+});
+
+describe("set-locale POST body-size cap — concurrent burst (Tier 3)", () => {
+  test("parallel mixed posts are each handled independently with their own correlation ids", async () => {
+    const burst: ReadonlyArray<{
+      readonly label: string;
+      readonly requestId: string;
+      readonly expectedStatus: number;
+      readonly outcome: "success" | "rejection";
+      readonly expectedCode?: string;
+      readonly body: string;
+      readonly headers: Record<string, string>;
+    }> = [
+      {
+        label: "valid-en",
+        requestId: "burst-valid-1",
+        expectedStatus: 200,
+        outcome: "success",
+        body: JSON.stringify({ locale: "en" }),
+        headers: {},
+      },
+      {
+        label: "oversize",
+        requestId: "burst-oversize-2",
+        expectedStatus: 400,
+        outcome: "rejection",
+        expectedCode: "BAD_REQUEST",
+        body: padJsonToLength('{"locale":"en"}', 9000),
+        headers: {},
+      },
+      {
+        label: "lying-declared",
+        requestId: "burst-lying-3",
+        expectedStatus: 400,
+        outcome: "rejection",
+        expectedCode: "BAD_REQUEST",
+        body: padJsonToLength('{"locale":"en"}', 5000),
+        headers: { "content-length": "50" },
+      },
+      {
+        label: "boundary",
+        requestId: "burst-boundary-4",
+        expectedStatus: 200,
+        outcome: "success",
+        body: padJsonToLength('{"locale":"ar"}', CAP_BYTES),
+        headers: {},
+      },
+      {
+        label: "foreign-origin",
+        requestId: "burst-foreign-5",
+        expectedStatus: 403,
+        outcome: "rejection",
+        expectedCode: "FORBIDDEN",
+        body: JSON.stringify({ locale: "en" }),
+        headers: { origin: "https://evil.example" },
+      },
+      {
+        label: "malformed-json",
+        requestId: "burst-malformed-6",
+        expectedStatus: 400,
+        outcome: "rejection",
+        expectedCode: "BAD_REQUEST",
+        body: '{"locale": "en"',
+        headers: {},
+      },
+    ];
+
+    const results = await Promise.all(
+      burst.map(async spec => {
+        const response = await POST(
+          makeAllowedPostRequest(
+            { ...spec.headers, "accept-language": "en", "x-request-id": spec.requestId },
+            spec.body
+          )
+        );
+        return { spec, response, body: await readJson(response) };
+      })
+    );
+
+    for (const { spec, response, body } of results) {
+      expect(response.status).toBe(spec.expectedStatus);
+      if (spec.outcome === "success") {
+        expect(memberString(body, "requestId")).toBe(spec.requestId);
+        expect(ownKeys(body)).toEqual(["data", "requestId"]);
+      } else {
+        const error = memberRecord(body, "error");
+        expect(error.code).toBe(spec.expectedCode);
+        // Zero cross-contamination: every rejection echoes its OWN id.
+        expect(error.requestId).toBe(spec.requestId);
+      }
+    }
   });
 });

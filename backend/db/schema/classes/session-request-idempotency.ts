@@ -20,6 +20,11 @@ import { users } from "@/backend/db/schema/users/users";
  * owner). `session_id` → session.id is nullable and set-null on session
  * delete: the claim outlives its session so a replay still surfaces the
  * duplicate-conflict semantics instead of silently re-booking.
+ *
+ * Indexes:
+ *  - `session_request_idempotency_key_unique` on `idempotency_key`
+ *  - `session_request_idempotency_user_id_idx` on `user_id` (FK)
+ *  - `session_request_idempotency_session_id_idx` on `session_id` (FK)
  */
 export const sessionRequestIdempotency = pgTable(
   "session_request_idempotency",
@@ -35,5 +40,6 @@ export const sessionRequestIdempotency = pgTable(
   t => [
     unique("session_request_idempotency_key_unique").on(t.idempotencyKey),
     index("session_request_idempotency_user_id_idx").on(t.userId),
+    index("session_request_idempotency_session_id_idx").on(t.sessionId),
   ]
 );

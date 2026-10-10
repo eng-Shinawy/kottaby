@@ -54,6 +54,11 @@ export function getLockNamespace(description: string): string {
 
 /**
  * Check if a task description is exempt from the 5-minute timeout.
+ *
+ * `launch-gate` joins the exempt set: its stages run multi-hour test suites
+ * through their canonical locked runners, so a 5-minute cap would kill every
+ * real gate run. The predicate stays a narrow exact-substring match — no
+ * broadening.
  */
 export function isTimeoutExempt(description: string): boolean {
   const d = description.toLowerCase();
@@ -62,6 +67,7 @@ export function isTimeoutExempt(description: string): boolean {
     d.includes("duplicates") ||
     d.includes("jscpd") ||
     d.includes("lint-service") ||
+    d.includes("launch-gate") ||
     d.startsWith("test") ||
     d.includes("test:") ||
     d.includes("test ")

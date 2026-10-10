@@ -151,6 +151,25 @@ function getPool(): AnyPool {
     );
   }
   const requiresSsl = shouldUseSsl(connectionString);
+  // Test-path opt-out for the users hard-delete guard: the
+  // `prevent_users_delete` trigger is ARMED whenever the custom GUC
+  // `kottaby.users_delete_guard` is unset (the production default), and
+  // test teardown legitimately hard-deletes fixture users. Riding the
+  // EXISTING startup-options packet (beside the UTC pin) means every
+  // pooled test connection inherits the opt-out with zero test-helper
+  // edits; production connection strings never carry it.
+  const usersDeleteGuardTestOptOut = process.env.TEST_CI === "1" || process.env.TEST_SERVER === "1";
+  if (usersDeleteGuardTestOptOut) {
+    // Test-flag isolation: same fail-fast shape as the gateway rate-limit
+    // bypass — a real production deployment must never run with these
+    // flags set, or every pooled connection would silently disarm the
+    // users-delete guard. The harness itself is exempt via IS_DEMO=1.
+    if (process.env.NODE_ENV === "production" && process.env.IS_DEMO !== "1" && process.env.IS_DEMO !== "true") {
+      throw new Error(
+        "getPool: TEST_CI/TEST_SERVER users-delete-guard opt-out is forbidden outside the test harness (set IS_DEMO=1 for the sanctioned test server)"
+      );
+    }
+  }
   const realPool = new Pool({
     connectionString,
     max: 10,
@@ -165,7 +184,9 @@ function getPool(): AnyPool {
     // A non-UTC session would shift every written wall clock — and with it
     // every trend day bucket. PGlite pins the same setting in its init
     // (`pglite-pool.ts`), so both providers guarantee identical buckets.
-    options: "-c timezone=UTC",
+    // The users-delete-guard opt-out rides the same startup packet under
+    // the test predicate above; PGlite pins its session equivalent too.
+    options: `-c timezone=UTC${usersDeleteGuardTestOptOut ? " -c kottaby.users_delete_guard=off" : ""}`,
   });
   // `realPool: Pool` — `Pool` is already a member of the `AnyPool` union, so
   // no `as AnyPool` cast is needed (the previous `realPool as AnyPool` was

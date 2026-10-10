@@ -54,7 +54,7 @@
 
 import type { NextRequest } from "next/server";
 import { apiErrorResponse, apiSuccessResponse, resolveRequestId } from "@/backend/lib/api";
-import { bearerSecretMatches, cronUnauthorizedError } from "@/backend/lib/api/cron-auth";
+import { cronBearerFromRequest, cronUnauthorizedError } from "@/backend/lib/api/cron-auth";
 import { getEnv } from "@/backend/lib/env";
 import { RateLimitExceededError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
@@ -76,11 +76,41 @@ const ENDPOINT_GONE_STATUS = 404;
  * (Vercel Cron: at most once per minute) sits far below the quota, so only
  * abusive repeated credential guessing ever trips it.
  */
-const cronSweepRateLimiter: RateLimiterConfig = {
+export const cronSweepRateLimiter: RateLimiterConfig = {
   name: "cron-sweep",
   limit: 100,
   windowMs: 60_000,
 };
+
+/**
+ * Shared rate-limit enforcement for the cron sweep surfaces: consumes the
+ * dedicated `cron-sweep` namespace (keyed on client IP via the shared
+ * `getClientIdentifier` helper) and returns the 429 `RATE_LIMIT_EXCEEDED`
+ * envelope when the window is spent — or `null` when the request may
+ * proceed to the credential compare. Callers keep the documented
+ * ordering: AFTER the bare-404 existence gates (a disabled or
+ * unconfigured surface's junk traffic never consumes limiter state) and
+ * BEFORE the bearer compare (repeated failed-auth guessing is throttled;
+ * a correct bearer cannot bypass a spent quota). `checkRateLimit` fails
+ * open internally, so a transient limiter error never blocks a
+ * legitimate cron tick.
+ */
+export async function enforceCronSweepRateLimit(
+  request: NextRequest,
+  requestId: string,
+  locale: string
+): Promise<Response | null> {
+  const identifier = getClientIdentifier(request);
+  const { success } = await checkRateLimit(identifier, cronSweepRateLimiter);
+  if (success) {
+    return null;
+  }
+  logger.warn(`Rate limit exceeded for ${identifier}`);
+  return apiErrorResponse(
+    new RateLimitExceededError(getServerTranslations(locale).errorsTranslations.rateLimitExceeded),
+    { requestId, locale }
+  );
+}
 
 interface CronSweepEndpointConfig<TResult> {
   /**
@@ -116,34 +146,21 @@ export function createCronSweepEndpoint<TResult>(
     }
 
     // Rate limiter — the dedicated `cron-sweep` namespace keyed on client IP,
-    // BEFORE the secret compare so repeated failed-auth guessing is throttled
-    // (a 401 probe consumes limiter state exactly like any other attempt, and
-    // a correct bearer cannot bypass a spent quota). Ordering mirrors the
-    // graphql limiter doctrine: AFTER the transport-tier mode gates (a
-    // disabled surface's junk traffic never consumes limiter state) and
-    // BEFORE the credential compare. Fail-open (the established posture): a
-    // transient limiter error never blocks a legitimate cron tick.
-    const identifier = getClientIdentifier(request);
-    const { success } = await checkRateLimit(identifier, cronSweepRateLimiter);
-    if (!success) {
-      logger.warn(`Rate limit exceeded for ${identifier}`);
-      return apiErrorResponse(
-        new RateLimitExceededError(getServerTranslations(envelopeLocale).errorsTranslations.rateLimitExceeded),
-        { requestId, locale: envelopeLocale }
-      );
+    // BEFORE the secret compare (the shared `enforceCronSweepRateLimit`
+    // helper owns the namespace, the warn log, and the 429 envelope).
+    const rateLimited = await enforceCronSweepRateLimit(request, requestId, envelopeLocale);
+    if (rateLimited !== null) {
+      return rateLimited;
     }
 
-    // Bearer gate — timing-safe compare against CRON_SECRET. The configured
-    // secret is trimmed ONCE into a local: `getEnv` returns the RAW value, so
-    // a whitespace-only config would otherwise count as configured yet could
-    // never match (the Bearer stripper consumes leading whitespace) —
-    // trimmed, a whitespace-only secret is treated exactly like an unset one
-    // (fail-closed by design, not by accident). The compare itself stays
-    // timing-safe (hash both sides, timingSafeEqual).
+    // Bearer gate — timing-safe compare against CRON_SECRET via
+    // cronBearerFromRequest. The secret is trimmed inside the helper: a
+    // whitespace-only config is treated exactly like an unset one
+    // (fail-closed by design, not by accident), and the scheme check is
+    // strict — only `Bearer <token>` headers are ever compared.
     const rawSecret = getEnv("CRON_SECRET");
-    const configuredSecret = (rawSecret ?? "").trim();
-    const presented = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
-    if (configuredSecret.length === 0 || !bearerSecretMatches(presented, configuredSecret)) {
+    const { ok } = cronBearerFromRequest(name => request.headers.get(name), rawSecret);
+    if (!ok) {
       return apiErrorResponse(cronUnauthorizedError(), { requestId, locale: envelopeLocale });
     }
 

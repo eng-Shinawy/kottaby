@@ -1,0 +1,5 @@
+[ws-soak] 100/100 sockets completed the handshake
+[ws-soak] holding the window for 60s…
+[ws-soak] artifact: /home/ahmed/Projects/kottaby_kottaby/scratch/load/ws-soak-2026-10-09T13-46-27-590Z.json
+[ws-soak] PASS — 100/100 sockets held for the full 60s window
+[WARN] [db] pool closed

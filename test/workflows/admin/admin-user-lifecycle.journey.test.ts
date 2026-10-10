@@ -181,7 +181,7 @@ function makeNewStudentInput(): AdminCreateUserSubmitInput {
     email: newStudentEmail,
     phone: "+10000000000",
     password: NEW_STUDENT_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role: "student",
   };
 }
@@ -268,8 +268,18 @@ describe("Journey A — Admin User Lifecycle (Create → Observe → Govern → 
 
   // ─── Step 2: admin observes the new student in the directory ─────────
   test("Journey A — step 2: admin directory list filtered role=student includes new row with headline projection", async () => {
+    // Population-robust narrowing (backend/db/test/AGENTS.md rule 12 — never
+    // assume DB population state): the directory orders `created_at ASC
+    // LIMIT 100`, so a shared test DB with >100 committed students pushes
+    // this run's new row past page 1. The per-run PREFIX (unique via
+    // randomUUID, embedded in every fixture's fullName/email per this
+    // layer's rule 3) narrows the listing to exactly this run's cast —
+    // the service escapes the substring before binding (`normalizeFilters`)
+    // — so page-1 visibility of the new row is asserted deterministically
+    // while the role=student filter and every projection assertion below
+    // stay exactly as precise.
     const page = await AdminUserManagementService.listDirectory(
-      { role: UserRole.Student },
+      { role: UserRole.Student, search: PREFIX },
       1,
       100,
       LOCALE,

@@ -30,6 +30,10 @@
  *    (find + backfill) is fully operational.
  *  - Tier 4 (security): the key is opaque — case/prefix variants never
  *    match (exact byte semantics); the backfill refuses an unknown claim.
+ *  - Schema contract: the `subscription_id` FK is index-backed —
+ *    `subscription_purchase_idempotency_subscription_id_idx` is asserted
+ *    live in `pg_indexes` as a btree with `subscription_id` as its key
+ *    column.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -249,6 +253,21 @@ describe("SubscriptionPurchaseIdempotencyRepository", () => {
 
       const found = await SubscriptionPurchaseIdempotencyRepository.findByKey(key, tx);
       expect(found?.id).toBe(claim.id);
+    });
+  });
+
+  // ─── Schema contract: the subscription_id FK index ────────────────────
+
+  test("subscription_purchase_idempotency_subscription_id_idx exists as a btree with subscription_id as its key column", async () => {
+    await runInRollback(async tx => {
+      const index = await tx.execute<{ indexdef: string }>(
+        sql`SELECT indexdef FROM pg_indexes
+            WHERE tablename = 'subscription_purchase_idempotency'
+              AND indexname = 'subscription_purchase_idempotency_subscription_id_idx'`
+      );
+      expect(index.rows).toHaveLength(1);
+      expect(index.rows[0]?.indexdef).toContain("USING btree");
+      expect(index.rows[0]?.indexdef).toContain("(subscription_id)");
     });
   });
 });

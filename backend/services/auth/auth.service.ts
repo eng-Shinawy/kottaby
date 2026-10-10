@@ -23,7 +23,8 @@
  *  - `changeMyPassword(userId, input, locale, tx?)` — the self-service
  *    credential change. Verifies `input.currentPassword` against the stored
  *    hash (constant-time bcrypt compare), rejects a no-op change
- *    (new == current) and short/empty replacements via the shared password
+ *    (new == current) and out-of-bounds replacements (empty / short /
+ *    past the shared length ceiling) via the shared password
  *    policy, hashes the replacement BEFORE the transaction, then persists
  *    the new hash and clears the force-reset flag (`mustChangePassword: false`)
  *    in ONE write — a successful self-service change is the only operation
@@ -372,8 +373,10 @@ export namespace AuthService {
    *     (field `newPassword`) on an effective no-op change — plaintext
    *     equality OR a replacement that still verifies against the stored
    *     hash (bcrypt's 72-byte input boundary); `PASSWORD_REQUIRED` /
-   *     `PASSWORD_TOO_SHORT` (field `password`) when the replacement
-   *     violates the shared credential policy.
+   *     `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG` (field `password`) when
+   *     the replacement violates the shared credential policy (the length
+   *     ceiling is the shared verify-time bound, so an accepted replacement
+   *     can never exceed the login-side argument limit).
    */
   export async function changeMyPassword(
     userId: number,
@@ -438,7 +441,8 @@ export namespace AuthService {
     }
 
     // Shared credential policy: empty / whitespace-only ⇒ PASSWORD_REQUIRED,
-    // below the shared minimum ⇒ PASSWORD_TOO_SHORT. The helper's field
+    // below the shared minimum ⇒ PASSWORD_TOO_SHORT, past the shared length
+    // ceiling ⇒ PASSWORD_TOO_LONG. The helper's field
     // entries (`field: "password"`) flow through verbatim — the same shape
     // every password-policy consumer projects for inline helperText.
     const passwordFieldErrors = validatePasswordPolicy(input.newPassword, t.authTranslations);

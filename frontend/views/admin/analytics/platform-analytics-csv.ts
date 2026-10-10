@@ -27,37 +27,18 @@
  * locale-neutral wire data. The only non-label literals are the field
  * separators (`,`) and the newline (`\n`) — the CSV format itself.
  *
- * Formula-injection note: every cell value originates from the repo-owned
- * translation files or the trusted aggregate read model (numbers, ISO
- * timestamps, currency codes) — no user-authored free text enters a cell,
- * so the classic `=`/`+`/`-`/`@` prefix guard is intentionally not applied
- * (prefixing would corrupt round-tripping of legitimate data).
+ * Formula-injection posture: every cell is routed through the shared
+ * `neutralizeCsvFormulas` guard (CWE-1236) before quoting and joining, so
+ * even if user-authored text ever reached a cell, it would export as
+ * inert text rather than a live formula.
  */
 
 import type { AdminPlatformAnalyticsQuery_adminPlatformAnalytics } from "@/frontend/graphql/generated/gql/graphql";
+import { csvRecord, UTF8_BOM } from "@/frontend/utils/csv-record";
 import type { AnalyticsLabels } from "@/shared/locale/types/analytics";
-
-/** UTF-8 BOM — spreadsheet apps detect the encoding and render Arabic labels. */
-const UTF8_BOM = "\uFEFF";
 
 /** The snapshot shape the builder consumes (the extracted query result type). */
 type AnalyticsSnapshot = AdminPlatformAnalyticsQuery_adminPlatformAnalytics;
-
-/**
- * Escapes one CSV cell: quoting engages only when the field contains the
- * delimiter, a quote, or a newline — inside quotes every `"` doubles.
- */
-function csvCell(value: string): string {
-  if (/[",\n\r]/.test(value)) {
-    return `"${value.replaceAll('"', '""')}"`;
-  }
-  return value;
-}
-
-/** Joins cells with the comma delimiter and terminates the record. */
-function csvRecord(cells: readonly string[]): string {
-  return `${cells.map(csvCell).join(",")}\n`;
-}
 
 /** One metrics-table row: section title + metric label + raw value. */
 function metricRecord(sectionLabel: string, metricLabel: string, value: number | null): string {

@@ -34,7 +34,10 @@ gqlSchemaBuilder.queryField("adminPlans", t =>
     type: [PlanPothosObject],
     description: "Admin-only query to list plans, optionally including inactive plans.",
     authScopes: {
-      role: [UserRole.Admin],
+      $all: {
+        authenticated: true,
+        role: [UserRole.Admin],
+      },
     },
     args: {
       includeInactive: t.arg.boolean({

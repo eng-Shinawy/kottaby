@@ -5,6 +5,7 @@ import { Box, Button, Dialog, DialogContent, DialogTitle, IconButton, Stack, Too
 import type { ReactNode } from "react";
 import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { formatApplicantDate } from "@/frontend/lib/i18n/format-date";
+import { escapeCsv } from "@/frontend/views/shared/print-export/print-export-csv";
 import { Common, useAppLocale, useAppTranslation } from "@/shared/locale";
 
 export interface PrintableRow {
@@ -26,26 +27,12 @@ export interface PrintExportLabels {
 }
 
 /**
- * CSV formula-injection guard (CWE-1236): values exported from teacher notes
- * could open with a spreadsheet formula trigger (`=`, `+`, `-`, `@`, TAB, CR)
- * and be evaluated as a formula by Excel/Sheets on import. Prefixing a single
- * quote defuses the cell — the viewer renders it as literal text. Applied to
- * every exported cell inside `escapeCsv`, so free-text columns (teacher
- * notes) are neutralized wherever they appear.
- */
-function neutralizeCsvFormulas(value: string): string {
-  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-}
-
-function escapeCsv(value: string): string {
-  return '"' + neutralizeCsvFormulas(value).replace(/"/g, '""').replace(/\r?\n/g, " ") + '"';
-}
-
-/**
  * The shared print/CSV-export dialog. Domain-neutral: chrome copy arrives
  * through `labels` (caller-owned namespace strings) and the CSV meta line
  * names its subject through `metaSubject` (a child name on the parent
- * portal, the surface title on the student page).
+ * portal, the surface title on the student page). Every exported cell is
+ * escaped by `print-export-csv.ts` (the shared CWE-1236 formula guard +
+ * CSV quoting).
  */
 export function PrintExportDialog({
   open,

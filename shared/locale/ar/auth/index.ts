@@ -26,6 +26,7 @@ export const authAr: AuthLabels = {
   phoneInvalid: "يرجى إدخال رقم هاتف صحيح.",
   passwordRequired: "كلمة المرور مطلوبة.",
   passwordTooShort: "يجب أن تكون كلمة المرور 8 أحرف على الأقل.",
+  passwordTooLong: "يجب ألا تتجاوز كلمة المرور 1024 حرفاً.",
   countryRequired: "الدولة مطلوبة.",
   countryCodeRequired: "يرجى اختيار الدولة.",
   countryCodeInvalid: "الدولة المحددة غير معترف بها.",

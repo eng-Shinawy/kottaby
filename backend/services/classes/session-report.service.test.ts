@@ -64,6 +64,12 @@
  *    pre-DB VALIDATION; read purity (zero writes, zero log lines); default
  *    pool-path reads over committed rows; read under concurrent submission
  *    (mid-storm).
+ *  - Homework write surface: the newest-row routing pin — a student
+ *    holding TWO ungraded rows receives the previousGrades on the NEWEST
+ *    prior row only (the grading probe has no grade predicate); source
+ *    pin — HomeWorkRepository.insertHomeWork has exactly ONE production
+ *    call site, inside the report transaction's homework composite, so no
+ *    report-less homework creation path exists.
  *
  * Run:
  *   bun run test/scripts/run-test.ts backend/services/classes/session-report.service.test.ts
@@ -71,6 +77,8 @@
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { count, eq, inArray } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "@/backend/db";
@@ -978,6 +986,53 @@ describe("Tier 2 — validator bounds and assignment-block boundaries", () => {
       const gradedRow = await homeworkRowBySessionId(tx, priorSession.id);
       expect(gradedRow?.currentGrade).toBe(0);
       expect(gradedRow?.revisionGrade).toBe(100);
+    });
+  });
+
+  test("INV-HW4: with two ungraded rows, previousGrades land on the NEWEST prior row only (the grading probe has no grade predicate)", async () => {
+    await runInRollback(async tx => {
+      const cast = await provisionReportCast(tx, { linkedParent: true });
+      const completedStamps = { startedAt: new Date(), endedAt: new Date(), confirmedByTeacherAt: new Date() };
+      const olderSession = await createTestSession(tx, cast.teacherUserId, cast.studentUserId, {
+        status: SessionStatus.Completed,
+        ...completedStamps,
+      });
+      const newerSession = await createTestSession(tx, cast.teacherUserId, cast.studentUserId, {
+        status: SessionStatus.Completed,
+        ...completedStamps,
+      });
+      // Two ungraded prior assignments with DISTINCT creation stamps so the
+      // newest-first ordering is deterministic, never a same-instant tie.
+      const dayMs = 86_400_000;
+      const olderRow = await createTestHomeWork(tx, olderSession.id, { createdAt: new Date(Date.now() - 2 * dayMs) });
+      const newerRow = await createTestHomeWork(tx, newerSession.id, { createdAt: new Date(Date.now() - dayMs) });
+      expect(newerRow.id).toBeGreaterThan(olderRow.id);
+
+      const { options } = freshEngineOptions();
+      await SessionReportService.submitSessionReport(
+        cast.teacherUserId,
+        cast.sessionRow.id,
+        baseSubmitInput({ previousGrades: { currentGrade: 72, revisionGrade: 64 } }),
+        LOCALE,
+        tx,
+        options
+      );
+
+      // The grades landed on the NEWEST prior row (the newer session's
+      // assignment) — the grading probe picks the newest row whatever its
+      // grade state, so "the previous session" is emergent from newest-first
+      // ordering plus one-row-per-session uniqueness, never a session-
+      // predecessor check.
+      const newerAfter = await homeworkRowBySessionId(tx, newerSession.id);
+      expect(newerAfter?.currentGrade).toBe(72);
+      expect(newerAfter?.revisionGrade).toBe(64);
+      // The OLDER ungraded row was passed over entirely — still ungraded.
+      const olderAfter = await homeworkRowBySessionId(tx, olderSession.id);
+      expect(olderAfter?.currentGrade).toBeNull();
+      expect(olderAfter?.revisionGrade).toBeNull();
+      // The submission itself persisted exactly its own report row.
+      expect(await countReportRowsFor(tx, [cast.sessionRow.id])).toBe(1);
+      expect(await countHomeWorkRowsFor(tx, [cast.sessionRow.id])).toBe(0);
     });
   });
 
@@ -1963,5 +2018,106 @@ describe("Read surface (2.8) — getSessionReport / getSessionHomework", () => {
       expect(JSON.stringify(teacherReport)).toBe(JSON.stringify(teacherHomework));
       expect(logs.records).toEqual([]);
     });
+  });
+});
+
+// ─── Source pin: the homework write surface (production composition) ────────
+
+/**
+ * Production roots whose TypeScript files could host a homework-insert call
+ * site — the services tree, the GraphQL layer, the repository layer, the
+ * backend lib, and the App Router API routes. Test files, spec files, and
+ * `__tests__` directories never enter the scan, so sibling test-authoring
+ * activity cannot perturb the pin; only a NEW production caller can.
+ */
+const HOMEWORK_WRITE_SCAN_ROOTS = [
+  join(import.meta.dir, ".."),
+  join(import.meta.dir, "..", "..", "graphql"),
+  join(import.meta.dir, "..", "..", "db", "repo"),
+  join(import.meta.dir, "..", "..", "lib"),
+  join(import.meta.dir, "..", "..", "..", "app"),
+];
+
+/** Lists the production TypeScript files under one root (test-free scan). */
+function listProductionTypeScriptFiles(root: string): string[] {
+  const files: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "__tests__" || entry.name === "node_modules") {
+          continue;
+        }
+        walk(path);
+        continue;
+      }
+      if (
+        entry.isFile() &&
+        entry.name.endsWith(".ts") &&
+        !entry.name.includes(".test") &&
+        !entry.name.includes(".spec")
+      ) {
+        files.push(path);
+      }
+    }
+  };
+  walk(root);
+  return files;
+}
+
+describe("Source pin — the homework write surface (report-transaction composition)", () => {
+  test("INV-S8: HomeWorkRepository.insertHomeWork has exactly ONE production call site (inside the report transaction)", () => {
+    // Homework is created only when the session report is submitted: the
+    // enforcement is compositional (the insert rides the report submission's
+    // own transaction), so the pin is the call-site census itself — any new
+    // production caller (a report-less creation path) fails here until it is
+    // consciously admitted or routed through the report transaction.
+    const callShape = /HomeWorkRepository\.insertHomeWork\(/g;
+    const callSites: Array<{ file: string; occurrences: number }> = [];
+    for (const root of HOMEWORK_WRITE_SCAN_ROOTS) {
+      for (const file of listProductionTypeScriptFiles(root)) {
+        const occurrences = readFileSync(file, "utf8").match(callShape)?.length ?? 0;
+        if (occurrences > 0) {
+          callSites.push({ file, occurrences });
+        }
+      }
+    }
+    expect(callSites).toHaveLength(1);
+    const soleCallSite = callSites.at(0);
+    if (soleCallSite === undefined) {
+      throw new Error("fixture integrity failure: the sole homework-insert call site vanished");
+    }
+    expect(soleCallSite.occurrences).toBe(1);
+    expect(soleCallSite.file.endsWith(join("classes", "session-report.service.ts"))).toBe(true);
+
+    // The call site sits INSIDE the report transaction: it is the assignment
+    // leg of the homework composite, and the composite is invoked exactly
+    // once — by the submission transaction body, strictly AFTER the report
+    // insert, on the same transaction handle. A second invocation, or one
+    // that precedes the report insert, would break the settle-together
+    // composition the invariant rests on.
+    const source = readFileSync(soleCallSite.file, "utf8");
+    const compositeDefinitionIndex = source.indexOf("async function settleHomeWorkComposite(");
+    const submissionBodyIndex = source.indexOf("async function submitReportAndHomeworkInTx(");
+    const insertCallIndex = source.search(/HomeWorkRepository\.insertHomeWork\(/u);
+    const compositeInvocationIndices = [...source.matchAll(/settleHomeWorkComposite\(/gu)].map(match => match.index);
+    const compositeInvocationIndex = compositeInvocationIndices.at(-1) ?? -1;
+    const reportInsertIndex = source.indexOf("ReportRepository.insertReport(", submissionBodyIndex);
+
+    expect(compositeDefinitionIndex).toBeGreaterThan(-1);
+    expect(submissionBodyIndex).toBeGreaterThan(compositeDefinitionIndex);
+    // The insert is inside the composite's own body, ahead of the submission
+    // transaction body that calls it.
+    expect(insertCallIndex).toBeGreaterThan(compositeDefinitionIndex);
+    expect(insertCallIndex).toBeLessThan(submissionBodyIndex);
+    // The composite has exactly one invocation — from the submission
+    // transaction body, after the report insert.
+    expect(compositeInvocationIndices).toHaveLength(2);
+    expect(compositeInvocationIndex).toBeGreaterThan(submissionBodyIndex);
+    expect(compositeInvocationIndex).toBeGreaterThan(reportInsertIndex);
+    expect(reportInsertIndex).toBeGreaterThan(-1);
   });
 });

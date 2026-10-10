@@ -66,49 +66,90 @@ function decodeCookieValue(rawValue: string): string {
   }
 }
 
-/** Parses a single `key=value` cookie pair segment between `start` and `end`. */
-function parseCookiePair(header: string, start: number, end: number, out: Record<string, string>): void {
-  // Bounded to the current segment: an unbounded `indexOf("=", start)` would
-  // rescan ahead into later segments for every malformed pair, giving
-  // quadratic CPU on attacker-controlled headers with many `=`-less segments.
-  let eqIdx = -1;
+/** Finds the index of the first `=` character between `start` and `end`. */
+function findEqualsIndex(header: string, start: number, end: number): number {
   for (let i = start; i < end; i++) {
     if (header.charCodeAt(i) === 61) {
-      eqIdx = i;
-      break;
+      return i;
     }
   }
-  // Malformed pair (no `=` inside this segment, or empty key) — skip silently.
-  // Browsers never produce these, but defensive parsing keeps the context
-  // factory resilient.
+  return -1;
+}
+
+/** Extracts a trimmed slice from `header` between `start` and `end`. */
+function trimSlice(header: string, start: number, end: number): string {
+  let s = start;
+  while (s < end && header.charCodeAt(s) <= 32) {
+    s++;
+  }
+  let e = end;
+  while (e > s && header.charCodeAt(e - 1) <= 32) {
+    e--;
+  }
+  return header.slice(s, e);
+}
+
+/** Parses a single `key=value` cookie pair segment between `start` and `end`. */
+function parseCookiePair(header: string, start: number, end: number, out: Record<string, string>): void {
+  const eqIdx = findEqualsIndex(header, start, end);
   if (eqIdx <= start) {
     return;
   }
-
-  let keyStart = start;
-  while (keyStart < eqIdx && header.charCodeAt(keyStart) <= 32) {
-    keyStart++;
-  }
-  let keyEnd = eqIdx;
-  while (keyEnd > keyStart && header.charCodeAt(keyEnd - 1) <= 32) {
-    keyEnd--;
-  }
-  if (keyEnd <= keyStart) {
+  const key = trimSlice(header, start, eqIdx);
+  if (key.length === 0) {
     return;
   }
-  const key = header.slice(keyStart, keyEnd);
-
-  let valStart = eqIdx + 1;
-  while (valStart < end && header.charCodeAt(valStart) <= 32) {
-    valStart++;
-  }
-  let valEnd = end;
-  while (valEnd > valStart && header.charCodeAt(valEnd - 1) <= 32) {
-    valEnd--;
-  }
-  const rawValue = header.slice(valStart, valEnd);
-
+  const rawValue = trimSlice(header, eqIdx + 1, end);
   out[key] = decodeCookieValue(rawValue);
+}
+
+/** Matches a single cookie segment against `targetName` and returns the decoded value if matched. */
+function matchCookieSegment(header: string, start: number, end: number, targetName: string): string | null {
+  const eqIdx = findEqualsIndex(header, start, end);
+  if (eqIdx <= start) {
+    return null;
+  }
+  const key = trimSlice(header, start, eqIdx);
+  if (key !== targetName) {
+    return null;
+  }
+  const rawValue = trimSlice(header, eqIdx + 1, end);
+  return decodeCookieValue(rawValue);
+}
+
+/**
+ * Fast-path single cookie value extractor.
+ *
+ * Performance: zero-allocation single-pass index scan. Avoids instantiating a
+ * `Record<string, string>` object or decoding/parsing unrelated cookie pairs
+ * when looking up a single known cookie (e.g., `access_token` or `NEXT_LOCALE`).
+ *
+ * @param cookieHeader Raw `Cookie` request header string (or null/undefined).
+ * @param targetName The cookie name to extract.
+ * @returns Decoded cookie value string if present, or `null` if absent.
+ */
+export function extractCookieValue(cookieHeader: string | null | undefined, targetName: string): string | null {
+  if (!cookieHeader) {
+    return null;
+  }
+  let start = 0;
+  const len = cookieHeader.length;
+
+  while (start < len) {
+    let end = cookieHeader.indexOf(";", start);
+    if (end === -1) {
+      end = len;
+    }
+
+    const value = matchCookieSegment(cookieHeader, start, end, targetName);
+    if (value !== null) {
+      return value;
+    }
+
+    start = end + 1;
+  }
+
+  return null;
 }
 
 /**

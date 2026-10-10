@@ -38,10 +38,15 @@
  *    SQL-flavored search payloads stay bound parameters; a duplicate
  *    idempotency key raises the PostgreSQL `23505` unique violation
  *    translated into a `ConflictError`.
+ *  - Schema contract: both user FKs are index-backed —
+ *    `broadcasts_sent_by_id_idx` and `broadcasts_stopped_by_id_idx` are
+ *    asserted live in `pg_indexes` as btrees with their FK column as the
+ *    key column (the sender/stopper joins never seq-scan).
  */
 
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
 import { type BroadcastEntryRow, BroadcastRepository } from "@/backend/db/repo";
 import { broadcasts } from "@/backend/db/schema/notifications/broadcasts";
 import { createTestUser } from "@/backend/db/test/entity-setup";
@@ -757,6 +762,28 @@ describe("BroadcastRepository — Tier 4: hostile input", () => {
         )
       );
       expect(error).toBeInstanceOf(ConflictError);
+    });
+  });
+
+  // ─── Schema contract: the sent_by_id / stopped_by_id FK indexes ───────
+
+  test("broadcasts_sent_by_id_idx and broadcasts_stopped_by_id_idx exist as btrees on their FK columns", async () => {
+    await runInRollback(async tx => {
+      const indexes = await tx.execute<{ indexname: string; indexdef: string }>(
+        sql`SELECT indexname, indexdef FROM pg_indexes
+            WHERE tablename = 'broadcasts'
+              AND indexname IN ('broadcasts_sent_by_id_idx', 'broadcasts_stopped_by_id_idx')
+            ORDER BY indexname`
+      );
+      expect(indexes.rows).toHaveLength(2);
+
+      const sentBy = indexes.rows.find(row => row.indexname === "broadcasts_sent_by_id_idx");
+      expect(sentBy?.indexdef).toContain("USING btree");
+      expect(sentBy?.indexdef).toContain("(sent_by_id)");
+
+      const stoppedBy = indexes.rows.find(row => row.indexname === "broadcasts_stopped_by_id_idx");
+      expect(stoppedBy?.indexdef).toContain("USING btree");
+      expect(stoppedBy?.indexdef).toContain("(stopped_by_id)");
     });
   });
 });

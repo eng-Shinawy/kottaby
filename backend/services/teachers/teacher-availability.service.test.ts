@@ -1080,6 +1080,108 @@ describe("TeacherAvailabilityService.setAvailability", () => {
     });
   });
 
+  testOnRealPostgres(
+    "INV-A1: a toggle-vs-demoteToUncertified interleave under lockForCertificationCheck ends internally consistent in both orderings (no uncertified-online bypass)",
+    async () => {
+      // ─── Ordering 1 (deterministic): the toggle wins the row lock. ───
+      // The certification-check FOR UPDATE lock reads `isApproved = true`,
+      // the Available write commits against that locked value, and the
+      // demote runs after — the terminal row is online-but-uncertified,
+      // which is the LEGAL serialization (the teacher WAS certified at
+      // decision time). The gate then re-asserts: a follow-up Available
+      // toggle on the now-uncertified row is FORBIDDEN with zero writes.
+      await runInRollback(async tx => {
+        const user = await createTestUser(tx, { role: "teacher" });
+        await createTestTeacherRow(tx, user.id, { isApproved: true, isOnline: false });
+
+        const projection = await TeacherAvailabilityService.setAvailability(user.id, true, LOCALE_EN, tx);
+        expect(projection.isOnline).toBe(true);
+
+        const demoted = await TeacherRepository.demoteToUncertified(user.id, tx);
+        expect(demoted?.isApproved).toBe(false);
+
+        const reread = await readTeacherRow(tx, user.id);
+        expect(reread?.isOnline).toBe(true);
+        expect(reread?.isApproved).toBe(false);
+
+        silenceDomainLog();
+        const error = await expectRepoError(() =>
+          TeacherAvailabilityService.setAvailability(user.id, true, LOCALE_EN, tx)
+        );
+        expectDomainDenial(error, "FORBIDDEN", errorsFor(LOCALE_EN).teacherNotCertified);
+        // The denial wrote nothing — the row is exactly as the ordering
+        // left it.
+        const afterDenial = await readTeacherRow(tx, user.id);
+        expect(afterDenial?.isOnline).toBe(true);
+        expect(afterDenial?.isApproved).toBe(false);
+      });
+
+      // ─── Ordering 2 (deterministic): the demote wins the row lock. ───
+      // The demotion commits first; the toggle's locked read then sees
+      // `isApproved = false` and the certification gate denies BEFORE the
+      // availability write fires — the row stays offline.
+      await runInRollback(async tx => {
+        const user = await createTestUser(tx, { role: "teacher" });
+        await createTestTeacherRow(tx, user.id, { isApproved: true, isOnline: false });
+
+        const demoted = await TeacherRepository.demoteToUncertified(user.id, tx);
+        expect(demoted?.isApproved).toBe(false);
+
+        silenceDomainLog();
+        const error = await expectRepoError(() =>
+          TeacherAvailabilityService.setAvailability(user.id, true, LOCALE_EN, tx)
+        );
+        expectDomainDenial(error, "FORBIDDEN", errorsFor(LOCALE_EN).teacherNotCertified);
+
+        const reread = await readTeacherRow(tx, user.id);
+        expect(reread?.isOnline).toBe(false);
+        expect(reread?.isApproved).toBe(false);
+      });
+
+      // ─── The live interleave: both writers race on real independent
+      // transactions. Whichever ordering the row lock imposes, the terminal
+      // state is internally consistent: the demote's guarded write always
+      // lands (nothing else flips the certification flag), and the toggle
+      // either committed against the certified locked value (online) or
+      // was denied by the gate (offline) — never an Available write that
+      // bypassed the certification check.
+      const teacherUserId = await createCommittedCertifiedTeacher(false);
+      const [toggleSettled, demoteSettled] = await Promise.allSettled([
+        TeacherAvailabilityService.setAvailability(teacherUserId, true, LOCALE_EN),
+        db.transaction(tx => TeacherRepository.demoteToUncertified(teacherUserId, tx)),
+      ]);
+
+      expect(demoteSettled.status).toBe("fulfilled");
+      const demotedRow = demoteSettled.status === "fulfilled" ? demoteSettled.value : null;
+      expect(demotedRow?.isApproved).toBe(false);
+
+      const [finalRow] = await db.select().from(teacher).where(eq(teacher.id, teacherUserId));
+      expect(finalRow?.isApproved).toBe(false);
+      if (toggleSettled.status === "fulfilled") {
+        // The toggle won the lock: the write committed while the locked
+        // row was certified, and the demote serialized after it.
+        expect(finalRow?.isOnline).toBe(true);
+      } else {
+        // The demote won the lock: the toggle's locked read saw the
+        // demoted value and the gate denied with the exact FORBIDDEN copy.
+        const reason = toggleSettled.reason;
+        expectDomainDenial(reason, "FORBIDDEN", errorsFor(LOCALE_EN).teacherNotCertified);
+        expect(finalRow?.isOnline).toBe(false);
+      }
+
+      // The gate holds on the post-race row in either serialization — a
+      // fresh Available toggle is FORBIDDEN, zero writes.
+      silenceDomainLog();
+      const postRaceError = await expectRepoError(() =>
+        TeacherAvailabilityService.setAvailability(teacherUserId, true, LOCALE_EN)
+      );
+      expectDomainDenial(postRaceError, "FORBIDDEN", errorsFor(LOCALE_EN).teacherNotCertified);
+      const [postDenialRow] = await db.select().from(teacher).where(eq(teacher.id, teacherUserId));
+      expect(postDenialRow?.isApproved).toBe(false);
+      expect(postDenialRow?.isOnline).toBe(finalRow?.isOnline);
+    }
+  );
+
   test("forced inner failure AFTER the availability write ⇒ teacher.is_online unchanged (rollback of the whole withTransaction)", async () => {
     await runInRollback(async tx => {
       const user = await createTestUser(tx, { role: "teacher" });

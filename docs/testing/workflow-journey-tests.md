@@ -24,8 +24,11 @@ Step 5  teacher + supervisor → submit → rejectReport(...)    → REJECTED + 
 ```
 
 Each step calls a service function directly with the actor's identity (`actorUserId`) as an
-argument. There is no HTTP server, no GraphQL resolver, no Apollo client — resolver machinery
-(DataLoader, cookies) stays with the GraphQL integration layer.
+argument. There is no HTTP server and no Apollo client — resolver machinery (HTTP transport,
+cookies) stays with the GraphQL integration layer. The one sanctioned GraphQL touch is the
+**in-process parity harness**: execute the real `graphQLSchema` with a hand-built context to
+prove a scope gate or field parity on the GraphQL surface, copying the harness from an existing
+journey verbatim (see "Enum encoding" below for its main gotcha).
 
 ## Where this layer sits
 
@@ -73,6 +76,18 @@ applies **only inside `test/workflows/`**, never in `backend/db/test/`.
   (`const prefix = \`jrn_<domain>_${randomUUID().slice(0, 8)}\``) used in names/notes so parallel
   or repeated runs never collide.
 - **Never use demo/seeded rows as fixtures.** Always create your own entities.
+- **Immutable/append-only tables are never tracked — swept under trigger suspension.**
+  `student_payments` and `teacher_transaction` are DELETE-blocked by immutability triggers and
+  `audit_logs` by the audit trigger, and their rows can RESTRICT-delete rows the tracked
+  cleanup must remove (e.g. a teacher wallet an earning row points at). Count/read them in
+  assertions instead of tracking. When the journey's own steps commit rows there, `afterAll`
+  sweeps them by the suite's own ids under `withImmutabilityTriggersSuspended([...])` /
+  `withAuditDeleteTriggersSuspended` **before** `tracked.cleanup()`, re-probing zero after each
+  sweep.
+- **Never pin the tracked-registry size in end-state assertions.** The suite-end
+  `TrackedFixtures.size` is environment-dependent — cohort waves register one row per
+  governance-clean admin the database happens to hold, and seeded populations vary. Only a
+  registry-size pin asserted before the journey's service calls begin is stable.
 
 ## Authorization resolves honestly
 
@@ -83,6 +98,19 @@ role/permission resolution in a journey — that defeats the layer's purpose. Ne
 helper and translated substrings from `getServerTranslations("en").errorsTranslations` —
 **never** `expect(...).rejects.toThrow()`.
 
+Denial steps are **oracle-safe by construction**: a non-owner's access collapses into exactly
+what a nonexistent resource would return — `SESSION_NOT_FOUND` on session surfaces, the parent
+portal's constant 403 (foreign ≡ nonexistent; see `docs/parents/monitoring-portal.md`) — so the
+denial leaks nothing about the row's existence. Every denial proves the full **zero-write
+bundle**: the target row byte-identical (status, stamps, `updatedAt`), the retry idempotency
+key NOT burned (no claim row for the denied key), a fresh publish spy recording zero
+dispatches, and a both-way inbox audit (the denied actor and every non-participant unchanged).
+
+Proving **content absence** inside a JSON `details` column takes two assertions: assert the
+presence flag (`notePresent === true`) AND that the content itself never entered the trail —
+`expect(JSON.stringify(parsedDetails)).not.toContain(note)`. The flag alone does not prove the
+content stayed out.
+
 ## Notification spying
 
 **Nothing in a journey may reach a real external channel** (email/SMS/push). Spy the
@@ -92,6 +120,20 @@ fails, fall back to `mock.module(...)` and restore in `afterAll`). Assert both t
 happened **and which userIds it targeted** — targeting the wrong actor is exactly the bug class
 journeys exist to catch.
 
+**Two interception seams — never a standing suite-wide namespace spy.** Services that accept
+injected notification options are intercepted at the **injection seam**: pass
+`{ transport: SpiedFanoutTransport, cache: InMemoryClaimCache }` and assert on the transport's
+recorded calls. Lifecycle and arbitration methods without that options seam publish through the
+`NotificationEngine.publishReceipts` namespace member and need `spyOn`. The gotcha: the
+optioned services publish through the **same namespace member** via their injected transport,
+so a standing suite-wide `spyOn(NotificationEngine, "publishReceipts")` swallows those
+publishes and the spied transport records nothing. The safe pattern in a suite that mixes both
+seams (established by the consolidated student journey): a **fresh per-step spy** installed
+around the triggering call and restored in the same step's `finally` — every step's spy starts
+at zero, so its publish count is step-local. Install the spy even on steps expected to publish
+nothing (denials, silent cancellations, confirmations): the zero-publish proof is only as
+strong as a spy that was armed for the call.
+
 **Publish-window discipline (spied receipt assertions).** Post-commit publishes
 (`NotificationEngine.publishReceipts`) are asynchronous *relative to the step that caused them*:
 a spy window opened BEFORE the preceding step's `await` has fully flushed will swallow that
@@ -100,6 +142,13 @@ the count your assertion receives. Open the window AFTER the triggering await re
 assert the exact window delta (typically `publishesBefore + 1`) and that the one receipt in the
 window targets the intended recipient. Diagnose count mismatches by capturing the actual
 publishes seen in the window (type + userId + entityId) before touching the assertion.
+
+**Admin-cohort waves are membership-based.** Waves that address an admin cohort (e.g.
+dispute-opened) fan out to **every governance-clean admin in the database** — seeded fixture
+admins included — so the recipient set is environment-dependent. Assert **membership** (the
+cast admin present, every other cast member absent), never set-equality. The foreign admins'
+wave rows are still the suite's own writes: register them for teardown, because the cast
+cascade cannot reach them.
 
 ## Runner gotcha: dynamic-import specifiers need `@/` aliases
 
@@ -170,6 +219,11 @@ Canonical examples:
   ticket chain: purchase → webhook settle → webhook replay → booking on the credited lane →
   expiry sweep → sweep replay → renew → renew replay → plan change → plan-change replay →
   downgrade → cancel → admin-gate denials → tenant isolation.
+- `test/workflows/students/student-full-journey.journey.test.ts` — the full student ticket chain:
+  registration → catalog/purchase/webhook settlement + replay → parent link chain → teacher
+  browse → session booking/lifecycle/dual confirmation → report + parent portal reads → edge
+  legs (insufficient-balance denial, cancellation + terminal-state replay, post-confirmation
+  dispute with Refund arbitration) → final end-state consistency sweep.
 
 ## Backdated time control
 
@@ -202,6 +256,29 @@ resulting lane. Never assert wallet/monetary balances in a proration leg — mon
 financial-audit suites.
 
 Specs for single-actor features do not need journey sections.
+
+## Money semantics in journey assertions (session fees)
+
+Session-fee money moves **hold-as-debit** along the booking ladder: `createSession` decrements
+the trial lane first, then the subscription's paid lane, and marks the fee held
+(`fee_held = true`). Dual confirmation releases the hold and credits the teacher wallet
+exactly once — balance AND `total_earning`, one `earning` ledger row, zero publishes.
+Participant cancellation refunds the **same lane exactly once** (`fee_held = false`) and is
+notification-silent. A `Refund` arbitration reverses by debiting the wallet balance by exactly
+the fee while `total_earning` keeps every earned credit — the lifetime counter is unchanged by
+the reversal — leaving exactly one compensating `ArbitrationReversal` ledger row, keyed to the
+session. Assert amounts as verbatim string values or arithmetic against the frozen fee
+constants (`SESSION_FEE_HIFZ`), never hand-written money literals; a final end-state sweep
+re-reads every money row as one table so any cross-domain money regression fails loudly.
+
+## Enum encoding: GraphQL wire names vs storage values
+
+Pothos serializes enum members by **name** on the GraphQL wire, while storage columns (and
+service-layer returns) hold the enum's **value**: a plan's `balanceLane` crosses an in-process
+GraphQL parity leg as `"Hifz"` but is stored and returned by services as `"hifz"`
+(`SubscriptionCreditLane.Hifz`). When a journey asserts a GraphQL result against a
+VALUE-imported enum, compare against the member name (or case-insensitively); when asserting a
+service return or a raw row, compare against the value.
 
 ## Propagation notes
 

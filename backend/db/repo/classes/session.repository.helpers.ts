@@ -14,9 +14,12 @@
  *    run on the caller's transaction when supplied and fall back to raw
  *    parameterized SQL via `queryDb` (the Neon-HTTP-eligible pattern)
  *    otherwise;
- *  - NO prepared statements, NO array-membership operators, NO SQL
- *    line-comment sequences in any statement, and the lifecycle vocabulary
- *    is carried by the `SessionStatus` enum members, never string literals;
+ *  - NO prepared statements, NO SQL line-comment sequences in any
+ *    statement, and the lifecycle vocabulary is carried by the
+ *    `SessionStatus` enum members, never string literals. Array membership
+ *    is reserved for the sanctioned PK batch reads (participant names over
+ *    `users.id`, session rows by PK over `session.id`) — dynamic queries,
+ *    never prepared statements;
  *  - no business logic, no permission checks, no i18n or logging — the
  *    caller decides what `null` means.
  */
@@ -46,7 +49,7 @@ import type {
 type SessionOwnerColumn = typeof session.studentId;
 
 /** Column alias list for standalone reads — mirrors `$inferSelect` typing 1:1. */
-const SESSION_SELECT_COLUMNS = `
+export const SESSION_SELECT_COLUMNS = `
   id, teacher_id AS "teacherId", student_id AS "studentId", status,
   session_type AS "sessionType", intent, fee, fee_held AS "feeHeld", held_balance_lane AS "heldBalanceLane",
   started_at AS "startedAt", ended_at AS "endedAt", confirmed_by_student_at AS "confirmedByStudentAt",

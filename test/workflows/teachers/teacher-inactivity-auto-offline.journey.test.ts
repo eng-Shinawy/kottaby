@@ -77,6 +77,12 @@
  *     fixture sum to ONE pass — the row lock plus the guarded predicate
  *     make the losing pass a zero-row no-op (the winner is
  *     nondeterministic; the summed count never is).
+ * 11. The marker-restore pin: a teacher Available at lock time goes stale
+ *     mid-session, the last exit restores the flag to Available per the
+ *     captured marker (never an activity-conditioned restore — the stale
+ *     stamp survives the restore byte-exact), and the next sweep re-
+ *     offlines the gone-stale teacher (the freshness leg the restore
+ *     defers to the sweep).
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
@@ -183,6 +189,20 @@ async function backdateLastActiveAt(userId: number, stamp: Date): Promise<void> 
   if (rows.length === 0) {
     throw new Error(`clock-advance fixture: no users row ${userId} to backdate`);
   }
+}
+
+/**
+ * Independent read-back oracle — the persisted in-session lock marker for
+ * one teacher id (true while a session holds the lock and the pre-lock
+ * intent was Available; null once the release consumes it or no lock is
+ * held).
+ */
+async function readTeacherMarker(teacherId: number): Promise<boolean | null> {
+  const [row] = await db
+    .select({ wasOnlineBeforeLock: teacher.wasOnlineBeforeLock })
+    .from(teacher)
+    .where(eq(teacher.id, teacherId));
+  return row?.wasOnlineBeforeLock ?? null;
 }
 
 /**
@@ -602,5 +622,70 @@ describe("Cross-actor journey — the inactivity auto-offline sweep", () => {
     // byte-exact, whoever won).
     expect(await readTeacherIsOnline(victimId)).toBe(false);
     expect((await readLastActiveAt(victimId))?.getTime()).toBe(staleStamp.getTime());
+  });
+
+  test("step 11 — INV-A4: a marker=true restore returns Available; the next sweep re-offlines the gone-stale teacher (never an activity-conditioned restore)", async () => {
+    await drainOnlinePopulation();
+
+    // Per-step committed fixture: certified teacher R (the restore actor)
+    // plus the student counterparty for R's session. Real role rows and a
+    // real certification — the toggle and lifecycle gates below run
+    // unchanged, nothing monkey-patched.
+    const restoreCast = await db.transaction(async tx => {
+      const restoreUser = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, restoreUser.id, { isApproved: true, isOnline: false });
+      const counterpart = await createTestUser(tx, { role: "student" });
+      tracked.register(users, restoreUser.id);
+      tracked.register(teacher, restoreUser.id);
+      tracked.register(users, counterpart.id);
+      return { teacherId: restoreUser.id, studentId: counterpart.id };
+    });
+    journeyUserIds.push(restoreCast.teacherId, restoreCast.studentId);
+
+    // R is Available when the session starts — the pre-lock intent the
+    // release must restore. The real toggle commits the flag and a fresh
+    // activity stamp in one transaction (the explicit-intent stamp).
+    const toggle = await TeacherAvailabilityService.setAvailability(restoreCast.teacherId, true, LOCALE_EN);
+    expect(toggle.isOnline).toBe(true);
+
+    // A real session locks R offline and captures the marker (true) —
+    // the lock's COALESCE snapshot of the pre-lock availability intent.
+    const restoreSession = await db.transaction(async tx =>
+      createTestSession(tx, restoreCast.teacherId, restoreCast.studentId, {
+        status: SessionStatus.Scheduled,
+        sessionType: SessionType.StudentSession,
+        // A real tutoring intent — the lifecycle's completion wave resolves
+        // the wave context through the stored intent and fails closed on a
+        // NULL one, so the fixture carries the honest booked-session shape.
+        intent: SessionIntent.Hifz,
+      })
+    );
+    tracked.register(session, restoreSession.id);
+    await SessionLifecycleService.startSession(restoreCast.teacherId, restoreSession.id, LOCALE_EN);
+    expect(await readTeacherIsOnline(restoreCast.teacherId)).toBe(false);
+    expect(await readTeacherMarker(restoreCast.teacherId)).toBe(true);
+
+    // R goes stale DURING the session — the app has been closed for half an
+    // hour by the time the session concludes.
+    const staleStamp = minutesAgoSecondPrecision(30);
+    await backdateLastActiveAt(restoreCast.teacherId, staleStamp);
+
+    // Session conclusion: the last exit restores the flag to Available per
+    // the captured marker — the restore is NOT conditioned on the stale
+    // activity stamp (the shipped contract), consumes the marker, and
+    // stamps nothing.
+    await SessionLifecycleService.completeSession(restoreCast.teacherId, restoreSession.id, LOCALE_EN);
+    expect(await readTeacherIsOnline(restoreCast.teacherId)).toBe(true);
+    expect(await readTeacherMarker(restoreCast.teacherId)).toBeNull();
+    expect((await readLastActiveAt(restoreCast.teacherId))?.getTime()).toBe(staleStamp.getTime());
+
+    // The next sweep re-offlines the gone-stale teacher — the freshness
+    // leg the marker restore deliberately defers to the sweep (the
+    // documented self-healing cycle; never a resurrection and never an
+    // activity-conditioned restore at the release site itself).
+    const swept = await TeacherInactivityService.sweepInactiveTeachers();
+    expect(swept).toEqual({ offlined: 1 });
+    expect(await readTeacherIsOnline(restoreCast.teacherId)).toBe(false);
+    expect((await readLastActiveAt(restoreCast.teacherId))?.getTime()).toBe(staleStamp.getTime());
   });
 });

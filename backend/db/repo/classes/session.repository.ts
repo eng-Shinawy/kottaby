@@ -84,6 +84,7 @@
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import * as arbitrationImpl from "@/backend/db/repo/classes/session.repository.arbitration.helpers";
+import * as sessionRepositoryBatchImpl from "@/backend/db/repo/classes/session.repository.batch.helpers";
 import type {
   EvaluationCycleWindow,
   EvaluationSessionListFilter,
@@ -147,6 +148,15 @@ export namespace SessionRepository {
   export async function findById(id: number, tx?: DBTransaction): Promise<SessionSelectType | null> {
     return sessionRepositoryImpl.findById(id, tx);
   }
+
+  /**
+   * Batch read of session rows by primary key — the ONE `inArray`
+   * membership read over `session.id` (the session-side twin of the
+   * participant-name batch, collapsing N per-id PK reads into ONE
+   * membership query). An EMPTY id list answers `[]` WITHOUT any database
+   * round-trip. Type-exact const re-export (the `listNamesByIds` pattern).
+   */
+  export const findByIds = sessionRepositoryBatchImpl.findByIds;
 
   /**
    * Batch read of participant display names: `{ id, fullName }` for every

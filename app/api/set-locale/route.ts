@@ -24,7 +24,7 @@
  *
  * Security posture preserved verbatim: intentionally public endpoint (locale
  * preference only), same-origin/allow-list origin gating unchanged,
- * open-redirect guard unchanged, cookie flags byte-compatible with proxy.ts.
+ * open-redirect guard unchanged, cookie flags unchanged.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -42,6 +42,19 @@ const LOCALE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
 const LOCALE_COOKIE_NAME = "NEXT_LOCALE";
 const LOCALE_COOKIE_PATH = "/";
 const SET_COOKIE_HEADER = "set-cookie";
+
+/**
+ * Request-hygiene bound for the POST body — the transport-tier size cap.
+ *
+ * A locale payload is a tiny JSON object (`{ "locale": "en" }`); anything
+ * beyond this budget is payload-bomb abuse, not a legitimate switch. Enforced
+ * at TWO checkpoints (the dual-checkpoint mirror of
+ * `backend/lib/gateway/transport-guard.ts`): the declared `content-length`
+ * header BEFORE the stream is touched, then the drained text length (catches
+ * lying small declared headers). TRANSPORT-tier constant — deliberately NOT a
+ * domain taxonomy row.
+ */
+const MAX_SET_LOCALE_BODY_BYTES = 4_096;
 
 /**
  * Canonical BAD_REQUEST carrier for client-contract violations. The HTTP
@@ -69,7 +82,7 @@ function isSetLocaleBody(value: unknown): value is SetLocaleBody {
  * Single source of the NEXT_LOCALE cookie wire format — attribute set is
  * byte-equivalent to the previous `NextResponse.cookies.set(...)` flags:
  * non-httpOnly so the cookie jar stays consistent across first-visit
- * (proxy.ts) and explicit switch (this route); `Secure` only in production,
+ * defaults and explicit switch (this route); `Secure` only in production,
  * with the same plain-HTTP opt-out as the auth cookies
  * (`AUTH_COOKIE_SECURE=false` — HTTPS prod unchanged; the flag can only
  * DISABLE Secure, never force it on).
@@ -164,9 +177,35 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Locale updates do not expose sensitive data or actions.
     // Session-independent cookie (NEXT_LOCALE) is used for locale preference.
 
+    // Size checkpoint 1 — declared length (BEFORE the body stream is
+    // touched). Live declared-length predicate mirroring the transport tier:
+    // a missing/garbage header (`Number("")`-safe `?? "0"` + isFinite
+    // pre-check) falls through to the drained-length checkpoint below
+    // instead of rejecting.
+    const declaredLength = Number(request.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_SET_LOCALE_BODY_BYTES) {
+      return apiErrorResponse(badRequestError(tErrors.badRequest), {
+        locale: acceptLanguageLocale,
+        requestId,
+      });
+    }
+
+    // Bounded drain: the stream is read exactly once, then measured
+    // against the same cap (checkpoint 2 below).
+    const rawBody = await request.text();
+
+    // Size checkpoint 2 — drained length catches lying small declared
+    // headers; the cap is unconditional (size wins over content).
+    if (rawBody.length > MAX_SET_LOCALE_BODY_BYTES) {
+      return apiErrorResponse(badRequestError(tErrors.badRequest), {
+        locale: acceptLanguageLocale,
+        requestId,
+      });
+    }
+
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch (parseError) {
       if (parseError instanceof SyntaxError) {
         // Malformed client JSON is a transport-class client fault → localized

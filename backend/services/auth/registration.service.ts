@@ -3,8 +3,10 @@
  *
  * Responsibilities:
  *  1. Validate the public `RegistrationSubmitInput` (required fields, email
- *     shape, phone E.164 via the shared backend validator, password ≥ 8
- *     chars, country an ISO 3166-1 alpha-2 code from the shared dataset,
+ *     shape, phone E.164 via the shared backend validator, password 8–1024
+ *     chars — the shared length bounds, so a credential accepted here can
+ *     never exceed the login-side verify ceiling, country an ISO 3166-1
+ *     alpha-2 code from the shared dataset,
  *     role ∈ {student, teacher, parent}). Throws
  *     `ValidationError` with localized messages from
  *     `getServerTranslations(locale).authTranslations`.
@@ -33,6 +35,7 @@ import { AdminRepository, UserRepository } from "@/backend/db/repo";
 import { Gender } from "@/backend/enum/users/gender.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { hashPassword } from "@/backend/lib/auth/password";
+import { MAX_PASSWORD_LENGTH } from "@/backend/lib/auth/password-limits";
 import { withTransaction } from "@/backend/lib/db/with-transaction";
 import { ConflictError, translateDbError, ValidationError } from "@/backend/lib/errors";
 import {
@@ -225,10 +228,9 @@ export namespace RegistrationService {
     if (phoneError) {
       entries.push(phoneError);
     }
-    if (!input.password || input.password.length === 0) {
-      entries.push({ field: "password", code: "PASSWORD_REQUIRED", message: t.passwordRequired });
-    } else if (input.password.length < MIN_PASSWORD_LENGTH) {
-      entries.push({ field: "password", code: "PASSWORD_TOO_SHORT", message: t.passwordTooShort });
+    const passwordError = passwordFieldError(input.password, locale);
+    if (passwordError) {
+      entries.push(passwordError);
     }
     // Country carries an ISO 3166-1 alpha-2 code (any case / surrounding
     // padding — the shared schema normalizes before the dataset membership
@@ -265,6 +267,25 @@ export namespace RegistrationService {
     if (entries.length > 0) {
       throw new ValidationError(entries[0].message, entries);
     }
+  }
+
+  /**
+   * Password length gate — returns the FIRST failed check as a field
+   * payload entry (required → too short → too long, same order and messages
+   * as the inline chain it replaces) or `null` when the value passes.
+   */
+  function passwordFieldError(password: string, locale: string): ApiFieldErrorType | null {
+    const t = getServerTranslations(locale).authTranslations;
+    if (!password || password.length === 0) {
+      return { field: "password", code: "PASSWORD_REQUIRED", message: t.passwordRequired };
+    }
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return { field: "password", code: "PASSWORD_TOO_SHORT", message: t.passwordTooShort };
+    }
+    if (password.length > MAX_PASSWORD_LENGTH) {
+      return { field: "password", code: "PASSWORD_TOO_LONG", message: t.passwordTooLong };
+    }
+    return null;
   }
 
   /**

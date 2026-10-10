@@ -1,0 +1,23 @@
+$ bun run scripts/lib/run-locked-cmd.ts biome:check bunx @biomejs/biome check --write --unsafe .
+[36m[process-lock][0m Enqueued request for "biome:check" (PID: 3725169)
+[32m[process-lock][0m Acquired lock for "biome:check" (PID: 3725169). Executing...
+biome.json:2:14 deserialize ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i The configuration schema version does not match the CLI version 2.5.15
+  
+    1 │ {
+  > 2 │   "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+      │              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3 │   "vcs": {
+    4 │     "enabled": true,
+  
+  i   Expected:                     2.5.15
+      Found:                        2.5.13
+  
+  
+  i Run the command biome migrate to migrate the configuration file.
+  
+
+Checked 2739 files in 2s. Fixed 2 files.
+Found 1 info.
+[36m[process-lock][0m Released lock for "biome:check" (PID: 3725169)

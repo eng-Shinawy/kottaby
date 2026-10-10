@@ -50,7 +50,7 @@ interface AdminEditUserPatchInput {
   readonly fullName?: string;
   readonly phone?: string;
   readonly country?: string;
-  readonly gender?: "Male" | "Female" | "Other";
+  readonly gender?: "Male" | "Female";
   readonly dateOfBirth?: string;
 }
 
@@ -76,7 +76,7 @@ export function EditUserDialog({ labels, user, loading, onClose, onSubmit }: Edi
     // current value when patching. The list fragment carries these two safe
     // `users` columns to avoid a second round-trip to the detail endpoint.
     // `null` / `undefined` map to the empty select value.
-    gender: (user.gender ?? "") as "" | "Male" | "Female" | "Other",
+    gender: user.gender ?? "",
     dateOfBirth: user.dateOfBirth ?? "",
   });
   const { fieldErrors, formError, runWithFeedback } = useAdminUserFormFeedback();

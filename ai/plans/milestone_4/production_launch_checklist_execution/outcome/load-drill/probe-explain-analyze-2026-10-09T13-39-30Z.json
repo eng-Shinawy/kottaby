@@ -1,0 +1,107 @@
+{
+  "tool": "probe-explain-analyze",
+  "minRows": 100,
+  "surfaces": [
+    {
+      "surface": "directory-browse",
+      "drivingTable": "teacher",
+      "executionMs": 0.011,
+      "seqScans": []
+    },
+    {
+      "surface": "directory-browse",
+      "drivingTable": "teacher",
+      "executionMs": 0.014,
+      "seqScans": []
+    },
+    {
+      "surface": "directory-browse",
+      "drivingTable": "teacher",
+      "executionMs": 0.293,
+      "seqScans": [
+        {
+          "table": "users",
+          "liveRows": 451
+        },
+        {
+          "table": "teacher",
+          "liveRows": 31
+        }
+      ]
+    },
+    {
+      "surface": "directory-browse",
+      "drivingTable": "teacher",
+      "executionMs": 0.254,
+      "seqScans": [
+        {
+          "table": "users",
+          "liveRows": 451
+        },
+        {
+          "table": "teacher",
+          "liveRows": 31
+        }
+      ]
+    },
+    {
+      "surface": "student-session-list",
+      "drivingTable": "session",
+      "executionMs": 0.061,
+      "seqScans": []
+    },
+    {
+      "surface": "student-session-list",
+      "drivingTable": "session",
+      "executionMs": 0.047,
+      "seqScans": []
+    },
+    {
+      "surface": "student-session-list",
+      "drivingTable": "session",
+      "executionMs": 0.032,
+      "seqScans": []
+    },
+    {
+      "surface": "teacher-session-list",
+      "drivingTable": "session",
+      "executionMs": 0.073,
+      "seqScans": []
+    },
+    {
+      "surface": "teacher-session-list",
+      "drivingTable": "session",
+      "executionMs": 0.05,
+      "seqScans": []
+    },
+    {
+      "surface": "teacher-session-list",
+      "drivingTable": "session",
+      "executionMs": 0.034,
+      "seqScans": []
+    },
+    {
+      "surface": "notification-inbox",
+      "drivingTable": "notifications",
+      "executionMs": 0.048,
+      "seqScans": []
+    },
+    {
+      "surface": "notification-inbox",
+      "drivingTable": "notifications",
+      "executionMs": 0.018,
+      "seqScans": []
+    },
+    {
+      "surface": "escrow-balance-read",
+      "drivingTable": "wallet",
+      "executionMs": 0.025,
+      "seqScans": [
+        {
+          "table": "wallet",
+          "liveRows": 1
+        }
+      ]
+    }
+  ]
+}

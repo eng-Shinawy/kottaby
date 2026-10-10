@@ -29,7 +29,7 @@
 
 ### 0.1 Record Error Baseline & Initialize Deferred-Items Ledger
 
-- [ ] 0.1 [Record baseline + verify ledger]
+- [x] 0.1 [Record baseline + verify ledger]
   - Run and capture: `bun tsgo 2>&1 | grep "error TS" | wc -l > /tmp/baseline-tsgo.txt` · `bun biome:check 2>&1 | grep -c "warn" > /tmp/baseline-biome.txt` · `bun run scripts/lint-service.ts --json --id baseline > /tmp/baseline-lint.json`
   - VERIFY the pre-seeded `ai/plans/milestone_4/workflow_tests_student_journey/deferred-items.md` (ships with resolved-pointer rows D1–D6; do NOT re-create from template). Confirm D5 (stale docblock) is the only in-plan target (task 2.1).
   - Write `outcome/0-baseline-outcome.md` with the captured numbers (REQ-000 comparator).
@@ -37,7 +37,7 @@
 
 ### 0.2 Anchor Verification (grep/Read, no edits — BLOCKS Phase 1)
 
-- [ ] 0.2 [Verify every consumed anchor exists at its cited path:line]
+- [x] 0.2 [Verify every consumed anchor exists at its cited path:line]
   - Services: the 13 signatures in `plan.md` §4.3 (registration `registration.service.ts:89-92`, catalog `plan-catalog.service.ts:249`, purchase `subscription-purchase.service.ts:491`, settle `subscription-activation.service.ts:554-558`, handshake `student-handshake.service.ts:74`, link `parent-link-request.service.ts:168/:250`, browse `teacher-matching.service.ts:346-351`, lifecycle five `session-lifecycle.service.ts:201/:282/:361/:490/:749`, report `session-report.service.ts:357/:448`, portal six `parent-monitoring.service.ts:178-382`, arbitration `session-arbitration.service.ts:193/:313`).
   - Helpers: `TrackedFixtures` (`tracked-fixtures.ts:173-263`), `SpiedFanoutTransport` (`spied-transport.ts:49`), `InMemoryClaimCache` (`in-memory-claim-cache.ts:24`), `journeyPrefix` (`session-cast.ts:314`), `catchJourneyError` (`journey-fixtures.ts:226`), entity-setup factories (`entity-setup.ts:74/:104/:131/:169/:180/:550`).
   - Constants/enums: `SESSION_FEE_HIFZ = "25.00"` (`session-fees.constants.ts:35-38`), `FREE_TRIAL_SESSION_COUNT = 1` (`free-trial.constants.ts:11`), `SubscriptionCreditLane.Hifz` (`subscription-credit-lane.enum.ts:9`), `RecitationReading.HAFS_AN_ASIM` (`recitation-reading.enum.ts:39`), `SessionIntent.Hifz` (`session-intent.enum.ts:6`).
@@ -58,7 +58,7 @@
 
 ### 1.1 Suite Scaffold, Cast Provisioning & Registration-Outcomes Step
 
-- [ ] 1.1 [Scaffold suite + committed cast + step 1 — suite GREEN from first landing]
+- [x] 1.1 [Scaffold suite + committed cast + step 1 — suite GREEN from first landing]
   - Read all `outcome/` files; then create `test/workflows/students/student-full-journey.journey.test.ts` with: imports (bun:test, `@/test/workflows/helpers`, entity-setup, services, `graphQLSchema` + Context factory, `getServerTranslations`, Drizzle tables + VALUE enums) — NO relative imports, NO `console.*`, NO `any`.
   - `beforeAll`: ONE committing `db.transaction`: register S via real `RegistrationService.registerUser({ ..., country: "EG", role: "student", preferredRecitation: RecitationReading.HAFS_AN_ASIM }, "en", tx)` and P (locale `"ar"`) the same way (D3); direct-insert T via `createTestUser` + `createTestTeacherRow` with the on-demand-matching metadata recipe (`isOnline: true`, `isApproved: true`, `recitations: JSON.stringify(["hafs_an_asim"])`, `subjects: JSON.stringify([SessionIntent.Hifz])`, languages per recipe, `averageRating`); A via `createTestAdmin`; S2 via `provisionStudentActor`-equivalent (zero lanes — `createTestStudent` grants NO trial); P2 via `createTestParent`; plan row via `createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Hifz, sessionCount: 8, price: "200.00", currency: "EGP", intervalDays: 30, isActive: true })`. `tracked.register(...)` EVERY row (users first, then child — reverse-safe).
   - Step 1 (Student): assert registration outcomes — user row `role: "student"`, `preferredRecitation` echoed (`RegistrationReturnType`), `balanceTrial = 1`, all paid lanes 0, handshake code non-empty (`getMyHandshakeCode`), ZERO `recitation` rows (R3).
@@ -69,7 +69,7 @@
 
 ### 1.2 Catalog, Purchase, Settlement, Replay & GraphQL Parity Legs
 
-- [ ] 1.2 [Steps 2-7: money-in + scope gates]
+- [x] 1.2 [Steps 2-7: money-in + scope gates]
   - Step 2 (Student): `listActiveCatalog("en")` contains the journey plan (REQ-004.1).
   - Step 3 (Student): in-process GraphQL `planCatalog` query with student context — positive parity (copy harness from `subscription-purchase.journey.test.ts:189-264`; REQ-005.2).
   - Step 4 (Student): `purchase(S, { planId }, keyP, "en")` → pending pair + checkout ref; assert no network path (mock provider) (REQ-004.2).
@@ -82,7 +82,7 @@
 
 ### 1.3 Parent Link Chain Leg (Real Production Flow)
 
-- [ ] 1.3 [Steps 8-10: handshake → request → accept]
+- [x] 1.3 [Steps 8-10: handshake → request → accept]
   - Step 8 (Student): `getMyHandshakeCode(S, "en")` returns the minted code (REQ-006 precondition).
   - Step 9 (Parent): `requestLink(code, P, "ar", undefined, { transport, cache })` → link-request row + student wave `{S}` (REQ-006.1).
   - Step 10 (Student): `respondToLinkRequest(requestId, true, S, "en", undefined, { transport, cache })` → `students.parentId = P`; parent acceptance wave `{P}`; `listLinkedChildren(P, "ar")` = [S] (REQ-006.2/.3). Assert P2 (unlinked) sees NOTHING (no fan-out).
@@ -92,7 +92,7 @@
 
 ### 1.4 Teacher Browse, Booking, Lifecycle, Confirmation & Wallet Legs
 
-- [ ] 1.4 [Steps 11-17: the session core]
+- [x] 1.4 [Steps 11-17: the session core]
   - Step 11 (Student): `browseAvailableTeachers(S, { recitation: HAFS_AN_ASIM, intent: SessionIntent.Hifz, page: 1, pageSize: 25, search: null, minRating: null, sort: RATING_DESC }, "en")` — teacher T present (hard filters is_online + recitations token; REQ-007.1).
   - Step 12 (Student): `createSession(S, { teacherId: T, intent: Hifz }, keyA, "en")` → scheduled, `fee: "25.00"`, `feeHeld: true`, trial 1→0 with hifz UNCHANGED at 8 (ladder precedence), ONE request wave `{T}` (namespace spy on `publishReceipts` — D6). Track session + idempotency row (REQ-007.2-4).
   - Step 13 (Student): replay keyA → `DUPLICATE_REQUEST`, zero new rows (REQ-007.5).
@@ -105,7 +105,7 @@
 
 ### 1.5 Report, Parent Wave & Portal Read Legs
 
-- [ ] 1.5 [Steps 18-22: report → waves → portal]
+- [x] 1.5 [Steps 18-22: report → waves → portal]
   - Step 18 (Teacher): `submitSessionReport(T, sessionA, { teacherNotes, studentRatingByTeacher: 5, homework: HomeWorkAssignInput }, "en", undefined, { transport: spied, cache })` → report + homework rows; exactly TWO receipt waves `{S en, P ar}`; TWO publishes (injected seam — D6). Track report + homework + notification rows (REQ-009.1).
   - Step 19 (Student): `getSessionReport(S, sessionA, "en")` → own report visible (REQ-009 read).
   - Step 20 (Parent): inbox row carries `session_completion` type + `(type, "session", sessionA)` related-entity triple; `getSessionTarget(P, sessionA, "ar")` → `{ sessionId, studentId }`; landing URL shape `/parent/children/<studentId>?tab=reports&session=<sessionId>` asserted as data (REQ-009.2/.3).
@@ -116,7 +116,7 @@
 
 ### 1.6 Edge Legs — Insufficient Balance, Cancellation, Post-Confirmation Dispute
 
-- [ ] 1.6 [Steps 23-29: the three ticket edge cases]
+- [x] 1.6 [Steps 23-29: the three ticket edge cases]
   - Step 23 (S2 — edge): `createSession(S2, { teacherId: T, intent: Hifz }, keyD, "en")` via `catchJourneyError` → `INSUFFICIENT_BALANCE` (translated substring); zero session/hold/ledger rows; NO idempotency claim burned for keyD (REQ-010).
   - Step 24 (Student): `createSession(S, { teacherId: T, intent: Hifz }, keyB, "en")` → session B scheduled; paid-lane debit hifz 8→7 (trial exhausted); `feeHeld=true`; ONE request wave `{T}` (REQ-011.1).
   - Step 25 (Student): `cancelSession(S, sessionB, reason, "en")` → cancelled; `feeHeld=false`; hifz 7→8 (same-lane refund exactly once); ZERO waves (participant cancel is silent — verified no notify calls in the cancel path) (REQ-011.2/.3).
@@ -129,7 +129,7 @@
 
 ### 1.7 Final Consistency Sweep, Teardown Hardening & Double-Run Proof
 
-- [ ] 1.7 [Steps 30-31 + afterAll hardening + idempotent-run proof]
+- [x] 1.7 [Steps 30-31 + afterAll hardening + idempotent-run proof]
   - Step 30 (System): the ONE-step end-state table — re-read every money row (S lanes trial=0/hifz=8, wallet `"25.00"`, total_earning per shipped reversal semantics, 2 earnings + 1 reversal, all 3 sessions with expected statuses + `fee_held=false` + fee `"25.00"`), content rows (1 report, 1 homework, progress increment), billing rows (subscription active, payment paid, junction present), per-actor inbox deltas exactly as stepped, S2/P2 inboxes at zero (REQ-013).
   - Step 31 / `afterAll` HARDENING: restore spies (`spyOn` restores); `withImmutabilityTriggersSuspended(["student_payments", "teacher_transaction"])` delete-by-our-ids; `withAuditDeleteTriggersSuspended` audit sweep (actor + related-entity ids — precedent `post-confirmation-dispute.journey.test.ts:429-451`); junction sweep by subscription id + re-probe (`subscription-purchase.journey.test.ts:439-448`); `tracked.cleanup()` (reverse-registration); ZERO-RESIDUE re-probes for EVERY tracked row — a leak fails the suite (REQ-014.1/.2).
   - **Double-run proof:** run the suite twice consecutively via the approved runner — both green (REQ-014.3); then whole-layer sweep `bun run test/scripts/run-test.ts test/workflows` green (no neighbor breakage).
@@ -142,7 +142,7 @@
 
 ### 2.1 Stale Docblock Fix (`test/workflows/helpers/journey-fixtures.ts:157`)
 
-- [ ] 2.1 [Comment-only fix — `linkStudentToParentFixture` docblock]
+- [x] 2.1 [Comment-only fix — `linkStudentToParentFixture` docblock]
   - The docblock claims the production link flow "does not exist yet" — DISPROVEN by `backend/services/parents/parent-link-request.service.ts:145+` and by this plan's step 9-10 (real chain driven). Rewrite the docblock to state it is a DIRECT-WRITE fixture emulation kept for suites that need a committed link without driving the real chain; real journeys use `ParentLinkRequestService`. ZERO behavior change; do NOT touch the function body.
   - **2.1.QL** sub-loop on the helpers file (exit 0) · **2.1.TE** `bun run test/scripts/run-test.ts test/workflows/helpers/helpers.self-test.test.ts` + `journey-fixtures.smoke.test.ts` green (helper contract unchanged) · **2.1.SR** comment-hygiene sweep: no stale claims remain · **2.1.IV** validate against `test/workflows/AGENTS.md` + `backend/AGENTS.md` context.
   - Resolve ledger row D5. Write `outcome/2.1-outcome.md`; flip checkbox.
@@ -150,7 +150,7 @@
 
 ### 2.2 Final Quality Gate & Deferred-Items Enforcement (BLOCKING)
 
-- [ ] 2.2 [Whole-layer green + zero-unresolved-ledger + baseline comparison]
+- [x] 2.2 [Whole-layer green + zero-unresolved-ledger + baseline comparison]
   - `grep -cE '^\s*\|.*(❌|⚠️)' ai/plans/milestone_4/workflow_tests_student_journey/deferred-items.md` → **0**.
   - Whole-layer sweep green; suite double-run green; `bun run scripts/health/sub-loop.ts <file> --lifecycle duplicates` exit 0 on BOTH touched files (the journey + the helper).
   - Compare against `/tmp/baseline-*.txt`: document any new errors introduced (expected: none — test-only plan).
@@ -159,7 +159,7 @@
 
 ### 2.3 Knowledge Propagation & Documentation (MANDATORY final task)
 
-- [ ] 2.3 [Consolidate learnings into `docs/` — AGENTS.md files stay hand-curated]
+- [x] 2.3 [Consolidate learnings into `docs/` — AGENTS.md files stay hand-curated]
   - Read ALL outcome files in `ai/plans/milestone_4/workflow_tests_student_journey/outcome/`; extract recurring patterns/gotchas (e.g. lane-choreography across sessions, membership-based admin-wave assertions, mixed interception seams, immutable-table sweep discipline).
   - Update `docs/testing/workflow-journey-tests.md` consolidated-examples list (`:150-157`): add `test/workflows/students/student-full-journey.journey.test.ts` with a one-line description (ticket chain: registration → purchase → session → confirmation → parent report). If a NEW pattern emerged that deserves a standalone canonical doc, create `docs/testing/<kebab-topic>.md` following the docs structure (Why → Pattern → Rules → Anti-patterns → Rollout Summary → Related) — otherwise the examples-list update suffices.
   - NEVER touch `AGENTS.md` or `.agents/instructions/*` (hand-curated only).

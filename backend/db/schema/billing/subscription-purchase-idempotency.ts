@@ -20,6 +20,12 @@ import { users } from "@/backend/db/schema/users/users";
  * owner). `subscription_id` → subscriptions.id is nullable and set-null on
  * subscription delete: the claim outlives its subscription so a replay still
  * surfaces the duplicate-conflict semantics instead of silently re-purchasing.
+ *
+ * Indexes:
+ *  - `subscription_purchase_idempotency_key_unique` on `idempotency_key`
+ *  - `subscription_purchase_idempotency_user_id_idx` on `user_id` (FK)
+ *  - `subscription_purchase_idempotency_subscription_id_idx` on
+ *    `subscription_id` (FK)
  */
 export const subscriptionPurchaseIdempotency = pgTable(
   "subscription_purchase_idempotency",
@@ -35,5 +41,6 @@ export const subscriptionPurchaseIdempotency = pgTable(
   t => [
     unique("subscription_purchase_idempotency_key_unique").on(t.idempotencyKey),
     index("subscription_purchase_idempotency_user_id_idx").on(t.userId),
+    index("subscription_purchase_idempotency_subscription_id_idx").on(t.subscriptionId),
   ]
 );

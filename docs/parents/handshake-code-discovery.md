@@ -170,7 +170,7 @@ Iterative code-space probing is a recognized residual risk; the shipped posture 
 | Role gate | Parent-only (`$all` conjunction): anonymous → `UNAUTHORIZED` (401); any other authenticated role → `FORBIDDEN` (403) before any read. No admin/supervisor read override. |
 | Payload value | Negligible — one grapheme per name part plus one bit. A successful probe learns almost nothing, and `linkable: false` reveals only "already linked", never whose child or which parent. |
 | Keyspace | 16⁸ ≈ 4.3 billion codes (a 32-bit space) — unguessable at registration scale. |
-| Rate limiting | Inherited platform posture: the limiter is a fail-open stub (`backend/lib/ratelimit.ts` — `checkRateLimit` always succeeds). Real per-parent/per-IP throttling of this query is owned by the future rate-limiting hardening stream, not by this surface. |
+| Rate limiting | Inherited platform posture: every request through the GraphQL gateway is capped by an in-memory sliding-window limiter — 100 requests / 60 s per client IP (`backend/lib/ratelimit.ts` — `graphqlRateLimiter`), keyed through the spoof-resistant `resolveClientIp` chain (`x-real-ip` → rightmost `x-forwarded-for` → `"local"`) and answering 429 + localized `RATE_LIMIT_EXCEEDED` on exhaustion. Honest limit: the window state is per-instance in-memory — not shared across server instances and reset on restart. This query has no limiter of its own (the per-parent cap on the parent MONITORING portal — `enforcePortalRateLimit`, `backend/services/parents/parent-monitoring.service.ts:144-159` — is a different surface and does not apply to discovery); discovery-specific throttling belongs to the future rate-limiting hardening stream, not to this surface. |
 | Real limiter today | The link-time re-validation itself: discovery grants nothing, so probing discovers only masks — every actual link attempt is re-validated server-side (R5). |
 
 ### R7 — Oracle hygiene and side-effect absence
@@ -194,7 +194,7 @@ The ONLY sanctioned information channel is: valid-format code → (`null` | mask
 - **Do not log the submitted code** — on any path, at any layer.
 - **Do not use LIKE/ILIKE, string concatenation, or `sql`-template interpolation** for the lookup. One parameterized equality predicate, nothing else.
 - **Do not add a cache layer for lookup results** — positive or negative. Lookups are cheap, single-row, parameterized reads.
-- **Do not add rate limiting inside the discovery service.** The platform limiter is a fail-open stub at the transport boundary; real throttling belongs to the rate-limiting hardening stream.
+- **Do not add rate limiting inside the discovery service.** The platform limiter is a real in-memory sliding window enforced at the transport boundary (per client IP, 100/60 s); discovery-specific throttling belongs to the rate-limiting hardening stream, never inside the service.
 - **Do not re-implement the generator or the mask.** Generation is locked in the registration path (`docs/auth/user-registration.md` §2); masking is `shared/lib/mask-full-name.ts`. Consume, never duplicate.
 - **Do not add an admin/supervisor read override** to either handshake query. Admin governance operates on governed data through its own surfaces, not through parent discovery.
 

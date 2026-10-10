@@ -57,6 +57,7 @@ bun run test/scripts/run-test.ts --last --focus "<pattern>" <path>  # Filtered v
 # Quality Gates
 bun quality-gate               # Automated quality verification (tsgo → oxlint → biome → lint → duplicates)
 bun quality-gate:fresh         # Reset state and run fresh
+bun run scripts/launch/launch-gate.ts   # Production launch gate — resumable 9-stage readiness run (--dry-run pre-flight; --fresh resets gate state only); see docs/quality/launch-gate.md
 
 # Unused-code analysis (knip — MUST run under Bun)
 bun run check:unused           # Unused files/exports/deps scan; exit 0 = clean (informational extension hints OK)

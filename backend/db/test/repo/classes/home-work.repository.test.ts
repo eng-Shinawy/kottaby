@@ -36,6 +36,14 @@
  *    attempts produce exactly ONE winner; unique-race on
  *    `home_work.session_id` produces the RAW `23505` naming
  *    `home_work_session_id_unique` (the repository does not translate it).
+ *  - Schema-tier invariant probes: the session link is mandatory and live
+ *    (a NULL `session_id` raises 23502; an orphan `session_id` raises
+ *    23503 on `home_work_session_id_session_id_fkey`; deleting the
+ *    session row cascades the homework row), and the 0-100 grade CHECKs
+ *    backstop the guard-free `gradeHomeWorkOnce` path (101/-1 raise 23514
+ *    naming `home_work_current_grade_check` /
+ *    `home_work_revision_grade_check`; the row survives every rejected
+ *    write).
  *  - Tier 4 (security): an out-of-enum surah/juz value is rejected at the
  *    DB tier via a raw executor probe (`22P02`, the enum type is the
  *    defense-in-depth backstop behind the service's `isSurahJuzRef`
@@ -67,6 +75,12 @@ import {
   createTestTeacherRow,
   createTestUser,
 } from "@/backend/db/test/entity-setup";
+import {
+  expectCheckViolation,
+  expectFkViolation,
+  expectNotNullViolation,
+  probeInsideSavepoint,
+} from "@/backend/db/test/logic/invariants/invariant-probe.helpers";
 import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
 import { constraintNameOf, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
@@ -164,6 +178,12 @@ async function readHomeWorkRow(tx: DBTransaction, id: number): Promise<HomeWorkS
     throw new Error("readHomeWorkRow: expected the home_work row to exist");
   }
   return row;
+}
+
+/** An integer session id that cannot exist as a `session` row in this transaction. */
+async function absentSessionId(tx: DBTransaction): Promise<number> {
+  const [row] = await tx.select({ maxId: sql<number>`coalesce(max(${session.id}), 0)::int` }).from(session);
+  return (row?.maxId ?? 0) + 1_000_000;
 }
 
 describe("HomeWorkRepository — transactional paths (runInRollback)", () => {
@@ -457,6 +477,86 @@ describe("HomeWorkRepository — transactional paths (runInRollback)", () => {
       // winner's row intact.
       const winner = await HomeWorkRepository.findBySessionId(sessionRow.id, tx);
       expect(winner?.id).toBe(first.id);
+    });
+  });
+
+  // ─── Schema-tier invariant probes (session link + grade bounds) ─────
+
+  test("INV-HW1: a NULL session_id raises 23502; an orphan session_id raises 23503 on home_work_session_id_session_id_fkey; a session-row delete cascades the homework row", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const sessionRow = await createCompletedSession(tx, actors);
+      const assignment = await HomeWorkRepository.insertHomeWork({ sessionId: sessionRow.id }, tx);
+      expect(assignment.id).toBeGreaterThan(0);
+
+      // NOT NULL leg: the session link is mandatory — a link-less
+      // homework row is rejected by the column itself (raw wire-level
+      // probe; the typed insert surface never offers the null).
+      const nullLinkError = await probeInsideSavepoint(tx, "home work null session link", () =>
+        tx.execute(sql`INSERT INTO home_work (session_id) VALUES (NULL)`)
+      );
+      expectNotNullViolation(nullLinkError, "session_id");
+
+      // FK leg: a session id beyond the sequence cannot be referenced.
+      const orphanId = await absentSessionId(tx);
+      const orphanError = await probeInsideSavepoint(tx, "home work orphan session link", () =>
+        tx.execute(sql`INSERT INTO home_work (session_id) VALUES (${orphanId})`)
+      );
+      expectFkViolation(orphanError, "home_work_session_id_session_id_fkey");
+
+      // The savepoint brackets kept the transaction queryable — the
+      // fixture assignment row is intact and still ungraded.
+      const survivor = await HomeWorkRepository.findBySessionId(sessionRow.id, tx);
+      expect(survivor?.id).toBe(assignment.id);
+      expect(survivor?.currentGrade).toBeNull();
+      expect(survivor?.revisionGrade).toBeNull();
+
+      // Cascade leg: removing the session row removes its homework row
+      // (the FK's ON DELETE CASCADE contract — homework never outlives
+      // its session).
+      await tx.delete(session).where(eq(session.id, sessionRow.id));
+      expect(await HomeWorkRepository.findBySessionId(sessionRow.id, tx)).toBeNull();
+    });
+  });
+
+  test("INV-HW2: gradeHomeWorkOnce (bypassing service validation) with 101/-1 raises 23514 on home_work_current_grade_check / home_work_revision_grade_check (row survives)", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const sessionRow = await createCompletedSession(tx, actors);
+      const target = await createTestHomeWork(tx, sessionRow.id);
+
+      // The guarded one-shot UPDATE carries NO range guard — the DB CHECKs
+      // are the only backstop on this path. Each rejected statement is
+      // atomic, so the row stays ungraded after every probe.
+      const overCurrent = await probeInsideSavepoint(tx, "home work current grade ceiling", () =>
+        HomeWorkRepository.gradeHomeWorkOnce(target.id, { currentGrade: 101, revisionGrade: 50 }, tx)
+      );
+      expectCheckViolation(overCurrent, "home_work_current_grade_check");
+
+      const underCurrent = await probeInsideSavepoint(tx, "home work current grade floor", () =>
+        HomeWorkRepository.gradeHomeWorkOnce(target.id, { currentGrade: -1, revisionGrade: 50 }, tx)
+      );
+      expectCheckViolation(underCurrent, "home_work_current_grade_check");
+
+      const overRevision = await probeInsideSavepoint(tx, "home work revision grade ceiling", () =>
+        HomeWorkRepository.gradeHomeWorkOnce(target.id, { currentGrade: 50, revisionGrade: 101 }, tx)
+      );
+      expectCheckViolation(overRevision, "home_work_revision_grade_check");
+
+      const underRevision = await probeInsideSavepoint(tx, "home work revision grade floor", () =>
+        HomeWorkRepository.gradeHomeWorkOnce(target.id, { currentGrade: 50, revisionGrade: -1 }, tx)
+      );
+      expectCheckViolation(underRevision, "home_work_revision_grade_check");
+
+      // Row survives: still ungraded after four rejected writes, and the
+      // very next legal grade lands through the same guarded statement —
+      // the transaction is fully alive, never poisoned.
+      const intact = await readHomeWorkRow(tx, target.id);
+      expect(intact.currentGrade).toBeNull();
+      expect(intact.revisionGrade).toBeNull();
+      const graded = await HomeWorkRepository.gradeHomeWorkOnce(target.id, { currentGrade: 90, revisionGrade: 80 }, tx);
+      expect(graded?.currentGrade).toBe(90);
+      expect(graded?.revisionGrade).toBe(80);
     });
   });
 

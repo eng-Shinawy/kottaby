@@ -12,11 +12,7 @@ node_modules
 !.yarn/versions
 
 # Next.js, Build & Output Directories
-/.next/
-/.next-dev/
-/.next-test/
-/.next-test-*
-/.next-locale-snapshots-version
+/.next*/
 /out/
 /dist/
 /build/
@@ -45,6 +41,7 @@ eslint-results.json
 .oxlint-baseline.json
 .scannerwork/
 .quality-gate-state.json
+.launch-gate-state.json
 .quality-gate-lock/
 .unused/
 
@@ -69,6 +66,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 /logs/
+logs/perf/
 *.log
 *.sql_ignore
 nohup.out

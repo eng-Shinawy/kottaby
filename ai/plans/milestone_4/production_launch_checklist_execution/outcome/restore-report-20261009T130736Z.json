@@ -1,0 +1,239 @@
+{
+  "tool": "ops:db-restore-verify",
+  "artifactFile": "dump.pgc",
+  "artifactSha256": "8848b679e03178600c89c71336fc323db1f4a3da8907a36a2ddadf7f54423e54",
+  "target": {
+    "database": "kottaby_drill_20261009T130732Z"
+  },
+  "startedAtUtc": "2026-10-09T13:07:36.540Z",
+  "durationMs": 255,
+  "structural": [
+    {
+      "table": "admin",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "applicants",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "audit_logs",
+      "present": true,
+      "rowCount": 60,
+      "sourceNonEmpty": true,
+      "ok": true
+    },
+    {
+      "table": "broadcasts",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "evaluations",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "home_work",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "lessons",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "notifications",
+      "present": true,
+      "rowCount": 149,
+      "sourceNonEmpty": true,
+      "ok": true
+    },
+    {
+      "table": "parent_link_requests",
+      "present": true,
+      "rowCount": 2,
+      "sourceNonEmpty": true,
+      "ok": true
+    },
+    {
+      "table": "parents",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "plans",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "progress",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "recitation",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "reports",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "session",
+      "present": true,
+      "rowCount": 70,
+      "sourceNonEmpty": true,
+      "ok": true
+    },
+    {
+      "table": "session_request_idempotency",
+      "present": true,
+      "rowCount": 55,
+      "sourceNonEmpty": true,
+      "ok": true
+    },
+    {
+      "table": "student_payments",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "student_subscriptions",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "students",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "subscription_purchase_idempotency",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "subscriptions",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "teacher",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "teacher_transaction",
+      "present": true,
+      "rowCount": 1,
+      "sourceNonEmpty": true,
+      "ok": true
+    },
+    {
+      "table": "teacher_verification",
+      "present": true,
+      "rowCount": -1,
+      "sourceNonEmpty": false,
+      "ok": true
+    },
+    {
+      "table": "users",
+      "present": true,
+      "rowCount": 450,
+      "sourceNonEmpty": true,
+      "ok": true
+    },
+    {
+      "table": "wallet",
+      "present": true,
+      "rowCount": 1,
+      "sourceNonEmpty": true,
+      "ok": true
+    }
+  ],
+  "oracles": [
+    {
+      "id": "OR-W1",
+      "description": "no wallet row with a negative balance",
+      "passed": true,
+      "offendingCount": 0
+    },
+    {
+      "id": "OR-W2",
+      "description": "every teacher_transaction row joins an existing wallet",
+      "passed": true,
+      "offendingCount": 0
+    },
+    {
+      "id": "OR-B1",
+      "description": "session holds are non-negative and carry valid balance-lane provenance (no negative hold, no held row without a lane, no lane outside the vocabulary)",
+      "passed": true,
+      "offendingCount": 0
+    },
+    {
+      "id": "OR-U1",
+      "description": "no audit_logs row with a null or dangling actor reference",
+      "passed": true,
+      "offendingCount": 0
+    },
+    {
+      "id": "OR-U2",
+      "description": "soft-deleted users retain their audit history rows",
+      "passed": true,
+      "offendingCount": 0
+    },
+    {
+      "id": "OR-REQ",
+      "description": "every session_request_idempotency row references an existing user",
+      "passed": true,
+      "offendingCount": 0
+    },
+    {
+      "id": "OR-MIG",
+      "description": "restored __drizzle_migrations trailing hash matches the backup's trailing journal migration hash (no migration tracking in the restored database is also faithful: a push-managed source never writes migration rows)",
+      "passed": true,
+      "offendingCount": 0
+    }
+  ],
+  "verdict": "PASS"
+}

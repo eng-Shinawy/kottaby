@@ -280,7 +280,7 @@ Registration ships with a complete JWT auth vertical slice. The flow:
 4. Sign `access_token` (15min, HS256) + `refresh_token` (7day, HS256).
 5. Return `{ user, accessToken, refreshToken }`.
 
-The `refresh_token` is also set as an **httpOnly cookie** by the Next.js route handler (never visible to JS). The `access_token` is returned in the response body and held in **React memory only** by `AuthProvider` (XSS mitigation — never set as a cookie).
+The `refresh_token` is also set as an **httpOnly cookie** by the Next.js route handler (never visible to JS). The `access_token` is stored in **dual** form: returned in the response body and held in React memory by `AuthProvider` for the Apollo `Authorization: Bearer` header, AND set as an **httpOnly cookie** so Server Components / `getServerUserContext()` can authenticate SSR without any client-supplied identity (`backend/lib/auth/cookies.ts` — `setAuthCookies` writes all three cookies; see `docs/auth/jwt-authentication-service.md` §2.1).
 
 ### 7.3 `me` query
 
@@ -352,7 +352,7 @@ Never hardcode error strings — always use typed translation functions.
 - `backend/services/auth/registration.service.ts`
 - `backend/services/auth/auth.service.ts`
 - `backend/lib/auth/jwt.ts`, `backend/lib/auth/cookies.ts`, `backend/lib/auth/password.ts`
-- `backend/lib/ratelimit.ts` (stub)
+- `backend/lib/ratelimit.ts` (in-memory sliding-window limiter: transport per-IP window, auth IP/identity buckets, spoof-resistant `resolveClientIp` keying — per-instance state)
 - `backend/db/repo/users/user.repository.ts`, `admin.repository.ts`
 - `backend/db/repo/students/student.repository.ts`
 - `backend/db/repo/parents/parent.repository.ts`
@@ -386,7 +386,7 @@ Never hardcode error strings — always use typed translation functions.
 ### 9.3 Deferred and future work
 
 - Recitation (Qira'ah) record creation tied to student registration.
-- Session store for refresh-token revocation and a real rate limiter (the current `backend/lib/ratelimit.ts` is a stub).
+- Session store for refresh-token revocation (the JWT pair is currently stateless) and a shared-store rate limiter (the current `backend/lib/ratelimit.ts` is an enforced in-memory sliding window — real, but per-instance and reset on restart).
 - Teacher verification pipeline (applicants → teacher row) — see `docs/teachers/applicant-lifecycle.md`.
 - Parent handshake consumption (linking a parent via `handshake_code`).
 - Admin onboarding mutation that wires `createAdminUser` to a permission-gated surface.

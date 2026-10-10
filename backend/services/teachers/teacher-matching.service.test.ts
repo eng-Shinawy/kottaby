@@ -48,7 +48,10 @@
  *    later state; the next browse re-reads committed state).
  *  - Tier 4 (security/abuse): `%`/`_` wildcard tokens are escaped at the
  *    service's single escape point and match ONLY literally (behavioral
- *    escape proof), the caller-miss denial logs EXACTLY ONCE with a
+ *    escape proof), the hostile search payload matrix (SQL-injection
+ *    strings + bare/mixed LIKE metacharacters) matches only the
+ *    literal-substring carrier with zero rows modified, the caller-miss
+ *    denial logs EXACTLY ONCE with a
  *    bounded context (no PII) and the happy path logs NOTHING, smuggled
  *    id fields on the input never reach the query builder (BOLA/BOPLA),
  *    and static source pins (no spread into any builder, one escape
@@ -78,6 +81,7 @@ import { TeacherMatchingSort } from "@/backend/enum/teachers/teacher-matching-so
 import { escapeLikeWildcards } from "@/backend/lib/db/escape-like-wildcards";
 import { DomainError, NotFoundError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { HOSTILE_SEARCH_PAYLOADS } from "@/backend/services/shared/hostile-search-payloads";
 import { TeacherMatchingService } from "@/backend/services/teachers/teacher-matching.service";
 import type { DBQueryExecutor, TeacherMatchingSubmitInput } from "@/backend/types";
 import { RecitationReading } from "@/shared/constants/recitation-reading.enum";
@@ -1309,5 +1313,161 @@ describe("TeacherMatchingService.browseAvailableTeachers", () => {
     expect(/parseTeacherLanguages/.test(projection)).toBe(true);
     expect(/parseAverageRating/.test(projection)).toBe(true);
     expect(/isOnline: row\.isOnline \?\? false/.test(projection)).toBe(true);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Hostile search payload matrix (injection + wildcard) — Tier 4
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("TeacherMatchingService.browseAvailableTeachers — hostile search payload matrix", () => {
+  // The RARE_READING certification isolates every browse below to THIS
+  // suite's fixtures, so the literal match set is exactly the one carrier
+  // teacher per payload — the page-level equality assertions stay exact
+  // even on a shared database.
+  test.each(HOSTILE_SEARCH_PAYLOADS)(
+    "hostile search ($label): only the literal-substring carrier matches; nothing is modified",
+    async ({ payload, decoys }) => {
+      await runInRollback(async tx => {
+        const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+        const runTag = randomUUID().slice(0, 8);
+
+        // The carrier embeds the payload VERBATIM in its display name; each
+        // decoy is a certified teacher whose name would surface if the
+        // payload's metacharacters kept their wildcard meaning.
+        const carrier = await createDirectoryTeacher(tx, {
+          recitations: [RARE_READING],
+          subjects: [HIFZ_SUBJECT],
+        });
+        await tx
+          .update(users)
+          .set({ fullName: `${payload}${runTag}` })
+          .where(eq(users.id, carrier));
+        const decoyIds = await Promise.all(
+          decoys.map(async decoy => {
+            const decoyTeacher = await createDirectoryTeacher(tx, {
+              recitations: [RARE_READING],
+              subjects: [HIFZ_SUBJECT],
+            });
+            await tx
+              .update(users)
+              .set({ fullName: `${decoy}${runTag}` })
+              .where(eq(users.id, decoyTeacher));
+            return decoyTeacher;
+          })
+        );
+
+        const usersBefore = await tx.$count(users);
+        const teachersBefore = await tx.$count(teacher);
+        silenceDomainLog();
+
+        const page = await TeacherMatchingService.browseAvailableTeachers(
+          callerId,
+          browseInput(RARE_READING, HIFZ_SUBJECT, null, null, payload),
+          LOCALE_EN,
+          tx
+        );
+
+        // Zero rows modified: the browse (and any injection the payload
+        // could have smuggled through an unparameterized read) left both
+        // tables' counts identical.
+        expect(await tx.$count(users)).toBe(usersBefore);
+        expect(await tx.$count(teacher)).toBe(teachersBefore);
+
+        // The result equals the literal-substring match set: exactly the
+        // carrier, never a decoy — the hostile metacharacters never widen.
+        const surfacedIds = page.items.map(item => item.id);
+        expect(page.total).toBe(1);
+        expect(surfacedIds).toEqual([carrier]);
+        for (const decoyId of decoyIds) {
+          expect(surfacedIds).not.toContain(decoyId);
+        }
+        // Every surfaced name contains the (trimmed) payload verbatim —
+        // no non-literal row can leak into the page.
+        expect(page.items.at(0)?.fullName.toLowerCase()).toContain(payload.trim().toLowerCase());
+      });
+    }
+  );
+
+  test("a hostile SQL string padded past the 80-character search cap denies with the localized VALIDATION (pre-DB)", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const listSpy = spyOn(TeacherRepository, "listMatchingCandidates");
+      silenceDomainLog();
+
+      const oversizeHostile = `'; DROP TABLE users; --${"x".repeat(80)}`;
+      const error = await expectRepoError(() =>
+        TeacherMatchingService.browseAvailableTeachers(
+          callerId,
+          browseInput(HAFS, HIFZ_SUBJECT, null, null, oversizeHostile),
+          LOCALE_EN,
+          tx
+        )
+      );
+
+      // The rejection carries the EXACT translated copy — never a raw key.
+      expectDomainDenial(error, "VALIDATION", errorsFor(LOCALE_EN).validation);
+      expect(listSpy.mock.calls).toHaveLength(0);
+      listSpy.mockRestore();
+    });
+  });
+
+  test("an exactly-80-character search is accepted at the cap boundary and matches literally", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const base = `Boundary${randomUUID().slice(0, 8)}`;
+      const eighty = `${base}${"x".repeat(80 - base.length)}`;
+
+      const carrier = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+      });
+      await tx.update(users).set({ fullName: eighty }).where(eq(users.id, carrier));
+
+      const page = await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(RARE_READING, HIFZ_SUBJECT, null, null, eighty),
+        LOCALE_EN,
+        tx
+      );
+
+      expect(page.total).toBe(1);
+      expect(page.items.map(item => item.id)).toEqual([carrier]);
+    });
+  });
+
+  test("an Arabic (RTL) search matches the literal Arabic substring", async () => {
+    await runInRollback(async tx => {
+      const callerId = await createStudentCaller(tx, { primaryLanguage: "arabic" });
+      const runTag = randomUUID().slice(0, 8);
+
+      const carrier = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+      });
+      await tx
+        .update(users)
+        .set({ fullName: `مدرس القرآن ${runTag}` })
+        .where(eq(users.id, carrier));
+      const decoy = await createDirectoryTeacher(tx, {
+        recitations: [RARE_READING],
+        subjects: [HIFZ_SUBJECT],
+      });
+      await tx
+        .update(users)
+        .set({ fullName: `مدرس التجويد ${runTag}` })
+        .where(eq(users.id, decoy));
+
+      const page = await TeacherMatchingService.browseAvailableTeachers(
+        callerId,
+        browseInput(RARE_READING, HIFZ_SUBJECT, null, null, "القرآن"),
+        LOCALE_EN,
+        tx
+      );
+
+      expect(page.total).toBe(1);
+      expect(page.items.map(item => item.id)).toEqual([carrier]);
+      expect(page.items.map(item => item.id)).not.toContain(decoy);
+    });
   });
 });

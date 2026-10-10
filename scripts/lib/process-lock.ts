@@ -156,7 +156,7 @@ export async function acquireProcessLock(description: string): Promise<() => voi
 
 /**
  * Wrap an async function in process lock execution.
- * Enforces a 5-minute timeout for all tasks EXCEPT exempt tasks (Tests, Duplicates, Lint-Service, Quality-Gate).
+ * Enforces a 5-minute timeout for all tasks EXCEPT exempt tasks (Tests, Duplicates, Lint-Service, Quality-Gate, Launch-Gate).
  */
 export async function withProcessLock<T>(description: string, fn: () => Promise<T>): Promise<T> {
   const release = await acquireProcessLock(description);

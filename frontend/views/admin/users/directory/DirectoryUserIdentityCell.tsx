@@ -18,9 +18,9 @@
  * lies about a copy that did not happen.
  */
 
-import { ContentCopyOutlined as CopyIcon } from "@mui/icons-material";
-import { Box, IconButton, Stack, TableCell, Tooltip, Typography } from "@mui/material";
+import { Box, Stack, TableCell, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { DirectoryCopyEmailButton } from "@/frontend/views/admin/directory-shared/DirectoryCopyEmailButton";
 import { DirectoryNameLink } from "@/frontend/views/admin/directory-shared/DirectoryNameLink";
 import { type DirectoryUserItem, useDirectoryCopyEmail } from "@/frontend/views/admin/users/directory";
 import { UserAvatar } from "@/frontend/views/admin/users/ui";
@@ -71,27 +71,13 @@ export function DirectoryUserIdentityCell({
             >
               {user.email}
             </Typography>
-            <Tooltip
-              title={emailCopied ? labels.quickActions.emailCopied : labels.quickActions.copyEmail}
-              placement="top"
-              enterTouchDelay={0}
-              leaveTouchDelay={1500}
-            >
-              <IconButton
-                size="small"
-                aria-label={`${labels.quickActions.copyEmail}: ${user.email}`}
-                onClick={handleCopyEmail}
-                sx={theme => ({
-                  // ≥44px touch target via transparent padding, matching the
-                  // name-link trick; the icon stays visually 20px.
-                  p: 1.5,
-                  my: -1.5,
-                  color: emailCopied ? theme.palette.success.main : theme.palette.text.secondary,
-                })}
-              >
-                <CopyIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <DirectoryCopyEmailButton
+              email={user.email}
+              copied={emailCopied}
+              copyLabel={labels.quickActions.copyEmail}
+              copiedLabel={labels.quickActions.emailCopied}
+              onCopy={handleCopyEmail}
+            />
           </Stack>
         </Box>
       </Stack>

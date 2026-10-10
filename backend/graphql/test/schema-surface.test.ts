@@ -191,7 +191,9 @@ import { ApplicantCooldownState } from "@/backend/enum/teachers/applicant-cooldo
 import { AdminApplicantOverrideAction } from "@/backend/enum/teachers/applicant-override-action.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { graphQLSchema } from "@/backend/graphql/gqlSchema";
+import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { PUBLIC_OPERATION_NAMES, PUBLIC_OPERATIONS } from "@/backend/lib/gateway";
+import { getServerTranslations } from "@/shared/locale/server-graphql";
 
 // ─── Frozen baseline inventory (captured @ HEAD 8e5ebb8; refreshed for the ────
 // ─── sanctioned applicant + notifications + users-locale + handshake ─
@@ -2592,6 +2594,119 @@ describe("admin-governance mutations — exact arg shapes + `$all` scope pins", 
   });
 });
 
+describe("admin plan-catalog mutations — `$all` scope pins (401/403 split is load-bearing)", () => {
+  const PLAN_CATALOG_MUTATION_FIELDS = ["createPlan", "setPlanActiveStatus", "updatePlan"] as const;
+
+  test("ALL THREE plan-catalog mutations carry the EXACT `$all` conjunction — `{ authenticated: true, role: [UserRole.Admin] }`", () => {
+    // The `$all` key is load-bearing: the field's own docblock claims the
+    // conjunction, and a plain `{ authenticated, role }` key-map would
+    // combine the two scope checks with ANY semantics — while a bare
+    // `{ role: [Admin] }` map answers anonymous callers with the role
+    // leg's FORBIDDEN instead of the 401 family the platform convention
+    // requires. The `$all` conjunction makes the combine AND, so the
+    // `authenticated` leg denies anonymous callers with UNAUTHORIZED
+    // before the role leg is ever consulted.
+    for (const name of PLAN_CATALOG_MUTATION_FIELDS) {
+      const scopes = authScopesSnapshot(mutationField(name));
+      expect(scopes).toEqual({
+        $all: { authenticated: true, role: [UserRole.Admin] },
+      });
+      // SEC: the scope keys are EXACTLY `["$all"]` — no permission /
+      // superAdmin / fallback bypass leg.
+      expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+      // Reflect.get keeps the read off the member-access position (no
+      // unsafe type assertion, no `any`).
+      const allScope: unknown = Reflect.get(scopes, "$all");
+      if (!isRecord(allScope)) throw new Error("expected record-shaped $all scope conjunction");
+      expect(Object.keys(allScope).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated", "role"]);
+      // SEC: the role set is EXACTLY `[UserRole.Admin]` — no sibling /
+      // teacher / parent / student write override silently smuggled in.
+      const roleSet: unknown = Reflect.get(allScope, "role");
+      expect(Array.isArray(roleSet)).toBe(true);
+      expect(roleSet).toEqual([UserRole.Admin]);
+    }
+  });
+
+  test("anonymous (context-free) in-process execution of ALL THREE plan-catalog mutations yields UNAUTHORIZED", async () => {
+    // Each op asserted in its OWN document: the fields are non-null at
+    // the root, so a combined document would null-propagate the first
+    // failure over its siblings. Inert literal args suffice — the scope
+    // step denies before any resolver or coercion runs.
+    const documents = [
+      {
+        source:
+          'mutation { createPlan(input: { title: "probe", sessionCount: 1, price: "1.00", currency: "EGP", intervalDays: 1 }) { id } }',
+        path: "createPlan",
+      },
+      { source: 'mutation { updatePlan(id: "1", input: { title: "probe" }) { id } }', path: "updatePlan" },
+      { source: 'mutation { setPlanActiveStatus(id: "1", isActive: false) { id } }', path: "setPlanActiveStatus" },
+    ] as const;
+    const results = await Promise.all(
+      documents.map(async document => graphql({ schema: graphQLSchema, source: document.source, contextValue: {} }))
+    );
+    for (const [index, result] of results.entries()) {
+      const errors = result.errors;
+      if (!errors) throw new Error("expected the anonymous plan-catalog mutation to fail");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?.extensions?.code).toBe("UNAUTHORIZED");
+      expect(errors[0]?.path).toEqual([documents[index]?.path]);
+    }
+  });
+});
+
+describe("admin curriculum-lesson mutations — `$all` scope pins (401/403 split is load-bearing)", () => {
+  test("ALL THREE lesson mutations carry the EXACT `$all` conjunction — `{ authenticated: true, role: [UserRole.Admin] }`", () => {
+    // The `$all` key is load-bearing: a plain `{ authenticated, role }`
+    // key-map would combine the two scope checks with ANY semantics —
+    // while a bare `{ role: [Admin] }` map answers anonymous callers
+    // with the role leg's FORBIDDEN instead of the 401 family the
+    // platform convention requires. The `$all` conjunction makes the
+    // combine AND, so the `authenticated` leg denies anonymous callers
+    // with UNAUTHORIZED before the role leg is ever consulted.
+    for (const name of CURRICULUM_LESSON_MUTATION_FIELDS) {
+      const scopes = authScopesSnapshot(mutationField(name));
+      expect(scopes).toEqual({
+        $all: { authenticated: true, role: [UserRole.Admin] },
+      });
+      // SEC: the scope keys are EXACTLY `["$all"]` — no permission /
+      // superAdmin / fallback bypass leg.
+      expect(Object.keys(scopes).toSorted((a, b) => a.localeCompare(b))).toEqual(["$all"]);
+      // Reflect.get keeps the read off the member-access position (no
+      // unsafe type assertion, no `any`).
+      const allScope: unknown = Reflect.get(scopes, "$all");
+      if (!isRecord(allScope)) throw new Error("expected record-shaped $all scope conjunction");
+      expect(Object.keys(allScope).toSorted((a, b) => a.localeCompare(b))).toEqual(["authenticated", "role"]);
+      // SEC: the role set is EXACTLY `[UserRole.Admin]` — no sibling /
+      // teacher / parent / student write override silently smuggled in.
+      const roleSet: unknown = Reflect.get(allScope, "role");
+      expect(Array.isArray(roleSet)).toBe(true);
+      expect(roleSet).toEqual([UserRole.Admin]);
+    }
+  });
+
+  test("anonymous (context-free) in-process execution of ALL THREE lesson mutations yields UNAUTHORIZED", async () => {
+    // Each op asserted in its OWN document: the fields are non-null at
+    // the root, so a combined document would null-propagate the first
+    // failure over its siblings. Inert literal args suffice — the scope
+    // step denies before any resolver or coercion runs.
+    const documents = [
+      { source: 'mutation { createLesson(input: { planId: 1, title: "probe" }) { id } }', path: "createLesson" },
+      { source: 'mutation { updateLesson(id: "1", input: { title: "probe" }) { id } }', path: "updateLesson" },
+      { source: 'mutation { deleteLesson(id: "1") { id } }', path: "deleteLesson" },
+    ] as const;
+    const results = await Promise.all(
+      documents.map(async document => graphql({ schema: graphQLSchema, source: document.source, contextValue: {} }))
+    );
+    for (const [index, result] of results.entries()) {
+      const errors = result.errors;
+      if (!errors) throw new Error("expected the anonymous lesson mutation to fail");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?.extensions?.code).toBe("UNAUTHORIZED");
+      expect(errors[0]?.path).toEqual([documents[index]?.path]);
+    }
+  });
+});
+
 describe("admin credential-rotation surface — adminSetUserPassword SDL pins", () => {
   test("`adminSetUserPassword` returns AdminUserDetail! with EXACTLY the two required args (id: Int!, input: AdminSetUserPasswordInput!)", () => {
     const field = mutationField("adminSetUserPassword");
@@ -3771,5 +3886,146 @@ describe("Codegen sync — committed SDL is byte-identical to the built schema",
       "adminOrderTeacherReEvaluation(reason: String!, teacherId: ID!): TeacherReEvaluationOrder!"
     );
     expect(committedSdl).toContain("type TeacherReEvaluationOrder {");
+  });
+});
+
+/**
+ * Minimal well-formed request context for the permission probes: `locale`
+ * feeds the localized error mapping; `permissions` is the scope's only
+ * input (mirroring the production factory contract that always
+ * materializes the field — `[]` for every caller today).
+ */
+function probeContext(permissions: unknown[], locale = "en"): { locale: string; permissions: unknown[] } {
+  return { locale, permissions };
+}
+
+describe("`permission` authScope — fail-closed OR membership over `ctx.permissions`", () => {
+  // Synthetic probe fields registered on the REAL production builder, so
+  // the executed scope logic is the shipped `authScopes` initializer —
+  // not a re-implementation. The frozen `graphQLSchema` import above was
+  // already materialized when `gqlSchema.ts` evaluated and is never
+  // rebuilt, so no surface-freeze pin or codegen byte-identity assertion
+  // in this suite ever sees these probe fields.
+  const PROBE_REQUIRED_CODE = "probe.permission.required";
+  const PROBE_ALPHA_CODE = "probe.permission.alpha";
+  const PROBE_BETA_CODE = "probe.permission.beta";
+
+  gqlSchemaBuilder.queryField("permissionProbeSingleCode", t =>
+    t.field({
+      type: "Boolean",
+      resolve: () => true,
+      authScopes: { permission: [PROBE_REQUIRED_CODE] },
+    })
+  );
+  gqlSchemaBuilder.queryField("permissionProbeEmptyCodes", t =>
+    t.field({
+      type: "Boolean",
+      resolve: () => true,
+      authScopes: { permission: [] },
+    })
+  );
+  gqlSchemaBuilder.queryField("permissionProbeMultiCode", t =>
+    t.field({
+      type: "Boolean",
+      resolve: () => true,
+      authScopes: { permission: [PROBE_ALPHA_CODE, PROBE_BETA_CODE] },
+    })
+  );
+
+  /** Freshly built probe schema — includes the synthetic fields plus every production field. */
+  const probeSchema = gqlSchemaBuilder.toSchema();
+
+  /** Localized forbidden strings — the messages the builder's `unauthorizedError` mapping emits. */
+  const enForbidden = getServerTranslations("en").errorsTranslations.forbidden;
+  const arForbidden = getServerTranslations("ar").errorsTranslations.forbidden;
+
+  test("Tier 1 — a declared permission code DENIES with the localized FORBIDDEN error when the caller holds no codes (the honest current state: the context factory materializes `permissions: []`)", async () => {
+    const result = await graphql({
+      schema: probeSchema,
+      source: "{ permissionProbeSingleCode }",
+      contextValue: probeContext([]),
+    });
+    const errors = result.errors;
+    if (!errors) throw new Error("expected the permission-scoped probe to deny");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.extensions?.code).toBe("FORBIDDEN");
+    expect(errors[0]?.message).toBe(enForbidden);
+    expect(errors[0]?.path).toEqual(["permissionProbeSingleCode"]);
+  });
+
+  test("Tier 1 — the deny is the builder's 403-family mapping: caller-locale forbidden string, byte-identical to `errorsTranslations.forbidden` (locale-sensitive, never a hardcoded message)", async () => {
+    const arabicResult = await graphql({
+      schema: probeSchema,
+      source: "{ permissionProbeSingleCode }",
+      contextValue: probeContext([], "ar"),
+    });
+    const errors = arabicResult.errors;
+    if (!errors) throw new Error("expected the permission-scoped probe to deny");
+    // The Arabic-locale deny renders the Arabic message — proof the message
+    // is resolved from the request locale at denial time.
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.extensions?.code).toBe("FORBIDDEN");
+    expect(errors[0]?.message).toBe(arForbidden);
+    expect(arForbidden).not.toBe(enForbidden);
+  });
+
+  test("Tier 1 — an EMPTY declaration (`permission: []`) denies even when the caller holds codes — the empty code set never satisfies the membership check", async () => {
+    const result = await graphql({
+      schema: probeSchema,
+      source: "{ permissionProbeEmptyCodes }",
+      contextValue: probeContext([PROBE_REQUIRED_CODE]),
+    });
+    const errors = result.errors;
+    if (!errors) throw new Error("expected the empty-declaration probe to deny");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.extensions?.code).toBe("FORBIDDEN");
+  });
+
+  test("Tier 2 — a multi-code declaration DENIES when none of the declared codes is granted", async () => {
+    const result = await graphql({
+      schema: probeSchema,
+      source: "{ permissionProbeMultiCode }",
+      contextValue: probeContext([]),
+    });
+    const errors = result.errors;
+    if (!errors) throw new Error("expected the multi-code probe to deny");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.extensions?.code).toBe("FORBIDDEN");
+  });
+
+  test("Tier 2 — OR membership: a multi-code declaration PASSES when the caller holds exactly one of the declared codes", async () => {
+    const result = await graphql({
+      schema: probeSchema,
+      source: "{ permissionProbeMultiCode }",
+      contextValue: probeContext([PROBE_BETA_CODE]),
+    });
+    expect(result.errors ?? []).toHaveLength(0);
+    expect(result.data?.permissionProbeMultiCode).toBe(true);
+  });
+
+  test("Tier 2 — a single-code declaration passes only on the exact granted code", async () => {
+    const result = await graphql({
+      schema: probeSchema,
+      source: "{ permissionProbeSingleCode }",
+      contextValue: probeContext([PROBE_REQUIRED_CODE]),
+    });
+    expect(result.errors ?? []).toHaveLength(0);
+    expect(result.data?.permissionProbeSingleCode).toBe(true);
+  });
+
+  test("Tier 4 BFLA probe — a permission-gated field cannot be reached by a caller holding OTHER codes: a populated `ctx.permissions` of unrelated codes still DENIES", async () => {
+    const result = await graphql({
+      schema: probeSchema,
+      source: "{ permissionProbeSingleCode }",
+      contextValue: probeContext(["probe.permission.unrelated", "billing.refund.execute"]),
+    });
+    const errors = result.errors;
+    if (!errors) throw new Error("expected the BFLA probe to deny");
+    // No confused-deputy: holding unrelated (even privileged-sounding)
+    // codes grants nothing — the deny stays the localized FORBIDDEN
+    // 403-family error, never a silent allow.
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.extensions?.code).toBe("FORBIDDEN");
+    expect(errors[0]?.message).toBe(enForbidden);
   });
 });

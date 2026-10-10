@@ -32,7 +32,7 @@ export function cronUnauthorizedError(): DomainError {
  * (the ONE comparison — the envelopes cannot drift apart).
  */
 export function bearerSecretMatches(presented: string | null, expected: string): boolean {
-  if (presented === null || presented.length === 0) {
+  if (presented === null || presented.length === 0 || expected.length === 0) {
     return false;
   }
   const presentedDigest = createHash("sha256").update(presented).digest();
@@ -40,12 +40,30 @@ export function bearerSecretMatches(presented: string | null, expected: string):
   return timingSafeEqual(presentedDigest, expectedDigest);
 }
 
+/**
+ * Extracts a Bearer token from an Authorization header value.
+ * Requires the header to strictly follow the `Bearer <token>` scheme.
+ * Returns null if the header is absent, empty, or uses a non-Bearer scheme.
+ */
+export function extractBearerToken(authHeader: string | null | undefined): string | null {
+  if (!authHeader) {
+    return null;
+  }
+  const trimmed = authHeader.trim();
+  if (!trimmed.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+  const token = trimmed.slice(7).trim();
+  return token.length > 0 ? token : null;
+}
+
 /** The presented bearer credential, carved from the Authorization header. */
 export function cronBearerFromRequest(
   headerGet: (name: string) => string | null,
   expected: string | undefined
 ): { readonly ok: boolean; readonly presented: string | null } {
-  const presented = headerGet("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
-  const ok = expected !== undefined && expected.length > 0 && bearerSecretMatches(presented, expected);
+  const presented = extractBearerToken(headerGet("authorization"));
+  const trimmedExpected = expected?.trim() ?? "";
+  const ok = trimmedExpected.length > 0 && bearerSecretMatches(presented, trimmedExpected);
   return { ok, presented };
 }

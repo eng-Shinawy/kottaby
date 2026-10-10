@@ -25,3 +25,16 @@ export function hasPostgresErrorCode(error: unknown, pgCode: string): boolean {
   }
   return false;
 }
+
+/**
+ * RESTRICT FK violations carry a version-dependent SQLSTATE: PostgreSQL 18+
+ * reports `restrict_violation` (23001) per the SQL standard, while PG ≤ 17
+ * (and PGlite) report the generic `foreign_key_violation` (23503) for every
+ * FK rejection. The version-independent oracle for a RESTRICT probe is the
+ * constraint NAME (asserted separately via `constraintNameOf`) — this helper
+ * only asserts the error is the FK rejection itself, on any supported
+ * server version.
+ */
+export function hasPostgresRestrictCode(error: unknown): boolean {
+  return hasPostgresErrorCode(error, "23001") || hasPostgresErrorCode(error, "23503");
+}

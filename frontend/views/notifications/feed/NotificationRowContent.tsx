@@ -5,9 +5,10 @@
  * timestamp. Carved out of `NotificationRow` so the deep-link row wrapper
  * and the content column each stay under the TSX function-size tier.
  *
- * Content renders as TEXT nodes through MUI `Typography` ONLY (REQ-028 —
- * emitter copy is untrusted; raw-HTML rendering is prohibited across
- * `frontend/views/notifications/**` and statically scanned).
+ * Content renders as TEXT nodes through MUI `Typography` ONLY — emitter
+ * copy is untrusted, so raw-HTML rendering is prohibited; the
+ * no-HTML-sink rule is machine-enforced repo-wide by
+ * `test/config/xss-static-locks.test.ts`.
  */
 
 import { NotificationsOutlined } from "@mui/icons-material";
@@ -189,7 +190,7 @@ export function NotificationRowContent({
 }
 
 /*
- * Unread posture (plan §5.5 visual matrix): the row tints through the
+ * Unread posture: the row tints through the
  * `theme.palette.action.selected` token (read rows keep the default
  * transparent element background — no explicit fallback branch), a dot chip
  * whose visually-hidden text content (`filterUnread`) flags the unread

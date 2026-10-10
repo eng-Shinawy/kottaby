@@ -23,6 +23,14 @@
  *      Public. Clears the `access_token` + `refresh_token` + `session_id`
  *      httpOnly cookies via `clearAuthCookies`. Returns `{ success: true }`.
  *      Callable with an expired token (you can always log out).
+ *  - Every credential-bearing mutation (`registerUser`, `login`,
+ *    `refreshToken`) runs `enforceAuthMutationRateLimit` FIRST — per-client-IP
+ *    brute-force cap + per-hashed-identity credential-stuffing cap
+ *    (`refreshToken` is IP-only: no email travels with it). `login` ALSO
+ *    runs the account-keyed lockout tier (`enforceLoginAccountRateLimit`)
+ *    layered on top: the same account is capped (5 / 15 min default,
+ *    env-tunable) across any number of client IPs. `logout` is
+ *    exempt (cookie clearing must always work).
  *
  * Per `backend/graphql/mutation/AGENTS.md`:
  *  - This file has NO named exports — it registers root fields at import time
@@ -44,7 +52,17 @@ import { RegisterUserInput } from "@/backend/graphql/pothos/auth/register-input.
 import { gqlSchemaBuilder } from "@/backend/graphql/pothos/builder";
 import { UserPothosObject } from "@/backend/graphql/pothos/users/user.pothos";
 import { AUTH_COOKIE_NAMES, clearAuthCookies, setAuthCookies } from "@/backend/lib/auth/cookies";
+import { MAX_PASSWORD_LENGTH } from "@/backend/lib/auth/password-limits";
+import { UnauthorizedError } from "@/backend/lib/errors";
+import { enforceAuthMutationRateLimit, enforceLoginAccountRateLimit, hashAuthIdentity } from "@/backend/lib/ratelimit";
 import { AuthService, RegistrationService } from "@/backend/services/auth";
+
+// The login-side password argument bound lives in
+// `@/backend/lib/auth/password-limits` (shared with every credential-SET
+// surface so set-time and verify-time agree) — see its docblock for the
+// bcrypt-72-byte / payload-hygiene rationale. The denial deliberately
+// reuses the generic invalid-credentials error so the bound is
+// indistinguishable from a wrong password on the wire.
 
 // Side-effect: register the `registerUser` mutation field.
 gqlSchemaBuilder.mutationField("registerUser", t =>
@@ -57,6 +75,13 @@ gqlSchemaBuilder.mutationField("registerUser", t =>
     // enum (`RegisterPublicRole` excludes "admin") and the service layer.
     resolve: async (_root, args, ctx) => {
       const { input } = args;
+      // Resolver-level rate limit FIRST — brute-force cap per client IP +
+      // credential-stuffing cap per hashed identity (the email never reaches
+      // the limiter keys in plaintext).
+      await enforceAuthMutationRateLimit(
+        { clientIp: ctx.clientIp ?? "local", identity: hashAuthIdentity(input.email) },
+        ctx.locale
+      );
       return RegistrationService.registerUser(
         {
           fullName: input.fullName,
@@ -87,7 +112,29 @@ gqlSchemaBuilder.mutationField("login", t =>
     description:
       "Authenticate with email + password. Returns the authenticated user + access + refresh tokens. The access_token + refresh_token + session_id are also set as httpOnly cookies.",
     resolve: async (_root, args, ctx) => {
-      const session = await AuthService.login(args.email, args.password, ctx.locale);
+      // Rate limit FIRST — before any credential work: the client-IP bucket
+      // caps brute-force, the hashed-identity bucket caps credential
+      // stuffing. Keying is context-derived (IP) + sha-256 (identity) only.
+      await enforceAuthMutationRateLimit(
+        { clientIp: ctx.clientIp ?? "local", identity: hashAuthIdentity(args.email) },
+        ctx.locale
+      );
+      // Account-keyed lockout tier — layered ON TOP of the per-IP and
+      // per-identity tiers: the SAME account is capped (5 attempts / 15 min
+      // default, env-tunable via `LOGIN_RATE_LIMIT_*`) across any number of
+      // client IPs, so IP or identity rotation cannot launder a brute-force
+      // burst into fresh buckets.
+      await enforceLoginAccountRateLimit(args.email, ctx.locale);
+      // Normalization: the service's identity lookup is exact-match, so the
+      // trimmed email is the authenticatable form. The pre-service denials
+      // (empty email / empty password / oversize password) all throw the
+      // SAME generic invalid-credentials error the service uses for a wrong
+      // password — indistinguishable on the wire, no oracle.
+      const email = args.email.trim();
+      if (email === "" || args.password === "" || args.password.length > MAX_PASSWORD_LENGTH) {
+        throw new UnauthorizedError((await ctx.t("authTranslations")).invalidCredentials);
+      }
+      const session = await AuthService.login(email, args.password, ctx.locale);
       // Push the access_token + refresh_token + session_id as httpOnly
       // cookies. The route handler reads `ctx.authCookieOut` after Apollo
       // processes the request and merges the values onto the outgoing
@@ -116,6 +163,10 @@ gqlSchemaBuilder.mutationField("refreshToken", t =>
     description:
       "Rotate the JWT pair from a valid refresh token (explicit argument, or the httpOnly refresh_token cookie when omitted). Returns fresh access + refresh tokens. The new access_token + refresh_token + session_id are also set as httpOnly cookies (rotation invalidates the prior pair).",
     resolve: async (_root, args, ctx) => {
+      // Rate limit FIRST — IP-only (identity: "" is the "no identity bucket"
+      // sentinel): a refresh carries no email, and a stolen-token replay
+      // attack must not be launderable through per-identity buckets.
+      await enforceAuthMutationRateLimit({ clientIp: ctx.clientIp ?? "local", identity: "" }, ctx.locale);
       // Explicit (React-memory) token wins; fall back to the httpOnly
       // cookie so cold reloads can still rotate (session recovery). NB:
       // `??` alone is not enough — Apollo always sends the (possibly

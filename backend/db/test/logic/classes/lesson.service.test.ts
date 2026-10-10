@@ -342,6 +342,51 @@ describe("LessonService", () => {
     });
   });
 
+  test("INV-PR3: a wire-shaped planId: null ⇒ LESSON_PLAN_NOT_FOUND (the only plan-membership write surface)", async () => {
+    await runInRollback(async tx => {
+      silenceDomainLog();
+      const admin = await provisionAdminActor(tx);
+      const plan = await createTestPlan(tx, {});
+      const lesson = await createTestLesson(tx, plan.id, { title: "Before Edit" });
+
+      // graphql-js preserves explicit nulls — the wire can deliver
+      // `planId: null` past the static input types. Both write arms fold
+      // the null into the SAME planId field error a non-existent id
+      // produces (the plan-membership denial payload), so no lesson row
+      // can ever be created or re-linked without a real plan reference.
+      const createInput: LessonSubmitInput = { planId: plan.id, title: "Wire Null Plan" };
+      Object.defineProperty(createInput, "planId", {
+        value: null,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+      const createError = await expectRepoError(() => LessonService.createLesson(createInput, admin.id, LOCALE, tx));
+      assertFieldErrorCode(createError, "planId", "LESSON_PLAN_NOT_FOUND");
+      // The plan keeps exactly its one fixture lesson — nothing written.
+      expect(await LessonRepository.listByPlanId(plan.id, tx)).toHaveLength(1);
+
+      const patch: LessonUpdateInput = { title: "Wire Null Plan" };
+      Object.defineProperty(patch, "planId", {
+        value: null,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+      const updateError = await expectRepoError(() =>
+        LessonService.updateLesson(lesson.id, patch, admin.id, LOCALE, tx)
+      );
+      assertFieldErrorCode(updateError, "planId", "LESSON_PLAN_NOT_FOUND");
+
+      // Zero-write denial oracle: the stored row is untouched and the
+      // actor minted no audit rows.
+      const stored = await LessonRepository.findById(lesson.id, tx);
+      expect(stored?.title).toBe("Before Edit");
+      expect(stored?.planId).toBe(plan.id);
+      expect(await countAuditRowsForActor(tx, admin.id)).toBe(0);
+    });
+  });
+
   // ─── Not-found: hostile ids via coerceLessonId + zero-row guarded writes ───
 
   test("coerceLessonId rejects hostile ids with LESSON_NOT_FOUND", async () => {

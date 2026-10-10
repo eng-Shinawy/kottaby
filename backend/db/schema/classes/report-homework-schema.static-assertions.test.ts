@@ -17,6 +17,9 @@
  *  - The grade-range CHECK constraints (0–100) and the report rating
  *    CHECK (0–5) remain in place as the database backstop behind the
  *    service-level validation.
+ *  - `session_id` stays NOT NULL on both tables — a report or homework row
+ *    can never exist detached from its session (the session link is the
+ *    sole access path to the participants).
  */
 import { describe, expect, test } from "bun:test";
 import { getColumns, getTableName } from "drizzle-orm";
@@ -79,6 +82,14 @@ describe("reports/home_work session binding — static structural assertions", (
     const constraint = uniqueConstraint(homeWork, "home_work_session_id_unique");
     expect(constraint).toBeDefined();
     expect(uniqueColumnNames(homeWork, "home_work_session_id_unique")).toEqual(["session_id"]);
+  });
+
+  test("INV-S8: homeWork.sessionId.notNull === true and reports.sessionId.notNull === true (schema pins)", () => {
+    const homeWorkColumns = getColumns(homeWork);
+    expect(homeWorkColumns.sessionId?.notNull).toBe(true);
+
+    const reportColumns = getColumns(reports);
+    expect(reportColumns.sessionId?.notNull).toBe(true);
   });
 
   test("home_work grade columns remain nullable — assignment happens ungraded", () => {

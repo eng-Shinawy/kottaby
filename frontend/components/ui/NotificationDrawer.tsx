@@ -36,25 +36,26 @@ interface NotificationDrawerProps {
 }
 
 /**
- * NotificationDrawer — the floating bell popover (drawer-plan DR-1..DR-8):
- * the latest notifications preview anchored beneath the app-bar bell, with a
- * pinned header (title + mark-all) and a pinned footer linking to the full
- * `/notifications` page (which also stays reachable from the sidebar).
+ * NotificationDrawer — the floating bell popover: the latest notifications
+ * preview anchored beneath the app-bar bell, with a pinned header (title +
+ * mark-all) and a pinned footer linking to the full `/notifications` page
+ * (which also stays reachable from the sidebar).
  *
  * Row anatomy follows the prototype: unread dot + bold title + end-aligned
  * locale-formatted timestamp + 2-line-clamped body. Row click marks the row
  * read (when unread) and navigates to the full page. No per-row actions, no
  * avatars, no type chips — the feed page owns that richer anatomy.
  *
- * Data posture: the Apollo cache is the single truth (plan D11). The list
- * query is skipped while closed, serves the cache instantly on open, and
- * refreshes over the network (`cache-and-network`). The shell socket
- * (DashboardLayout) merges realtime arrivals into the SAME cache windows —
- * this component NEVER opens a WebSocket (REQ-067).
+ * Data posture: the Apollo cache is the single truth. The list query is
+ * skipped while closed, serves the cache instantly on open, and refreshes
+ * over the network (`cache-and-network`). The shell socket (DashboardLayout)
+ * merges realtime arrivals into the SAME cache windows — this component
+ * NEVER opens a WebSocket; realtime arrivals reach it only through those
+ * cache merges.
  *
  * Mutation posture: mark-one / mark-all run through the shared
- * `useNotificationMarkActions` hook (drawer-plan §3.1) so the count
- * decrement and the stale-window sweep behave IDENTICALLY to the feed page.
+ * `useNotificationMarkActions` hook so the count decrement and the
+ * stale-window sweep behave IDENTICALLY to the feed page.
  *
  * Accessibility: the bell button owns `aria-haspopup` / `aria-expanded` /
  * `aria-controls` pointing here; Escape and click-away close through
@@ -62,9 +63,10 @@ interface NotificationDrawerProps {
  * carries the read-state distinction visually and the full per-row
  * read-state announcement stays on the feed page's rows.
  *
- * MUI v9 discipline: `sx`-only styling, palette via theme callbacks, content
- * as TEXT nodes through `Typography` only (the REQ-028 contract — honored
- * here even though the static scan roots at `frontend/views/notifications/**`).
+ * MUI v9 discipline: `sx`-only styling, palette via theme callbacks,
+ * content as TEXT nodes through `Typography` only — emitter copy is
+ * untrusted, so raw-HTML rendering is prohibited; the no-HTML-sink rule
+ * is machine-enforced repo-wide by `test/config/xss-static-locks.test.ts`.
  * RTL: the app sets document `dir` without `theme.direction`, so the popover
  * anchors PHYSICAL edges — the bell's right edge in both directions (the
  * toolbar's control cluster never moves across the start/end axis), with MUI

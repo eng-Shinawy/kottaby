@@ -646,4 +646,31 @@ describe("debitBookingLadder expiry gate — DB-backed ladder denials", () => {
       expect(denial.message).toBe(t().subscriptionExpired);
     });
   });
+
+  test("INV-B8: with both lanes positive the trial is decremented first (heldBalanceLane === Trial, paid lane byte-identical)", async () => {
+    await runInRollback(async tx => {
+      // Both lanes positive at decision time and NO sweep has ever touched
+      // the paid lane — the only posture in which the debit ladder's
+      // ordering is observable (the post-sweep trial-success case above
+      // proves funding, not ordering: its paid lane was already zeroed).
+      const actor = await createBookingActor(tx, { balanceTrial: 1, balanceHifz: 3 });
+      const lanesBefore = await readLanes(tx, actor.studentId);
+
+      const booked = await book(tx, actor, SessionIntent.Hifz, "inv-b8-trial-first-key");
+
+      expect(booked.status).toBe(SessionStatus.Scheduled);
+      expect(booked.feeHeld).toBe(true);
+      // The hold's provenance lane is the TRIAL lane — the ladder took the
+      // trial branch and returned before the intent lane was ever touched.
+      expect(booked.heldBalanceLane).toBe(HeldBalanceLane.Trial);
+
+      // The trial lane paid for the hold exactly once; the paid lane —
+      // still positive — is byte-identical, proving trial-before-paid.
+      const lanesAfter = await readLanes(tx, actor.studentId);
+      expect(lanesAfter.trial).toBe(lanesBefore.trial - 1);
+      expect(lanesAfter.hifz).toBe(lanesBefore.hifz);
+      expect(lanesAfter.tajweed).toBe(lanesBefore.tajweed);
+      expect(lanesAfter.reviews).toBe(lanesBefore.reviews);
+    });
+  });
 });

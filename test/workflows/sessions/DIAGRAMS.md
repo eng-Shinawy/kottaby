@@ -200,6 +200,8 @@ stateDiagram-v2
     completed to startSession (terminal),
     cancelled to cancelSession (terminal),
     cancelled to startSession,
+    cancelled to completeSession (terminal),
+    cancelled to openSessionDispute (terminal),
     disputed to startSession (admin-only exit),
     scheduled to completeSession (never started).
     Admin repeat resolve also denied; refund fires exactly once.
@@ -381,3 +383,52 @@ sequenceDiagram
   teacher->>lifecycle: completeSession session B - the last exit
   lifecycle->>db: restored is_online true per the ORIGINAL marker, marker NULL
 ```
+
+## concurrent-booking-load.journey.test.ts
+
+The concurrency journey: 100 funded students book against a shared pool of five online certified hot teachers in ONE `Promise.allSettled` wave (plus one unfunded probe student riding the same wave), through the real `SessionLifecycleService` on the real test database. The outcome accounting is the core oracle — all 100 funded bookings created, zero rejections (with fully-funded fixtures a funded-leg rejection is itself a bug), zero unexplained outcomes and zero 40P01 deadlock aborts — alongside the escrow 1:1 oracle (trial-lane holds map to created sessions, balances never negative), the spied teacher-targeted notification dispatches, and the in-session lock observed by a second student's fixture-scoped browse probes after a hot teacher starts one shared session.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant system as "System - fixture provisioning"
+  participant students as "Students x100 - funded bookers (1 trial unit each)"
+  participant probe as "Probe Student - unfunded"
+  participant teachers as "Hot Teachers T1-T5 - online, certified"
+  participant observer as "Observer Student - books T2, then browses"
+  participant attacker as "Attacker Student - funded non-owner of the started session"
+  participant svc as "SessionLifecycleService"
+  participant matcher as "TeacherMatchingService"
+  participant db as "Postgres"
+  participant notify as "NotificationEngine.publishReceipts spy"
+
+  system->>db: ONE committed beforeAll transaction - jrn_sessions_8hex prefix, TrackedFixtures registry
+  system->>db: 101 users + students rows (100 funded, 1 zero-balance) + 5 teacher rows (online, approved, Hafs/Hifz)
+
+  Note over students,db: the concurrent wave - one Promise.allSettled over 101 bookings
+  students->>svc: createSession round-robin onto T1-T5, intent Hifz, unique keys
+  svc->>db: per booking - teacher row FOR UPDATE, trial lane 1 to 0, claim, session SCHEDULED feeHeld
+  svc->>db: teacher intake notification row per booking (persist-first)
+  svc-)notify: publishReceipts after commit, one receipt per created session
+  probe->>svc: createSession T1, intent Hifz, own key
+  svc-->>probe: ValidationError INSUFFICIENT_BALANCE - translated message, zero rows
+  Note over db: accounting - created 100, rejected 0 (a funded-leg rejection is itself a bug), zero unexplained, zero 40P01; holds 1:1 with sessions; student inboxes zero
+
+  Note over observer,db: visibility probes - fixture-scoped (per-run unique teacher names), immune to shared-DB noise
+  observer->>matcher: browse Hafs + Hifz BEFORE the start
+  matcher-->>observer: all five fixture teachers visible (one per scoped probe)
+  Note over teachers,db: the start transition is teacher-owned
+  teachers->>svc: startSession one shared scheduled session (T1)
+  svc->>db: status STARTED, startedAt; T1 is_online false - INV-S6
+  observer->>matcher: browse Hafs + Hifz AFTER the start
+  matcher-->>observer: T1 excluded - INV-A3, scoped probe empty; T2-T5 still visible
+  Note over db: T1's other scheduled sessions untouched; replay start denied SESSION_INVALID_TRANSITION
+
+  Note over attacker,db: abuse probes - cross-student denials through the real ownership checks
+  attacker->>svc: getSessionById foreign session
+  svc-->>attacker: null - foreign equals nonexistent
+  attacker->>svc: cancelSession foreign session
+  svc-->>attacker: NotFoundError SESSION_NOT_FOUND - owner row byte-identical
+  system->>db: afterAll - tracked hard-delete (children first, users last), zero-residue re-probe
+```
+

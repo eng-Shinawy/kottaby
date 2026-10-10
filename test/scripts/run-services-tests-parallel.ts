@@ -51,6 +51,26 @@ await runParallelTests({
   // assertions). Serializing the file to the tail lane restores the
   // deterministic empty-table baseline without touching the production
   // read path.
+  // The teacher-inactivity sweep is a GLOBAL predicate (`teacher.is_online`
+  // AND user.last_active_at < cutoff, across every row in the shared test
+  // database). The staleness-boundary test drains once, then sweeps again
+  // inside its rollback window — but a peer own-commit worker holding a
+  // committed online-teacher row can land it between the drain and the
+  // counted pass, inflating `offlined` (observed in CI: expected 1,
+  // received 2). Serializing the file to the tail lane (run alone, after
+  // the pool drains) restores a deterministic committed-row baseline for
+  // the counted sweep without touching the production sweep contract.
+  //
+  // The hostile search payload matrix suites (teacher matching, admin
+  // teacher directory) prove injection-safety with WHOLE-TABLE
+  // before/after `$count` assertions — under READ COMMITTED the second
+  // count sees whatever a peer own-commit worker landed in between, so
+  // the immutability proof breaks (observed locally under the 8-worker
+  // pool: the same matrix failed as teacher-directory in one run and as
+  // teacher-matching in the next — a rotating victim, same class as the
+  // documented victims above). Serializing both matrix files to the tail
+  // lane makes the whole-table counts deterministic without touching the
+  // production escape-point contract under test.
   sequentialTailPatterns: [
     "notifications/admin-broadcast.service.test.ts",
     "classes/session-admin-governance.service.test.ts",
@@ -58,5 +78,8 @@ await runParallelTests({
     "classes/session-arbitration.service.test.ts",
     "classes/session-dispute-notification.service.test.ts",
     "admin/admin-academic-tracking.service.test.ts",
+    "teachers/teacher-inactivity.service.test.ts",
+    "teachers/teacher-matching.service.test.ts",
+    "admin/teacher-directory.service.test.ts",
   ],
 });

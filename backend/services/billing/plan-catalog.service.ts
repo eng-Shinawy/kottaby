@@ -30,6 +30,7 @@ import {
   validatePlanInput,
 } from "@/backend/services/billing/plan-catalog.helpers";
 import type {
+  DBQueryExecutor,
   DBTransaction,
   PlanInsertType,
   PlanListForAdminOptions,
@@ -281,5 +282,32 @@ export namespace PlanCatalogService {
       throw new NotFoundError("PLAN", tErrors.planCatalog.planNotFound);
     }
     return plan;
+  }
+
+  /**
+   * Batch plan lookup keyed by id — the `findById` twin for page-level
+   * enrichment. One map entry per DISTINCT requested id, `null` for ids
+   * with no stored row (the honest miss, never a thrown denial), duplicate
+   * ids collapsed, and results keyed by each row's own `id` (never by input
+   * order). NO active predicate is layered here: a deactivated plan still
+   * enriches historical subscription rows — callers that need an
+   * active-only read keep using the single-row methods, which own their
+   * own denial semantics. An empty id list short-circuits to an empty map
+   * without touching the database.
+   */
+  export async function findByIds(
+    ids: readonly number[],
+    _locale?: string,
+    tx?: DBQueryExecutor
+  ): Promise<Map<number, PlanReturnType | null>> {
+    const distinctIds = [...new Set(ids)];
+    const plansById = new Map<number, PlanReturnType | null>(distinctIds.map(id => [id, null]));
+    if (distinctIds.length === 0) {
+      return plansById;
+    }
+    for (const plan of await PlanRepository.findByIds(distinctIds, tx)) {
+      plansById.set(plan.id, plan);
+    }
+    return plansById;
   }
 }

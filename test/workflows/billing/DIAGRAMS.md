@@ -112,6 +112,54 @@ sequenceDiagram
   walletSvc--xparent: WALLET_TEACHER_PROFILE_MISSING denial
 ```
 
+## plan-catalog-invariance.journey.test.ts
+
+Cross-actor catalog-mutation invariance journey through the real `SubscriptionPurchaseService`, `SubscriptionActivationService`, `PlanCatalogService`, and `SessionLifecycleService`: a student's confirmed purchase credits the plan's lane, an admin's deactivation plus title/price edit mutates the plans row ONLY (exactly two audit rows, zero dispatches), the subscription row and credited lane stay byte-identical while the public `planCatalog` query drops the plan and the admin surface still lists it, and a subsequent booking on the credited lane succeeds — with the admin gate honestly denying the student's own deactivation attempt first.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant system as "System - fixtures"
+  participant studentS as "Student S - purchaser"
+  participant admin as "Admin A - catalog owner"
+  participant observer as "Observer O - fellow student"
+  participant purchaseSvc as "SubscriptionPurchaseService"
+  participant activation as "SubscriptionActivationService.processWebhookEvent"
+  participant catalogSvc as "PlanCatalogService"
+  participant gql as "GraphQL planCatalog scope gate"
+  participant sessionSvc as "SessionLifecycleService.createSession"
+  participant db as "Postgres - plans, subscriptions, lanes, audit_logs"
+
+  system->>db: cast plus hifz-lane plan committed in ONE transaction, registry-tracked
+  system->>catalogSvc: listActiveCatalog lists the plan
+  observer->>gql: planCatalog query
+  gql-->>observer: plan listed (pre-deactivation premise)
+
+  studentS->>purchaseSvc: purchase plan, key KEY_PURCHASE
+  purchaseSvc->>db: ONE pending pair plus junction plus verbatim claim
+  system->>activation: confirmed gateway event
+  activation->>db: payment paid, subscription active, balance_hifz = sessionCount, ONE notification and publish to S ONLY
+  Note over system,db: step-2 byte-snapshots captured - subscription row and lanes
+
+  studentS->>catalogSvc: setPlanActiveStatus false
+  catalogSvc--xstudentS: ForbiddenError forbidden through the real admin gate, ZERO writes, plan byte-identical
+
+  admin->>catalogSvc: setPlanActiveStatus false
+  catalogSvc->>db: plan deactivated with deactivated_at, ONE Suspend audit row
+  admin->>catalogSvc: updatePlan title and price
+  catalogSvc->>db: plan edited, ONE Update audit row, ZERO subscription or lane writes, credit basis intact
+
+  observer->>db: subscription row and credited lane byte-identical to the step-2 snapshots
+  observer->>gql: planCatalog query
+  gql-->>observer: plan ABSENT (PC1 re-proof)
+  admin->>catalogSvc: listForAdmin includeInactive
+  catalogSvc-->>admin: the deactivated, edited plan row
+
+  studentS->>sessionSvc: book ONE hifz session with T, key KEY_BOOKING
+  sessionSvc->>db: booking SUCCEEDS, heldBalanceLane hifz, lane minus 1, teacher request wave to T ONLY, subscription row STILL byte-identical, teacher_transaction zero rows
+  Note over system,db: afterAll System teardown - audit rows swept under the sanctioned suspension, registry hard-delete, zero residue
+```
+
 ## paymob-live-tunnel.journey.test.ts
 
 Env-gated live twin of the paymob purchase journey: nothing is mocked at the provider boundary and the settlement callback rides a REAL ngrok tunnel into the REAL webhook route under the operator's REAL sandbox credentials (`PAYMOB_LIVE_TESTS=1` plus live credentials plus reserved domain; the suite skips otherwise).
@@ -235,6 +283,55 @@ sequenceDiagram
   adminSvc--xstudent: ForbiddenError forbidden through the real admin gate, zero mint
   otherStudent->>adminSvc: listForAdmin otherStudentId
   adminSvc--xotherStudent: ForbiddenError forbidden BEFORE the repository read runs
+```
+
+## subscription-expiry-booking-denial.journey.test.ts
+
+The two-covering-subscriptions lapse arc through the real sweep and booking services: a funded control booking proves the lane live, the sweep expires one subscription while the covering row keeps the lane intact, the covering row's own lapse zeroes the uncovered lane and denies booking against every teacher with a reusable idempotency key, and the admin renew re-credits the lane so the same previously-denied key books again - with an untouched control tenant byte-compared after every leg.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant student as "Student - two covering subscriptions"
+  participant controlStudent as "Control student - untouched tenant"
+  participant teacherA as "Teacher A - booking target"
+  participant teacherB as "Teacher B - cross-teacher denial probe"
+  participant admin as "Admin - renew actor"
+  participant system as "System - fixtures, backdate, sweep"
+  participant sessionSvc as "SessionLifecycleService.createSession"
+  participant expirySvc as "SubscriptionExpiryService.expireDue"
+  participant adminSvc as "SubscriptionAdminService.renewSubscription"
+  participant db as "Postgres - subscriptions, lanes, sessions, audit_logs"
+
+  system->>db: cast, Hifz plan, TWO active covering subscriptions S1 S2, lane seeded 5, control tenant snapshot
+
+  student->>sessionSvc: control booking with Teacher A
+  sessionSvc->>db: session scheduled, hifz lane minus 1, ONE teacher wave to A only
+
+  system->>db: backdate S1 endDate one hour past now - row stays active
+  system->>expirySvc: expireDue
+  expirySvc->>db: expired 1, lanesZeroed 0 - S1 expired, lane INTACT, covering S2 byte-identical, control byte-identical
+
+  system->>db: backdate S2 endDate too
+  system->>expirySvc: expireDue
+  expirySvc->>db: expired 1, lanesZeroed 1 - uncovered hifz lane zeroed, trial untouched
+
+  student->>sessionSvc: booking with Teacher A, key KEY_RECOVERY
+  sessionSvc--xstudent: ValidationError SUBSCRIPTION_EXPIRED with localized copy, ZERO rows, key not burned
+  student->>sessionSvc: the same booking with Teacher B
+  sessionSvc--xstudent: the same SUBSCRIPTION_EXPIRED denial - no teacher is bookable, no tenant id leaks
+
+  controlStudent->>adminSvc: renewSubscription on the expired S1
+  adminSvc--xcontrolStudent: ForbiddenError forbidden through the real admin gate, zero mint
+
+  admin->>adminSvc: renewSubscription the expired S1
+  adminSvc->>db: fresh ACTIVE period, lane plus 5, junction row, claim renew:S1, ONE Create audit row
+
+  student->>sessionSvc: re-booking with the SAME denied key
+  sessionSvc->>db: session scheduled on the renewed lane, hifz minus 1, ONE teacher wave to A only
+
+  system->>expirySvc: expireDue replay
+  expirySvc-->>system: expired 0, lanesZeroed 0 honest zeros, every terminal state holds
 ```
 
 ## subscription-expiry.journey.test.ts

@@ -31,9 +31,12 @@
  *    the verified access token's `payload.role` JWT claim — the fresh DB
  *    row's role is never consulted by this scope; demotion is mitigated at
  *    the service-layer gate).
- *  - `permission: ["PERM.X"]` — permission scope. Currently passes
- *    unconditionally; wired to `PermissionsService.getUserContext` once the
- *    permission layer lands.
+ *  - `permission: ["PERM.X"]` — fail-closed OR-membership gate: the caller
+ *    must hold at least ONE of the declared permission codes in
+ *    `ctx.permissions`. An empty declaration list denies unconditionally,
+ *    and `ctx.permissions` is currently always `[]` (no permission source
+ *    populates the GraphQL context yet), so any field declaring this scope
+ *    denies until granted codes are fed into the context.
  *  - `superAdmin: true` — true iff `ctx.isSuperAdmin` (admin role).
  *  - `notImpersonating: true` — placeholder (no impersonation surface yet).
  *
@@ -143,9 +146,14 @@ export const gqlSchemaBuilder = new SchemaBuilder<{
     },
     // OR semantics over the role set — `roles.includes(ctx.role)`.
     role: (roles: UserRole[]) => (ctx.role ? roles.includes(ctx.role) : false),
-    // Permission scope placeholder — always passes; wired to
-    // PermissionsService.getUserContext(ctx.user.id) later.
-    permission: () => true,
+    // Fail-closed permission gate — OR membership over the codes granted to
+    // the caller (`ctx.permissions`). An empty declaration denies (an empty
+    // code set never satisfies `some`), and `ctx.permissions` is currently
+    // always `[]` (no permission source populates the context yet), so
+    // every field declaring this scope denies. A miss returns false and is
+    // mapped onto the canonical localized ForbiddenError (FORBIDDEN/403)
+    // by the `unauthorizedError` mapping above — never a silent allow.
+    permission: (codes: string[]) => codes.some(p => ctx.permissions.includes(p)),
     // Super-admin gate — `ctx.isSuperAdmin` is set iff role === UserRole.Admin.
     superAdmin: () => ctx.isSuperAdmin,
     // No impersonation surface yet — always true.

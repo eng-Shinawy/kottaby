@@ -19,9 +19,12 @@
  *    `jrn_<domain>_<8 hex>` and embeds it in actor emails so repeated or
  *    parallel runs never collide.
  *  - Fixture writes (parent-link + governance flips) are module-scope helpers
- *    issuing short COMMITTING `db.transaction(...)` blocks emulating future
- *    production mutations (the parent-link flow, admin-domain governance
- *    writes) — explicit field-mapped updates, never client-input spreads.
+ *    issuing short COMMITTING `db.transaction(...)` blocks — fixture
+ *    shortcuts for suites that need an end state without walking the full
+ *    production chain. Suites verifying a chain itself must drive the
+ *    production services instead (`ParentLinkRequestService.requestLink` /
+ *    `respondToLinkRequest` for the link chain). Explicit field-mapped
+ *    updates, never client-input spreads.
  *  - Teardown deletes every tracked row in FK-safe order (role-child rows
  *    first, then `users`), and residue probes prove the tracked-id list is
  *    empty on lookup afterwards.
@@ -149,8 +152,11 @@ function buildActorEmail(slug: string, prefix: string, actorSequence: number): s
 }
 
 /**
- * Committed direct write setting `students.parent_id` — emulation of the
- * future link-request mutation (the production link flow does not exist yet).
+ * Committed direct write setting `students.parent_id` — a fixture shortcut
+ * for suites that need the linked state without walking the full production
+ * chain (handshake read-back → link request → acceptance). Suites verifying
+ * the link chain itself must drive `ParentLinkRequestService.requestLink` /
+ * `respondToLinkRequest` instead of this direct write.
  *
  * Returns the post-update `parentId` as the fixture's proof of commit.
  */
@@ -263,7 +269,7 @@ export function createJourneyCast(domain: string): JourneyCastType {
       email: buildActorEmail(toEmailSlug(actorName), prefix, actorSequence),
       phone: JOURNEY_ACTOR_PHONE,
       password: JOURNEY_ACTOR_CREDENTIAL,
-      country: "Egypt",
+      country: "EG",
       role,
     };
     // Real service, real top-level transaction, COMMITTED — no outerTx (the

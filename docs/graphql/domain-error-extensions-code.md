@@ -166,7 +166,7 @@ The `expectMutationError(result.error, expectedCode?)` helper lives in `test/hel
 
 8. **Notification dispatch** logs structured `WARN` with `droppedByChannel` (a `Record<string, number>` mapping channel type to dropped count) when notifications are dropped due to missing contact info.
 
-9. **Rate limiting** uses `TEST_ENFORCE_RATE_LIMIT` env flag in dev mode. When set to `1`, rate limits are enforced even in dev (for testing). Without the flag, dev mode bypasses rate limits (backward compatible). Production always enforces.
+9. **Rate limiting** dev bypass is keyed on the in-process test-harness flags: when `TEST_CI=1` or `TEST_SERVER=1`, enforcement is skipped at both limiter tiers — the transport limiter (`app/api/graphql/rate-limit.ts`) and the resolver-level auth limiter (`enforceAuthMutationRateLimit` in `backend/lib/ratelimit.ts`), which mirror the check byte-identically. A production guard throws a named error if either flag is set under `NODE_ENV=production`, except the sanctioned `IS_DEMO` bypass. Without these flags, every environment — dev included — enforces the limits.
 
 10. **`bun:test` does NOT support `{ skip: true }`** options object — use the `testMaybe` pattern: `const testMaybe = isFlagEnabled ? test : test.skip;` then call `testMaybe(...)`. If all tests in a file are skipped, add at least one non-skipped test to satisfy `sonarjs/no-empty-test-file`.
 
@@ -247,7 +247,7 @@ The following was implemented across the codebase:
 
 - **Notification dispatch** logs structured `WARN` with `droppedByChannel` map when contactless payloads are dropped. `UserDispatchOutcome` includes `skippedContactless` per-user and `skippedContactlessByChannel` aggregated.
 
-- **Rate limit test-enforceable bypass** via `TEST_ENFORCE_RATE_LIMIT` env flag in `backend/lib/ratelimit.ts`. Dev mode bypasses unless flag is set; production always enforces.
+- **Rate limit test-harness bypass** — `TEST_CI`/`TEST_SERVER` flags skip limiter enforcement at both tiers: the transport middleware (`app/api/graphql/rate-limit.ts`) and `enforceAuthMutationRateLimit` (`backend/lib/ratelimit.ts`) share the identical bypass. A production guard throws if these flags are set under `NODE_ENV=production`, except the sanctioned `IS_DEMO` bypass; all other environments enforce the limits.
 
 - **GraphQL integration tests** for all error paths — `expectMutationError` helper upgraded with optional `expectedCode` parameter using `CombinedGraphQLErrors.is()` pattern.
 

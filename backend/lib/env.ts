@@ -134,6 +134,19 @@ const DEFAULT_PAYMOB_RECONCILE_PENDING_MINUTES = 30;
  */
 const DEFAULT_TEACHER_INACTIVITY_TIMEOUT_MINUTES = 15;
 
+/**
+ * Per-account failed-login attempt budget (`LOGIN_RATE_LIMIT_MAX`) — the
+ * account-keyed login lockout tier. 5 attempts per 15-minute window by
+ * default (the REQ-006 failed-login lockout pin).
+ */
+const DEFAULT_LOGIN_RATE_LIMIT_MAX = 5;
+
+/**
+ * Per-account login lockout window in milliseconds
+ * (`LOGIN_RATE_LIMIT_WINDOW_MS`; default 15 minutes).
+ */
+const DEFAULT_LOGIN_WINDOW_MS = 900_000;
+
 /** Local dev-server port the ngrok tunnel forwards to when `NGROK_PORT` is unset or unusable. */
 const DEFAULT_NGROK_PORT = 3000;
 
@@ -318,6 +331,19 @@ export interface EnvironmentConfig {
    */
   teacherInactivityTimeoutMinutes: number;
   /**
+   * Per-account failed-login attempt budget (`LOGIN_RATE_LIMIT_MAX`;
+   * default 5) enforced by the account-keyed login limiter
+   * (`loginAccountLimiter` in `backend/lib/ratelimit.ts`). The limit is
+   * re-resolved lazily on every check so `resetEnvironmentCache()` is
+   * observable in override tests.
+   */
+  loginRateLimitMax: number;
+  /**
+   * Per-account login lockout window in milliseconds
+   * (`LOGIN_RATE_LIMIT_WINDOW_MS`; default 15 minutes).
+   */
+  loginRateLimitWindowMs: number;
+  /**
    * Active payment gateway provider for the billing purchase flow
    * (`PAYMENT_GATEWAY_PROVIDER`, trimmed + lowercased; default `"mock"`).
    * Only adapters with a matching gateway implementation can be selected;
@@ -412,6 +438,8 @@ function readEnvironment(): EnvironmentConfig {
       process.env.TEACHER_INACTIVITY_TIMEOUT_MINUTES,
       DEFAULT_TEACHER_INACTIVITY_TIMEOUT_MINUTES
     ),
+    loginRateLimitMax: parsePositiveIntegerEnv(process.env.LOGIN_RATE_LIMIT_MAX, DEFAULT_LOGIN_RATE_LIMIT_MAX),
+    loginRateLimitWindowMs: parsePositiveIntegerEnv(process.env.LOGIN_RATE_LIMIT_WINDOW_MS, DEFAULT_LOGIN_WINDOW_MS),
     paymentGatewayProvider: (trimmedEnvValue(process.env.PAYMENT_GATEWAY_PROVIDER) ?? "mock").toLowerCase(),
     paymentWebhookSecret: trimmedEnvValue(process.env.PAYMENT_WEBHOOK_SECRET),
     paymentWebhookEnabled: trimmedEnvValue(process.env.PAYMENT_WEBHOOK_ENABLED) === "true",

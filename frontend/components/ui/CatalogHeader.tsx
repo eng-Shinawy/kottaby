@@ -2,6 +2,7 @@
 
 import { AddOutlined as AddIcon } from "@mui/icons-material";
 import { Box, Button, Stack, Typography } from "@mui/material";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 
 export interface CatalogHeaderProps {
   readonly title: string;
@@ -43,7 +44,7 @@ export function CatalogHeader({
         startIcon={<AddIcon />}
         onClick={onCreateNew}
         disabled={!canCreate}
-        sx={{ minHeight: 54 }}
+        sx={{ ...focusVisibleRingSx, minHeight: 54 }}
       >
         {actionLabel}
       </Button>

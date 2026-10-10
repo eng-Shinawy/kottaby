@@ -20,7 +20,8 @@
  *  IN-PROCESS: `POST` from `@/app/api/graphql/route` — the same handler the
  *  dev server dispatches to — driven by synthesized `NextRequest` objects.
  *  Every production stage runs verbatim: transport guards (`guardTransport`)
- *  → rate-limit wrapper (fail-open stub) → Apollo engine (validate →
+ *  → rate-limit wrapper (per-client-IP in-memory sliding window; fail-open
+ *  on transient errors) → Apollo engine (validate →
  *  scope-auth/authScopes → resolver) with the REAL `createGraphQLContext`
  *  (Bearer-token verification + `x-idempotency-key` capture + requestId) →
  *  `SessionAdminGovernanceService` → PostgreSQL → `finalizeGraphqlErrors`

@@ -196,3 +196,43 @@ sequenceDiagram
   admin->>svc: listBroadcasts status Stopped
   svc-->>admin: entry Stopped with stoppedByName and stoppedAt, liveDeliveredCount 0, liveReadCount 0
 ```
+
+## reconnect-catchup.journey.test.ts
+
+Journey: the teacher's realtime socket is killed mid-flight; a notification emitted while offline is persisted with no frame, the reconnect catch-up read surfaces the missed row through the real inbox path with the correct unread count, a second emission delivers a live frame on the NEW socket with the emit-to-frame loopback latency recorded, the observed session row stays byte-unchanged across the whole disconnect window (the sidecar is push-only — session state lives in Postgres), and the connected sibling recipient provably receives nothing while a foreign mark-read probe fails oracle-safely.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant system as "System - fixture setup + sidecar boot"
+  participant client as "Teacher T - Bun WebSocket client"
+  participant sibling as "Parent Pa - sibling recipient, connected throughout"
+  participant engine as "NotificationEngine"
+  participant wrapper as "RecordingForwardingFanoutTransport"
+  participant sidecar as "NotificationWsServer - sidecar on port 0"
+  participant db as "Postgres"
+
+  system->>db: provision teacher, student, parent and one observed session row with TrackedFixtures
+  system->>sidecar: startNotificationWsServer with recording-and-forwarding in-process transport
+  client->>sidecar: connect with access_token cookie - registered, then killed mid-flight
+  sibling->>sidecar: connect and stay live for the whole window
+  system->>engine: emitForUser while teacher offline - type SessionRequest linked to observed session
+  engine->>db: insert one unread notifications row for teacher - persisted with no live socket
+  engine->>wrapper: publishFanout teacher only - recorded and forwarded
+  Note over sibling: sibling socket provably silent, sibling inbox row count stays 0
+
+  client->>sidecar: reconnect on a NEW socket
+  client->>engine: catch-up read - unfiltered inbox page 1 plus unread count
+  engine-->>client: missed row surfaces with unread count 1
+  system->>engine: second emitForUser
+  engine->>wrapper: publishFanout teacher only - recorded and forwarded
+  wrapper->>sidecar: envelope delivered in-process
+  sidecar-->>client: frame arrives on the NEW socket, emit-to-frame latency recorded
+  Note over db: observed session row byte-unchanged across the whole disconnect window
+
+  sibling->>engine: markRead teacher row - foreign denial probe
+  engine-->>sibling: NotFoundError NOTIFICATION_NOT_FOUND, teacher row byte-identical
+  Note over sibling: sibling inbox still 0 rows, sibling socket still silent
+  system->>sidecar: shutdown in afterAll - fresh handshake refused, no lingering listener
+```
+

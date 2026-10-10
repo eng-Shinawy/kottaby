@@ -106,6 +106,7 @@ import { NotificationEngine } from "@/backend/services/notifications";
 import type {
   AdminWalletAdjustmentSubmitInput,
   AdminWalletTransactionFilters,
+  AdminWithdrawalQueueRow,
   DBTransaction,
   NormalizedAdminPaymentFilters,
   NotificationDeliveryReceipt,
@@ -204,6 +205,36 @@ function walletFilters(overrides: Partial<AdminWalletTransactionFilters> = {}): 
     to: null,
     ...overrides,
   };
+}
+
+/**
+ * Population-robust withdrawal-queue lookup (backend/db/test/AGENTS.md
+ * rule 12 — never assume DB population state): the pending-withdrawal
+ * queue is a globally unscoped listing ordered `created_at ASC, id ASC`
+ * with a bounded page window, so a shared test DB holding more pending
+ * rows than one window would push this run's freshly requested payout
+ * past page 1. The queue service exposes no search/filter arm, so the
+ * lookup walks consecutive pages (recursively — each page read depends
+ * on the previous page's miss) until the target transaction id is found
+ * or the queue is exhausted — returning the row (the visibility +
+ * projection assertion shape) or `undefined` (the honest miss), with the
+ * exact same precision the single-page `.find` carried.
+ */
+async function findQueuedWithdrawal(
+  actorId: number,
+  transactionId: number,
+  page = 1
+): Promise<AdminWithdrawalQueueRow | undefined> {
+  const WINDOW = 50;
+  const queuePage = await AdminFinancialAuditingService.listPendingWithdrawalsForAdmin(actorId, page, WINDOW, LOCALE);
+  const hit = queuePage.items.find(item => item.transaction.id === transactionId);
+  if (hit !== undefined) {
+    return hit;
+  }
+  if (queuePage.items.length < WINDOW || page * WINDOW >= queuePage.totalCount) {
+    return undefined;
+  }
+  return findQueuedWithdrawal(actorId, transactionId, page + 1);
 }
 
 /** Manual wallet-adjustment submit payload (one builder — no ad-hoc objects). */
@@ -514,8 +545,10 @@ describe("cross-actor journey: admin financial auditing (payout settlement + adj
     expect(await countNotificationsForUser(teacherA.userId)).toBe(0);
 
     // Admin: the pending settlement queue surfaces the row with identity.
-    const queue = await AdminFinancialAuditingService.listPendingWithdrawalsForAdmin(adminActor.userId, 1, 50, LOCALE);
-    const queueRow = queue.items.find(item => item.transaction.id === pending.id);
+    // Population-robust: the queue is walked page by page (see
+    // `findQueuedWithdrawal`) — page-1 visibility alone would assume the
+    // shared-DB pending population fits one window.
+    const queueRow = await findQueuedWithdrawal(adminActor.userId, pending.id);
     expect(queueRow).toBeDefined();
     expect(queueRow?.transaction.type).toBe(TransactionType.Withdrawal);
     expect(queueRow?.transaction.status).toBe(TransactionStatus.Pending);
@@ -529,14 +562,10 @@ describe("cross-actor journey: admin financial auditing (payout settlement + adj
     expect(settled.type).toBe(TransactionType.Withdrawal);
     expect(settled.status).toBe(TransactionStatus.Completed);
 
-    // The queue drained: the settled row no longer appears.
-    const queueAfter = await AdminFinancialAuditingService.listPendingWithdrawalsForAdmin(
-      adminActor.userId,
-      1,
-      50,
-      LOCALE
-    );
-    expect(queueAfter.items.find(item => item.transaction.id === pending.id)).toBeUndefined();
+    // The queue drained: the settled row no longer appears anywhere in the
+    // walked queue (the same population-robust walk — absence must hold
+    // across every page, not just the first window).
+    expect(await findQueuedWithdrawal(adminActor.userId, pending.id)).toBeUndefined();
 
     // Independent read: the ledger row itself flipped.
     const row = await readLedgerRow(pending.id);

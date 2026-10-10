@@ -337,9 +337,7 @@ Session recitation creation is owned by the session-lifecycle work (§8). The re
 
 ### 5.5 Rate Limiting
 
-The public `registerUser` mutation is rate-limit wrapped via the `graphqlRateLimiter` config (in `backend/lib/ratelimit.ts`). However, `checkRateLimit` is currently a **fail-open stub** that always returns `success: true`. Real per-IP Redis counters / sliding-window quotas / lockout periods are deferred (see `docs/specs/open-decisions-and-gaps.md`). The `TEST_ENFORCE_RATE_LIMIT` env flag is reserved for that work.
-
-The fail-open posture mirrors the login cold-start resilience pattern: a transient limiter error must NOT block a legitimate registration.
+The public `registerUser` mutation is rate-limited at the resolver, ahead of any service work: `enforceAuthMutationRateLimit` (`backend/lib/ratelimit.ts:226`, wired in `backend/graphql/mutation/auth.mutation.ts`) enforces an IP bucket — 10 requests / 60 s per client IP — and an identity bucket — 20 requests / 60 s per sha-256 hash of the trimmed+lowercased email (the plaintext never reaches limiter keys or logs). On exhaustion it throws the localized `RateLimitExceededError`. Every request also passes the transport-tier per-IP window (`graphqlRateLimiter`, 100 requests / 60 s, `app/api/graphql/rate-limit.ts`). Both windows are in-memory sliding windows and fail-open on transient errors (a limiter fault must NOT block a legitimate registration). Honest limits: the window state is per-instance — not shared across server instances and reset on restart; a shared Redis-backed store remains deferred (see `docs/specs/open-decisions-and-gaps.md`).
 
 ---
 

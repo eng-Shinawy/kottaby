@@ -26,6 +26,7 @@
 import { EditOutlined as EditIcon } from "@mui/icons-material";
 import { Box, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { type AdminUserDetailQuery_adminUserDetail, Gender } from "@/frontend/graphql/generated/gql/graphql";
 import { DetailCard, DetailInfoStrip } from "@/frontend/views/admin/users/detail";
 import { countryDisplayLabel } from "@/shared/lib/country-code";
@@ -114,7 +115,7 @@ export function ProfileInfoCard({ user, labels, formatDate, onEdit }: ProfileInf
           <IconButton
             aria-label={labels.detail.editAction}
             onClick={onEdit}
-            sx={theme => ({ minWidth: 44, minHeight: 54, color: theme.palette.primary.main })}
+            sx={theme => ({ ...focusVisibleRingSx, minWidth: 44, minHeight: 54, color: theme.palette.primary.main })}
           >
             <EditIcon fontSize="small" />
           </IconButton>

@@ -14,6 +14,7 @@
 import type { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { Gender } from "@/backend/enum/users/gender.enum";
 import { toUserRole, UserRole } from "@/backend/enum/users/user-role.enum";
+import { MAX_PASSWORD_LENGTH } from "@/backend/lib/auth/password-limits";
 import { ValidationError } from "@/backend/lib/errors";
 import { isValidEmail, validatePhoneField } from "@/backend/services/shared";
 import type {
@@ -144,6 +145,8 @@ export function validateCreateInput(input: AdminCreateUserSubmitInput, locale: s
     entries.push({ field: "password", code: "PASSWORD_REQUIRED", message: tAuth.passwordRequired });
   } else if (input.password.length < MIN_PASSWORD_LENGTH) {
     entries.push({ field: "password", code: "PASSWORD_TOO_SHORT", message: tAuth.passwordTooShort });
+  } else if (input.password.length > MAX_PASSWORD_LENGTH) {
+    entries.push({ field: "password", code: "PASSWORD_TOO_LONG", message: tAuth.passwordTooLong });
   }
   // Country is an ISO 3166-1 alpha-2 code on the create path (shared schema
   // with public registration): empty/whitespace → REQUIRED, anything else
@@ -289,11 +292,14 @@ export function validateUpdatePatch(patch: AdminUserUpdateDbPatch, locale: strin
  * means the policy is satisfied) instead of throwing, so each consuming
  * service composes the result into its own localized `ValidationError`.
  * Empty / whitespace-only input rejects with `PASSWORD_REQUIRED`; anything
- * shorter than `MIN_PASSWORD_LENGTH` rejects with `PASSWORD_TOO_SHORT` —
- * the same two rules the create surface enforces in `validateCreateInput`,
- * reusing the localized `auth` copy verbatim. No complexity rule exists
- * beyond the shared minimum, so the entries are built explicitly per check
- * (never an echo of the submitted value — BOPLA discipline applies to
+ * shorter than `MIN_PASSWORD_LENGTH` rejects with `PASSWORD_TOO_SHORT`;
+ * anything past the shared length ceiling rejects with `PASSWORD_TOO_LONG`
+ * (the same three rules the create surface enforces in
+ * `validateCreateInput`, reusing the localized `auth` copy verbatim — the
+ * ceiling is the shared verify-time bound, so a credential accepted here
+ * can never exceed the login-side argument limit). No complexity rule
+ * exists beyond the shared minimum, so the entries are built explicitly per
+ * check (never an echo of the submitted value — BOPLA discipline applies to
  * error payloads too).
  */
 export function validatePasswordPolicy(password: string, tAuth: AuthLabels): ApiFieldErrorType[] {
@@ -302,6 +308,8 @@ export function validatePasswordPolicy(password: string, tAuth: AuthLabels): Api
     entries.push({ field: "password", code: "PASSWORD_REQUIRED", message: tAuth.passwordRequired });
   } else if (password.length < MIN_PASSWORD_LENGTH) {
     entries.push({ field: "password", code: "PASSWORD_TOO_SHORT", message: tAuth.passwordTooShort });
+  } else if (password.length > MAX_PASSWORD_LENGTH) {
+    entries.push({ field: "password", code: "PASSWORD_TOO_LONG", message: tAuth.passwordTooLong });
   }
   return entries;
 }

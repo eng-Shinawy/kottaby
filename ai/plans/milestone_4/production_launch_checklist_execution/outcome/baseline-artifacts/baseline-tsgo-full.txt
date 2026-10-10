@@ -1,0 +1,8 @@
+$ bun run scripts/restore-next-env-dts.ts && bun run scripts/lib/run-locked-cmd.ts tsgo tsgo -b --noEmit
+[36m[process-lock][0m Enqueued request for "tsgo" (PID: 3724960)
+[32m[process-lock][0m Acquired lock for "tsgo" (PID: 3724960). Executing...
+frontend/views/admin/directory-shared/DirectoryCopyLinkButton.tsx(20,10): error TS6133: 'focusVisibleRingSx' is declared but its value is never read.
+frontend/views/admin/users/dialogs/EditUserDialog.tsx(79,5): error TS2322: Type '"" | "Female" | "Male" | "Other"' is not assignable to type '"" | "Female" | "Male"'.
+  Type '"Other"' is not assignable to type '"" | "Female" | "Male"'.
+[36m[process-lock][0m Released lock for "tsgo" (PID: 3724960)
+error: script "tsgo" exited with code 1

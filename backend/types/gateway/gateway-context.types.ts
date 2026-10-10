@@ -18,13 +18,16 @@
  * `backend/db/schema/enums.ts` entry, or Pothos enum. Producers map each
  * kind onto a real HTTP status at the route boundary (`METHOD_NOT_ALLOWED` → 405 + `Allow: POST`,
  * `UNSUPPORTED_CONTENT_TYPE` → 400, `PAYLOAD_TOO_LARGE` → 413,
- * `MALFORMED_JSON` → 400).
+ * `MALFORMED_JSON` → 400, `CROSS_ORIGIN_REJECTED` → 403,
+ * `BATCH_OPERATION_LIMIT` → 400).
  */
 export type TransportErrorKind =
   | "METHOD_NOT_ALLOWED"
   | "UNSUPPORTED_CONTENT_TYPE"
   | "PAYLOAD_TOO_LARGE"
-  | "MALFORMED_JSON";
+  | "MALFORMED_JSON"
+  | "CROSS_ORIGIN_REJECTED"
+  | "BATCH_OPERATION_LIMIT";
 
 /**
  * Result-object contract returned by every pure transport guard helper

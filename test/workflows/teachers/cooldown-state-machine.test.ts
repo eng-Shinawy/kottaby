@@ -12,9 +12,12 @@
  * Trajectories:
  *   1. FAIL (tajweed) — a cycle whose lowest-scoring failing area is
  *      `tajweed` finalizes on the FIFTH submission: the cooldown is stamped
- *      ≈ now+30d, the applicant flips `failed`, and the account row's
- *      governance triple is untouched (the cooldown machinery never writes
- *      the account-suspension axis — the two-source split lock).
+ *      ≈ now+30d, the applicant flips `failed` and is converted in the SAME
+ *      transaction (the #287 fail-conversion: a ZEROED `students` role-child
+ *      row with a fresh unique `KSB-` handshake code plus the guarded
+ *      `teacher` → `student` role flip), and the account row's governance
+ *      triple is untouched (the cooldown machinery never writes the
+ *      account-suspension axis — the two-source split lock).
  *   2. Cooldown-active arc — the applicant's own profile reads
  *      `active` + not purchasable; the verification purchase is denied with
  *      the typed cooldown conflict (422 family) and writes nothing.
@@ -131,6 +134,7 @@ import type {
   SessionReturnType,
   UserSelectType,
 } from "@/backend/types";
+import { HANDSHAKE_CODE_PATTERN } from "@/shared/constants/handshake-code.constants";
 import {
   VERIFICATION_PLAN_CURRENCY,
   VERIFICATION_PLAN_INTERVAL_DAYS,
@@ -292,7 +296,7 @@ async function readUserRow(userId: number): Promise<UserSelectType | null> {
   return rows[0] ?? null;
 }
 
-/** Number of `students` rows behind a user id — the conversion-absence probe. */
+/** Number of `students` rows behind a user id — the conversion-row probe. */
 async function studentsRowCount(userId: number): Promise<number> {
   return db.$count(students, eq(students.id, userId));
 }
@@ -527,7 +531,9 @@ async function expectGovernanceTripleUntouched(userId: number): Promise<void> {
 /**
  * Shared fail-finalization oracle: the fifth submission's verdict writes —
  * `failed` status, the cooldown stamped within the submission's window at
- * the given duration, no teacher/students rows, the governance triple
+ * the given duration, no teacher row, the #287 fail-conversion's ZEROED
+ * `students` role-child row (fresh unique `KSB-` handshake code, no parent
+ * linkage, guarded `teacher` → `student` role flip), the governance triple
  * untouched, and exactly ONE fail-flavored notification published to the
  * applicant only.
  */
@@ -548,7 +554,24 @@ async function expectFailedFinalization(
   expect(cooldownUntil.getTime()).toBeGreaterThan(Date.now());
 
   expect(await teacherRowCount(applicantUserId)).toBe(0);
-  expect(await studentsRowCount(applicantUserId)).toBe(0);
+  expect(await studentsRowCount(applicantUserId)).toBe(1);
+  const studentRows = await db.select().from(students).where(eq(students.id, applicantUserId)).limit(1);
+  const studentRow = studentRows[0];
+  if (!studentRow) {
+    throw new Error("expected the fail conversion to commit a zeroed students row");
+  }
+  expect(studentRow.id).toBe(applicantUserId);
+  expect(studentRow.balanceHifz).toBe(0);
+  expect(studentRow.balanceTajweed).toBe(0);
+  expect(studentRow.balanceReviews).toBe(0);
+  expect(studentRow.balanceTrial).toBe(0);
+  expect(studentRow.parentId).toBeNull();
+  expect(studentRow.handshakeCode).toMatch(HANDSHAKE_CODE_PATTERN);
+  const convertedUserRow = await readUserRow(applicantUserId);
+  if (!convertedUserRow) {
+    throw new Error("expected the converted user row to survive finalization");
+  }
+  expect(convertedUserRow.role).toBe(UserRole.Student);
   await expectGovernanceTripleUntouched(applicantUserId);
 
   const resultRows = await evaluationResultRowsFor(applicantUserId);
@@ -961,7 +984,7 @@ describe("applicant cooldown lifecycle journey (fail → gate → extend → exp
     expect(await studentsRowCount(applicantTajweedId)).toBe(0);
   });
 
-  test("step 2 — System: the fifth submission finalizes FAIL — cooldown ≈ now+30d, failed, account untouched", async () => {
+  test("step 2 — System: the fifth submission finalizes FAIL — cooldown ≈ now+30d, failed, zeroed students conversion, account governance untouched", async () => {
     const fifthSession = tajweedCycleSessions[VERIFICATION_PLAN_SESSION_COUNT - 1];
     if (!fifthSession) {
       throw new Error("journey state: the tajweed cycle's fifth session is missing");
@@ -980,8 +1003,9 @@ describe("applicant cooldown lifecycle journey (fail → gate → extend → exp
     expect(publishSpy.mock.calls).toHaveLength(publishesBefore + 1);
 
     // The verdict writes: failed + the 30-day tajweed cooldown captured from
-    // the fifth submission's transaction window; NO teacher/students rows;
-    // the account row's governance triple untouched (the cooldown write
+    // the fifth submission's transaction window; NO teacher row, the #287
+    // zeroed students conversion row (asserted by the shared oracle); the
+    // account row's governance triple untouched (the cooldown write
     // never spills onto the account-suspension axis).
     const stamped = await expectFailedFinalization(applicantTajweedId, windowStartMs, windowEndMs, TAJWEED_COOLDOWN_MS);
     tajweedStamp = stamped;

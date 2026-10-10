@@ -14,37 +14,21 @@
  *    clock (UTC, minute precision — the stamp recipe every directory export
  *    shares).
  *
- * Byte contract (identical to the pre-extraction builders): one header
- * record, then one `\n`-terminated record per row; quoting engages only
- * when a field carries the delimiter, a quote, or a newline — inside quotes
- * every `"` doubles. The only non-label literals are the field separators
- * (`,`) and the newline (`\n`) — the CSV format itself.
+ * Byte contract: one header record, then one `\n`-terminated record per
+ * row; quoting engages only when a field carries the delimiter, a quote,
+ * or a newline — inside quotes every `"` doubles; a cell opening with a
+ * spreadsheet formula trigger (`=`, `+`, `-`, `@`, TAB, CR) is defused with
+ * a leading single quote (CWE-1236) before the quote test runs. The only
+ * non-label literals are the field separators (`,`) and the newline
+ * (`\n`) — the CSV format itself.
  *
- * Formula-injection note: every cell value originates from the repo-owned
- * translation files or the trusted directory read models (names, emails,
- * booleans, ISO timestamps) — no user-authored free text enters a cell, so
- * the classic `=`/`+`/`-`/`@` prefix guard is intentionally not applied
- * (prefixing would corrupt round-tripping of legitimate data).
+ * Formula-injection posture: every cell is routed through the shared
+ * `neutralizeCsvFormulas` guard before quoting and joining, so even if
+ * user-authored text ever reached a cell, it would export as inert text
+ * rather than a live formula.
  */
 
-/** UTF-8 BOM — spreadsheet apps detect the encoding and render Arabic labels. */
-const UTF8_BOM = "\uFEFF";
-
-/**
- * Escapes one CSV cell: quoting engages only when the field contains the
- * delimiter, a quote, or a newline — inside quotes every `"` doubles.
- */
-function csvCell(value: string): string {
-  if (/[",\n\r]/.test(value)) {
-    return `"${value.replaceAll('"', '""')}"`;
-  }
-  return value;
-}
-
-/** Joins cells with the comma delimiter and terminates the record. */
-function csvRecord(cells: readonly string[]): string {
-  return `${cells.map(csvCell).join(",")}\n`;
-}
+import { csvRecord, UTF8_BOM } from "@/frontend/utils/csv-record";
 
 /** Wire serialization of a non-nullable Boolean column. */
 export function csvBoolCell(value: boolean): string {

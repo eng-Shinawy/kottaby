@@ -7,18 +7,24 @@
  * sees on their own wallet). The file carries a UTF-8 BOM so Excel
  * opens the Arabic descriptions without mojibake, and quotes every
  * field CSV-style (doubled quotes) so commas/newlines in free-form
- * descriptions can never break the column grid.
+ * descriptions can never break the column grid — with the shared
+ * formula-injection guard (CWE-1236) applied per cell, so a hostile
+ * description (`=cmd|'…`) exports as inert text, never a formula.
  */
 
 import type { MyWalletQuery_myWallet_transactions } from "@/frontend/graphql/generated/gql/graphql";
+import { neutralizeCsvFormulas } from "@/frontend/utils/csv-formula";
 
-/** One CSV cell — quoted with embedded quotes doubled. */
+/**
+ * One CSV cell — formula-triggers defused (CWE-1236), then quoted with
+ * embedded quotes doubled.
+ */
 function csvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
+  return `"${neutralizeCsvFormulas(value).replace(/"/g, '""')}"`;
 }
 
 /** Builds the spreadsheet body from the ledger rows, in display order. */
-function buildLedgerCsv(
+export function buildLedgerCsv(
   rows: readonly MyWalletQuery_myWallet_transactions[],
   labels: {
     readonly type: (type: MyWalletQuery_myWallet_transactions["type"]) => string;

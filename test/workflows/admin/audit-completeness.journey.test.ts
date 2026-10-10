@@ -435,7 +435,7 @@ function makeCreateUserInput(role: "student" | "teacher"): AdminCreateUserSubmit
     email: `${runPrefix}-${role}-${randomUUID().slice(0, 8)}@journey.test`,
     phone: "+10000000000",
     password: TARGET_CREDENTIAL,
-    country: "Egypt",
+    country: "EG",
     role,
   };
 }
@@ -661,7 +661,7 @@ const censusRunners: Record<string, CensusRunner> = {
       email: `${runPrefix}-onboarded-${randomUUID().slice(0, 8)}@journey.test`,
       phone: "+10000000000",
       password: TARGET_CREDENTIAL,
-      country: "Egypt",
+      country: "EG",
       parentId: parentActor.userId,
       planId: onboardingPlanId,
       paymentMethod: PaymentGateway.OfflineCash,
@@ -2328,7 +2328,7 @@ describe("Audit-trail completeness journey — execute every admin action, prove
               email: `${runPrefix}-denied-${randomUUID().slice(0, 8)}@journey.test`,
               phone: "+10000000000",
               password: TARGET_CREDENTIAL,
-              country: "Egypt",
+              country: "EG",
               planId: onboardingPlanId,
               paymentMethod: PaymentGateway.OfflineCash,
               paymentReference: `${runPrefix}-denied-ref`,

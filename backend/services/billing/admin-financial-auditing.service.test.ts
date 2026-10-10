@@ -33,6 +33,13 @@
  *    details carry only the `reasonPresent` BOOLEAN, never raw text).
  *  - Not-found / wrong-state / rollback-integrity / concurrency /
  *    insufficient-funds adversarial probes.
+ *  - Payments-audit name search — the hostile search payload matrix
+ *    (SQL-injection strings + bare/mixed LIKE metacharacters) over
+ *    `listStudentPaymentsForAdmin`'s `studentNameSearch`: the surfaced page
+ *    equals the literal-substring match set (independent `position()`
+ *    oracle), decoys that only wildcard semantics would surface never
+ *    appear, zero ledger rows are modified, plus empty-string (no-trim)
+ *    and Arabic (RTL) search behavior.
  *
  * Money discipline mirrors the production code: amounts are decimal
  * STRINGS end-to-end; the suite performs NO numeric arithmetic on money
@@ -40,11 +47,17 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { and, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, eq, sql } from "drizzle-orm";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
+import { studentPayments } from "@/backend/db/schema/billing/student-payments";
 import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transaction";
 import { wallet } from "@/backend/db/schema/billing/wallet";
+import { students } from "@/backend/db/schema/students/students";
+import { users } from "@/backend/db/schema/users/users";
 import {
+  createTestStudent,
+  createTestStudentPayment,
   createTestTeacherRow,
   createTestTeacherTransaction,
   createTestUser,
@@ -57,6 +70,7 @@ import { TransactionType } from "@/backend/enum/billing/transaction-type.enum";
 import { WalletAdjustmentDirection } from "@/backend/enum/billing/wallet-adjustment-direction.enum";
 import { ConflictError, DomainError, ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
 import { AdminFinancialAuditingService } from "@/backend/services/billing/admin-financial-auditing.service";
+import { HOSTILE_SEARCH_PAYLOADS } from "@/backend/services/shared/hostile-search-payloads";
 import type { AdminWalletAdjustmentSubmitInput } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 
@@ -934,6 +948,160 @@ describe("AdminFinancialAuditingService double-approve race (runInRollback)", ()
       const audits = await readAuditsForTransaction(tx, pendingId);
       expect(audits).toHaveLength(1);
       expect(audits[0]?.actionType).toBe(AuditActionType.Override);
+    });
+  });
+});
+
+// ─── Payments-audit hostile name-search matrix ────────────────────────────
+
+/**
+ * Creates a student user (role child + one ledger payment) with the EXACT
+ * supplied full name — the carrier/decoy factory of the payments-audit
+ * hostile payload matrix. Returns the payment row's id.
+ */
+async function createStudentWithPayment(tx: DBTransaction, fullName: string): Promise<number> {
+  const user = await createTestUser(tx, { role: "student", fullName });
+  await createTestStudent(tx, user.id);
+  const payment = await createTestStudentPayment(tx, user.id, null);
+  return payment.id;
+}
+
+/**
+ * Independent literal-substring oracle: the payment ids whose student
+ * owner's full name contains the needle literally, case-insensitively —
+ * computed through `position()`, not LIKE, so it shares zero semantics
+ * with the audit search under test. This is the literal match set the
+ * payments-audit search MUST reproduce exactly.
+ */
+async function paymentIdsForStudentNameContaining(tx: DBTransaction, needle: string): Promise<number[]> {
+  const lowered = needle.toLowerCase();
+  const rows = await tx
+    .select({ id: studentPayments.id })
+    .from(studentPayments)
+    .innerJoin(students, eq(students.id, studentPayments.studentId))
+    .innerJoin(users, eq(users.id, students.id))
+    .where(sql`position(${lowered} in lower(${users.fullName})) > 0`);
+  return rows.map(row => row.id);
+}
+
+/** No-filter payments audit input (the closed whitelist, all members null). */
+function paymentsAuditFilters(studentNameSearch: string | null) {
+  return { studentId: null, studentNameSearch, status: null, paymentGateway: null, from: null, to: null };
+}
+
+describe("AdminFinancialAuditingService.listStudentPaymentsForAdmin — hostile name-search payload matrix", () => {
+  test.each(HOSTILE_SEARCH_PAYLOADS)(
+    "hostile name search ($label): the page equals the literal-substring match set; nothing is modified",
+    async ({ payload, decoys }) => {
+      await runInRollback(async tx => {
+        const adminId = await createAdmin(tx);
+        const runTag = randomUUID().slice(0, 8);
+
+        // The carrier student's name embeds the payload VERBATIM; each
+        // decoy student's name would surface if the payload's
+        // metacharacters kept their wildcard meaning.
+        const carrierPaymentId = await createStudentWithPayment(tx, `${payload}${runTag}`);
+        const decoyPaymentIds = await Promise.all(
+          decoys.map(decoy => createStudentWithPayment(tx, `${decoy}${runTag}`))
+        );
+
+        const paymentsBefore = await tx.$count(studentPayments);
+        const usersBefore = await tx.$count(users);
+        // This service does NOT trim the search term — the literal needle
+        // is the payload exactly as submitted.
+        const needle = payload.toLowerCase();
+        const expected = await paymentIdsForStudentNameContaining(tx, needle);
+
+        const page = await AdminFinancialAuditingService.listStudentPaymentsForAdmin(
+          adminId,
+          paymentsAuditFilters(payload),
+          1,
+          100,
+          "en",
+          tx
+        );
+
+        // Zero rows modified: the audit view (and any injection the payload
+        // could have smuggled past a parameterized read) wrote nothing.
+        expect(await tx.$count(studentPayments)).toBe(paymentsBefore);
+        expect(await tx.$count(users)).toBe(usersBefore);
+
+        // The page equals the literal-substring match set — never wider.
+        expect(page.totalCount).toBe(expected.length);
+        const surfacedIds = page.items.map(item => item.id);
+        expect(surfacedIds).toContain(carrierPaymentId);
+        for (const decoyPaymentId of decoyPaymentIds) {
+          expect(surfacedIds).not.toContain(decoyPaymentId);
+        }
+        if (expected.length <= 100) {
+          expect(surfacedIds.toSorted((a, b) => a - b)).toEqual(expected.toSorted((a, b) => a - b));
+        }
+        // Every surfaced row's student name carries the needle literally —
+        // no non-literal row can leak into the page.
+        for (const item of page.items) {
+          expect(item.studentName.toLowerCase()).toContain(needle);
+        }
+      });
+    }
+  );
+
+  test("an empty-string search behaves as no filter: the seeded rows surface like a null search", async () => {
+    await runInRollback(async tx => {
+      const adminId = await createAdmin(tx);
+      const runTag = randomUUID().slice(0, 8);
+      const firstPaymentId = await createStudentWithPayment(tx, `AuditEmptyFirst ${runTag}`);
+      const secondPaymentId = await createStudentWithPayment(tx, `AuditEmptySecond ${runTag}`);
+
+      // The empty string is NOT trimmed away here: the built pattern is
+      // `%%`, which matches every non-null name — the same rows a null
+      // (no-filter) search surfaces.
+      const emptyPage = await AdminFinancialAuditingService.listStudentPaymentsForAdmin(
+        adminId,
+        paymentsAuditFilters(""),
+        1,
+        100,
+        "en",
+        tx
+      );
+      const surfacedIds = emptyPage.items.map(item => item.id);
+      expect(surfacedIds).toContain(firstPaymentId);
+      expect(surfacedIds).toContain(secondPaymentId);
+
+      const nullPage = await AdminFinancialAuditingService.listStudentPaymentsForAdmin(
+        adminId,
+        paymentsAuditFilters(null),
+        1,
+        100,
+        "en",
+        tx
+      );
+      expect(nullPage.items.map(item => item.id)).toContain(firstPaymentId);
+      expect(nullPage.items.map(item => item.id)).toContain(secondPaymentId);
+    });
+  });
+
+  test("an Arabic (RTL) name search matches the literal Arabic substring", async () => {
+    await runInRollback(async tx => {
+      const adminId = await createAdmin(tx);
+      const runTag = randomUUID().slice(0, 8);
+      const carrierPaymentId = await createStudentWithPayment(tx, `طالب القرآن ${runTag}`);
+      const decoyPaymentId = await createStudentWithPayment(tx, `طالب التجويد ${runTag}`);
+
+      const needle = "القرآن";
+      const expected = await paymentIdsForStudentNameContaining(tx, needle);
+      const page = await AdminFinancialAuditingService.listStudentPaymentsForAdmin(
+        adminId,
+        paymentsAuditFilters(needle),
+        1,
+        100,
+        "en",
+        tx
+      );
+
+      expect(page.totalCount).toBe(expected.length);
+      const surfacedIds = page.items.map(item => item.id);
+      expect(surfacedIds).toContain(carrierPaymentId);
+      expect(surfacedIds).not.toContain(decoyPaymentId);
     });
   });
 });

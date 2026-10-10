@@ -37,6 +37,8 @@ export interface AuthLabels {
   readonly phoneInvalid: string;
   readonly passwordRequired: string;
   readonly passwordTooShort: string;
+  /** Validation error for a replacement password past the shared length ceiling. */
+  readonly passwordTooLong: string;
   readonly countryRequired: string;
   /** Country selector validation (ISO 3166-1 alpha-2 codes) */
   readonly countryCodeRequired: string;

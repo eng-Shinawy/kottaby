@@ -31,9 +31,16 @@ import type { NextRequest } from "next/server";
 import { USER_ACTIVITY_COALESCE_WINDOW_MS, UserRepository } from "@/backend/db/repo";
 import { toUserRole, UserRole } from "@/backend/enum/users/user-role.enum";
 import { resolveRequestId } from "@/backend/lib/api";
-import { AUTH_COOKIE_NAMES, type AuthCookieOut, createAuthCookieOut, parseCookies } from "@/backend/lib/auth/cookies";
+import {
+  AUTH_COOKIE_NAMES,
+  type AuthCookieOut,
+  createAuthCookieOut,
+  extractCookieValue,
+  parseCookies,
+} from "@/backend/lib/auth/cookies";
 import { verifyAccessToken } from "@/backend/lib/auth/jwt";
 import { logger } from "@/backend/lib/logger";
+import { resolveClientIp } from "@/backend/lib/ratelimit";
 import type { RegistrationReturnType } from "@/backend/types";
 import { LOCALE_COOKIE_NAME } from "@/shared/locale/server-cookies";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
@@ -77,6 +84,24 @@ export interface Context {
    * runtime (present with `null` when the header is absent).
    */
   readonly idempotencyKey?: string | null;
+  /**
+   * Client IP resolved ONCE here via the shared spoof-resistant resolver
+   * (`resolveClientIp` in `backend/lib/ratelimit.ts`: `x-real-ip`, else the
+   * RIGHTMOST `x-forwarded-for` entry under the single-trusted-proxy
+   * assumption, else "local").
+   *
+   * NON-AUTHORIZATION by contract: the IP feeds rate-limit keying and
+   * correlation ONLY — it can never grant, influence, or substitute
+   * identity. Header-derived metadata can never touch the auth hop of
+   * this factory. Captured at exactly ONE site (this factory — no parallel
+   * resolver downstream).
+   *
+   * Optional in the TYPE only so pre-existing `Context`-shaped fixtures
+   * stay compile-clean (same stance as `idempotencyKey`); the factory
+   * ALWAYS materializes the field at runtime — `createGraphQLContext`
+   * never returns a context without it.
+   */
+  readonly clientIp?: string;
   /** Authenticated user (null for anonymous — registration is public). */
   readonly user: RegistrationReturnType | null;
   /** Sanitized user object (no password/refresh tokens). Alias for `user`. */
@@ -139,18 +164,6 @@ const APP_LOCALE_HEADER = "x-app-locale";
 const SUPPORTED_LOCALES = new Set(["en", "ar"]);
 
 /**
- * Locale-cookie matcher, built from the CANONICAL cookie-name constant the
- * UI writes (`LOCALE_COOKIE_NAME = "NEXT_LOCALE"` — see
- * `shared/locale/server-cookies.ts`). Cookie names are case-sensitive per
- * RFC 6265, so the historical lowercase-only `next-locale` literal NEVER
- * matched the cookie the language toggle actually sets — the API silently
- * fell back to Accept-Language/DEFAULT for every request. The alternation
- * additionally tolerates the legacy lowercase spelling; the locale VALUES
- * stay case-sensitive (the app only ever writes lowercase `en`/`ar`).
- */
-const LOCALE_COOKIE_RE = new RegExp(`(?:${LOCALE_COOKIE_NAME}|next-locale)=(en|ar)`);
-
-/**
  * Extracts the locale from the request — checks the explicit `x-app-locale`
  * header first (stamped by our own frontend with the locale the SSR shell
  * rendered), then the `NEXT_LOCALE` cookie, then the `Accept-Language`
@@ -170,7 +183,13 @@ export function extractLocale(request: NextRequest | Request, parsedCookies?: Re
     return appLocaleHeader;
   }
 
-  // 1. Cookie (client-side routing sets this on locale switch).
+  // 1. Cookie (client-side routing sets this on locale switch). Cookie names
+  //    are case-sensitive per RFC 6265: the canonical `NEXT_LOCALE` name (the
+  //    cookie the language toggle actually sets — see
+  //    `shared/locale/server-cookies.ts`) is checked first, with the legacy
+  //    lowercase `next-locale` spelling tolerated as a fallback. The locale
+  //    VALUES stay case-sensitive (the app only ever writes lowercase
+  //    `en`/`ar`).
   if (parsedCookies) {
     const cookieVal = parsedCookies[LOCALE_COOKIE_NAME] ?? parsedCookies["next-locale"];
     if (cookieVal && SUPPORTED_LOCALES.has(cookieVal)) {
@@ -178,8 +197,11 @@ export function extractLocale(request: NextRequest | Request, parsedCookies?: Re
     }
   } else {
     const cookieHeader = request.headers.get("cookie") ?? "";
-    const match = LOCALE_COOKIE_RE.exec(cookieHeader);
-    if (match?.[1]) return match[1];
+    const cookieVal =
+      extractCookieValue(cookieHeader, LOCALE_COOKIE_NAME) ?? extractCookieValue(cookieHeader, "next-locale");
+    if (cookieVal && SUPPORTED_LOCALES.has(cookieVal)) {
+      return cookieVal;
+    }
   }
 
   // 2. Accept-Language header.
@@ -210,8 +232,10 @@ function extractAccessToken(request: NextRequest | Request, parsedCookies?: Reco
 
   // 2. access_token httpOnly cookie (SSR / dev convenience — set by
   // `setAuthCookies` on login + refreshToken).
-  const cookies = parsedCookies ?? parseCookies(request.headers.get("cookie") ?? "");
-  return cookies[AUTH_COOKIE_NAMES.accessToken] ?? null;
+  if (parsedCookies) {
+    return parsedCookies[AUTH_COOKIE_NAMES.accessToken] ?? null;
+  }
+  return extractCookieValue(request.headers.get("cookie"), AUTH_COOKIE_NAMES.accessToken);
 }
 
 /**
@@ -240,6 +264,12 @@ export async function createGraphQLContext(request: NextRequest | Request): Prom
   // (`docs/IDEMPOTENCY.md`). Header-derived metadata can never touch the auth
   // hop below.
   const idempotencyKey = request.headers.get("x-idempotency-key");
+
+  // Resolve the client IP EXACTLY ONCE via the shared spoof-resistant
+  // resolver (the same helper every limiter consumer keys on). Limiting /
+  // correlation only — this header-derived value never feeds the auth hop
+  // below.
+  const clientIp = resolveClientIp(request);
 
   // Pre-load the translations bundle once per request — `ctx.t` returns the
   // pre-resolved namespace for resolver-local error messages.
@@ -306,6 +336,7 @@ export async function createGraphQLContext(request: NextRequest | Request): Prom
     locale,
     requestId,
     idempotencyKey,
+    clientIp,
     t: async <TNamespace extends keyof Translations>(namespace: TNamespace) => translations[namespace],
     user,
     safeUser: user,

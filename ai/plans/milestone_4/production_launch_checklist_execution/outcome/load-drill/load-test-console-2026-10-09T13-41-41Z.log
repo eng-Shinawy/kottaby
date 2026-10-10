@@ -1,0 +1,18 @@
+[load-test] authenticated as role=Student; driving 100 VUs for 120s against http://127.0.0.1:3210
+[load-test] requests=52388 rps=435.7 p50=219.3ms p95=298.9ms p99=353.0ms status={"200":247,"429":52141}
+[load-test] HTTP 200 latencies: n=247 p50=541.7ms p95=848.4ms p99=1048.0ms
+[load-test] myStudentSessions: n=17459 p50=219.5ms p95=299.0ms p99=350.4ms
+[load-test] myNotifications: n=17464 p50=219.3ms p95=299.6ms p99=353.5ms
+[load-test] browseAvailableTeachers: n=17465 p50=219.3ms p95=298.3ms p99=354.9ms
+[load-test] error-sample: myStudentSessions: graphql error (HTTP 429)
+[load-test] error-sample: browseAvailableTeachers: graphql error (HTTP 429)
+[load-test] error-sample: myNotifications: graphql error (HTTP 429)
+[load-test] error-sample: browseAvailableTeachers: graphql error (HTTP 429)
+[load-test] error-sample: myStudentSessions: graphql error (HTTP 429)
+[load-test] error-sample: myStudentSessions: graphql error (HTTP 429)
+[load-test] error-sample: myStudentSessions: graphql error (HTTP 429)
+[load-test] error-sample: myNotifications: graphql error (HTTP 429)
+[load-test] error-sample: myStudentSessions: graphql error (HTTP 429)
+[load-test] error-sample: myStudentSessions: graphql error (HTTP 429)
+[load-test] artifact: /home/ahmed/Projects/kottaby_kottaby/scratch/load/load-test-2026-10-09T13-41-41-108Z.json
+[load-test] PASS — window completed with at least one successful response

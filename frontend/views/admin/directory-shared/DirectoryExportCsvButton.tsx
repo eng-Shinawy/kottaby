@@ -21,6 +21,7 @@
 import { FileDownloadOutlined as DownloadIcon } from "@mui/icons-material";
 import { Box, Button, Tooltip } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 
 interface DirectoryExportCsvButtonProps {
   /** Visible label + accessible name (e.g. `labels.export.exportCsv`). */
@@ -51,7 +52,7 @@ export function DirectoryExportCsvButton({
           onClick={onExportCsv}
           loading={exportLoading}
           disabled={exportDisabled}
-          sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
+          sx={theme => ({ ...focusVisibleRingSx, minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
         >
           {exportLabel}
         </Button>

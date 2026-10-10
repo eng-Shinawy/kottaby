@@ -112,6 +112,13 @@ const config: KnipConfig = {
     "cldr-core",
     "cldr-dates-full",
     "cldr-localenames-full",
+
+    // pg-connection-string: test-only parity oracle for the perf-harness DB
+    // target guard (scripts/perf/lib/db-target-guard.test.ts imports the REAL
+    // parser `pg` uses to prove the guard resolves exactly the database the
+    // driver would connect to). The guard module itself has no dependency on
+    // it; it stays a transitive dep of pg.
+    "pg-connection-string",
   ],
 };
 

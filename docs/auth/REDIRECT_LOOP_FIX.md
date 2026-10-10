@@ -10,7 +10,7 @@ This document describes the authentication architecture in Kottaby, explains the
 
 | Token | Storage | Lifetime | Purpose |
 |-------|---------|----------|---------|
-| `access_token` | **React memory only** (not a cookie) | Short-lived (~15min) | GraphQL API authorization header |
+| `access_token` | **Dual storage**: React memory (AuthProvider, for the Apollo `Authorization: Bearer` header) + **httpOnly cookie** | Short-lived (~15min) | GraphQL API authorization header; SSR auth for Server Components / `getServerUserContext()` |
 | `refresh_token` | **httpOnly cookie** | 7 days | Silent token rotation via GraphQL mutation |
 | `session_id` | **httpOnly cookie** | 7 days | Server-side session validation |
 
@@ -23,8 +23,8 @@ This document describes the authentication architecture in Kottaby, explains the
 │ 1. User submits credentials                                 │
 │ 2. Server: login mutation (auth.mutation.ts)                │
 │    ├─ Generates: access_token, refresh_token, session_id    │
-│    ├─ Sets cookies: session_id ✅, refresh_token ✅          │
-│    ├─ Does NOT set: access_token cookie ❌                   │
+│    ├─ Sets cookies: session_id ✅, refresh_token ✅,          │
+│    │   access_token ✅ (httpOnly — the SSR auth path)         │
 │    └─ Returns: { token: access_token, user } in response    │
 │ 3. Client: AuthProvider stores access_token in React state  │
 │ 4. Client: hard redirect to /dashboard                      │
@@ -36,8 +36,8 @@ This document describes the authentication architecture in Kottaby, explains the
 │ 1. AuthProvider.checkAuth() calls refreshTokenMutation      │
 │ 2. Server: reads session_id + refresh_token from cookies    │
 │ 3. Server: validates + rotates tokens                        │
-│    ├─ Sets cookies: session_id ✅, refresh_token ✅          │
-│    ├─ Does NOT set: access_token cookie ❌                   │
+│    ├─ Sets cookies: session_id ✅, refresh_token ✅,          │
+│    │   access_token ✅ (httpOnly — re-set fresh on rotation) │
 │    └─ Returns: { token: new_access_token, user } in response│
 │ 4. Client: AuthProvider stores new access_token in React state│
 │ 5. Client: isAuthenticated = true                            │
@@ -47,9 +47,12 @@ This document describes the authentication architecture in Kottaby, explains the
 │ SERVER-SIDE AUTH CHECK (Dashboard Layout SSR)               │
 │                                                              │
 │ 1. getServerUserContext() reads cookies                     │
-│ 2. Finds: session_id ✅, access_token ❌ (NEVER SET!)       │
-│ 3. Returns: { userId: null, context: null }                 │
-│ 4. Layout: redirect({ href: "/login" })                     │
+│ 2. Finds: session_id ✅, access_token ✅ (15-min httpOnly    │
+│    cookie) — an expired/absent access_token falls back to   │
+│    verifying refresh_token + session_id                     │
+│ 3. Valid pair → returns { userId, context }; anonymous →    │
+│    { userId: null, context: null } → Layout redirects to   │
+│    /login                                                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,7 +91,7 @@ This document describes the authentication architecture in Kottaby, explains the
 
 ### Primary Fix: Update `getServerUserContext()` to Use Available Cookies
 
-Change the server-side auth check to validate using `session_id` + `refresh_token` cookies (which are actually set as httpOnly cookies), instead of requiring an `access_token` cookie that doesn't exist.
+Change the server-side auth check to validate using `session_id` + `refresh_token` cookies (which are actually set as httpOnly cookies), instead of requiring an `access_token` cookie that the auth flow did not set at the time of the original loop (the shipped architecture now sets it too — see the Token Types table above and Addendum 2).
 
 **Updated flow:**
 
@@ -110,14 +113,14 @@ This aligns server-side auth with the reality of what cookies are available.
 
 ## Security Considerations
 
-### Why `access_token` is NOT a Cookie (Design Decision)
+### Why the `access_token` is Both React Memory AND an httpOnly Cookie (Design Decision)
 
-The `access_token` is intentionally kept in React memory only to mitigate XSS attacks:
-- If an attacker executes JavaScript via XSS, they **cannot** read httpOnly cookies
-- The access token in memory is lost on page reload (by design)
-- The `refreshToken` mutation (which **does** use httpOnly cookies) can silently restore auth
+The `access_token` is held in React memory by the AuthProvider (the Apollo `Authorization: Bearer` header source) and ALSO set as an **httpOnly cookie** (`backend/lib/auth/cookies.ts` — `setAuthCookies` writes `access_token` beside `refresh_token` and `session_id`, all `HttpOnly` + `SameSite=Strict`):
+- httpOnly means an attacker executing JavaScript via XSS **cannot read the cookie** — the in-memory copy exists for the API header, not for exfiltration resistance of the cookie itself
+- The in-memory copy is lost on page reload (by design); the cookie lets SSR (`getServerUserContext()`) authenticate Server Components without any client-supplied identity
+- The `refreshToken` mutation (which rotates via httpOnly cookies) silently restores both storages
 
-This design is sound — the fix preserves it by making the server-side auth check use the httpOnly cookies that exist, rather than requiring a cookie that was deliberately excluded.
+This dual storage is the redirect-loop fix (see `docs/auth/jwt-authentication-service.md` §2.1): the server-side auth check uses the httpOnly cookies that exist — the 15-min `access_token` cookie first, with the `refresh_token` + `session_id` pair as the fallback for the expired case.
 
 ### `sameSite: "strict"` Consideration
 
@@ -147,7 +150,7 @@ Auth cookies use `sameSite: "strict"`, which blocks cookies on cross-site naviga
 |--------|----------|----------|--------|--------|------|
 | `session_id` | true | strict | production-only | 7 days | `/` |
 | `refresh_token` | true | strict | production-only | 7 days | `/` |
-| `access_token` | ❌ Never set as cookie | — | — | — | — |
+| `access_token` | true | strict | production-only | ~15 min | `/` |
 
 ---
 

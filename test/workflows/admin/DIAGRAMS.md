@@ -43,7 +43,7 @@ sequenceDiagram
 
 ## account-governance.journey.test.ts
 
-Journey over the full governance lifecycle of Student S — suspend / unsuspend / block / unblock / soft-delete / reactivate — driven by Admin A, observed through Admin B's `getUserDetail` and Student S's real `AuthService.login` outcomes, with Teacher T held as the byte-identical cross-role control.
+Journey over the full governance lifecycle of Student S — suspend / unsuspend / block / unblock / soft-delete / reactivate — driven by Admin A, observed through Admin B's `getUserDetail` and Student S's real `AuthService.login` outcomes, with Teacher T held as the byte-identical cross-role control. The appended ladder leg runs the ordered student-governance sequence end to end: S books and builds a real history baseline (session + report + settled payment row), A suspends (booking denied, zero writes), A blocks (still-valid refresh token denied), A soft-deletes (history byte-identical to every observer, login denied), then A restores S and S books again on the funded lane.
 
 ```mermaid
 sequenceDiagram
@@ -52,8 +52,11 @@ sequenceDiagram
   participant adminB as Admin B
   participant studentS as Student S
   participant governedG as Governed Admin G
+  participant teacherT as Teacher T (ladder cast)
   participant mgmt as AdminUserManagementService
-  participant auth as AuthService.login
+  participant lifecycle as SessionLifecycleService
+  participant report as SessionReportService
+  participant auth as AuthService.login/refreshToken
   participant db as Postgres audit_logs and users
 
   Note over db: cast committed - admins A B G, Teacher T, Student S with real role rows
@@ -103,6 +106,72 @@ sequenceDiagram
   governedG->>mgmt: setUserSuspended with G as actor
   mgmt-->>governedG: ForbiddenError - strict assertActiveActorAdmin guard rejects the blocked admin
   Note over mgmt,db: anonymous actorId 0 - UnauthorizedError unauthorized
+
+  Note over studentS,db: ladder leg - registered Student S (real credential, funded lanes), certified Teacher T, Admins A and B
+  studentS->>lifecycle: createSession Hifz intent - trial lane hold
+  lifecycle->>db: session row scheduled, ONE teacher intake wave
+  teacherT->>lifecycle: startSession then completeSession
+  teacherT->>report: submitSessionReport with spied transport
+  studentS->>auth: login then control refreshToken
+  auth-->>studentS: still-valid rotated refresh token - history baseline snapshotted
+  adminA->>mgmt: setUserSuspended S true 7 days
+  studentS->>lifecycle: createSession while suspended
+  lifecycle-->>studentS: ForbiddenError forbidden, zero writes, balances byte-identical
+  adminA->>mgmt: setUserBlocked S true
+  studentS->>auth: refreshToken with the still-valid token
+  auth-->>studentS: ForbiddenError accountBlocked
+  adminA->>mgmt: setUserDeleted S true
+  studentS->>auth: login
+  auth-->>studentS: ForbiddenError accountBlocked - history rows byte-identical to every observer
+  adminB->>mgmt: getUserDetail S
+  mgmt-->>adminB: stacked state visible - deleted blocked suspended
+  adminA->>mgmt: restore S - setUserDeleted false then setUserBlocked false then setUserSuspended false null
+  studentS->>auth: login
+  auth-->>studentS: session minted - login restored
+  studentS->>lifecycle: createSession Hifz intent again
+  lifecycle-->>studentS: scheduled on the hifz lane - funded balance survived the ladder
+```
+
+## admin-delete-with-history.journey.test.ts
+
+Journey over the governed-user deletion arc: the admin soft-deletes a student holding committed history (session, report, payment, and the teacher's wallet-adjacent earning row) and every historical row survives byte-identically while staying queryable by the authorized admin; a raw-SQL hard DELETE is blocked by the `prevent_users_delete` trigger with the guard re-armed transaction-locally (the restrict-FK failure class on push-provisioned databases), the soft-deleted student's login is denied at the governance gate, non-admin probes of the admin surface deny through the real gate, and reactivate restores login with the history untouched.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant system as System
+  participant adminA as Admin A
+  participant studentS as Student S
+  participant teacherT as Teacher T
+  participant controlS as Control Student
+  participant mgmt as AdminUserManagementService
+  participant auth as AuthService.login
+  participant db as Postgres
+  participant guard as prevent_users_delete trigger
+
+  system->>db: committed fixtures - Admin A creates Student S via createUser, session report payment rows, Teacher T wallet plus earning, control tenant family
+  studentS->>auth: login with the real credential
+  auth-->>studentS: session minted - governance clean
+  adminA->>mgmt: setUserDeleted S true
+  mgmt->>db: guarded UPDATE users is_deleted true plus ONE audit Delete row
+  adminA->>mgmt: setUserDeleted S true again
+  mgmt-->>adminA: ConflictError user already deleted - zero writes zero audit
+  system->>db: re-query students session report payment wallet earning audit rows
+  db-->>system: every history row present and byte-identical
+  adminA->>mgmt: getUserDetail S
+  mgmt-->>adminA: soft-deleted user visible to the authorized admin
+  studentS->>auth: login
+  auth-->>studentS: ForbiddenError accountBlocked - zero writes
+  system->>db: set_config users_delete_guard on transaction-local then DELETE FROM users
+  guard-->>system: RAISE users is not hard-deletable - row survives (restrict-FK class when the trigger is absent)
+  controlS->>mgmt: getUserDetail S then setUserDeleted S false
+  mgmt-->>controlS: ForbiddenError FORBIDDEN through the real admin gate - zero writes zero audit
+  adminA->>mgmt: setUserDeleted S false
+  mgmt->>db: guarded UPDATE is_deleted false deleted_at null plus ONE audit Reactivate row
+  studentS->>auth: login
+  auth-->>studentS: session minted - login restored
+  adminA->>mgmt: setUserDeleted T true then false
+  system->>db: earning wallet and session rows byte-identical across the teacher soft-delete and reactivate
 ```
 
 ## admin-password-reset.journey.test.ts
@@ -246,7 +315,7 @@ sequenceDiagram
 
   adminA->>mgmt: createUser role student
   mgmt->>db: users plus students plus ONE audit row Create committed atomically
-  adminA->>mgmt: listDirectory filter role student
+  adminA->>mgmt: listDirectory filter role student plus unique run prefix
   mgmt-->>adminA: new row with headline projection
   studentS->>auth: login
   auth-->>studentS: session minted - governance clean

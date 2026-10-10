@@ -10,9 +10,11 @@ import {
   Select,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 import { DEFAULT_SORT, type SearchFilterState } from "@/frontend/views/parent/monitoring/SearchFilterBar.helpers";
 import { RatingFilterSelect } from "@/frontend/views/parent/monitoring/SearchFilterBar.parts";
 
@@ -82,13 +84,21 @@ export function SearchFilterBar({
               endAdornment:
                 state.query !== "" ? (
                   <InputAdornment position="end">
-                    <IconButton
-                      aria-label={labels.searchClearLabel}
-                      size="small"
-                      onClick={() => onChange({ ...state, query: "" })}
-                    >
-                      <ClearOutlined fontSize="small" />
-                    </IconButton>
+                    <Tooltip title={labels.searchClearLabel} placement="top">
+                      <IconButton
+                        aria-label={labels.searchClearLabel}
+                        size="small"
+                        onClick={() => onChange({ ...state, query: "" })}
+                        edge="end"
+                        sx={theme => ({
+                          ...focusVisibleRingSx,
+                          color: theme.palette.text.secondary,
+                          p: 0.5,
+                        })}
+                      >
+                        <ClearOutlined fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </InputAdornment>
                 ) : null,
             },

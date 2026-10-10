@@ -92,11 +92,16 @@ const apolloClient = new ApolloClient({
     //    query, the `me` query runs before the token is available → UNAUTHORIZED.
     // 2. Batched mutations can have ordering issues on the server.
     // Queries are batched for performance (multiple concurrent reads in one POST).
+    // batchMax MUST stay explicit: the installed BatchHttpLink default is 0 =
+    // unlimited (batchLink.js options destructuring), and the gateway rejects
+    // array bodies longer than MAX_GRAPHQL_OPERATIONS_PER_REQUEST
+    // (backend/lib/gateway/transport-guard.ts). This value mirrors that
+    // server-side cap — keep the two in lockstep.
     ApolloLink.split(
       operation =>
         operation.query.definitions.some(d => d.kind === "OperationDefinition" && d.operation === "mutation"),
       new HttpLink({ uri: "/api/graphql", credentials: "include" }),
-      new BatchHttpLink({ uri: "/api/graphql", credentials: "include" })
+      new BatchHttpLink({ uri: "/api/graphql", credentials: "include", batchMax: 10 })
     ),
   ]),
   cache: createApolloCache(),

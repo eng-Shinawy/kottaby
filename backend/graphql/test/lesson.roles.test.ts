@@ -126,7 +126,7 @@ function mockUser(role?: UserRole, userId = 100): UserSelectType | null {
     id: userId,
     email: `${role}@test.local`,
     fullName: `Test ${role}`,
-    phone: "+[PHONE_REDACTED]",
+    phone: "+10000000000",
     country: "Egypt",
     countryCode: "EG",
     gender: "male",
@@ -276,7 +276,7 @@ describe("Lessons GraphQL Role-Matrix (REQ-030)", () => {
       }
     `;
 
-    test("Anonymous receives FORBIDDEN with zero writes", async () => {
+    test("Anonymous receives UNAUTHORIZED with zero writes", async () => {
       const planId = await ensureSharedPlan();
       const lessonsBefore = await lessonCountForPlan(planId);
       const auditBefore = await lessonAuditCount();
@@ -289,7 +289,7 @@ describe("Lessons GraphQL Role-Matrix (REQ-030)", () => {
       });
 
       expect(res.errors).toBeDefined();
-      expect(res.errors?.[0]?.extensions?.code).toBe("FORBIDDEN");
+      expect(res.errors?.[0]?.extensions?.code).toBe("UNAUTHORIZED");
       expect(await lessonCountForPlan(planId)).toBe(lessonsBefore);
       expect(await lessonAuditCount()).toBe(auditBefore);
     });
@@ -386,7 +386,7 @@ describe("Lessons GraphQL Role-Matrix (REQ-030)", () => {
       }
     `;
 
-    test("Anonymous receives FORBIDDEN with zero writes", async () => {
+    test("Anonymous receives UNAUTHORIZED with zero writes", async () => {
       const planId = await ensureSharedPlan();
       const createdId = await createLessonAsAdmin(planId, `Deny Update Target anon ${Date.now()}`);
 
@@ -401,7 +401,7 @@ describe("Lessons GraphQL Role-Matrix (REQ-030)", () => {
       });
 
       expect(res.errors).toBeDefined();
-      expect(res.errors?.[0]?.extensions?.code).toBe("FORBIDDEN");
+      expect(res.errors?.[0]?.extensions?.code).toBe("UNAUTHORIZED");
       expect(await lessonCountForPlan(planId)).toBe(lessonsBefore);
       expect(await lessonAuditCount()).toBe(auditBefore);
     });
@@ -524,7 +524,7 @@ describe("Lessons GraphQL Role-Matrix (REQ-030)", () => {
       }
     `;
 
-    test("Anonymous receives FORBIDDEN with zero writes", async () => {
+    test("Anonymous receives UNAUTHORIZED with zero writes", async () => {
       const planId = await ensureSharedPlan();
       const createdId = await createLessonAsAdmin(planId, `Deny Delete Target anon ${Date.now()}`);
 
@@ -539,7 +539,7 @@ describe("Lessons GraphQL Role-Matrix (REQ-030)", () => {
       });
 
       expect(res.errors).toBeDefined();
-      expect(res.errors?.[0]?.extensions?.code).toBe("FORBIDDEN");
+      expect(res.errors?.[0]?.extensions?.code).toBe("UNAUTHORIZED");
       expect(await lessonCountForPlan(planId)).toBe(lessonsBefore);
       expect(await lessonAuditCount()).toBe(auditBefore);
     });
@@ -634,5 +634,82 @@ describe("Lessons GraphQL Role-Matrix (REQ-030)", () => {
 
       trackedLessonIds.push(lessonId);
     });
+  });
+});
+
+describe("Lessons mutations — unauthenticated callers get the 401 family first", () => {
+  interface MutationProbe {
+    readonly name: "createLesson" | "updateLesson" | "deleteLesson";
+    readonly source: string;
+  }
+
+  // Inline-literal documents (no variable plumbing): the scope step denies
+  // before any resolver or coercion runs, so inert literal args suffice —
+  // no DB rows are needed for these probes.
+  const UNAUTHENTICATED_PROBES: readonly MutationProbe[] = [
+    {
+      name: "createLesson",
+      source: `
+        mutation ProbeCreateLesson {
+          createLesson(input: { planId: 1, title: "probe" }) { id }
+        }
+      `,
+    },
+    {
+      name: "updateLesson",
+      source: `
+        mutation ProbeUpdateLesson {
+          updateLesson(id: "1", input: { title: "probe" }) { id }
+        }
+      `,
+    },
+    {
+      name: "deleteLesson",
+      source: `
+        mutation ProbeDeleteLesson {
+          deleteLesson(id: "1") { id }
+        }
+      `,
+    },
+  ];
+
+  test("anonymous caller (no verified user on the context) receives UNAUTHORIZED on all three mutations", async () => {
+    // The `$all` conjunction's `authenticated` leg must answer anonymous
+    // callers with the 401 family — never the role leg's FORBIDDEN (the
+    // ANY-semantics plain role map answered 403, leaking operation
+    // existence to unauthenticated callers).
+    const results = await Promise.all(
+      UNAUTHENTICATED_PROBES.map(async probe =>
+        graphql({
+          schema: graphQLSchema,
+          source: probe.source,
+          contextValue: buildContextForUser(null),
+        })
+      )
+    );
+    for (const [index, result] of results.entries()) {
+      const probe = UNAUTHENTICATED_PROBES[index];
+      if (!probe) throw new Error("expected a probe for every result");
+      expect(result.errors).toBeDefined();
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0]?.extensions?.code).toBe("UNAUTHORIZED");
+      expect(result.errors?.[0]?.path).toEqual([probe.name]);
+    }
+  });
+
+  test("the 401 denial is the localized unauthorized message, byte-identical across all three fields (no field-existence leak)", async () => {
+    const localized = getServerTranslations("en").errorsTranslations.unauthorized;
+    const results = await Promise.all(
+      UNAUTHENTICATED_PROBES.map(async probe =>
+        graphql({
+          schema: graphQLSchema,
+          source: probe.source,
+          contextValue: buildContextForUser(null),
+        })
+      )
+    );
+    for (const result of results) {
+      expect(result.errors?.[0]?.message).toBe(localized);
+    }
   });
 });

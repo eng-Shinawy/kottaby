@@ -1,0 +1,722 @@
+{
+  "generatedAt": "2026-10-09T16:52:46.926Z",
+  "verdict": "FAIL",
+  "stages": [
+    {
+      "stage": "s6-performance",
+      "status": "PASS",
+      "startedAt": "2026-10-09T16:47:30.671Z",
+      "finishedAt": "2026-10-09T16:52:22.976Z"
+    },
+    {
+      "stage": "s7-dr",
+      "status": "PASS",
+      "startedAt": "2026-10-09T16:52:22.977Z",
+      "finishedAt": "2026-10-09T16:52:25.042Z"
+    },
+    {
+      "stage": "s8-decisions",
+      "status": "PASS",
+      "startedAt": "2026-10-09T16:52:25.042Z",
+      "finishedAt": "2026-10-09T16:52:46.674Z"
+    },
+    {
+      "stage": "s9-gate",
+      "status": "PASS",
+      "startedAt": "2026-10-09T16:52:46.674Z",
+      "finishedAt": "2026-10-09T16:52:46.925Z"
+    }
+  ],
+  "rows": [
+    {
+      "rowId": "6.1",
+      "section": 6,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/load/load-test.ts --url http://127.0.0.1:3100",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/load-test.log",
+      "timestamp": "2026-10-09T16:47:30.671Z"
+    },
+    {
+      "rowId": "6.2",
+      "section": 6,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/load/matching-latency.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/matching-latency.log",
+      "timestamp": "2026-10-09T16:48:02.455Z"
+    },
+    {
+      "rowId": "6.3",
+      "section": 6,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/load/ws-soak.ts --url ws://127.0.0.1:3101",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/ws-soak.log",
+      "timestamp": "2026-10-09T16:48:02.816Z"
+    },
+    {
+      "rowId": "6.4",
+      "section": 6,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/load/probe-explain-analyze.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-explain-analyze.log",
+      "timestamp": "2026-10-09T16:52:14.752Z"
+    },
+    {
+      "rowId": "6.5",
+      "section": 6,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test:graphql backend/graphql/test/query-count-regression.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/test-graphql-query-count-regression.log",
+      "timestamp": "2026-10-09T16:52:14.969Z"
+    },
+    {
+      "rowId": "6.6",
+      "section": 6,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/load/probe-indexes.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-indexes.log",
+      "timestamp": "2026-10-09T16:52:19.012Z"
+    },
+    {
+      "rowId": "6.7",
+      "section": 6,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test:graphql backend/graphql/test/notification-query.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/test-graphql-notification-query.log",
+      "timestamp": "2026-10-09T16:52:19.106Z"
+    },
+    {
+      "rowId": "7.1",
+      "section": 7,
+      "modality": "MANUAL-DRILL",
+      "command": "bun run ops:db-backup",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "ai/plans/milestone_4/production_launch_checklist_execution/outcome/backup-timer-signoff.md",
+      "timestamp": "2026-10-09T16:52:22.977Z"
+    },
+    {
+      "rowId": "7.2",
+      "section": 7,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts scripts/ops/backup-restore.integration.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/scripts/ops/backup-restore.integration.test.ts.log",
+      "timestamp": "2026-10-09T16:52:22.978Z"
+    },
+    {
+      "rowId": "7.3",
+      "section": 7,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts scripts/ops/restore-verify.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/scripts/ops/restore-verify.test.ts.log",
+      "timestamp": "2026-10-09T16:52:24.684Z"
+    },
+    {
+      "rowId": "7.4",
+      "section": 7,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify docs/ops/disaster-recovery.md:38 records RTO 4 hours (ratified)",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/ops/disaster-recovery.md",
+      "timestamp": "2026-10-09T16:52:25.042Z"
+    },
+    {
+      "rowId": "7.5",
+      "section": 7,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify docs/ops/disaster-recovery.md:37 records RPO 1 hour (ratified)",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/ops/disaster-recovery.md",
+      "timestamp": "2026-10-09T16:52:25.042Z"
+    },
+    {
+      "rowId": "7.6",
+      "section": 7,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify docs/ops/disaster-recovery.md is the accessible DR plan (runbook + playbooks + quarterly cold-drill procedure)",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/ops/disaster-recovery.md",
+      "timestamp": "2026-10-09T16:52:25.042Z"
+    },
+    {
+      "rowId": "7.7",
+      "section": 7,
+      "modality": "MANUAL-DRILL",
+      "command": "bun run ops:db-restore-verify --target <scratch-dsn> --yes-i-understand",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "ai/plans/milestone_4/production_launch_checklist_execution/outcome/restore-report-<drill-stamp>.json",
+      "timestamp": "2026-10-09T16:52:25.042Z"
+    },
+    {
+      "rowId": "8.1",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:25.042Z"
+    },
+    {
+      "rowId": "8.2",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:25.145Z"
+    },
+    {
+      "rowId": "8.3",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/logic/students/handshake-code-generation-locks.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/logic/students/handshake-code-generation-locks.test.ts.log",
+      "timestamp": "2026-10-09T16:52:25.145Z"
+    },
+    {
+      "rowId": "8.4",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:35.614Z"
+    },
+    {
+      "rowId": "8.5",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/logic/audit/audit-immutability.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/logic/audit/audit-immutability.test.ts.log",
+      "timestamp": "2026-10-09T16:52:35.614Z"
+    },
+    {
+      "rowId": "8.6",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:35.785Z"
+    },
+    {
+      "rowId": "8.7",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/schema/users/users-governance.static-assertions.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/schema/users/users-governance.static-assertions.test.ts.log",
+      "timestamp": "2026-10-09T16:52:35.785Z"
+    },
+    {
+      "rowId": "8.8",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:35.858Z"
+    },
+    {
+      "rowId": "8.9",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:35.858Z"
+    },
+    {
+      "rowId": "8.10",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:35.858Z"
+    },
+    {
+      "rowId": "8.11",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts shared/constants/evaluation-rubric.constants.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/shared/constants/evaluation-rubric.constants.test.ts.log",
+      "timestamp": "2026-10-09T16:52:35.858Z"
+    },
+    {
+      "rowId": "8.12",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/services/classes/session-lifecycle.service.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/services/classes/session-lifecycle.service.test.ts.log",
+      "timestamp": "2026-10-09T16:52:35.913Z"
+    },
+    {
+      "rowId": "8.13",
+      "section": 8,
+      "modality": "DOC-SIGNOFF",
+      "command": "bun run test/scripts/run-test.ts shared/constants/session-fees.constants.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/PRODUCTION_READINESS.md",
+      "timestamp": "2026-10-09T16:52:37.287Z"
+    },
+    {
+      "rowId": "8.14",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts test/workflows/sessions/session-dual-confirmation.journey.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/test/workflows/sessions/session-dual-confirmation.journey.test.ts.log",
+      "timestamp": "2026-10-09T16:52:37.287Z"
+    },
+    {
+      "rowId": "8.15",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts test/workflows/teachers/admin-ordered-re-evaluation.journey.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/test/workflows/teachers/admin-ordered-re-evaluation.journey.test.ts.log",
+      "timestamp": "2026-10-09T16:52:37.664Z"
+    },
+    {
+      "rowId": "8.16",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/repo/teachers/applicant.repository.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/repo/teachers/applicant.repository.test.ts.log",
+      "timestamp": "2026-10-09T16:52:38.292Z"
+    },
+    {
+      "rowId": "8.17",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts test/workflows/teachers/evaluation-rubric-scoring.journey.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/test/workflows/teachers/evaluation-rubric-scoring.journey.test.ts.log",
+      "timestamp": "2026-10-09T16:52:38.483Z"
+    },
+    {
+      "rowId": "8.18",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:39.262Z"
+    },
+    {
+      "rowId": "8.19",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:39.262Z"
+    },
+    {
+      "rowId": "8.20",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:39.262Z"
+    },
+    {
+      "rowId": "8.21",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/enum/shared/surah-juz-ref.enum.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/enum/shared/surah-juz-ref.enum.test.ts.log",
+      "timestamp": "2026-10-09T16:52:39.262Z"
+    },
+    {
+      "rowId": "8.22",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/repo/students/student.repository.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/repo/students/student.repository.test.ts.log",
+      "timestamp": "2026-10-09T16:52:39.338Z"
+    },
+    {
+      "rowId": "8.23",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/repo/students/student.parent-monitoring.repository.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/repo/students/student.parent-monitoring.repository.test.ts.log",
+      "timestamp": "2026-10-09T16:52:39.582Z"
+    },
+    {
+      "rowId": "8.24",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/services/parents/parent-link-request.service.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/services/parents/parent-link-request.service.test.ts.log",
+      "timestamp": "2026-10-09T16:52:39.850Z"
+    },
+    {
+      "rowId": "8.25",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/services/teachers/teacher-inactivity.service.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/services/teachers/teacher-inactivity.service.test.ts.log",
+      "timestamp": "2026-10-09T16:52:40.582Z"
+    },
+    {
+      "rowId": "8.26",
+      "section": 8,
+      "modality": "SCRIPT-PROBE",
+      "command": "bun run scripts/launch/probe-decisions.ts",
+      "exitStatus": 0,
+      "result": "WAIVED",
+      "evidenceRef": "logs/2026-10-09T19-47-30/probe-decisions.log",
+      "timestamp": "2026-10-09T16:52:40.790Z"
+    },
+    {
+      "rowId": "8.27",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/services/billing/subscription-admin.service.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/services/billing/subscription-admin.service.test.ts.log",
+      "timestamp": "2026-10-09T16:52:40.790Z"
+    },
+    {
+      "rowId": "8.28",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test:graphql backend/graphql/test/session-arbitration.wire.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/test-graphql-session-arbitration.log",
+      "timestamp": "2026-10-09T16:52:41.508Z"
+    },
+    {
+      "rowId": "8.29",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/logic/admin/admin-user.repository.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/logic/admin/admin-user.repository.test.ts.log",
+      "timestamp": "2026-10-09T16:52:45.122Z"
+    },
+    {
+      "rowId": "8.30",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/repo/teachers/evaluation.repository.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/repo/teachers/evaluation.repository.test.ts.log",
+      "timestamp": "2026-10-09T16:52:45.743Z"
+    },
+    {
+      "rowId": "8.31",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/schema/classes/report-homework-schema.static-assertions.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/schema/classes/report-homework-schema.static-assertions.test.ts.log",
+      "timestamp": "2026-10-09T16:52:46.291Z"
+    },
+    {
+      "rowId": "8.32",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/repo/classes/recitation.repository.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/repo/classes/recitation.repository.test.ts.log",
+      "timestamp": "2026-10-09T16:52:46.364Z"
+    },
+    {
+      "rowId": "8.33",
+      "section": 8,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run test/scripts/run-test.ts backend/db/test/logic/shared/schema-registry-census.test.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/backend/db/test/logic/shared/schema-registry-census.test.ts.log",
+      "timestamp": "2026-10-09T16:52:46.602Z"
+    },
+    {
+      "rowId": "9.1",
+      "section": 9,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify the Engineering Manager signature row (Name/Signature/Date) is filled in docs/planning/PRODUCTION_READINESS.md Section 9",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/PRODUCTION_READINESS.md",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.2",
+      "section": 9,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify the Dev 1 (Student & Parent) signature row (Name/Signature/Date) is filled in docs/planning/PRODUCTION_READINESS.md Section 9",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/PRODUCTION_READINESS.md",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.3",
+      "section": 9,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify the Dev 2 (Teacher Lifecycle) signature row (Name/Signature/Date) is filled in docs/planning/PRODUCTION_READINESS.md Section 9",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/PRODUCTION_READINESS.md",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.4",
+      "section": 9,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify the Dev 3 (Matching & Admin) signature row (Name/Signature/Date) is filled in docs/planning/PRODUCTION_READINESS.md Section 9",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/PRODUCTION_READINESS.md",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.5",
+      "section": 9,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify the Product Owner signature row (Name/Signature/Date) is filled in docs/planning/PRODUCTION_READINESS.md Section 9",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/PRODUCTION_READINESS.md",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.6",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.7",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.8",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.9",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.10",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.11",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.12",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.13",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.14",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun tsgo",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/tsgo.log",
+      "timestamp": "2026-10-09T16:52:46.675Z"
+    },
+    {
+      "rowId": "9.15",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run validate:mermaid",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "logs/2026-10-09T19-47-30/validate-mermaid.log",
+      "timestamp": "2026-10-09T16:52:46.899Z"
+    },
+    {
+      "rowId": "9.16",
+      "section": 9,
+      "modality": "AUTOMATED-TEST",
+      "command": "bun run scripts/launch/launch-gate.ts",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/launch-report-20261009T164730Z.json",
+      "timestamp": "2026-10-09T16:52:46.925Z"
+    },
+    {
+      "rowId": "9.17",
+      "section": 9,
+      "modality": "DOC-SIGNOFF",
+      "command": "Verify all five Section 9 signature rows and the Launch Approved line are filled in docs/planning/PRODUCTION_READINESS.md — evidence-existence check only",
+      "exitStatus": 0,
+      "result": "PASS",
+      "evidenceRef": "docs/planning/PRODUCTION_READINESS.md",
+      "timestamp": "2026-10-09T16:52:46.925Z"
+    }
+  ],
+  "waivers": [
+    {
+      "rowId": "3.3.3",
+      "why": "As-built, the directory-level NOT-EXISTS exclusion (backend/db/repo/teachers/teacher.repository.matching.helpers.ts:129-142) is the MVP availability gate; booking-time re-assertion is waived-with-sign-off to the matching-flow backlog ticket (deferred-items ledger D1). The in-session-lock-release journey's deferred-restore lane deliberately books an in-session teacher today and must be updated if a gate ever ships.",
+      "owner": "Dev 3 (matching-flow backlog)",
+      "signatory": ""
+    },
+    {
+      "rowId": "4.2.1",
+      "why": "Input validation is proven on the auth/admin surfaces (registration battery, phone/password policies, GraphQL non-null type system); exhaustive per-field fuzzing and GraphQL depth/complexity limiting are post-launch hardening (deferred-items ledger D5) — only the 2MB body cap ships today (backend/lib/gateway/transport-guard.ts:49).",
+      "owner": "Dev 2 (security-hardening backlog)",
+      "signatory": ""
+    },
+    {
+      "rowId": "4.2.5",
+      "why": "The shipped loginAccountLimiter is in-memory, per-instance, and fail-open (backend/lib/ratelimit.ts:125-127); the distributed limiter via the installed-but-unused @upstash/redis, per-account lockout, and a login-specific per-IP limiter are post-launch hardening (deferred-items ledger D14) — transport-level IP throttling is the existing gateway-wide limiter (app/api/graphql/rate-limit.ts:56), and the GraphQL context exposes no client IP.",
+      "owner": "Dev 2 (security-hardening backlog)",
+      "signatory": ""
+    },
+    {
+      "rowId": "4.3.4",
+      "why": "Encrypted TLS is enabled for sslmode=require / Neon DSNs (backend/db/client.ts:42-46) with the rejectUnauthorized: false posture recorded as a signed launch note; CA-verified TLS is post-launch hardening (deferred-items ledger D15). The production DATABASE_URL MUST carry sslmode=require (launch condition).",
+      "owner": "Dev 2 (security-hardening backlog)",
+      "signatory": ""
+    },
+    {
+      "rowId": "5.1.1",
+      "why": "Terminal-state protection is enforced by application-layer guarded UPDATEs (the 5x5 enforcement sweep plus the session-state-machine journey pins); a DB-level session-status guard trigger stays deferred (deferred-items ledger D10) — a signed exception, never a silent skip.",
+      "owner": "Dev 3",
+      "signatory": ""
+    },
+    {
+      "rowId": "5.1.2",
+      "why": "Terminal-state protection is enforced by application-layer guarded UPDATEs (the 5x5 enforcement sweep plus the session-state-machine journey pins); a DB-level session-status guard trigger stays deferred (deferred-items ledger D10) — a signed exception, never a silent skip.",
+      "owner": "Dev 3",
+      "signatory": ""
+    },
+    {
+      "rowId": "5.5.6",
+      "why": "Expiry is enforced at read/claim time (strict expiresAt > now) and the sweep/reminder primitives ship as on-demand ops triggers (ops:sweep-link-requests / ops:remind-link-requests); scheduled wiring is waived-with-sign-off to the canonical doc's cron-stream backlog ticket (deferred-items ledger D13). The arming runbook states the on-demand cadence that bounds the re-request lockout window.",
+      "owner": "Dev 3",
+      "signatory": ""
+    },
+    {
+      "rowId": "8.26",
+      "why": "The teacher_request_preference pgEnum (backend/db/schema/enums.ts:271), the teacher.request_preference column (backend/db/schema/teachers/teacher.ts:54), and the TS mirror exist and are probe-verified; the runtime intake (queue / reject / offer_alternatives) is waived-with-sign-off to the matching/intake backlog (deferred-items ledger D2).",
+      "owner": "Dev 3 (matching/intake backlog)",
+      "signatory": ""
+    }
+  ]
+}

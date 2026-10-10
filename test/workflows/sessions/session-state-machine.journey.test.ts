@@ -15,10 +15,10 @@
  *       the same commit), then is restored by BOTH exits — the participant
  *       cancel and the teacher complete.
  *  SWEEP — the illegal-transition matrix sweep: completed→start,
- *       cancelled→cancel, cancelled→start, disputed→start,
- *       scheduled→complete — every attempt denied with the canonical
- *       `SESSION_INVALID_TRANSITION` and ZERO database delta (full-row
- *       equality before/after).
+ *       cancelled→cancel, cancelled→start, cancelled→complete,
+ *       cancelled→dispute, disputed→start, scheduled→complete — every
+ *       attempt denied with the canonical `SESSION_INVALID_TRANSITION`
+ *       and ZERO database delta (full-row equality before/after).
  *  RACE — two concurrent admin resolves of one disputed row: exactly one
  *       wins, the loser receives the typed conflict, the refund fires
  *       exactly once (real-PG posture — the premise is one connection per
@@ -443,6 +443,27 @@ describe("Sweep — every off-matrix transition denied with ZERO database delta"
     const before = await readFullSessionRow(cancelledSessionId);
     await expectServiceDenial("SESSION_INVALID_TRANSITION", errorTexts().sessionInvalidTransition, () =>
       SessionLifecycleService.startSession(cast.teacher.userId, cancelledSessionId, LOCALE)
+    );
+    expect(await readFullSessionRow(cancelledSessionId)).toEqual(before);
+  });
+
+  test("cancelled → complete is denied (INV-S2: cancelled is terminal), zero writes", async () => {
+    const before = await readFullSessionRow(cancelledSessionId);
+    await expectServiceDenial("SESSION_INVALID_TRANSITION", errorTexts().sessionInvalidTransition, () =>
+      SessionLifecycleService.completeSession(cast.teacher.userId, cancelledSessionId, LOCALE)
+    );
+    expect(await readFullSessionRow(cancelledSessionId)).toEqual(before);
+  });
+
+  test("cancelled → dispute is denied (INV-S2: cancelled is terminal), zero writes", async () => {
+    const before = await readFullSessionRow(cancelledSessionId);
+    await expectServiceDenial("SESSION_INVALID_TRANSITION", errorTexts().sessionInvalidTransition, () =>
+      SessionLifecycleService.openSessionDispute(
+        cast.primaryStudent.userId,
+        cancelledSessionId,
+        "post-terminal dispute attempt",
+        LOCALE
+      )
     );
     expect(await readFullSessionRow(cancelledSessionId)).toEqual(before);
   });

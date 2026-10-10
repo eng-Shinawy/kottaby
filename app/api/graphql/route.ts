@@ -6,9 +6,13 @@
  *  - `./apollo-server` — ApolloServer construction (plugins, disclosure
  *    flags, error-format hop);
  *  - `./transport-rejection` — kind→wire mapping + guarded rejection
- *    envelope builder (emits `errorsTranslations.badRequest`);
+ *    envelope builder (emits `errorsTranslations.badRequest` for
+ *    request-shape kinds, `errorsTranslations.forbidden` for cross-origin
+ *    rejections);
  *  - `./rate-limit` — fail-open rate-limit wrapper (429 envelope emits
  *    `errorsTranslations.rateLimitExceeded`);
+ *  - `./origin-guard` — same-origin CSRF gate for cookie-authenticated
+ *    POSTs (`assertGraphqlPostOrigin`, wired FIRST in `POST`);
  *  - `./space-z-cors` — `*.space-z.ai` preview-panel CORS echo + preflight.
  *
  * Localized rejection emitters (post-split homes — keys unchanged):
@@ -16,13 +20,15 @@
  *  - the 429 limiter branch emits `errorsTranslations.rateLimitExceeded` via `./rate-limit`;
  *  - the `POST` catch fallback below emits `errorsTranslations.internalServerError`.
  *
- * Behavior is identical to the pre-split route; only code organization moved.
+ * The transport-tier modules were extracted from a formerly oversized route
+ * body; the origin gate is a later-added pre-engine tier.
  */
 
 import type { ApolloServer } from "@apollo/server";
 import { startServerAndCreateNextHandler } from "@as-integrations/next";
 import { NextRequest, NextResponse } from "next/server";
 import { type ApolloEngineOptions, createApolloServer } from "@/app/api/graphql/apollo-server";
+import { assertGraphqlPostOrigin } from "@/app/api/graphql/origin-guard";
 import { withRateLimit } from "@/app/api/graphql/rate-limit";
 import { spaceZCorsPreflightResponse } from "@/app/api/graphql/space-z-cors";
 import { transportRejectionResponse } from "@/app/api/graphql/transport-rejection";
@@ -139,42 +145,55 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 /**
- * POST handler — the canonical GraphQL transport wired as the seven-step
+ * POST handler — the canonical GraphQL transport wired as the eight-step
  * pipeline:
  *
- *   1. `guardTransport(request)` — method/content-type/size/parseability
- *      guards result-mapped per `TRANSPORT_WIRE_MAP` (`./transport-rejection`);
+ *   1. `assertGraphqlPostOrigin(request)` — same-origin CSRF gate
+ *      (`./origin-guard`): a cross-origin browser POST short-circuits with
+ *      the 403 `CROSS_ORIGIN_REJECTED` envelope before any body work;
+ *      identity-blind and pre-authorization (applies to authenticated and
+ *      anonymous traffic alike);
+ *   2. `guardTransport(request)` — method/content-type/size/parseability/
+ *      batch-count guards result-mapped per `TRANSPORT_WIRE_MAP` (`./transport-rejection`);
  *      any `ok:false` short-circuits BELOW and the engine+context are never
  *      reached;
- *   2. correlation resolution happens inside the rejection builder on the
+ *   3. correlation resolution happens inside the rejection builder on the
  *      failure branch and inside `createGraphQLContext` on the success branch
  *      — the SAME pure helper either way (single mint source);
- *   3. idempotency-key capture is realized IN the context factory
+ *   4. idempotency-key capture is realized IN the context factory
  *      (`ctx.idempotencyKey` — capture lives at exactly ONE site, not
  *      duplicated route-side);
- *   4. `ctx = await gqlContextFactory(request)` (handler context hook);
- *   5–6. engine invocation unchanged in ordering — validate → scopeAuth /
+ *   5. `ctx = await gqlContextFactory(request)` (handler context hook);
+ *   6–7. engine invocation unchanged in ordering — validate → scopeAuth /
  *      authScopes → resolver run INSIDE Apollo execution;
- *   7a–b. `finalizeGraphqlErrors` finalizes inside Apollo's `willSendResponse`
+ *   8a–b. `finalizeGraphqlErrors` finalizes inside Apollo's `willSendResponse`
  *      BEFORE the handler future resolves; THEN every `ctx.authCookieOut`
  *      entry merges via `headers.append` — unconditionally, error paths
  *      included;
- *   7c. JSON response returned (Apollo convention: domain errors stay HTTP
+ *   8c. JSON response returned (Apollo convention: domain errors stay HTTP
  *      200 with an `errors[]` payload).
  */
 export async function POST(request: NextRequest) {
   let engineRequest: NextRequest | null = null;
   try {
-    // Step 1 — transport guards BEFORE anything else (cheap constant work
-    // first: junk traffic consumes zero rate-limiter state and never reaches
-    // the engine or the context factory).
+    // Step 1 — same-origin CSRF gate BEFORE any body work (cheap header
+    // check first: a cross-site forged POST never consumes rate-limiter
+    // state and never reaches the transport tier).
+    const origin = assertGraphqlPostOrigin(request);
+    if (!origin.ok) {
+      return transportRejectionResponse("CROSS_ORIGIN_REJECTED", request);
+    }
+
+    // Step 2 — transport guards (cheap constant work first: junk traffic
+    // consumes zero rate-limiter state and never reaches the engine or the
+    // context factory).
     const transport = await guardTransport(request);
     if (!transport.ok) {
       return transportRejectionResponse(transport.kind, request);
     }
 
     // Replayable re-buffer: `guardTransport` drained the original stream, and
-    // both Apollo's handler and the step-7b WeakMap lookup need ONE stable
+    // both Apollo's handler and the step-8b WeakMap lookup need ONE stable
     // request object. The validated body is re-serialized deterministically
     // (parsed→stringified round-trip is value-identical for the engine).
     engineRequest = new NextRequest(
@@ -187,8 +206,8 @@ export async function POST(request: NextRequest) {
 
     const response = await withRateLimit(engineRequest, getHandler());
 
-    // Steps 7a–7c — finalize already ran inside Apollo; cookies append last,
-    // unconditionally (this IS the success-shaped return of step 7c).
+    // Steps 8a–8c — finalize already ran inside Apollo; cookies append last,
+    // unconditionally (this IS the success-shaped return of step 8c).
     return flushAuthCookies(response, engineRequest);
   } catch (error) {
     logger.error("Unhandled error in GraphQL POST handler", error);

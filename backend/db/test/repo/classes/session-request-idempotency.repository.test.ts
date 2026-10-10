@@ -41,6 +41,9 @@
  *    pins — the key is always a bound parameter, no prepared statements,
  *    no array-membership operators, no SQL line-comment sequences, no
  *    i18n/logger/console, no key logging, tx last on every signature.
+ *  - Schema contract: the `session_id` FK is index-backed —
+ *    `session_request_idempotency_session_id_idx` is asserted live in
+ *    `pg_indexes` as a btree with `session_id` as its key column.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -331,6 +334,21 @@ describe("SessionRequestIdempotencyRepository — transactional paths (runInRoll
       const claim = await SessionRequestIdempotencyRepository.insertClaim({ idempotencyKey: key, userId: owner }, tx);
       expect(claim.idempotencyKey).toBe(key);
       expect((await SessionRequestIdempotencyRepository.findByKey(key, tx))?.idempotencyKey).toBe(key);
+    });
+  });
+
+  // ─── Schema contract: the session_id FK index ─────────────────────────
+
+  test("session_request_idempotency_session_id_idx exists as a btree with session_id as its key column", async () => {
+    await runInRollback(async tx => {
+      const index = await tx.execute<{ indexdef: string }>(
+        sql`SELECT indexdef FROM pg_indexes
+            WHERE tablename = 'session_request_idempotency'
+              AND indexname = 'session_request_idempotency_session_id_idx'`
+      );
+      expect(index.rows).toHaveLength(1);
+      expect(index.rows[0]?.indexdef).toContain("USING btree");
+      expect(index.rows[0]?.indexdef).toContain("(session_id)");
     });
   });
 

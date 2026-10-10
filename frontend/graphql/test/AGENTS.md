@@ -16,6 +16,10 @@ test/
 
 All shared test infrastructure (Apollo test client, port allocation, server lifecycle, entity setup helpers) is exported via `@/test/helpers`. Never hand-roll per-suite server bootstrap or clients.
 
+### `billing/` sub-directory
+
+Billing-domain wire pins over the LIVE dev server (`setupTestServerLifecycle` + `testClient`): the escrow denial codes (`escrow-denial-codes.test.ts` — `INSUFFICIENT_BALANCE` over `createSession` and `WALLET_INSUFFICIENT_FUNDS` over `requestWithdrawal`).
+
 ### `gateway/` sub-directory
 
 Suites under `frontend/graphql/test/gateway/` run against the BUILT schema imported in-process (`import { graphQLSchema } from "@/backend/graphql/gqlSchema"`) — they deliberately do NOT spin up a live server.

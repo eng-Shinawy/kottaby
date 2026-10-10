@@ -10,8 +10,11 @@ import type { WalletSelectType } from "@/backend/types/billing/wallet.types";
 /**
  * Admin auditing filter shapes for the student payments ledger. All fields
  * are optional-by-null: `null` means "no filter applied". `studentNameSearch`
- * carries the raw search text — the repository escapes SQL wildcards and
- * wraps the value in `%..%` before the `ilike` comparison.
+ * carries the raw search text — the SERVICE layer escapes SQL wildcards and
+ * wraps the value in `%..%` before the repository binds the finished pattern
+ * to the `ilike` comparison (`backend/services/billing/admin-financial-auditing.service.read.helpers.ts:150`;
+ * the repository binds it verbatim at `backend/db/repo/billing/student-payment.repository.ts:135`
+ * and never re-escapes).
  */
 export interface NormalizedAdminPaymentFilters {
   studentId: number | null;

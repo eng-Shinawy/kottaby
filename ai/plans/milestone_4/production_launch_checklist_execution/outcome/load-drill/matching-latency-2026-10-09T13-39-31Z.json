@@ -1,0 +1,17 @@
+{
+  "tool": "matching-latency",
+  "seededTeachers": 100,
+  "eligibleOnline": 110,
+  "pageSize": 25,
+  "candidateRows": 25,
+  "totalMatched": 110,
+  "runDurationsMs": [
+    10.553,
+    5.666,
+    3.153
+  ],
+  "medianMs": 5.666,
+  "worstMs": 10.553,
+  "row62BudgetMs": 200,
+  "generousFailBoundMs": 2000
+}

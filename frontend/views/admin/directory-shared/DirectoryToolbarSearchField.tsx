@@ -53,6 +53,16 @@ export function DirectoryToolbarSearchField({
 }: DirectoryToolbarSearchFieldProps): ReactNode {
   const hasValue = Boolean(value);
 
+  // Escape clears an active search term — the keyboard equivalent of the
+  // trailing clear button (preventDefault keeps the IME/dialog teardown
+  // behavior of the key from also firing).
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === "Escape" && hasValue) {
+      event.preventDefault();
+      onChange("");
+    }
+  };
+
   return (
     <TextField
       id={id}
@@ -60,6 +70,7 @@ export function DirectoryToolbarSearchField({
       placeholder={placeholder}
       value={value}
       onChange={event => onChange(event.target.value)}
+      onKeyDown={handleKeyDown}
       slotProps={{
         htmlInput: { "aria-label": ariaLabel },
         input: {

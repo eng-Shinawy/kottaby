@@ -32,6 +32,10 @@
  *      rejections (this file's pure tiers already pin the en×ar mapping
  *      matrix on both validators; `registration.service.test.ts` owns the
  *      registration-side ar tier).
+ *   6. PASSWORD CEILING — the shared 1024-char password bound threads
+ *      through the create validator and the shared password policy (the
+ *      change-password / admin-set consumers) with the localized
+ *      `PASSWORD_TOO_LONG` entry, so set-time and verify-time bounds agree.
  *
  * Pure tiers run with no DB. DB-touching tiers run inside `runInRollback`
  * with the `tx` propagated to every service call, and every induced
@@ -123,6 +127,7 @@ import { StudentOnboardingService } from "@/backend/services/admin/student-onboa
 import {
   buildUpdatePatch,
   validateCreateInput,
+  validatePasswordPolicy,
   validateUpdatePatch,
 } from "@/backend/services/admin/user-management.helpers";
 import { AdminUserManagementService } from "@/backend/services/admin/user-management.service";
@@ -332,6 +337,54 @@ describe("validateCreateInput — phone routed through the shared gate (pure)", 
     ] as const) {
       const error = caughtValidationError(() => validateCreateInput(makeCreateInput(PHONE_17_CHARS), locale));
       expectPhoneEntry(error, { field: "phone", code: "PHONE_TOO_LONG", message: t.errorsTranslations.validation });
+    }
+  });
+});
+
+describe("password length ceiling — every set surface rejects past the shared bound (pure)", () => {
+  /** Builds an otherwise-valid create input whose only variable is the password. */
+  function makeCreateInputWithPassword(password: string): AdminCreateUserSubmitInput {
+    return { ...makeCreateInput(VALID_PHONE), password };
+  }
+
+  test("1024-char password (the exact shared ceiling) passes validateCreateInput in en and ar", () => {
+    for (const locale of ["en", "ar"] as const) {
+      expect(
+        caughtValidationError(() => validateCreateInput(makeCreateInputWithPassword("a".repeat(1_024)), locale))
+      ).toBeNull();
+    }
+  });
+
+  test("1025-char password → PASSWORD_TOO_LONG with the exact localized entry (en + ar)", () => {
+    for (const [locale, t] of [
+      ["en", EN],
+      ["ar", AR],
+    ] as const) {
+      const error = caughtValidationError(() =>
+        validateCreateInput(makeCreateInputWithPassword("a".repeat(1_025)), locale)
+      );
+      if (!error) throw new Error("expected a ValidationError, but the call passed");
+      expect(error.fields).toHaveLength(1);
+      expect(error.fields?.[0]).toEqual({
+        field: "password",
+        code: "PASSWORD_TOO_LONG",
+        message: t.authTranslations.passwordTooLong,
+      });
+    }
+  });
+
+  test("validatePasswordPolicy mirrors the create surface: 1024 passes, 1025 collects PASSWORD_TOO_LONG", () => {
+    for (const locale of ["en", "ar"] as const) {
+      const tAuth = getServerTranslations(locale).authTranslations;
+      expect(validatePasswordPolicy("a".repeat(1_024), tAuth)).toHaveLength(0);
+
+      const entries = validatePasswordPolicy("a".repeat(1_025), tAuth);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toEqual({
+        field: "password",
+        code: "PASSWORD_TOO_LONG",
+        message: tAuth.passwordTooLong,
+      });
     }
   });
 });

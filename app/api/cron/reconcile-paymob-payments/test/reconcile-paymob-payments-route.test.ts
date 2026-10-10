@@ -35,13 +35,30 @@
  *    logic of its own — it delegates with the current instant);
  *  - a service THROWN failure propagates through the shared error
  *    envelope machinery (masked per the lib-level taxonomy — the route
- *    adds no bespoke catch beyond the shared masking).
+ *    adds no bespoke catch beyond the shared masking);
+ *  - RATE LIMITER: the dedicated `cron-sweep` namespace — the sweep
+ *    factory's OWN exported config (`cronSweepRateLimiter` from
+ *    `backend/lib/gateway/cron-endpoint.ts`), never re-declared — keyed
+ *    on client IP, runs AFTER both bare-404 existence gates and BEFORE
+ *    the credential compare: failed-auth attempts past the quota answer
+ *    429 `RATE_LIMIT_EXCEEDED` through the shared envelope, and a
+ *    correct bearer cannot bypass a spent quota (the throttle sits
+ *    before the secret compare — 100 garbage-bearer probes lock the
+ *    window and the next VALID bearer answers 429 with the sweep never
+ *    invoked);
+ *  - the quota is keyed on the client IP (a second IP gets a fresh
+ *    window), and disabled/unconfigured-surface traffic never consumes
+ *    limiter state (both bare-404 gates precede the limiter).
  *
  * Env stubbing: the three `CRON_*` keys are read live through `getEnv`
  * (`process.env`, no cache — see `backend/lib/env.ts`); the provider and
  * API key travel through the TYPED cached snapshot, so every change is
  * committed with `resetEnvironmentCache()`. Every test restores the keys
- * it touched.
+ * it touched. The rate limiter (`@/backend/lib/ratelimit`) is swapped
+ * for an INSTRUMENTED FAKE via Bun's module mock registry BEFORE the
+ * route module loads (the expire-subscriptions suite's exact mechanism):
+ * a fixed-window per-identifier counter honoring the real limiter's
+ * contract, whose counters reset per test.
  *
  * Runs via `bun run test/scripts/run-test.ts
  * app/api/cron/reconcile-paymob-payments/test/reconcile-paymob-payments-route.test.ts`.
@@ -52,6 +69,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 // type-only form detonates at runtime (`ReferenceError`), exactly as the
 // set-locale route test documents.
 import { NextRequest } from "next/server";
+// Type-only import: erased at compile time, so it never touches the mock
+// registry that shadows `@/backend/lib/ratelimit` below.
+import type { RateLimiterConfig, RateLimitResult } from "@/backend/lib/ratelimit";
 
 // Module-boundary mock: the route must exercise ONLY its own
 // gate/envelope logic here; the sweep's DB and inquiry semantics belong
@@ -77,12 +97,75 @@ void mock.module("@/backend/services/billing/payment-gateway/paymob/paymob.recon
   },
 }));
 
+// Module-boundary mock #2 — the rate limiter: the lib's window semantics
+// belong to the lib. This instrumented fake honors the REAL limiter
+// contract — a fixed-window per-identifier counter that flips to
+// success:false the moment the quota is crossed — so the route's 429 path
+// is proven against the exact behavior the real limiter enforces.
+// `getClientIdentifier` mirrors the real extractor (the route resolves
+// its limiter key through the shared helper, never by hand); the sibling
+// limiter configs are re-provided to keep the module shape complete.
+const rateLimitCounters = new Map<string, { count: number; windowStart: number }>();
+let capturedLimiter: RateLimiterConfig | null = null;
+
+void mock.module("@/backend/lib/ratelimit", () => ({
+  checkRateLimit: async (identifier: string, limiter: RateLimiterConfig): Promise<RateLimitResult> => {
+    capturedLimiter = limiter;
+    const now = Date.now();
+    const entry = rateLimitCounters.get(identifier);
+    if (entry === undefined || now - entry.windowStart >= limiter.windowMs) {
+      rateLimitCounters.set(identifier, { count: 1, windowStart: now });
+      return { success: true, limit: limiter.limit, remaining: limiter.limit - 1, reset: now + limiter.windowMs };
+    }
+    entry.count += 1;
+    if (entry.count > limiter.limit) {
+      return { success: false, limit: limiter.limit, remaining: 0, reset: entry.windowStart + limiter.windowMs };
+    }
+    return {
+      success: true,
+      limit: limiter.limit,
+      remaining: limiter.limit - entry.count,
+      reset: entry.windowStart + limiter.windowMs,
+    };
+  },
+  getClientIdentifier: (request: Request): string => {
+    const realIp = request.headers.get("x-real-ip");
+    if (realIp) {
+      const candidate = realIp.trim();
+      if (candidate) {
+        return candidate;
+      }
+    }
+    const xff = request.headers.get("x-forwarded-for");
+    if (xff) {
+      const entries = xff.split(",");
+      const rightmost = entries[entries.length - 1]?.trim();
+      if (rightmost) {
+        return rightmost;
+      }
+    }
+    return "local";
+  },
+  clearRateLimitStore: (): void => {
+    rateLimitCounters.clear();
+  },
+  graphqlRateLimiter: { name: "graphql-public", limit: 100, windowMs: 60_000 },
+  portalReadLimiter: { name: "portal-read", limit: 30, windowMs: 60_000 },
+}));
+
+/** The reset mechanism: counters (and the captured limiter) clear per test. */
+function resetRateLimiter(): void {
+  rateLimitCounters.clear();
+  capturedLimiter = null;
+}
+
 // The route import MUST trail its mock.module registration (bun evaluates
 // the module registry in import order; the eslint import-order exemption is
 // documented inline where the lint config expects it).
 import { GET } from "@/app/api/cron/reconcile-paymob-payments/route";
 import { PaymentGateway } from "@/backend/enum/billing/payment-gateway.enum";
 import { resetEnvironmentCache } from "@/backend/lib/env";
+import { cronSweepRateLimiter } from "@/backend/lib/gateway/cron-endpoint";
 
 const BASE_URL = "http://localhost:3000/api/cron/reconcile-paymob-payments";
 
@@ -126,6 +209,17 @@ function requestWithBearer(bearer: string | null): NextRequest {
   return new NextRequest(BASE_URL, { headers });
 }
 
+function requestFromIp(bearer: string | null, ip: string): NextRequest {
+  // The limiter keys on the client IP (x-forwarded-for first entry) —
+  // this helper pins that keying for per-IP window assertions.
+  const headers = new Headers();
+  if (bearer !== null) {
+    headers.set("authorization", `Bearer ${bearer}`);
+  }
+  headers.set("x-forwarded-for", ip);
+  return new NextRequest(BASE_URL, { headers });
+}
+
 // ─── Assertion-free payload narrowing (set-locale precedent) ────────────────
 
 function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
@@ -144,6 +238,7 @@ afterEach(() => {
   sweepCalls.length = 0;
   sweepResult = { checked: 0, confirmed: 0, failed: 0, skipped: 0 };
   sweepThrowable = null;
+  resetRateLimiter();
   for (const key of ENV_KEYS) {
     const saved = savedEnv[key];
     if (saved === undefined) {
@@ -392,6 +487,99 @@ describe("reconcile-paymob-payments cron route — authenticated sweep", () => {
       throw new Error("expected a string message");
     }
     expect(message).not.toContain("simulated driver failure");
+    expect(sweepCalls).toHaveLength(1);
+  });
+});
+
+describe("reconcile-paymob-payments cron route — rate limiter parity with the sweep factory", () => {
+  test("the route enforces the factory's own exported cronSweepRateLimiter config (single-sourced, never re-declared)", async () => {
+    openSurface();
+    const response = await GET(requestWithBearer("correct-secret"));
+    expect(response.status).toBe(200);
+    // IDENTITY, not shape: the config object handed to checkRateLimit IS
+    // the factory's export — a route-local re-declaration would fail here.
+    expect(capturedLimiter).toBe(cronSweepRateLimiter);
+    expect(capturedLimiter?.name).toBe("cron-sweep");
+  });
+
+  test("at-cap requests from one IP all succeed; the over-cap 101st answers 429 RATE_LIMIT_EXCEEDED and the sweep never runs", async () => {
+    openSurface();
+    // The fake's counter body runs synchronously per invocation, so the
+    // concurrent burst still lands in one fixed window (count 1..100).
+    const atCap = await Promise.all(
+      Array.from({ length: 100 }, () => GET(requestFromIp("correct-secret", "203.0.113.10")))
+    );
+    expect(atCap.every(response => response.status === 200)).toBe(true);
+    expect(sweepCalls).toHaveLength(100);
+    // The 101st request from the SAME IP crosses the fixed-window quota:
+    // 429 through the shared envelope, and the sweep does NOT run.
+    const overCap = await GET(requestFromIp("correct-secret", "203.0.113.10"));
+    expect(overCap.status).toBe(429);
+    const body = await readJson(overCap);
+    if (!isPlainJsonObject(body.error)) {
+      throw new Error("expected an error envelope");
+    }
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    expect(sweepCalls).toHaveLength(100);
+    // A DIFFERENT IP gets a fresh window — the limiter keys on client IP.
+    const freshIp = await GET(requestFromIp("correct-secret", "203.0.113.20"));
+    expect(freshIp.status).toBe(200);
+    expect(sweepCalls).toHaveLength(101);
+  });
+
+  test("secret-hammering: 100 garbage-bearer probes lock the window; the next VALID bearer answers 429 — the secret compare is never reached for it", async () => {
+    openSurface();
+    // 100 garbage bearers inside the 60s window: each probe PASSES the
+    // limiter (still under quota), then fails the bearer compare → 401 —
+    // so every probe consumes limiter state exactly like any other attempt.
+    const probes = await Promise.all(
+      Array.from({ length: 100 }, (_, i) => GET(requestFromIp(`garbage-bearer-${i}`, "198.51.100.7")))
+    );
+    expect(probes.every(response => response.status === 401)).toBe(true);
+    expect(sweepCalls).toHaveLength(0);
+    // The 101st request carries the CORRECT bearer but the quota is spent:
+    // 429, not 200 — the limiter sits BEFORE the secret compare, so the
+    // timing-safe compare is never reached for the throttled request (the
+    // sweep running would prove the compare had succeeded; it stays idle).
+    const throttled = await GET(requestFromIp("correct-secret", "198.51.100.7"));
+    expect(throttled.status).toBe(429);
+    const body = await readJson(throttled);
+    if (!isPlainJsonObject(body.error)) {
+      throw new Error("expected an error envelope");
+    }
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    expect(sweepCalls).toHaveLength(0);
+  });
+
+  test("mode-gate 404s never consume limiter state — junk traffic at a disabled surface leaves the window untouched", async () => {
+    process.env.CRON_EXECUTION_MODE = "internal";
+    process.env.CRON_EXTERNAL_ENABLED = "true";
+    process.env.CRON_SECRET = "correct-secret";
+    configureReconciliation();
+    const junk = await Promise.all(Array.from({ length: 150 }, () => GET(requestFromIp("anything", "192.0.2.30"))));
+    expect(junk.every(response => response.status === 404)).toBe(true);
+    expect(sweepCalls).toHaveLength(0);
+    // Opening the surface hands the SAME IP a fresh, unconsumed window —
+    // the first legitimate tick is not throttled by the disabled-era junk.
+    setCronGatesOpen();
+    const firstLegit = await GET(requestFromIp("correct-secret", "192.0.2.30"));
+    expect(firstLegit.status).toBe(200);
+    expect(sweepCalls).toHaveLength(1);
+  });
+
+  test("provider-gate 404s never consume limiter state — a non-paymob deployment's traffic leaves the window untouched", async () => {
+    setCronGatesOpen();
+    process.env.CRON_SECRET = "correct-secret";
+    process.env.PAYMENT_GATEWAY_PROVIDER = PaymentGateway.Mock;
+    process.env.PAYMOB_API_KEY = "paymob-reconcile-route-test-api-key";
+    resetEnvironmentCache();
+    const junk = await Promise.all(Array.from({ length: 150 }, () => GET(requestFromIp("anything", "203.0.113.50"))));
+    expect(junk.every(response => response.status === 404)).toBe(true);
+    expect(sweepCalls).toHaveLength(0);
+    // Re-configuring paymob hands the SAME IP a fresh window.
+    configureReconciliation();
+    const firstLegit = await GET(requestFromIp("correct-secret", "203.0.113.50"));
+    expect(firstLegit.status).toBe(200);
     expect(sweepCalls).toHaveLength(1);
   });
 });

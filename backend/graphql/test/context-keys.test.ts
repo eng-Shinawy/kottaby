@@ -1,19 +1,21 @@
 /**
- * ctx.idempotencyKey + factory isolation tests — sibling of
+ * ctx.idempotencyKey + ctx.clientIp + factory isolation tests — sibling of
  * request-id.test.ts; same anonymous, DB-free harness.
  *
  * Coverage map:
  *  - Tier 1 — the context carries `idempotencyKey` when the header is
  *    present AND materializes as `null` when absent (never `undefined` on the
  *    runtime object); `requestId` keeps its contract in the same
- *    constructions;
+ *    constructions; `clientIp` carries the spoof-resistant resolution
+ *    (`x-real-ip` → rightmost `x-forwarded-for` → "local");
  *  - Tier 2 — ABSENT header yields exactly `null`, never `""`; present values
  *    propagate RAW/verbatim (no trim, no validation policy — propagation-only;
  *    classification belongs to the owning mutation transaction);
  *  - Tier 3 — concurrent constructions (distinct pinned keys) produce fully
  *    isolated contexts: unique correlation ids, pairwise-distinct
  *    `authCookieOut` accumulators and cookies objects, keys mapping 1:1 to
- *    their own request;
+ *    their own request, and a parallel `clientIp` burst keying each context
+ *    to its own request IP;
  *  - Tier 4 — identity IMMUNITY: across hostile/varied key values (empty,
  *    oversized, comma-collapsed, control-char) and even under a garbage
  *    Bearer credential, the identity tuple (`user`,`safeUser`,`role`,
@@ -246,6 +248,51 @@ describe("ctx.idempotencyKey — Tier 4 identity-immunity matrix", () => {
   });
 });
 
+// ─── ctx.clientIp — spoof-resistant IP on the context ────────────────────────
+
+describe("ctx.clientIp — resolution matrix on constructed contexts", () => {
+  test("x-real-ip crosses onto the context and OUTRANKS x-forwarded-for", async () => {
+    const context = await buildAnonymousContext({
+      "x-real-ip": "198.51.100.1",
+      "x-forwarded-for": "203.0.113.195, 198.51.100.200",
+    });
+    expect(context.clientIp).toBe("198.51.100.1");
+  });
+
+  test("the RIGHTMOST x-forwarded-for entry is used (proxy-appended hop)", async () => {
+    const context = await buildAnonymousContext({ "x-forwarded-for": "203.0.113.195, 198.51.100.200" });
+    expect(context.clientIp).toBe("198.51.100.200");
+  });
+
+  test("no IP headers resolves to the local fallback (never undefined)", async () => {
+    const context = await buildAnonymousContext({});
+    expect(context.clientIp).toBe("local");
+    expect(context.clientIp === undefined).toBeFalse();
+  });
+
+  test("a forged LEFTMOST XFF entry never keys the context IP (spoof probe)", async () => {
+    const context = await buildAnonymousContext({ "x-forwarded-for": "192.0.2.99, 198.51.100.4" });
+    expect(context.clientIp).toBe("198.51.100.4");
+    expect(context.clientIp).not.toBe("192.0.2.99");
+  });
+});
+
+describe("ctx.clientIp — Tier 3 concurrent factory isolation", () => {
+  test("a parallel construction burst keys each context to its OWN request IP", async () => {
+    const PROBE_IPS = ["198.51.100.1", "198.51.100.2", "198.51.100.3", "198.51.100.4", "198.51.100.5"] as const;
+    const contexts = await Promise.all(PROBE_IPS.map(ip => buildAnonymousContext({ "x-real-ip": ip })));
+
+    // 1:1 IP attribution — no cross-wiring between parallel requests.
+    expect(contexts.map(context => context.clientIp)).toEqual([...PROBE_IPS]);
+
+    // The resolved IP moved NOTHING on the identity tuple (non-authorization).
+    const baseline = identitySnapshot(await buildAnonymousContext({}));
+    for (const context of contexts) {
+      expect(identitySnapshot(context)).toEqual(baseline);
+    }
+  });
+});
+
 // ─── Semantic pins — single capture site ─────────────────────────────────────
 
 /** Comment-stripped view so literal-count pins measure CODE sites only. */
@@ -271,6 +318,14 @@ describe("factory semantic pins — no duplicated idempotency capture", () => {
     expect(factorySource.split("resolveRequestId(").length - 1).toBe(1);
     expect(factorySource.includes("randomUUID")).toBe(false);
     expect(factorySource.includes('from "@/backend/lib/api"')).toBe(true);
+  });
+
+  test("clientIp is resolved EXACTLY ONCE via the shared resolver — no parallel resolver in the factory", () => {
+    expect(factorySource.split("resolveClientIp(").length - 1).toBe(1);
+    expect(factorySource.includes('from "@/backend/lib/ratelimit"')).toBe(true);
+    // No second, factory-local IP extraction (headers.get on the IP headers).
+    expect(factorySource.includes('headers.get("x-real-ip")')).toBe(false);
+    expect(factorySource.includes('headers.get("x-forwarded-for")')).toBe(false);
   });
 
   test("authCookieOut/governance/refresh substrate imports unchanged (no fork surface)", () => {

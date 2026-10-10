@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d10456ad90bdf3edceb6b4f03fd685dbf3e85ca064447b1ef8d09a584576b562",
+  "manifestHash": "844850b8ca01bbb46e40f29216131cbe29c68332caf153b540c35b3dad484154",
   "manifest": [
     {
       "file": "10-applicant-outcome-notification.sql",
@@ -16,6 +16,10 @@
     {
       "file": "13-teacher-was-online-before-lock.sql",
       "sha256": "7448c6f646766d45c4e872bee47cebd0f2730f31bebf6929bcfd9f151469b788"
+    },
+    {
+      "file": "14-prevent-users-delete.sql",
+      "sha256": "d9d7130945a783056c250d6c7600b8881bc416f6edf9a7df4a94c567257b3779"
     },
     {
       "file": "2-functions.sql",
@@ -82,6 +86,7 @@
     "20260928172738_custom_10-applicant-outcome-notification",
     "20261001045616_custom_11-users-country-code-backfill",
     "20261005051915_custom_12-teacher-matching-columns",
-    "20261006173528_custom_13-teacher-was-online-before-lock"
+    "20261006173528_custom_13-teacher-was-online-before-lock",
+    "20261009045838_custom_14-prevent-users-delete"
   ]
 }

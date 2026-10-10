@@ -26,11 +26,13 @@
  * minted for concepts the directory chrome never needed before). All VALUES
  * stay locale-neutral wire data.
  *
- * Formula-injection note: every cell value originates from the repo-owned
- * translation files or the trusted directory read model (names, emails,
- * booleans, ISO timestamps) — no user-authored free text enters a cell, so
- * the classic `=`/`+`/`-`/`@` prefix guard is intentionally not applied
- * (prefixing would corrupt round-tripping of legitimate data).
+ * Formula-injection posture: cells are built through the shared
+ * `directory-csv` builder, whose `csvCell` routes every value through
+ * the shared `neutralizeCsvFormulas` guard before quoting and joining —
+ * a cell opening with a spreadsheet formula trigger (`=`, `+`, `-`,
+ * `@`, TAB, CR) is defused with a leading single quote (CWE-1236), so
+ * even if user-authored text ever reached a cell, it would export as
+ * inert text rather than a live formula.
  */
 
 import type { AdminTeachersQuery } from "@/frontend/graphql/generated/gql/graphql";

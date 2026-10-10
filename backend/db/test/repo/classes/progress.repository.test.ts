@@ -9,8 +9,9 @@
  *    `DBQueryExecutor`).
  *  - Entities are created ONLY via `entity-setup.ts` helpers plus the
  *    file-local fixture builders — never seed data.
- *  - No `expect(...).rejects.toThrow()` — the read is total and never
- *    rejects, so the try/catch helper is unused here.
+ *  - No `expect(...).rejects.toThrow()` — rejections are caught through
+ *    the try/catch helper or the savepoint-bracketed invariant probe
+ *    scaffold, so the outer transaction stays queryable.
  *  - A separate committed-fixture group covers the STANDALONE executor
  *    branch (`queryDb` read). That branch by definition runs without a
  *    transaction, so the fixture must be committed (an uncommitted row is
@@ -60,6 +61,13 @@
  *    (unreachable through a live INSERT ... RETURNING); the standalone
  *    `queryDb` arms of the plan-scoped read and of the re-anchor probe run
  *    on committed fixtures.
+ *  - Schema-tier invariant probes: the owning-student link is mandatory
+ *    (a NULL `student_id` raises 23502); orphan student/lesson ids raise
+ *    23503 on `progress_student_id_students_id_fkey` /
+ *    `progress_lesson_id_lessons_id_fkey`; and a legal `lesson_id = NULL`
+ *    row persists (the set-null artifact an admin lesson delete leaves
+ *    behind), written through `insertRow` and resolved by the re-anchor
+ *    probe.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -73,6 +81,11 @@ import { lessons } from "@/backend/db/schema/classes/lessons";
 import { progress } from "@/backend/db/schema/classes/progress";
 import { users } from "@/backend/db/schema/users/users";
 import { createTestLesson, createTestPlan, createTestStudent, createTestUser } from "@/backend/db/test/entity-setup";
+import {
+  expectFkViolation,
+  expectNotNullViolation,
+  probeInsideSavepoint,
+} from "@/backend/db/test/logic/invariants/invariant-probe.helpers";
 import { hasPostgresErrorCode } from "@/backend/db/test/pg-error";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { ConflictError } from "@/backend/lib/errors";
@@ -123,6 +136,12 @@ async function setupPlanWithLesson(tx: DBTransaction): Promise<{ planId: number;
 /** An integer id that cannot exist as a `progress` row during this transaction. */
 async function absentProgressId(tx: DBTransaction): Promise<number> {
   const [row] = await tx.select({ maxId: sql<number>`coalesce(max(${progress.id}), 0)::int` }).from(progress);
+  return (row?.maxId ?? 0) + 1_000_000;
+}
+
+/** An integer lesson id that cannot exist as a `lessons` row in this transaction. */
+async function absentLessonId(tx: DBTransaction): Promise<number> {
+  const [row] = await tx.select({ maxId: sql<number>`coalesce(max(${lessons.id}), 0)::int` }).from(lessons);
   return (row?.maxId ?? 0) + 1_000_000;
 }
 
@@ -550,6 +569,49 @@ describe("ProgressRepository pointer-row methods — transactional path (runInRo
       expect(hasPostgresErrorCode(error, PG_INTEGER_PARSE_VIOLATION)).toBe(true);
       // Post-rollback the pointer row is intact — the payload never ran.
       expect(await readTableCount(tx, studentId)).toBe(1);
+    });
+  });
+
+  // ─── Schema-tier invariant probes (student link + lesson link) ──────
+
+  test("INV-PR1: a NULL student_id raises 23502; orphan student/lesson ids raise 23503 on both named FKs; a legal lesson_id = NULL row persists (set-null artifact)", async () => {
+    await runInRollback(async tx => {
+      const studentId = await setupStudent(tx);
+
+      // NOT NULL leg: the owning-student column rejects a link-less row
+      // (raw wire-level probe; the typed insert surface never offers the
+      // null).
+      const nullStudentError = await probeInsideSavepoint(tx, "progress null student link", () =>
+        tx.execute(sql`INSERT INTO progress (student_id) VALUES (NULL)`)
+      );
+      expectNotNullViolation(nullStudentError, "student_id");
+
+      // FK leg: a student id beyond the sequence cannot be referenced.
+      const orphanStudentError = await probeInsideSavepoint(tx, "progress orphan student link", () =>
+        tx.execute(sql`INSERT INTO progress (student_id) VALUES (${NONEXISTENT_STUDENT_ID})`)
+      );
+      expectFkViolation(orphanStudentError, "progress_student_id_students_id_fkey");
+
+      // FK leg: a lesson id beyond the sequence cannot be referenced.
+      const missingLessonId = await absentLessonId(tx);
+      const orphanLessonError = await probeInsideSavepoint(tx, "progress orphan lesson link", () =>
+        tx.execute(sql`INSERT INTO progress (student_id, lesson_id) VALUES (${studentId}, ${missingLessonId})`)
+      );
+      expectFkViolation(orphanLessonError, "progress_lesson_id_lessons_id_fkey");
+
+      // Legal leg: a lesson-less row is a persisting state — the shape an
+      // admin lesson delete leaves behind (the FK's ON DELETE SET NULL
+      // contract) — written through the repository's own pointer writer
+      // and resolved straight back by the re-anchor probe.
+      const lessonLess = await ProgressRepository.insertRow({ studentId }, tx);
+      expect(lessonLess.id).toBeGreaterThan(0);
+      expect(lessonLess.studentId).toBe(studentId);
+      expect(lessonLess.lessonId).toBeNull();
+
+      const found = await ProgressRepository.findNullLessonRowForStudent(studentId, tx);
+      expect(found?.id).toBe(lessonLess.id);
+      expect(found?.lessonId).toBeNull();
+      expect(await ProgressRepository.countForStudent(studentId, tx)).toBe(1);
     });
   });
 });

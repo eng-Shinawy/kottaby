@@ -40,13 +40,24 @@
  *    no-op guard must catch it — the temporary credential must never stay
  *    live after the flag clears); empty / whitespace-only / 7-char
  *    replacement → `PASSWORD_REQUIRED` / `PASSWORD_TOO_SHORT` via the shared
- *    policy; AR-locale denial copy; the returned payload NEVER carries
+ *    policy; the length-ceiling boundary — a replacement at the exact
+ *    shared ceiling (1024 chars) passes the policy and rotates the hash,
+ *    while a 1025-char replacement rejects with the localized
+ *    `PASSWORD_TOO_LONG` field entry and zero writes (set-time and
+ *    verify-time bounds share one source, so an accepted replacement can
+ *    never exceed the login-side argument limit); AR-locale denial copy;
+ *    the returned payload NEVER carries
  *    `passwordHash`.
  *  - Tier 6 (changeMyPassword, credential fence): a concurrent admin
- *    rotation landing inside the current-password proof window (production
- *    no-outerTx path, committed Rule-9 fixture) is denied with the SAME
- *    single `CURRENT_PASSWORD_INVALID` shape and the admin's rotation
- *    survives byte-identical (zero self writes — no TOCTOU clobber).
+ *    rotation (production no-outerTx path, committed Rule-9 fixture) has
+ *    TWO legitimate orderings, both asserted precisely: the rotation
+ *    committing before the fenced write → the SAME single
+ *    `CURRENT_PASSWORD_INVALID` shape with zero self rows touched; the
+ *    rotation committing after the fenced write → the self-change
+ *    succeeds against the credential current at its write (the
+ *    happy-path return contract). Either way the admin's rotation
+ *    survives as the final credential state byte-identical — a STALE
+ *    self-change never clobbers it (the TOCTOU fence).
  *  - Tier 7 (changeMyPassword, mid-flight soft-delete): a governance
  *    deletion committing INSIDE the proof window — after the identity
  *    read, before the fenced write, exactly the interleaving the
@@ -72,8 +83,30 @@
  *    field returns `true` (the primitive's boolean miss is a no-op, never a
  *    failure); a repo rejection propagates uncaught (no swallow — the
  *    GraphQL error finalizer owns the wire failure).
+ *  - Tier 10 (refreshToken, governance arms — committed fixtures): a
+ *    still-valid refresh token minted via the real login path BEFORE any
+ *    governance flip is denied by the `assertUserActive` gate once the
+ *    account is blocked, soft-deleted, or under an ACTIVE suspension —
+ *    each arm `ForbiddenError(accountBlocked)` — while the SAME token
+ *    still refreshes for an un-governed control user (the denial is
+ *    governance-driven, not token-shape-driven). `refreshToken` resolves
+ *    its identity through the bare pool and rotates on its own top-level
+ *    transaction, so these arms run on committed fixtures provisioned in
+ *    `beforeAll` and removed via `deleteUsersByIds` in `afterAll` — NOT
+ *    inside `runInRollback` (the sanctioned committed-credential pattern
+ *    used by the sibling user-governance auth-consumption block).
+ *  - Tier 11 (login, exact-match identity lookup — the resolver-side trim
+ *    is load-bearing): on a committed Rule-9 fixture, the EXACT stored
+ *    email + the correct credential authenticate, while the SAME
+ *    credential with a whitespace-padded email rejects with the generic
+ *    localized `invalidCredentials` UnauthorizedError — the service's
+ *    `findByEmail` lookup is exact-match, so the login resolver's trim
+ *    (not a service-side trim) is what makes a pasted-padded email
+ *    authenticatable. No oracle: both denial shapes share the single
+ *    generic copy.
  */
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { and, eq, max, sql } from "drizzle-orm";
@@ -82,14 +115,20 @@ import { UserRepository } from "@/backend/db/repo";
 import { AdminUserRepository } from "@/backend/db/repo/admin/admin-user.repository";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { users } from "@/backend/db/schema/users/users";
-import { createTestUser } from "@/backend/db/test/entity-setup";
+import { createTestAdmin, createTestUser } from "@/backend/db/test/entity-setup";
 import { type DBTransaction, expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { comparePassword, hashPassword } from "@/backend/lib/auth/password";
-import { UnauthorizedError, ValidationError } from "@/backend/lib/errors";
+import { ForbiddenError, UnauthorizedError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
+import { AdminUserManagementService } from "@/backend/services/admin/user-management.service";
 import { AuthService } from "@/backend/services/auth/auth.service";
+import { RegistrationService } from "@/backend/services/auth/registration.service";
 import type { ChangeMyPasswordSubmitInput } from "@/backend/types";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
+// Deep import (NOT the `@/test/helpers` barrel) — the barrel pulls the
+// Apollo test client into a backend-suite module graph; the db-cleanup
+// module itself only needs drizzle + the db handle.
+import { countUsersByIds, deleteUsersByIds } from "@/test/helpers/db-cleanup";
 
 /** English translated error copy — assertions pin translated substrings. */
 const EN_ERRORS = getServerTranslations("en").errorsTranslations;
@@ -502,6 +541,55 @@ describe("AuthService.changeMyPassword — denials", () => {
     });
   });
 
+  test("1025-char new password → PASSWORD_TOO_LONG (shared-policy ceiling; zero writes)", async () => {
+    await runInRollback(async tx => {
+      const user = await createCredentialedUser(tx);
+      silenceDomainLog();
+
+      const error = await expectRepoError(() =>
+        AuthService.changeMyPassword(
+          user.id,
+          { currentPassword: FIXTURE_CURRENT_PASSWORD, newPassword: "b".repeat(1_025) },
+          "en",
+          tx
+        )
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.message).toContain(EN_AUTH.passwordTooLong);
+      const fields = asValidationError(error).fields;
+      if (fields?.length !== 1) throw new Error("expected exactly one field entry");
+      expect(fields[0].field).toBe("password");
+      expect(fields[0].code).toBe("PASSWORD_TOO_LONG");
+
+      // Zero writes: the stored hash still verifies the ORIGINAL credential.
+      const [row] = await tx.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id));
+      expect(await comparePassword(FIXTURE_CURRENT_PASSWORD, row?.passwordHash ?? "")).toBe(true);
+      expect(await comparePassword("b".repeat(1_025), row?.passwordHash ?? "")).toBe(false);
+    });
+  });
+
+  test("1024-char new password (the exact shared ceiling) passes the policy and rotates the hash", async () => {
+    await runInRollback(async tx => {
+      const user = await createCredentialedUser(tx);
+      const ceilingCredential = "c".repeat(1_024);
+
+      const result = await AuthService.changeMyPassword(
+        user.id,
+        { currentPassword: FIXTURE_CURRENT_PASSWORD, newPassword: ceilingCredential },
+        "en",
+        tx
+      );
+
+      // The flag clears and the new credential verifies (bcrypt truncates
+      // at 72 bytes, so the full ceiling-length replacement round-trips).
+      expect(result.mustChangePassword).toBe(false);
+      const [row] = await tx.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id));
+      expect(await comparePassword(ceilingCredential, row?.passwordHash ?? "")).toBe(true);
+      expect(await comparePassword(FIXTURE_CURRENT_PASSWORD, row?.passwordHash ?? "")).toBe(false);
+    });
+  });
+
   test("wrong current password rejects with the ARABIC currentPasswordInvalid copy under an ar request locale", async () => {
     await runInRollback(async tx => {
       const user = await createCredentialedUser(tx);
@@ -538,6 +626,30 @@ let committedAdminRotationHash = "";
 /** The concurrent rotation's hash — a REAL bcrypt hash of a distinct secret (pre-computed). */
 const ADMIN_ROTATED_HASH_PROMISE = hashPassword("AdminTemp99!");
 
+/**
+ * Outcome-capture for the credential-fence leg: against a concurrent
+ * admin rotation, `changeMyPassword` has TWO legitimate client contracts
+ * (denial when the rotation commits before the fenced write — the compare
+ * fails or the fenced `WHERE id AND password_hash = <observed>` matches
+ * zero rows; success when the rotation commits after the fenced write),
+ * so the test branches on the OBSERVED outcome with precise per-path
+ * assertions instead of pinning one interleaving. The try/catch capture
+ * extends the `expectRepoError` pattern to also carry the success payload
+ * back — no `.rejects` assertion (deadlock discipline) and no retry loop.
+ */
+async function captureChangeMyPasswordOutcome(
+  promise: Promise<Awaited<ReturnType<typeof AuthService.changeMyPassword>>>
+): Promise<{
+  denial: Error | null;
+  success: Awaited<ReturnType<typeof AuthService.changeMyPassword>> | null;
+}> {
+  try {
+    return { denial: null, success: await promise };
+  } catch (error) {
+    return { denial: error instanceof Error ? error : new Error(String(error)), success: null };
+  }
+}
+
 describe("AuthService.changeMyPassword — credential fence (concurrent admin rotation)", () => {
   beforeAll(async () => {
     // Real bcrypt hashes on both sides: the fixture credential must verify
@@ -558,41 +670,64 @@ describe("AuthService.changeMyPassword — credential fence (concurrent admin ro
     await db.delete(users).where(eq(users.id, fenceFixtureId));
   });
 
-  test("a concurrent admin rotation inside the proof window → the SAME CURRENT_PASSWORD_INVALID denial; the admin's write survives untouched", async () => {
+  test("a concurrent admin rotation → denial if it beats the fenced write, success if it lands after — the admin's rotation survives as the final credential either way", async () => {
     silenceDomainLog();
 
     // Production shape: NO outerTx — bare pool identity read → bcrypt
     // compare (~250ms) → bcrypt hash (~250ms) → fenced write in a fresh
-    // transaction. The concurrent rotation is issued right after the
-    // identity read is dispatched and commits deep inside that ~500ms
-    // bcrypt proof window.
-    const selfChange = AuthService.changeMyPassword(
+    // transaction. The concurrent rotation is dispatched right after the
+    // service call; WHERE it commits is scheduler-dependent (bcryptjs's
+    // chunked async work can delay the rotation's client-side dispatch
+    // past the fenced write under event-loop/memory pressure), and BOTH
+    // orderings are legitimate service behavior — the test asserts each
+    // precisely instead of assuming one:
+    //  - rotation commits before the fenced write → the compare fails
+    //    (it landed before the identity read) or the fenced write matches
+    //    zero rows → the SAME single CURRENT_PASSWORD_INVALID denial,
+    //    zero self rows touched;
+    //  - rotation commits after the fenced write → the self-change
+    //    legitimately succeeded against the credential current at its
+    //    write, and the rotation then supersedes it.
+    const selfChangePromise = AuthService.changeMyPassword(
       fenceFixtureId,
       { currentPassword: FIXTURE_CURRENT_PASSWORD, newPassword: FIXTURE_NEW_PASSWORD },
       "en"
     );
-    await db
+    const rotationPromise = db
       .update(users)
       .set({ passwordHash: committedAdminRotationHash, mustChangePassword: true })
       .where(eq(users.id, fenceFixtureId));
 
-    // Every interleaving produces the identical client contract: wherever
-    // the rotation lands (before the identity read, during the compare, or
-    // during the hash), the write either matches zero fenced rows or the
-    // compare fails — the SAME single CURRENT_PASSWORD_INVALID denial
-    // either way. That stage-indistinguishability IS the invariant.
-    const error = await expectRepoError(() => selfChange);
+    const outcome = await captureChangeMyPasswordOutcome(selfChangePromise);
+    await rotationPromise;
 
-    expect(error).toBeInstanceOf(ValidationError);
-    expect(error.message).toContain(EN_ERRORS.currentPasswordInvalid);
-    const fields = asValidationError(error).fields;
-    if (fields?.length !== 1) throw new Error("expected exactly one field entry");
-    expect(fields[0].field).toBe("currentPassword");
-    expect(fields[0].code).toBe("CURRENT_PASSWORD_INVALID");
+    if (outcome.denial) {
+      // The rotation beat the fenced write: the single denial shape —
+      // ValidationError, the localized message, exactly one
+      // `currentPassword` / `CURRENT_PASSWORD_INVALID` field entry.
+      expect(outcome.denial).toBeInstanceOf(ValidationError);
+      expect(outcome.denial.message).toContain(EN_ERRORS.currentPasswordInvalid);
+      const fields = asValidationError(outcome.denial).fields;
+      if (fields?.length !== 1) throw new Error("expected exactly one field entry");
+      expect(fields[0].field).toBe("currentPassword");
+      expect(fields[0].code).toBe("CURRENT_PASSWORD_INVALID");
+    } else {
+      // The rotation landed after the fenced write: the self-change
+      // succeeded — the full happy-path return contract (the flag is
+      // cleared in the payload, the hash is structurally absent, the
+      // registration-contract metadata stays null).
+      const result = outcome.success;
+      if (!result) throw new Error("expected the success payload");
+      expect(result.id).toBe(fenceFixtureId);
+      expect(result.mustChangePassword).toBe(false);
+      expect(Object.hasOwn(result, "passwordHash")).toBe(false);
+      expect(result.preferredRecitation).toBeNull();
+    }
 
-    // Zero self writes: the concurrent rotation's state survives
-    // byte-identical — the temporary hash AND the pending flag. A
-    // regression to the unconditional write would clobber both.
+    // BOTH orderings end in the admin's credential state: the concurrent
+    // rotation's hash AND pending flag survive as the stored row — a
+    // STALE self-change never clobbers them (a regression to the
+    // unconditional write would, in the denial ordering).
     const [row] = await db
       .select({ passwordHash: users.passwordHash, flag: users.mustChangePassword })
       .from(users)
@@ -845,5 +980,218 @@ describe("AuthService.recordMyActivity — heartbeat stamp (one-tx repo seam)", 
     } finally {
       stampSpy.mockRestore();
     }
+  });
+});
+
+/**
+ * Governance-arm fixtures for the refreshToken tier: `refreshToken` resolves
+ * the caller through the bare pool (`UserRepository.findById`) and rotates the
+ * pair inside its own top-level transaction, so it cannot observe an
+ * uncommitted `runInRollback` row. The fixtures are therefore committed in
+ * `beforeAll` and hard-deleted via `deleteUsersByIds` in `afterAll` — the
+ * committed-credential pattern of the sibling user-governance
+ * auth-consumption block. Each target is registered through the production
+ * registration path (a REAL bcrypt credential) and its refresh token is
+ * minted via the real `login` BEFORE the governance flips land, so the very
+ * same token is provably still valid when governance denies it.
+ */
+interface RefreshGovernanceTarget {
+  readonly id: number;
+  readonly refreshToken: string;
+}
+
+interface RefreshGovernanceFixtures {
+  readonly adminActorId: number;
+  readonly control: RefreshGovernanceTarget;
+  readonly blocked: RefreshGovernanceTarget;
+  readonly deleted: RefreshGovernanceTarget;
+  readonly suspended: RefreshGovernanceTarget;
+}
+
+let refreshGovernanceFixtures: RefreshGovernanceFixtures | null = null;
+const refreshGovernanceFixtureIds: number[] = [];
+
+/** Registers one governance target with a REAL credential on the supplied transaction. */
+async function registerRefreshGovernanceTarget(
+  tx: DBTransaction,
+  fullName: string
+): Promise<{ id: number; email: string }> {
+  const email = `refresh-governance-${randomUUID()}@test.local`;
+  const registered = await RegistrationService.registerUser(
+    {
+      fullName,
+      email,
+      phone: "+10000000000",
+      password: FIXTURE_CURRENT_PASSWORD,
+      country: "EG",
+      role: "student",
+    },
+    "en",
+    tx
+  );
+  return { id: registered.id, email: registered.email };
+}
+
+/** Logs a target in while its account is still active and keeps the minted refresh token. */
+async function mintPreGovernanceRefreshToken(email: string): Promise<string> {
+  const session = await AuthService.login(email, FIXTURE_CURRENT_PASSWORD, "en");
+  return session.refreshToken;
+}
+
+describe("INV-U3: refreshToken denies a still-valid pre-block token with ForbiddenError(accountBlocked), plus deleted and active-suspension arms", () => {
+  beforeAll(async () => {
+    // Provisioning transaction (committed): the admin actor who will drive
+    // the governance flips + the four registered targets.
+    const provisioned = await db.transaction(async (tx: DBTransaction) => {
+      const adminActor = await createTestUser(tx, { role: "admin" });
+      await createTestAdmin(tx, adminActor.id);
+
+      const control = await registerRefreshGovernanceTarget(tx, "Refresh Governance Control");
+      const blocked = await registerRefreshGovernanceTarget(tx, "Refresh Governance Blocked");
+      const deleted = await registerRefreshGovernanceTarget(tx, "Refresh Governance Deleted");
+      const suspended = await registerRefreshGovernanceTarget(tx, "Refresh Governance Suspended");
+
+      return { adminActorId: adminActor.id, control, blocked, deleted, suspended };
+    });
+    refreshGovernanceFixtureIds.push(
+      provisioned.adminActorId,
+      provisioned.control.id,
+      provisioned.blocked.id,
+      provisioned.deleted.id,
+      provisioned.suspended.id
+    );
+
+    // Mint the pre-governance refresh tokens via the REAL login path while
+    // every account is still active (independent calls — run concurrently).
+    const [controlToken, blockedToken, deletedToken, suspendedToken] = await Promise.all([
+      mintPreGovernanceRefreshToken(provisioned.control.email),
+      mintPreGovernanceRefreshToken(provisioned.blocked.email),
+      mintPreGovernanceRefreshToken(provisioned.deleted.email),
+      mintPreGovernanceRefreshToken(provisioned.suspended.email),
+    ]);
+
+    // Governance transaction (committed): flip the three governed targets
+    // through the real admin mutations — block, soft-delete, and an ACTIVE
+    // 7-day suspension window.
+    await db.transaction(async (tx: DBTransaction) => {
+      await AdminUserManagementService.setUserBlocked(provisioned.blocked.id, true, provisioned.adminActorId, "en", tx);
+      await AdminUserManagementService.setUserDeleted(provisioned.deleted.id, true, provisioned.adminActorId, "en", tx);
+      await AdminUserManagementService.setUserSuspended(
+        provisioned.suspended.id,
+        true,
+        7,
+        provisioned.adminActorId,
+        "en",
+        tx
+      );
+    });
+
+    refreshGovernanceFixtures = {
+      adminActorId: provisioned.adminActorId,
+      control: { id: provisioned.control.id, refreshToken: controlToken },
+      blocked: { id: provisioned.blocked.id, refreshToken: blockedToken },
+      deleted: { id: provisioned.deleted.id, refreshToken: deletedToken },
+      suspended: { id: provisioned.suspended.id, refreshToken: suspendedToken },
+    };
+  });
+
+  afterAll(async () => {
+    if (refreshGovernanceFixtureIds.length === 0) return;
+    const deleted = await deleteUsersByIds(refreshGovernanceFixtureIds);
+    expect(deleted).toBe(refreshGovernanceFixtureIds.length);
+    expect(await countUsersByIds(refreshGovernanceFixtureIds)).toBe(0);
+  });
+
+  test("control arm: the SAME still-valid token refreshes for the un-governed user (the denials are governance-driven)", async () => {
+    const fixtures = refreshGovernanceFixtures;
+    if (!fixtures) throw new Error("refresh governance fixtures not provisioned");
+
+    const result = await AuthService.refreshToken(fixtures.control.refreshToken, "en");
+
+    expect(result.accessToken).toBeTypeOf("string");
+    expect(result.refreshToken).toBeTypeOf("string");
+    expect(result.sessionId).toBeTypeOf("string");
+  });
+
+  test("blocked arm: ForbiddenError(accountBlocked) on the pre-block token", async () => {
+    const fixtures = refreshGovernanceFixtures;
+    if (!fixtures) throw new Error("refresh governance fixtures not provisioned");
+    silenceDomainLog();
+
+    const error = await expectRepoError(() => AuthService.refreshToken(fixtures.blocked.refreshToken, "en"));
+
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect(error.message).toContain(EN_AUTH.accountBlocked);
+  });
+
+  test("deleted arm: ForbiddenError(accountBlocked) on the pre-delete token", async () => {
+    const fixtures = refreshGovernanceFixtures;
+    if (!fixtures) throw new Error("refresh governance fixtures not provisioned");
+    silenceDomainLog();
+
+    const error = await expectRepoError(() => AuthService.refreshToken(fixtures.deleted.refreshToken, "en"));
+
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect(error.message).toContain(EN_AUTH.accountBlocked);
+  });
+
+  test("active-suspension arm: ForbiddenError(accountBlocked) on the pre-suspension token", async () => {
+    const fixtures = refreshGovernanceFixtures;
+    if (!fixtures) throw new Error("refresh governance fixtures not provisioned");
+    silenceDomainLog();
+
+    const error = await expectRepoError(() => AuthService.refreshToken(fixtures.suspended.refreshToken, "en"));
+
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect(error.message).toContain(EN_AUTH.accountBlocked);
+  });
+});
+
+/**
+ * Rule-9 committed fixture for the exact-match identity tier: `login`
+ * resolves the identity through the bare pool (`UserRepository.findByEmail`
+ * without a tx — an exact-match lookup), which cannot observe an uncommitted
+ * `runInRollback` row — so the fixture is committed in `beforeAll` and
+ * hard-deleted in `afterAll` (the same sanctioned static-fixture pattern as
+ * the sibling login-stamp describe above).
+ */
+let exactMatchFixtureId = 0;
+
+/** The committed fixture's email — the exact-match probe's identity half. */
+let exactMatchFixtureEmail = "";
+
+describe("AuthService.login — exact-match identity lookup (the resolver-side trim is load-bearing)", () => {
+  beforeAll(async () => {
+    const created = await db.transaction(async (tx: DBTransaction) => {
+      const storedHash = await hashPassword(FIXTURE_CURRENT_PASSWORD);
+      return createTestUser(tx, { passwordHash: storedHash });
+    });
+    exactMatchFixtureId = created.id;
+    exactMatchFixtureEmail = created.email;
+  });
+
+  afterAll(async () => {
+    // Rule 9: hard-delete ONLY the committed fixture this describe created.
+    await db.delete(users).where(eq(users.id, exactMatchFixtureId));
+  });
+
+  test("the EXACT email authenticates; the whitespace-padded form of the SAME credential rejects invalid-credentials", async () => {
+    // Control: the exact stored email + the correct credential → session.
+    // (This is the shape the login resolver produces after its trim.)
+    const session = await AuthService.login(exactMatchFixtureEmail, FIXTURE_CURRENT_PASSWORD, "en");
+    expect(session.user.id).toBe(exactMatchFixtureId);
+
+    // The SAME correct credential against a whitespace-padded email → the
+    // generic localized invalid-credentials denial: the service's identity
+    // lookup is exact-match (no service-side trim), so the resolver-side
+    // trim is what makes a pasted-padded email authenticatable. The denial
+    // is byte-identical to a wrong-password denial — no oracle.
+    silenceDomainLog();
+    const error = await expectRepoError(() =>
+      AuthService.login(`  ${exactMatchFixtureEmail}  `, FIXTURE_CURRENT_PASSWORD, "en")
+    );
+
+    expect(error).toBeInstanceOf(UnauthorizedError);
+    expect(error.message).toContain(EN_AUTH.invalidCredentials);
   });
 });

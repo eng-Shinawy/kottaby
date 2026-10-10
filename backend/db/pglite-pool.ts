@@ -197,6 +197,22 @@ async function getPglite(): Promise<PGlite> {
       // pin on the postgres Pool (`backend/db/client.ts`) so both providers
       // yield identical trend buckets under any host timezone.
       await instance.query("SET TIME ZONE 'UTC'");
+      // Session-scope test-path opt-out for the users hard-delete guard —
+      // the same pin the postgres Pool rides on its startup-options packet.
+      // PGlite is single-connection in-process, so session scope IS
+      // connection scope here. The guard trigger is armed when the GUC is
+      // unset (production default); test teardown hard-deletes fixture
+      // users, so the opt-out must be inherited with zero test-helper edits.
+      // Production fail-fast shape mirrors the gateway rate-limit bypass:
+      // a production deployment must never run with the test flags set.
+      if (process.env.TEST_CI === "1" || process.env.TEST_SERVER === "1") {
+        if (process.env.NODE_ENV === "production" && process.env.IS_DEMO !== "1" && process.env.IS_DEMO !== "true") {
+          throw new Error(
+            "getPglite: TEST_CI/TEST_SERVER users-delete-guard opt-out is forbidden outside the test harness (set IS_DEMO=1 for the sanctioned test server)"
+          );
+        }
+        await instance.query("SET kottaby.users_delete_guard = 'off'");
+      }
       pgliteSingleton = instance;
       pgliteGlobal.kottabyPgliteSingleton = instance;
       logger.warn(`[PglitePool] PGlite initialized successfully`);

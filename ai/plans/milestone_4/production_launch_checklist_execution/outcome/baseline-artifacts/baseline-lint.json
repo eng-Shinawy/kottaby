@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "output": "(node:3703920) ESLintPoorConcurrencyWarning: You may reduce or disable concurrency to improve performance.\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+  "exitCode": 0,
+  "metrics": {
+    "id": "baseline",
+    "scope": "full-repo",
+    "fileCount": 0,
+    "durationMs": 6142,
+    "enqueuedAt": 1791499932832,
+    "startedAt": 1791499932834,
+    "finishedAt": 1791499938976,
+    "queueDepthAtEnqueue": 0
+  }
+}

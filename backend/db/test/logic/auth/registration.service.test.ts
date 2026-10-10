@@ -19,6 +19,12 @@
  *  - Duplicate email → ConflictError.
  *  - Missing/invalid fields → ValidationError.
  *  - Short password → ValidationError.
+ *  - Password length ceiling boundary: a 1024-char password (the exact
+ *    shared ceiling) registers and stores a verifying hash; a 1025-char
+ *    password rejects pre-hash with the localized `PASSWORD_TOO_LONG`
+ *    field entry and leaves zero residual rows. Set-time and verify-time
+ *    bounds share one source, so an accepted credential can never exceed
+ *    the login-side argument limit.
  *  - BOPLA: input with extra fields is ignored.
  *  - Atomicity: child-insert failure → zero residual rows.
  *  - Password stored hashed.
@@ -409,6 +415,37 @@ describe("RegistrationService.registerUser", () => {
       const input = makeValidInput({ password: "short" });
       const error = await expectRepoError(() => RegistrationService.registerUser(input, LOCALE, tx));
       expect(error).toBeInstanceOf(ValidationError);
+    });
+  });
+
+  test("password at the exact shared ceiling (1024 chars) registers and stores a verifying hash", async () => {
+    await runInRollback(async tx => {
+      const ceilingCredential = "a".repeat(1_024);
+      const input = makeValidInput({ password: ceilingCredential });
+      const result = await RegistrationService.registerUser(input, LOCALE, tx);
+
+      expect(result.email).toBe(input.email);
+      const [row] = await tx.select().from(users).where(eq(users.id, result.id));
+      if (!row) throw new Error("expected the registered user row to exist");
+      // bcrypt truncates at 72 bytes, so the stored hash still verifies the
+      // full ceiling-length credential.
+      expect(await comparePassword(ceilingCredential, row.passwordHash)).toBe(true);
+    });
+  });
+
+  test("password past the shared ceiling (1025 chars) → PASSWORD_TOO_LONG with the localized message; nothing persists", async () => {
+    await runInRollback(async tx => {
+      const input = makeValidInput({ password: "a".repeat(1_025) });
+      const error = await expectRepoError(() => RegistrationService.registerUser(input, LOCALE, tx));
+      expect(error).toBeInstanceOf(ValidationError);
+      if (!(error instanceof ValidationError)) throw new Error("expected a ValidationError instance");
+
+      expect(error.message).toBe(getServerTranslations(LOCALE).authTranslations.passwordTooLong);
+      expect(error.fields).toHaveLength(1);
+      expect(error.fields?.[0]).toMatchObject({ field: "password", code: "PASSWORD_TOO_LONG" });
+      expect(error.fields?.[0]?.message).toBe(error.message);
+      // Rejection precedes the hash + every write — identity-scoped residual proof.
+      await expectNoResidualUser(tx, input.email);
     });
   });
 

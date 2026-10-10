@@ -14,8 +14,10 @@
  *      `evaluation_result` notification is published to the applicant.
  *   2. FAIL (tajweed) — a cycle whose lowest score is a tajweed-79 finalizes
  *      `failed` with cooldown ≈ now+30d; re-purchase is denied while the
- *      cooldown instant is strictly in the future; NO teacher row, NO
- *      students row, NO users suspension writes.
+ *      cooldown instant is strictly in the future; NO teacher row, the #287
+ *      fail-conversion's ZEROED `students` row (fresh unique `KSB-` handshake
+ *      code, no parent linkage, guarded `teacher` → `student` role flip), NO
+ *      users suspension writes.
  *   3. FAIL (hifz) — the same shape with a hifz-79 → cooldown ≈ now+90d.
  *   4. Denial battery — non-assigned certified teacher (SESSION_NOT_FOUND),
  *      uninvolved student caller (constant-shape no-oracle denial at the
@@ -99,6 +101,7 @@ import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
+import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { ConflictError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { ApplicantLifecycleService, SubscriptionActivationService } from "@/backend/services";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
@@ -113,6 +116,7 @@ import type {
   SessionReturnType,
   UserSelectType,
 } from "@/backend/types";
+import { HANDSHAKE_CODE_PATTERN } from "@/shared/constants/handshake-code.constants";
 import {
   VERIFICATION_PLAN_CURRENCY,
   VERIFICATION_PLAN_INTERVAL_DAYS,
@@ -303,7 +307,7 @@ async function readUserRow(userId: number): Promise<UserSelectType | null> {
   return rows[0] ?? null;
 }
 
-/** Number of `students` rows behind a user id — the conversion-absence probe. */
+/** Number of `students` rows behind a user id — the conversion-row probe. */
 async function studentsRowCount(userId: number): Promise<number> {
   return db.$count(students, eq(students.id, userId));
 }
@@ -1146,7 +1150,7 @@ describe("DEV2-007 — evaluation rubric scoring journey (five-evaluator verdict
     expect(await rubricRowCountFor(applicantTajweedId)).toBe(4);
   });
 
-  test("step 12 — tajweed cast's fifth submission finalizes FAIL: cooldown ≈ now+30d, re-purchase denied, no teacher/students rows, no suspension writes, one fail notification", async () => {
+  test("step 12 — tajweed cast's fifth submission finalizes FAIL: cooldown ≈ now+30d, re-purchase denied, no teacher row, a zeroed students conversion row, no suspension writes, one fail notification", async () => {
     const fifthSession = tajweedCycleSessions[4];
     if (!fifthSession) {
       throw new Error("journey state: the tajweed cast's fifth session is missing");
@@ -1185,13 +1189,30 @@ describe("DEV2-007 — evaluation rubric scoring journey (five-evaluator verdict
       templatePrefix(ERRORS_EN.applicantCooldownActive)
     );
 
-    // NO teacher row, NO students row, NO users suspension writes.
+    // NO teacher row; the #287 fail-conversion's ZEROED `students` role-child
+    // row — shared PK, all four balances exactly zero, no parent linkage, a
+    // fresh unique `KSB-XXXXXXXX` handshake code — plus the guarded
+    // `teacher` → `student` role flip on the users row; NO users suspension
+    // writes.
     expect(await teacherRowCount(applicantTajweedId)).toBe(0);
-    expect(await studentsRowCount(applicantTajweedId)).toBe(0);
+    expect(await studentsRowCount(applicantTajweedId)).toBe(1);
+    const studentRows = await db.select().from(students).where(eq(students.id, applicantTajweedId)).limit(1);
+    const studentRow = studentRows[0];
+    if (!studentRow) {
+      throw new Error("expected the fail conversion to commit a zeroed students row");
+    }
+    expect(studentRow.id).toBe(applicantTajweedId);
+    expect(studentRow.balanceHifz).toBe(0);
+    expect(studentRow.balanceTajweed).toBe(0);
+    expect(studentRow.balanceReviews).toBe(0);
+    expect(studentRow.balanceTrial).toBe(0);
+    expect(studentRow.parentId).toBeNull();
+    expect(studentRow.handshakeCode).toMatch(HANDSHAKE_CODE_PATTERN);
     const userRow = await readUserRow(applicantTajweedId);
     if (!userRow) {
       throw new Error("expected the fail-cast user row to survive finalization");
     }
+    expect(userRow.role).toBe(UserRole.Student);
     expect(userRow.suspended).toBe(false);
     expect(userRow.suspendedAt).toBeNull();
     expect(userRow.suspendedPeriodDays).toBeNull();
@@ -1274,11 +1295,24 @@ describe("DEV2-007 — evaluation rubric scoring journey (five-evaluator verdict
     );
 
     expect(await teacherRowCount(applicantHifzId)).toBe(0);
-    expect(await studentsRowCount(applicantHifzId)).toBe(0);
+    expect(await studentsRowCount(applicantHifzId)).toBe(1);
+    const studentRows = await db.select().from(students).where(eq(students.id, applicantHifzId)).limit(1);
+    const studentRow = studentRows[0];
+    if (!studentRow) {
+      throw new Error("expected the fail conversion to commit a zeroed students row");
+    }
+    expect(studentRow.id).toBe(applicantHifzId);
+    expect(studentRow.balanceHifz).toBe(0);
+    expect(studentRow.balanceTajweed).toBe(0);
+    expect(studentRow.balanceReviews).toBe(0);
+    expect(studentRow.balanceTrial).toBe(0);
+    expect(studentRow.parentId).toBeNull();
+    expect(studentRow.handshakeCode).toMatch(HANDSHAKE_CODE_PATTERN);
     const userRow = await readUserRow(applicantHifzId);
     if (!userRow) {
       throw new Error("expected the fail-cast user row to survive finalization");
     }
+    expect(userRow.role).toBe(UserRole.Student);
     expect(userRow.suspended).toBe(false);
     expect(userRow.suspendedAt).toBeNull();
     expect(userRow.suspendedPeriodDays).toBeNull();

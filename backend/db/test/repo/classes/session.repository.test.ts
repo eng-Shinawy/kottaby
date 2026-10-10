@@ -403,6 +403,30 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
     });
   });
 
+  test("findByIds returns full rows for existing ids and skips unknown ids", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const rowA = await insertSessionRow(tx, actors);
+      const rowB = await insertSessionRow(tx, actors);
+      const missingId = await absentSessionId(tx);
+
+      const rows = await SessionRepository.findByIds([rowA.id, missingId, rowB.id], tx);
+
+      expect(rows.map(row => row.id).toSorted((a, b) => a - b)).toEqual([rowA.id, rowB.id].toSorted((a, b) => a - b));
+      for (const row of rows) {
+        expect(Object.keys(row).toSorted((a, b) => a.localeCompare(b))).toEqual([...SESSION_ROW_KEYS]);
+      }
+    });
+  });
+
+  test("findByIds answers an empty id list without a database round-trip", async () => {
+    await runInRollback(async tx => {
+      const rows = await SessionRepository.findByIds([], tx);
+
+      expect(rows).toEqual([]);
+    });
+  });
+
   test("existsSessionForTeacherStudent returns true for a linked pair across every lifecycle status", async () => {
     await runInRollback(async tx => {
       // A shared teacher↔student pair: any-status session row linking the
@@ -2409,6 +2433,7 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
   const REPO_FILES = [
     join(import.meta.dir, "../../../repo/classes/session.repository.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.helpers.ts"),
+    join(import.meta.dir, "../../../repo/classes/session.repository.batch.helpers.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.wave.helpers.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.arbitration.helpers.ts"),
     join(import.meta.dir, "../../../repo/classes/session.repository.lifecycle.helpers.ts"),
@@ -2446,17 +2471,20 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
       true
     );
     // Cancel's state membership is OR-ed equality. Array-membership is
-    // reserved for the participant-name batch's PK projection
-    // (`inArray(users.id, ids)` in the names helper — page-derived ids,
-    // parameterized); the participant STATE predicates never ride it
-    // (no `inArray` over a `session.` column anywhere in the layer).
+    // reserved for the sanctioned PK batch reads (the participant-name
+    // batch's PK projection `inArray(users.id, ids)` in the names helper
+    // and the session PK batch `inArray(session.id, [...sessionIds])` in
+    // the read helpers — page-derived ids, parameterized); the participant
+    // STATE predicates never ride it.
     expect(
       repoSource.includes("or(eq(session.status, SessionStatus.Scheduled), eq(session.status, SessionStatus.Started))")
     ).toBe(true);
-    expect(repoSource.includes("inArray(session.")).toBe(false);
-    // Both executor arms of the ONE sanctioned membership read: the tx
-    // select and the standalone PgDialect render.
+    expect(repoSource.includes("inArray(session.status")).toBe(false);
+    // Both executor arms of each sanctioned membership read: the names
+    // batch (tx select + standalone PgDialect render) and the session PK
+    // batch (tx select + standalone render).
     expect(repoSource.match(/inArray\(users\.id, ids\)/g)?.length).toBe(2);
+    expect(repoSource.match(/inArray\(session\.id, \[\.\.\.sessionIds\]\)/g)?.length).toBe(2);
     expect(repoSource.includes("sql.raw")).toBe(false);
   });
 
@@ -2494,7 +2522,7 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
       "cutoff",
       "now",
     ]);
-    expect(interpolations).toHaveLength(40);
+    expect(interpolations).toHaveLength(42);
     for (const interpolation of interpolations) {
       expect(ALLOWED.has(interpolation)).toBe(true);
     }
@@ -2561,9 +2589,10 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
   test("source: executor discipline — reads fall back to queryDb, writes to the pool, tx last on every signature", () => {
     expect(repoSource.includes("const executor = tx ?? db;")).toBe(true);
     expect(repoSource.match(/const executor = tx \?\? db;/g) ?? []).toHaveLength(16);
-    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(14);
-    // Thirty-five exported methods across the namespace + its one-to-one
-    // sibling implementation modules (the read machinery, the joined
+    expect(repoSource.match(/queryDb</g) ?? []).toHaveLength(15);
+    // Thirty-six exported methods across the namespace + its one-to-one
+    // sibling implementation modules (the read machinery, the session PK
+    // batch read, the joined
     // wave-context read, the post-confirmation dispute primitives, the
     // lifecycle completion lane, the report-gate lock, the
     // rating-eligibility probe, the participant-name batch, and the
@@ -2581,7 +2610,7 @@ describe("SessionRepository — transactional paths (runInRollback)", () => {
     // evaluation-cycle resolver + booking counter (both cycle-gate reads
     // must observe the caller's transaction's own writes under the
     // applicant's FOR UPDATE lock); every other signature keeps the optional tx.
-    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(35);
+    expect(repoSource.match(/export async function /g) ?? []).toHaveLength(36);
     expect((repoSource.match(/tx\?: DBTransaction/g) ?? []).length).toBeGreaterThanOrEqual(20);
     expect(repoSource.match(/tx: DBTransaction/g) ?? []).toHaveLength(4);
   });
@@ -2894,6 +2923,17 @@ describe("SessionRepository — standalone executor paths (committed fixtures)",
     expect(found?.id).toBe(probeTargetId);
     expect(found?.status).toBe(SessionStatus.Scheduled);
     expect(Object.keys(found ?? {}).toSorted((a, b) => a.localeCompare(b))).toEqual([...SESSION_ROW_KEYS]);
+  });
+
+  test("findByIds runs standalone via the queryDb membership read path", async () => {
+    const rows = await SessionRepository.findByIds([probeTargetId, completeTargetId]);
+
+    expect(rows.map(row => row.id).toSorted((a, b) => a - b)).toEqual(
+      [completeTargetId, probeTargetId].toSorted((a, b) => a - b)
+    );
+    for (const row of rows) {
+      expect(Object.keys(row).toSorted((a, b) => a.localeCompare(b))).toEqual([...SESSION_ROW_KEYS]);
+    }
   });
 
   test("findTransitionProbe runs standalone via the queryDb read path", async () => {

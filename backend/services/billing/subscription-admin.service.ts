@@ -61,8 +61,11 @@
  *
  * List semantics: the admin read surface is READ-ONLY — one owner-scoped
  * query (`user_id` = the addressed id, newest first by the repository's
- * own `created_at DESC` ordering) mapped onto the canonical ReturnType;
- * no writes, no audit rows. The acting admin is re-asserted against the
+ * own `created_at DESC` ordering) mapped onto the canonical ReturnType,
+ * followed by ONE page-level enrichment pass (`enrichSubscriptionRows`)
+ * that attaches each row's plan, audit-entry count, and audit-trail peek
+ * in ≤3 batch queries for the whole page; no writes, no audit rows. The
+ * acting admin is re-asserted against the
  * `users` table BEFORE any read (defense in depth behind the GraphQL
  * role scope — zero reads on denial), the owner id is re-validated
  * through the strict numeric coercion (a malformed id is the canonical
@@ -93,7 +96,13 @@ import {
   toSubscriptionAdminDomainError,
   toSubscriptionAdminReturnType,
 } from "@/backend/services/billing/subscription-admin.helpers";
-import { coerceUserId } from "@/backend/services/billing/subscription-admin-read.helpers";
+import {
+  AUDIT_ACTION_TYPE_MEMBER_BY_RAW,
+  coerceUserId,
+  enrichSubscriptionRows as enrichSubscriptionRowsImpl,
+  subscriptionAuditEntriesCountBatch,
+  subscriptionAuditTrailPeekBatch,
+} from "@/backend/services/billing/subscription-admin-read.helpers";
 import {
   insertRenewedSubscription,
   settleRenewalSideEffects,
@@ -103,7 +112,9 @@ import type {
   CancelSubscriptionSubmitInput,
   ChangeSubscriptionPlanResult,
   ChangeSubscriptionPlanSubmitInput,
+  DBQueryExecutor,
   DBTransaction,
+  EnrichedSubscriptionReturnType,
   ExtendSubscriptionSubmitInput,
   RenewSubscriptionSubmitInput,
   SubscriptionAuditTrailPeek,
@@ -496,7 +507,8 @@ export namespace SubscriptionAdminService {
 
   /**
    * Lists one student-owner's subscriptions for the admin read surface —
-   * READ-ONLY: no writes, no audit rows, one owner-scoped query.
+   * READ-ONLY: no writes, no audit rows, one owner-scoped query followed by
+   * ONE page-level enrichment pass.
    *
    * Fail-closed sequence: the admin gate re-asserts the actor's role
    * BEFORE any read (the GraphQL scope already enforced admin-only — the
@@ -511,24 +523,29 @@ export namespace SubscriptionAdminService {
    * well-formed but unknown id is the indistinguishable empty list),
    * newest first by the repository's own `created_at DESC` ordering,
    * mapped onto the canonical ReturnType through the shared fail-closed
-   * enum certification.
+   * enum certification. The enrichment pass then attaches each row's
+   * plan, audit-entry count, and audit-trail peek in ≤3 extra batch
+   * queries for the WHOLE page (`enrichSubscriptionRows` — the ids it
+   * batches come only from the already-authorized page rows).
    *
    * @param userId  The addressed student-owner's user id (the only
    *     client material on this surface).
    * @param actorId  The acting admin's user id (never client input).
    * @param locale  Locale for the localized denial messages.
    * @param tx  Optional caller transaction to join (test path:
-   *     SAVEPOINT) — the gate's actor read and the owner-scoped read
-   *     share the caller's unit so they observe one snapshot.
-   * @returns The owner's rows, newest first, in the canonical read
-   *     shape; empty when the owner has none.
+   *     SAVEPOINT) — the gate's actor read, the owner-scoped read, and
+   *     the plan batch share the caller's unit so they observe one
+   *     snapshot (the audit batches are bare pool reads, exactly like
+   *     their single-row twins).
+   * @returns The owner's enriched rows, newest first; empty when the
+   *     owner has none.
    */
   export async function listForAdmin(
     userId: number,
     actorId: number,
     locale: string,
     tx?: DBTransaction
-  ): Promise<SubscriptionReturnType[]> {
+  ): Promise<EnrichedSubscriptionReturnType[]> {
     const tErrors = getServerTranslations(locale).errorsTranslations;
 
     // Defense-in-depth BFLA gate — re-asserts the actor's role BEFORE
@@ -541,7 +558,11 @@ export namespace SubscriptionAdminService {
     const ownerId = coerceUserId(userId, tErrors);
 
     const rows = await SubscriptionRepository.listByUserId(ownerId, tx);
-    return rows.map(row => toSubscriptionAdminReturnType(row, tErrors));
+    return enrichSubscriptionRows(
+      rows.map(row => toSubscriptionAdminReturnType(row, tErrors)),
+      locale,
+      tx
+    );
   }
 
   /**
@@ -596,19 +617,9 @@ export namespace SubscriptionAdminService {
     if (!newest) {
       return null;
     }
-    // Membership re-assertion through a RAW-STRING-keyed member map: the
-    // audit row's `actionType` is a raw DB column (a plain string), so the
-    // certified member resolves by MAP LOOKUP — no enum-to-string
-    // comparison, no type assertion, and an unverified literal stays the
-    // honest `undefined`.
-    const memberByRaw = Object.values(AuditActionType).reduce<Record<string, AuditActionType | undefined>>(
-      (map, member) => {
-        map[member] = member;
-        return map;
-      },
-      {}
-    );
-    const certified = memberByRaw[newest.actionType];
+    // Membership re-assertion through the shared RAW-STRING-keyed member
+    // map — an unverified literal stays the honest `undefined`.
+    const certified = AUDIT_ACTION_TYPE_MEMBER_BY_RAW[newest.actionType];
     if (certified === undefined) {
       logger.logDomainError("Subscription audit peek withheld: uncertifiable action type in the trail", {
         code: "VALIDATION",
@@ -618,5 +629,82 @@ export namespace SubscriptionAdminService {
       return null;
     }
     return { actionType: certified, at: newest.createdAt };
+  }
+
+  /**
+   * The audit-trail entry counts for a PAGE of subscriptions — the batch
+   * twin of `auditEntriesCount`. One grouped repository read resolves every
+   * requested row's count, keyed by the SAME canonical `entity_type` label
+   * the single-row method and every admin mutation flow mint, so a page's
+   * badges can never disagree with the trail the drawer opens. Every
+   * distinct requested id gets a map entry; a row with no entries answers
+   * the honest `0` (never an error, never clamped).
+   *
+   * @param subscriptionIds  The page's subscription ids — ids already
+   *     present on caller-authorized rows, never client-supplied
+   *     identifiers.
+   * @returns One count per distinct requested id.
+   */
+  export async function auditEntriesCountBatch(subscriptionIds: readonly number[]): Promise<Map<number, number>> {
+    return subscriptionAuditEntriesCountBatch(subscriptionIds);
+  }
+
+  /**
+   * The trail TEASERS for a PAGE of subscriptions — the batch twin of
+   * `auditTrailPeek`. One `DISTINCT ON` repository read resolves every
+   * requested row's most recent entry (the same `created_at DESC, id DESC`
+   * "latest" the single-row peek reads, so the two can never disagree),
+   * and each raw row is certified fail-closed against the canonical enum
+   * member set exactly like the single-row peek: an uncertifiable literal
+   * would mean data corruption — it surfaces as the honest `null` (never
+   * a junk value on the wire) plus one bounded ids-only domain log. A row
+   * with no history answers `null`.
+   *
+   * @param subscriptionIds  The page's subscription ids — ids already
+   *     present on caller-authorized rows, never client-supplied
+   *     identifiers.
+   * @returns One peek (or the honest `null`) per distinct requested id.
+   */
+  export async function auditTrailPeekBatch(
+    subscriptionIds: readonly number[]
+  ): Promise<Map<number, SubscriptionAuditTrailPeek | null>> {
+    return subscriptionAuditTrailPeekBatch(subscriptionIds);
+  }
+
+  /**
+   * Page-level enrichment for subscription list rows — ONE batch pass per
+   * page: the page's DISTINCT plan ids go to one plan batch, and the page
+   * row ids go to one audit-count batch plus one audit-peek batch — ≤3
+   * extra queries for the whole page regardless of page size. Both list
+   * producers (`listForAdmin` here, `SubscriptionPurchaseService.listOwn`)
+   * route through this single pass so every `StudentSubscription` row
+   * carries its `plan`, `auditEntriesCount`, and `auditTrailPeek` before
+   * the field resolvers run.
+   *
+   * The batch ids come ONLY from rows the caller was already authorized
+   * to read (no client-supplied id enters any batch), an empty page
+   * enriches nothing (zero batch reads), and the three batch reads run
+   * SEQUENTIALLY so a caller-supplied transaction client never pipelines
+   * concurrent statements. The plan batch joins the caller's transaction
+   * when one is supplied; the audit batches are bare pool reads, exactly
+   * like their single-row twins (the enrichment reads plan/audit rows
+   * AFTER the page rows are fetched — a benign read-read window, its
+   * staleness bounded by the page query itself). Rows are enriched onto
+   * COPIES via `Object.assign` — the source rows are never mutated, and a
+   * missing plan enriches the honest `null` value, never an absent key.
+   *
+   * @param rows  The already-authorized, already-mapped page rows.
+   * @param locale  Optional request locale (tolerated by the plan batch
+   *     for symmetry with the producers' signatures).
+   * @param tx  Optional transaction or query executor — propagated to
+   *     the plan batch so a caller-owned atomic flow stays atomic.
+   * @returns The enriched row copies, in the caller's order.
+   */
+  export async function enrichSubscriptionRows(
+    rows: readonly SubscriptionReturnType[],
+    locale?: string,
+    tx?: DBQueryExecutor
+  ): Promise<EnrichedSubscriptionReturnType[]> {
+    return enrichSubscriptionRowsImpl(rows, locale, tx);
   }
 }

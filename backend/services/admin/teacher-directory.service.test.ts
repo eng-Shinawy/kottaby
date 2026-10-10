@@ -31,6 +31,9 @@
 
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
+import { teacher as teacherTable } from "@/backend/db/schema/teachers/teacher";
+import { users } from "@/backend/db/schema/users/users";
 import { createTestTeacherRow, createTestUser } from "@/backend/db/test/entity-setup";
 import { runInRollback } from "@/backend/db/test/test-utils";
 import {
@@ -45,6 +48,7 @@ import {
   registerPaginationValidationContract,
 } from "@/backend/services/admin/shared/directory-test.helpers";
 import { AdminTeacherDirectoryService } from "@/backend/services/admin/teacher-directory.service";
+import { HOSTILE_SEARCH_PAYLOADS } from "@/backend/services/shared/hostile-search-payloads";
 import type { DBTransaction, UserSelectType } from "@/backend/types";
 
 /**
@@ -322,5 +326,135 @@ describe("AdminTeacherDirectoryService.exportAll — defense-in-depth (BFLA)", (
 describe("AdminTeacherDirectoryService.list — defense-in-depth (BFLA)", () => {
   registerBflaDenials({
     call: (tx, actorId) => AdminTeacherDirectoryService.list({}, 1, 25, LOCALE, actorId, tx),
+  });
+});
+
+// ─── Hostile search payload matrix (injection + wildcard) ─────────────────
+
+/**
+ * Creates a teacher user + `teacher` role-child row with the EXACT supplied
+ * full name (no prefixing) — the carrier/decoy factory of the hostile
+ * payload matrix below.
+ */
+async function createTeacherNamed(tx: DBTransaction, fullName: string): Promise<number> {
+  const user = await createTestUser(tx, { role: "teacher", fullName });
+  await createTestTeacherRow(tx, user.id, { isApproved: true });
+  return user.id;
+}
+
+/**
+ * Independent literal-substring oracle: the teacher ids (role-child rows)
+ * whose full name OR email contains the needle literally, case-insensitively —
+ * computed through `position()`, not LIKE, so it shares zero semantics with
+ * the search path under test. This is the literal match set the directory
+ * search MUST reproduce exactly.
+ */
+async function teacherIdsMatchingLiteral(tx: DBTransaction, needle: string): Promise<number[]> {
+  const lowered = needle.toLowerCase();
+  const rows = await tx
+    .select({ id: users.id })
+    .from(teacherTable)
+    .innerJoin(users, eq(users.id, teacherTable.id))
+    .where(
+      sql`(position(${lowered} in lower(${users.fullName})) > 0 or position(${lowered} in lower(${users.email})) > 0)`
+    );
+  return rows.map(row => row.id);
+}
+
+describe("AdminTeacherDirectoryService.list — hostile search payload matrix", () => {
+  test.each(HOSTILE_SEARCH_PAYLOADS)(
+    "hostile search ($label): the result equals the literal-substring match set; nothing is modified",
+    async ({ payload, decoys }) => {
+      await runInRollback(async tx => {
+        const admin = await provisionAdminActor(tx);
+        const runTag = randomUUID().slice(0, 8);
+
+        // The carrier embeds the payload VERBATIM in its full name; each
+        // decoy teacher's name would surface if the payload's
+        // metacharacters kept their wildcard meaning.
+        const carrierId = await createTeacherNamed(tx, `${payload}${runTag}`);
+        const decoyIds = await Promise.all(decoys.map(decoy => createTeacherNamed(tx, `${decoy}${runTag}`)));
+
+        const usersBefore = await tx.$count(users);
+        // The service trims the search term before escaping — the literal
+        // needle is the trimmed payload.
+        const needle = payload.trim().toLowerCase();
+        const expected = await teacherIdsMatchingLiteral(tx, needle);
+
+        const page = await AdminTeacherDirectoryService.list({ search: payload }, 1, 100, LOCALE, admin.id, tx);
+
+        // Zero rows modified: the listing (and any injection the payload
+        // could have smuggled past a parameterized read) wrote nothing.
+        expect(await tx.$count(users)).toBe(usersBefore);
+
+        // The result equals the literal-substring match set — never wider.
+        expect(page.total).toBe(expected.length);
+        const surfacedIds = page.items.map(item => item.id);
+        expect(surfacedIds).toContain(carrierId);
+        for (const decoyId of decoyIds) {
+          expect(surfacedIds).not.toContain(decoyId);
+        }
+        if (expected.length <= 100) {
+          expect(surfacedIds.toSorted((a, b) => a - b)).toEqual(expected.toSorted((a, b) => a - b));
+        }
+        // Every surfaced row carries the needle literally (in the name or
+        // the email) — no non-literal row can leak into the page.
+        for (const item of page.items) {
+          expect(item.name.toLowerCase().includes(needle) || item.email.toLowerCase().includes(needle)).toBe(true);
+        }
+      });
+    }
+  );
+
+  test("empty and whitespace-only search strings mean no filter (the unfiltered listing)", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const teacher = await createDirectoryTeacher(tx, { namePrefix: "DirTeacherEmptySearch" });
+
+      const emptyPage = await AdminTeacherDirectoryService.list({ search: "" }, 1, 100, LOCALE, admin.id, tx);
+      expect(emptyPage.items.find(item => item.id === teacher.id)).not.toBeUndefined();
+
+      const whitespacePage = await AdminTeacherDirectoryService.list({ search: "   " }, 1, 100, LOCALE, admin.id, tx);
+      expect(whitespacePage.items.find(item => item.id === teacher.id)).not.toBeUndefined();
+    });
+  });
+
+  test("a search longer than the 100-character ceiling clamps to the first 100 characters (never rejects)", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const base = `DirTeacherClamp${randomUUID().slice(0, 8)}`;
+      const hundred = `${base}${"x".repeat(100 - base.length)}`;
+      const teacherId = await createTeacherNamed(tx, hundred);
+
+      // Exactly at the ceiling: the full 100-character string is the search.
+      const exactPage = await AdminTeacherDirectoryService.list({ search: hundred }, 1, 25, LOCALE, admin.id, tx);
+      expect(exactPage.total).toBe(1);
+      expect(exactPage.items.map(item => item.id)).toEqual([teacherId]);
+
+      // 40 characters past the ceiling: the search clamps to the first
+      // 100 characters, so the same teacher still matches.
+      const oversize = `${hundred}${"y".repeat(40)}`;
+      const clampedPage = await AdminTeacherDirectoryService.list({ search: oversize }, 1, 25, LOCALE, admin.id, tx);
+      expect(clampedPage.total).toBe(1);
+      expect(clampedPage.items.map(item => item.id)).toEqual([teacherId]);
+    });
+  });
+
+  test("an Arabic (RTL) search matches the literal Arabic substring", async () => {
+    await runInRollback(async tx => {
+      const admin = await provisionAdminActor(tx);
+      const runTag = randomUUID().slice(0, 8);
+      const carrierId = await createTeacherNamed(tx, `مدرس القرآن ${runTag}`);
+      const decoyId = await createTeacherNamed(tx, `مدرس التجويد ${runTag}`);
+
+      const needle = "القرآن";
+      const expected = await teacherIdsMatchingLiteral(tx, needle);
+      const page = await AdminTeacherDirectoryService.list({ search: needle }, 1, 100, LOCALE, admin.id, tx);
+
+      expect(page.total).toBe(expected.length);
+      const surfacedIds = page.items.map(item => item.id);
+      expect(surfacedIds).toContain(carrierId);
+      expect(surfacedIds).not.toContain(decoyId);
+    });
   });
 });

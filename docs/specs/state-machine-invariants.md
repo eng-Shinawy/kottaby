@@ -60,8 +60,8 @@ stateDiagram-v2
 | In_Evaluation | Evaluation sessions in progress | 1-4 `session` records completed |
 | Evaluation_Complete | All 5 sessions completed | 5 `session` + 5 `evaluations` records |
 | Qualified | Passed evaluation | `teacher.is_approved = true` |
-| Cooldown_Tajweed | Failed (Tajweed weakness) | `students.suspended = true`, `suspended_period_days = 30` |
-| Cooldown_Hifz | Failed (Hifz weakness) | `students.suspended = true`, `suspended_period_days = 90` |
+| Cooldown_Tajweed | Failed (Tajweed weakness) | `students.suspended = true`, `suspended_period_days = 30` ✅ AMENDED: the shipped cooldown state is `applicants.cooldown_until = <future ts>` (`backend/db/schema/teachers/applicants.ts:23`), with the day-count pinned as `TAJWEED_COOLDOWN_DAYS = 30` (`shared/constants/evaluation-rubric.constants.ts:21`) — cooldown never touches `students.suspended_period_days` |
+| Cooldown_Hifz | Failed (Hifz weakness) | `students.suspended = true`, `suspended_period_days = 90` ✅ AMENDED: the shipped cooldown state is `applicants.cooldown_until = <future ts>` (`backend/db/schema/teachers/applicants.ts:23`), with the day-count pinned as `HIFZ_COOLDOWN_DAYS = 90` (`shared/constants/evaluation-rubric.constants.ts:24`) — cooldown never touches `students.suspended_period_days` |
 
 ### 2.2 Allowed Transitions
 
@@ -87,10 +87,10 @@ stateDiagram-v2
 | INV-TV1 | An applicant cannot be certified (`is_approved = true`) without either (a) completing 5 evaluation sessions with 5 distinct certified Shuyukh and passing, or (b) being directly onboarded by the Admin (cold-start). |
 | INV-TV2 | The 5 evaluation sessions must be with 5 **distinct** certified Shuyukh (no evaluator can evaluate the same applicant twice). |
 | INV-TV3 | A cooldown period must fully expire before an applicant can re-purchase the verification plan. |
-| INV-TV4 | Tajweed cooldown = 1 month (30 days); Hifz cooldown = 3 months (90 days). These are minimums. |
+| INV-TV4 | Tajweed cooldown = 1 month (30 days); Hifz cooldown = 3 months (90 days). These are minimums. ✅ AMENDED: cooldown state lives on `applicants.cooldown_until` (`backend/db/schema/teachers/applicants.ts:23`), never on `students.suspended_period_days`; the durations are pinned day-count constants (`shared/constants/evaluation-rubric.constants.ts:21,:24`). |
 | INV-TV5 | The Admin override can supersede the automated aggregation result in any direction (certify, reject, or grant re-evaluation). |
 | INV-TV6 | A failed applicant who is converted to a student retains student privileges (can subscribe to plans and attend sessions) during the cooldown period. |
-| INV-TV7 | `teacher_verification` record stores `tajweed_level` and `hifz_level` assessments for the applicant. |
+| INV-TV7 | `teacher_verification` record stores `tajweed_level` and `hifz_level` assessments for the applicant. KNOWN-UNIMPLEMENTED: no runtime producer exists — nothing in the tree writes or reads `teacher_verification`; the weakness levels actually recorded live in `evaluations.weakness_area` (`backend/db/schema/teachers/evaluations.ts:50`). Shipped coverage is the schema contract: `tajweed_level`/`hifz_level` are nullable `varchar(50)` columns carrying the teacher FK (`ON DELETE CASCADE`) and index. |
 
 ---
 
@@ -119,12 +119,12 @@ stateDiagram-v2
 |---|---|
 | INV-A1 | Only certified teachers (`is_approved = true`) can set their status to Available. |
 | INV-A2 | While a teacher is in an active session (`session.status = started`), their `is_online` must be `false`. |
-| INV-A3 | A teacher in In-Session state is hidden from the Available Teachers directory for all other students. |
-| INV-A4 | Upon session conclusion, the teacher's status returns to Available only if they are still active (app open). |
+| INV-A3 | A teacher in In-Session state is hidden from the Available Teachers directory for all other students. ✅ IMPLEMENTED (student-facing directory): the directory EXISTS — `browseAvailableTeachers` (`backend/graphql/query/teachers/teacher-matching.query.ts:81`) is the student-only paged browse (authScopes `:123-128`); its eligibility compose rule includes the no-active-session leg, so an in-session teacher is excluded even under a stale-true `is_online` flag. |
+| INV-A4 | Upon session conclusion, the teacher's status returns to Available only if they are still active (app open). ✅ AMENDED (marker-gated restore): the shipped restore is marker-gated — `teacher.was_online_before_lock` restores the pre-lock availability intent, never an activity-conditioned check; the "still active" freshness leg is delegated to the inactivity sweep (`backend/db/repo/teachers/teacher.repository.ts:774-814`, which writes only `false`). |
 
 > **Implementation reference (manual toggle — INV-A1/INV-A2):** the teacher-owned Available/Unavailable toggle writes through `TeacherAvailabilityService` (`backend/services/teachers/teacher-availability.service.ts`), which composes the certification gate (INV-A1) and the reused in-session seam (INV-A2) before `TeacherRepository.setAvailabilityIntent` — canonically documented in [`docs/teachers/teacher-availability.md`](../teachers/teacher-availability.md).
 >
-> **Implementation reference (in-session lock — INV-A4, IMPLEMENTED):** the never-resurrect release gating is shipped as a marker-gated restore. The nullable `teacher.was_online_before_lock` column (`backend/db/schema/teachers/teacher.ts:36`) is the lock-held oracle: `NULL` = no lock held; `true`/`false` = the pre-lock availability intent restored on the last `started`-exit. The column's exactly three single-statement writers are `acquireInSessionLock` (capture + lock — `backend/db/repo/teachers/teacher.repository.ts:527`), `releaseInSessionLock` (restore-once with the last-exit guard — `backend/db/repo/teachers/teacher.repository.ts:625`), and `setAvailabilityIntent` (the toggle's direction-guarded write — `backend/db/repo/teachers/teacher.repository.ts:752`); the release is composed on all four terminal exits of a `started` session, including the admin-governance cancel (`backend/services/classes/session-admin-governance.helpers.ts:387`). Full release semantics: [`docs/sessions/session-lifecycle.md`](../sessions/session-lifecycle.md) §2.3. INV-A3 (directory appearance) remains owned by the directory/alternatives surfaces.
+> **Implementation reference (in-session lock — INV-A4, IMPLEMENTED):** the never-resurrect release gating is shipped as a marker-gated restore. The nullable `teacher.was_online_before_lock` column (`backend/db/schema/teachers/teacher.ts:36`) is the lock-held oracle: `NULL` = no lock held; `true`/`false` = the pre-lock availability intent restored on the last `started`-exit. The column's exactly three single-statement writers are `acquireInSessionLock` (capture + lock — `backend/db/repo/teachers/teacher.repository.ts:460`), `releaseInSessionLock` (restore-once with the last-exit guard — `backend/db/repo/teachers/teacher.repository.ts:558`), and `setAvailabilityIntent` (the toggle's direction-guarded write — `backend/db/repo/teachers/teacher.repository.ts:685`); the release is composed on all four terminal exits of a `started` session, including the admin-governance cancel (`backend/services/classes/session-admin-governance.helpers.ts:387`). Full release semantics: [`docs/sessions/session-lifecycle.md`](../sessions/session-lifecycle.md) §2.3. INV-A3 (directory appearance) is enforced by the student-facing directory surface — `browseAvailableTeachers` (`backend/graphql/query/teachers/teacher-matching.query.ts:81`, student-only scopes `:123-128`).
 
 ---
 
@@ -153,7 +153,7 @@ stateDiagram-v2
 | INV-B2 | The full session count from a plan is credited to the respective balance immediately upon subscription activation. |
 | INV-B3 | Unused sessions expire at the end of the `interval_days` window with no carryover. This expiry rule explicitly DOES NOT apply to `balance_trial`: the trial lane is not subscription-bound (no `subscriptions` row), so no `interval_days` window exists. A trial credit persists until consumed by a session booking. |
 | INV-B4 | A student cannot request a session if the relevant balance is 0 (or expired). Eligibility is extended to: `(relevant intent balance > 0) OR (balance_trial > 0)` — the trial is an additional eligibility lane, not a replacement for any paid lane. The blocking semantics for a student with `balance_trial = 0` AND intent balance 0 are unchanged. |
-| INV-B5 | Session balances are segregated: Hifz sessions decrement `balance_hifz`, Tajweed sessions decrement `balance_tajweed`, review sessions decrement `balance_reviews`. The dedicated `balance_trial` lane keeps INV-B5 pure: a trial is not a Hifz/Tajweed/Review purchase, so it must not co-mingle into any paid lane. |
+| INV-B5 | Session balances are segregated: Hifz sessions decrement `balance_hifz`, Tajweed sessions decrement `balance_tajweed`, review sessions decrement `balance_reviews`. The dedicated `balance_trial` lane keeps INV-B5 pure: a trial is not a Hifz/Tajweed/Review purchase, so it must not co-mingle into any paid lane. **Reviews-decrement clause UNIMPLEMENTED:** the shipped debit vocabulary has no reviews lane — `HeldBalanceLane` carries only `trial`/`hifz`/`tajweed` (`backend/enum/scheduling/held-balance-lane.enum.ts:17-21`) and zero decrement writers exist for `balance_reviews`; the reviews lane is credit-only, so booking holds can never target it. |
 | INV-B6 | The Admin can manually extend subscription validity windows (`end_date`). |
 | INV-B7 | A trial credit is granted at most once per student record. Enforced structurally by the `trial_granted_at` marker column (nullable timestamp, set server-side on first grant) and the guarded single conditional `UPDATE students SET balance_trial = balance_trial + <count>, trial_granted_at = now() WHERE id = <studentId> AND trial_granted_at IS NULL RETURNING id` atomic statement. The `trial_granted_at IS NULL` predicate IS the atomicity mechanism — no advisory lock and no `SELECT FOR UPDATE` is required, because the predicate evaluation and the column mutation share one SQL statement (TOCTOU window = 0). A second grant attempt matches zero rows, returns an empty `RETURNING` set, and the service converts that into a localized `ConflictError` with `extensions.code = "CONFLICT"`. |
 | INV-B8 | Session allowance consumption decrements `balance_trial` BEFORE any paid intent lane (`balance_hifz` / `balance_tajweed` / `balance_reviews`). When `balance_trial > 0`, the trial is decremented first and the paid lane is untouched; only when the trial has been exhausted does the existing paid-lane escrow rule (decision B.4) apply. The decrement MUST use the same single-guarded-UPDATE atomicity pattern: `UPDATE students SET balance_trial = balance_trial - 1 WHERE id = ? AND balance_trial > 0` returning a row count, with a separate conditional UPDATE on the paid lane if and only if the trial decrement returned zero rows. This preserves INV-B5 segregation and keeps trial-vs-paid analytics clean. |
@@ -216,8 +216,8 @@ stateDiagram-v2
 | INV-W4 | An `earning` transaction is created only upon dual confirmation of session completion. |
 | INV-W5 | A `withdrawal` transaction starts as `pending` and transitions to `completed` (Admin approves) or `failed` (Admin rejects). **✅ IMPLEMENTED (guarded settlement + trigger amendment):** settlement runs through the single guarded repo UPDATE (`WHERE id = ? AND type = 'withdrawal' AND status = 'pending'` — `WalletRepository.settleWithdrawalOnce`), and the amended `prevent_teacher_transaction_update()` DB guard (migration `custom_5-teacher-transaction-settlement`) permits ONLY that flip with every other column frozen (null-safe `IS NOT DISTINCT FROM`; `updated_at` moves via `$onUpdate`) — approve settles the request-time debit to `completed`, reject settles to `failed` AND restores the reserved balance; re-settling a decided row, any other column/transition, and `DELETE` all raise. Implemented and documented in [`docs/billing/admin-financial-auditing.md`](../billing/admin-financial-auditing.md). |
 | INV-W6 | Financial records (`student_payments`, `teacher_transaction`) are immutable once created. Corrections via new adjustment transactions only. |
-| INV-W7 | An `earning` transaction is linked to a `session_id`; a `withdrawal` or `bonus` transaction may have a null `session_id`. |
-| INV-W8 | `teacher_transaction.amount` must be >= 0 (check constraint). |
+| INV-W7 | An `earning` transaction is linked to a `session_id`; a `withdrawal` or `bonus` transaction may have a null `session_id`. ✅ AMENDED (signature-level enforcement): no DB CHECK ties earning rows to a session link — `backend/db/schema/billing/teacher-transaction.ts:38` is a plain nullable FK; the session link is enforced by the `creditEarningOnce` repository signature (`backend/db/repo/billing/wallet.repository.ts:81`) composed inside the dual-confirmation flow (INV-W4). |
+| INV-W8 | `teacher_transaction.amount` must be >= 0 (check constraint). ✅ AMENDED: the shipped CHECK is `amount > 0` (`teacher_transaction_amount_check`, `backend/db/schema/billing/teacher-transaction.ts:50`), stricter than `>= 0` — a zero-amount row is rejected. |
 
 ---
 
@@ -230,6 +230,8 @@ stateDiagram-v2
 | Suspended | `suspended = true`, `suspended_at = <ts>`, `suspended_period_days = <N>` |
 | Blocked | `is_blocked = true`, `blocked_at = <ts>` |
 | Soft Deleted | `is_deleted = true`, `deleted_at = <ts>` |
+
+> **Implementation note (governance columns):** the account-governance state above lives on the `users` table (`backend/db/schema/users/users.ts:37-43` — `is_deleted`, `deleted_at`, `suspended`, `suspended_at`, `suspended_period_days`, `is_blocked`, `blocked_at`), not on a per-role child row; the guarded admin mutations and the login/refresh gates all read these `users` columns.
 
 ### 6.2 Allowed Transitions
 ```mermaid
@@ -249,9 +251,9 @@ stateDiagram-v2
 | ID | Invariant |
 |---|---|
 | INV-U1 | A soft-deleted student's historical sessions, reports, and financial transactions are preserved. |
-| INV-U2 | A suspended student cannot request new sessions during the suspension period. |
+| INV-U2 | A suspended student cannot request new sessions during the suspension period. ✅ AMENDED (booking is stricter than login): the booking guard denies on the raw `suspended` boolean (`backend/services/classes/session-lifecycle.governance.ts:53`) — a LAPSED suspension (window closed, `suspended = true` still set) still blocks session requests, deliberately stricter than the login window predicate. |
 | INV-U3 | A blocked student cannot access the platform. |
-| INV-U4 | No user, student, or teacher record can be hard-deleted. |
+| INV-U4 | No user, student, or teacher record can be hard-deleted. ✅ AMENDED (layered enforcement): the static grep-lock (`backend/graphql/test/inv-u4-grep-lock.test.ts`) pins the app layer (no production hard-delete writer, no destructive Mutation field); the GUC-gated `prevent_users_delete` DB trigger (`backend/db/migration/14-prevent-users-delete.sql`, armed in production by default with `kottaby.users_delete_guard` unset; pooled test connections pin the opt-out) is the DB-tier backstop; and the FK `ON DELETE RESTRICT` chain is the final runtime backstop: a referenced-user raw DELETE raises the restrict FK violation (SQLSTATE 23001 `restrict_violation` on PostgreSQL ≥ 18; 23503 `foreign_key_violation` on PG ≤ 17) (`session.student_id` references `users.id` — `session_student_id_users_id_fkey`, `backend/db/schema/classes/session.ts:57-59`), while an unreferenced-user raw DELETE succeeds only under the trigger's test opt-out (the documented accepted boundary behind the armed production guard). |
 | INV-U5 | A student's session balances are preserved across suspension/blocking/soft-delete. |
 
 ---
@@ -299,10 +301,10 @@ The handshake-code discovery surface (parent search by code, preceding this life
 ### 8.2 Invariants
 | ID | Invariant |
 |---|---|
-| INV-PAY1 | `student_payments.amount` must be >= 0 (check constraint). |
+| INV-PAY1 | `student_payments.amount` must be >= 0 (check constraint). ✅ AMENDED: the shipped CHECK is `amount > 0` (`student_payments_amount_check`, `backend/db/schema/billing/student-payments.ts:74`), stricter than `>= 0` — a `0.00` insert is rejected. |
 | INV-PAY2 | Payment records are immutable. Corrections via adjustment transactions only. **✅ AMENDED (guarded status transition — the single permitted exception):** an UPDATE is allowed iff `OLD.status = 'pending' AND NEW.status IN ('paid','failed')` AND every financial/identity column (`student_id`, `subscription_id`, `amount`, `currency`, `payment_gateway`, `created_at`) is unchanged (null-safe compare) — enforced by the amended `prevent_student_payments_update()` DB guard; every other UPDATE (incl. `pending → pending`, lifecycle skips, column tamper, re-deciding a decided payment) raises, and the DELETE guard is untouched. Decided payments are terminal; the only conforming writers are the repository's guarded decision writers. |
 | INV-PAY3 | A subscription is activated (and session balance credited) only upon `paid` status. |
-| INV-PAY4 | `student_payments` records a `payment_gateway` (stripe, paypal, paymob, fawry, other). |
+| INV-PAY4 | `student_payments` records a `payment_gateway` (stripe, paypal, paymob, fawry, other). ✅ AMENDED: the `payment_gateway` pgEnum carries nine shipped values (`backend/db/schema/enums.ts:67-77`): `stripe`, `paypal`, `paymob`, `fawry`, `offline_cash`, `bank_transfer`, `scholarship`, `other`, `mock`. |
 | INV-PAY5 | Admin direct onboarding with offline payment (cash/transfer/scholarship) bypasses `student_payments`. **✅ RESOLVED (B.9):** Audit trail maintained via `subscriptions.payment_method`, `subscriptions.payment_reference`, and `subscriptions.payment_verified_at` fields. |
 | INV-PAY6 | Exactly one `pending → paid` activation ever executes per subscription. The guarded single-statement UPDATE (`WHERE id = ? AND status = 'pending'`) is the atomicity arbiter — no event bookkeeping table is needed. A replayed/replayed-out-of-order delivery matches zero rows, is acked as a replay (no credit, no second notification, decided rows byte-identical), and a late `confirmed` after `failed` is rejected-and-logged (never a silent upgrade). |
 | INV-PAY7 | A verified callback whose `amount` or `currency` disagrees with the stored ledger row (or whose ledger row is missing) is QUARANTINED: zero mutation anywhere, one bounded log carrying correlation ids only (never raw payloads or financial values), and a `200 { processed: false }` acknowledgment — settlement integrity beats liveness (a 4xx would trigger endless gateway retries). |
@@ -324,7 +326,7 @@ The handshake-code discovery surface (parent search by code, preceding this life
 |---|---|
 | INV-PR1 | Progress (`progress`) links a student to a lesson (`student_id`, `lesson_id`). |
 | INV-PR2 | Progress is updated (incremented) upon successful completion of a Tajweed session. |
-| INV-PR3 | Lessons belong to plans (`lessons.plan_id`). |
+| INV-PR3 | Lessons belong to plans (`lessons.plan_id`). ✅ AMENDED (nullable by design): `lessons.plan_id` is a nullable FK with `ON DELETE SET NULL` (`backend/db/schema/classes/lessons.ts:21`); plan membership is enforced at the service write surface (`backend/services/classes/lesson.service.ts:172-173`), not by a DB `NOT NULL`. |
 
 ---
 
@@ -334,11 +336,11 @@ The handshake-code discovery surface (parent search by code, preceding this life
 | ID | Invariant |
 |---|---|
 | INV-E1 | `evaluations.score` is 0-100 (check constraint). |
-| INV-E2 | Evaluations can be soft-deleted (`is_deleted`, `deleted_at`) but not hard-deleted. |
-| INV-E3 | An evaluation is linked to a `user_id` (the evaluated user) and optionally a `session_id`. |
+| INV-E2 | Evaluations can be soft-deleted (`is_deleted`, `deleted_at`) but not hard-deleted. **Design boundary (no delete guard):** no `prevent_evaluations_delete` trigger exists — the "not hard-deleted" half is enforced only by surface absence (`EvaluationRepository` exposes no delete method); a raw DELETE succeeds today. The `is_deleted`/`deleted_at` columns drive read-side exclusion. |
+| INV-E3 | An evaluation is linked to a `user_id` (the evaluated user) and optionally a `session_id`. ✅ AMENDED (column names): the shipped columns are `evaluated_id` (the evaluated user, `ON DELETE CASCADE`) and `evaluator_id` (the evaluating sheikh, `ON DELETE RESTRICT`) — not `user_id`. |
 | INV-E4 | Teacher evaluations (submitted by students) update `teacher.average_rating` (0-5 scale). |
 | INV-E5 | Student evaluations are aggregated from session reports and grades for cumulative performance metrics. |
-| INV-E6 | Evaluation records are permanently retained for dispute resolution and teacher re-evaluations. |
+| INV-E6 | Evaluation records are permanently retained for dispute resolution and teacher re-evaluations. **Design boundary (no retention guard):** no retention trigger exists; the testable core is the set-null survival semantic — a session hard-delete leaves the evaluation row intact with `session_id = null` (`backend/db/schema/teachers/evaluations.ts:47`). Full retention would need a delete-guard migration. |
 
 ---
 
@@ -355,4 +357,4 @@ The handshake-code discovery surface (parent search by code, preceding this life
 |---|---|
 | INV-PC1 | A deactivated plan (`is_active = false`) never appears in the public student/parent/teacher catalog (`planCatalog` query) and cannot be purchased. |
 | INV-PC2 | Deactivation or forward-only plan edits never alter or invalidate existing subscriptions or credited balances. |
-| INV-PC3 | Plan rows are never hard-deleted from PostgreSQL (`DELETE` is prohibited). Deactivation transitions `is_active` to `false` and sets `deactivated_at`. |
+| INV-PC3 | Plan rows are never hard-deleted from PostgreSQL (`DELETE` is prohibited). Deactivation transitions `is_active` to `false` and sets `deactivated_at`. **Design boundary (no delete guard):** no `prevent_plans_delete` trigger exists — `PlanRepository` exposes no delete method (writer-absence), and only the subscriptions restrict FK guards referenced rows: a referenced-plan raw DELETE raises the restrict FK violation (SQLSTATE 23001 `restrict_violation` on PostgreSQL ≥ 18; 23503 `foreign_key_violation` on PG ≤ 17) on `subscriptions_plan_id_plans_id_fkey` (`backend/db/schema/billing/subscriptions.ts:35-37`). An unreferenced-plan raw DELETE succeeds (a documented accepted boundary — `lessons.plan_id` is `ON DELETE SET NULL`). |

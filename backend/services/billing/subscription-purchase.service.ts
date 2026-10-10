@@ -57,7 +57,12 @@
  * arithmetic, never client-derived.
  *
  * `listOwn` is the owner-scoped read: a single predicate on the caller's
- * own rows, newest first. There is no id-addressed read on this surface.
+ * own rows, newest first, followed by ONE page-level enrichment pass
+ * (delegating to `SubscriptionAdminService.enrichSubscriptionRows`) that
+ * attaches each row's plan, audit-entry count, and audit-trail peek in ≤3
+ * batch queries for the whole page — the ids the batches read come only
+ * from the caller's own already-authorized rows. There is no
+ * id-addressed read on this surface.
  */
 
 import {
@@ -81,11 +86,13 @@ import {
   isCarryableIdempotencyKey,
   isPositiveSafeId,
 } from "@/backend/services/billing/purchase-guards.helpers";
+import { SubscriptionAdminService } from "@/backend/services/billing/subscription-admin.service";
 import { buildCheckoutBillingInput } from "@/backend/services/billing/subscription-purchase.helpers";
 import { assertActorGovernanceClean } from "@/backend/services/classes/session-lifecycle.governance";
 import type {
   DBQueryExecutor,
   DBTransaction,
+  EnrichedSubscriptionReturnType,
   PaymentCheckoutSession,
   PlanSelectType,
   PurchaseSubscriptionReturnType,
@@ -566,7 +573,11 @@ export namespace SubscriptionPurchaseService {
    * (`created_at DESC`). The owner predicate IS the read scope — there is
    * no id-addressed read on this surface, and another caller's rows are
    * unreachable by construction. Rows are mapped onto the strongly-typed
-   * ReturnType before they cross the boundary.
+   * ReturnType before they cross the boundary, then enriched in ONE
+   * page-level batch pass (`SubscriptionAdminService.enrichSubscriptionRows`)
+   * that attaches each row's plan, audit-entry count, and audit-trail
+   * peek — ≤3 extra queries for the whole page, with the batch ids drawn
+   * only from the caller's own already-authorized rows.
    *
    * @param studentUserId  The acting student's id (shared PK with the
    *     users table).
@@ -574,13 +585,14 @@ export namespace SubscriptionPurchaseService {
    *     the mutation surface; the read itself has no localized error
    *     paths beyond the identifier guard).
    * @param tx  Optional transaction or query executor — propagated to the
-   *     repository read so a caller-owned atomic flow stays atomic.
+   *     repository read and the plan batch so a caller-owned atomic flow
+   *     stays atomic.
    */
   export async function listOwn(
     studentUserId: number,
     locale?: string,
     tx?: DBQueryExecutor
-  ): Promise<SubscriptionReturnType[]> {
+  ): Promise<EnrichedSubscriptionReturnType[]> {
     const t = getServerTranslations(locale ?? "en").errorsTranslations;
 
     // Pre-DB identifier guard — a malformed caller id is the canonical
@@ -590,6 +602,6 @@ export namespace SubscriptionPurchaseService {
     }
 
     const rows = await SubscriptionRepository.listByUserId(studentUserId, tx);
-    return rows.map(toOwnedSubscriptionRow);
+    return SubscriptionAdminService.enrichSubscriptionRows(rows.map(toOwnedSubscriptionRow), locale, tx);
   }
 }

@@ -980,4 +980,109 @@ describe("AdminAcademicTrackingService.getStudentAcademicDetail", () => {
       expect(detail.homeworkPage.items[0]?.teacherName).toBe(teacherUser.fullName);
     });
   });
+
+  test("INV-E5: one composite — homework grades (both tracks) + report history + progressRowCount + attention flag for one known student", async () => {
+    await runInRollback(async tx => {
+      const admin = await createAdmin(tx);
+      const { user: teacherUser } = await createTeacher(tx, "Composite Teacher");
+      const { user: studentUser, studentRow } = await createStudent(tx, "Composite Student");
+
+      // One homework graded on BOTH tracks, one single-track homework,
+      // one session report, and three progress rows — the cumulative
+      // performance material the drill-down must compose into ONE
+      // snapshot. Every grade stamp sits beyond the attention windows so
+      // the composite's flag leg is live, and both grades sit below the
+      // low-average threshold.
+      const firstStart = daysAgo(21);
+      const firstSession = await createTestSession(tx, teacherUser.id, studentRow.id, {
+        status: SessionStatus.Completed,
+        startedAt: firstStart,
+        endedAt: firstStart,
+      });
+      const firstHomework = await createTestHomeWork(tx, firstSession.id, {
+        currentSurahJuz: SurahJuzRef.Juz1,
+        currentFromAyah: 1,
+        currentToAyah: 5,
+        currentGrade: 40,
+        revisionSurahJuz: SurahJuzRef.Juz3,
+        revisionFromAyah: 2,
+        revisionToAyah: 9,
+        revisionGrade: 55,
+        createdAt: daysAgo(21),
+        updatedAt: daysAgo(20),
+      });
+      const secondSession = await createTestSession(tx, teacherUser.id, studentRow.id, {
+        status: SessionStatus.Completed,
+        startedAt: daysAgo(16),
+        endedAt: daysAgo(16),
+      });
+      await createTestHomeWork(tx, secondSession.id, {
+        currentSurahJuz: SurahJuzRef.Juz2,
+        currentFromAyah: 6,
+        currentToAyah: 10,
+        currentGrade: 50,
+        createdAt: daysAgo(16),
+        updatedAt: daysAgo(15),
+      });
+      const report = await createTestSessionReport(tx, firstSession.id, {
+        teacherNotes: "Composite report",
+        studentRatingByTeacher: 4,
+        createdAt: daysAgo(21),
+      });
+      await tx.insert(progress).values({ studentId: studentRow.id, lessonId: null });
+      await tx.insert(progress).values({ studentId: studentRow.id, lessonId: null });
+      await tx.insert(progress).values({ studentId: studentRow.id, lessonId: null });
+
+      const logSpy = silenceDomainLog();
+      const detail = await AdminAcademicTrackingService.getStudentAcademicDetail(
+        admin.id,
+        studentUser.id,
+        1,
+        25,
+        LOCALE,
+        tx
+      );
+
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(detail.student.id).toBe(studentUser.id);
+
+      // Homework history — the both-tracks row carries each track's
+      // position AND grade; the single-track row carries a null opposite.
+      expect(detail.homeworkPage.total).toBe(2);
+      const bothTracksEntry = detail.homeworkPage.items.find(entry => entry.id === firstHomework.id);
+      expect(bothTracksEntry).toBeDefined();
+      if (bothTracksEntry === undefined) {
+        throw new Error("composite both-tracks homework entry missing");
+      }
+      expect(bothTracksEntry.teacherName).toBe(teacherUser.fullName);
+      expect(bothTracksEntry.sessionStartedAt).toBe(firstStart.toISOString());
+      expect(bothTracksEntry.jadid).toEqual({ surahJuz: SurahJuzRef.Juz1, fromAyah: 1, toAyah: 5, grade: 40 });
+      expect(bothTracksEntry.madi).toEqual({ surahJuz: SurahJuzRef.Juz3, fromAyah: 2, toAyah: 9, grade: 55 });
+      const singleTrackEntry = detail.homeworkPage.items.find(entry => entry.id !== firstHomework.id);
+      expect(singleTrackEntry).toBeDefined();
+      if (singleTrackEntry === undefined) {
+        throw new Error("composite single-track homework entry missing");
+      }
+      expect(singleTrackEntry.jadid).toEqual({ surahJuz: SurahJuzRef.Juz2, fromAyah: 6, toAyah: 10, grade: 50 });
+      expect(singleTrackEntry.madi).toBeNull();
+
+      // Report history — the teacher's session report with its rating.
+      expect(detail.reportPage.total).toBe(1);
+      const reportEntry = detail.reportPage.items[0];
+      expect(reportEntry).toBeDefined();
+      expect(reportEntry?.id).toBe(report.id);
+      expect(reportEntry?.sessionId).toBe(firstSession.id);
+      expect(reportEntry?.teacherName).toBe(teacherUser.fullName);
+      expect(reportEntry?.teacherNotes).toBe("Composite report");
+      expect(reportEntry?.studentRatingByTeacher).toBe(4);
+
+      // The progress lane is a bare count over the skeleton table.
+      expect(detail.progressRowCount).toBe(3);
+
+      // The attention flag composes from the same material: the recent
+      // Jadid grades average below the threshold and the newest grade
+      // write sits beyond the staleness window.
+      expect(detail.needsAttention).toEqual({ reasons: ["lowGrade", "staleProgress"] });
+    });
+  });
 });

@@ -1,6 +1,7 @@
 /**
  * Pure transport guards for the GraphQL route's pre-engine tier
- * (method, content-type, declared-length, drained-length, and JSON parse).
+ * (method, content-type, declared-length, drained-length, JSON parse, and
+ * batched-operation count).
  *
  * RESULT-UNION CONTRACT — never throw-as-control-flow:
  *  - NOTHING in this module throws. Every guard returns a
@@ -12,7 +13,12 @@
  *    body fragments, paths or stack data ever cross this boundary.
  *    Kind→HTTP mapping + localized envelopes live ROUTE-side:
  *    METHOD_NOT_ALLOWED→405+`Allow: POST` · UNSUPPORTED_CONTENT_TYPE→400 ·
- *    PAYLOAD_TOO_LARGE→413 · MALFORMED_JSON→400.
+ *    PAYLOAD_TOO_LARGE→413 · MALFORMED_JSON→400 ·
+ *    CROSS_ORIGIN_REJECTED→403 · BATCH_OPERATION_LIMIT→400.
+ *    CROSS_ORIGIN_REJECTED is emitted by the route-side origin guard (this
+ *    module never returns it); BATCH_OPERATION_LIMIT is emitted here when a
+ *    parsed array body carries more operations than
+ *    {@link MAX_GRAPHQL_OPERATIONS_PER_REQUEST}.
  *
  * WIRE-CODE RECONCILIATION: the live `app/api/graphql/route.ts` block moved
  * its inline `GRAPHQL_MAX_BODY_BYTES = 2_000_000` onto
@@ -26,7 +32,10 @@
  * GUARD ORDER inside `guardTransport` preserves the live pipeline order:
  * cheap constant-work checks first (method → content-type → declared length),
  * then the body stream is drained exactly once (drained-length check BEFORE
- * parse — mirrors the live block) and parsed last.
+ * parse — mirrors the live block), strict JSON parse, and LAST the parsed
+ * array's operation count (the cap needs the parsed shape, so it cannot run
+ * earlier). Every failure short-circuits — the GraphQL engine is never
+ * reached on a rejection.
  */
 
 import type { TransportErrorKind, TransportGuardResult } from "@/backend/types";
@@ -47,6 +56,21 @@ const ONLY_ALLOWED_METHOD = "POST";
  * domain taxonomy row.
  */
 export const MAX_GRAPHQL_BODY_BYTES = 2_000_000;
+
+/**
+ * Per-request ceiling on batched GraphQL operations — THE canonical
+ * transport-tier constant for operation fan-out (frozen). The engine executes
+ * EVERY entry of a JSON-array request body, so an unbounded array amplifies a
+ * single HTTP request into unbounded engine work — resolver fan-out cost
+ * scales with entry count, not body bytes, so the byte cap alone cannot bound
+ * it. Ten comfortably covers the largest legitimate client batch window; the
+ * first-party Apollo client pins `batchMax` to the same value
+ * (`frontend/providers/apollo/AppApolloProvider.tsx`) so well-behaved clients
+ * never trip the cap. Single-object bodies are unaffected BY DESIGN — an array
+ * is the only batched shape in GraphQL-over-HTTP, so wrapping operations
+ * inside one object cannot smuggle extra fan-out past this ceiling.
+ */
+export const MAX_GRAPHQL_OPERATIONS_PER_REQUEST = 10;
 
 /** Success result with the (possibly pre-parsed) body attached. */
 function pass(body: unknown): TransportGuardResult {
@@ -113,6 +137,29 @@ export function assertWithinBodyLimit(bodyByteLength: number): TransportGuardRes
 }
 
 /**
+ * Guard 7 — batched-operation amplification cap.
+ *
+ * Only array-shaped request bodies are batched operations in
+ * GraphQL-over-HTTP; every other shape passes through untouched, carrying the
+ * same body (a single-object body IS one operation — extra operations cannot
+ * hide inside it). An array longer than
+ * {@link MAX_GRAPHQL_OPERATIONS_PER_REQUEST} fails with kind
+ * `BATCH_OPERATION_LIMIT` BEFORE the engine is reached.
+ *
+ * @param body The parsed JSON body (any shape).
+ * @returns Pass with the same body when it is not an array or the array is within the cap; else kind `BATCH_OPERATION_LIMIT`.
+ */
+export function assertBatchOperationCount(body: unknown): TransportGuardResult {
+  if (!Array.isArray(body)) {
+    return pass(body);
+  }
+  if (body.length > MAX_GRAPHQL_OPERATIONS_PER_REQUEST) {
+    return fail("BATCH_OPERATION_LIMIT");
+  }
+  return pass(body);
+}
+
+/**
  * Composed pipeline guard for a GraphQL POST request.
  * Order-preserved port of the live transport block:
  *
@@ -124,7 +171,10 @@ export function assertWithinBodyLimit(bodyByteLength: number): TransportGuardRes
  *     `MALFORMED_JSON` (live behavior: same wire code as invalid JSON);
  *  5. drained-length checkpoint (catches lying headers);
  *  6. strict `JSON.parse` validation; success carries the parsed body as
- *     `unknown` for downstream narrowing.
+ *     `unknown` for downstream narrowing;
+ *  7. batched-operation cap on the parsed body — a JSON array longer than
+ *     {@link MAX_GRAPHQL_OPERATIONS_PER_REQUEST} fails with kind
+ *     `BATCH_OPERATION_LIMIT` (non-array bodies pass through untouched).
  *
  * @param request Any fetch-spec `Request` (NextRequest is assignable).
  * @returns The first failing guard's result, else `{ ok: true, body }` with the parsed JSON.
@@ -163,9 +213,14 @@ export async function guardTransport(request: Request): Promise<TransportGuardRe
     return drainedVerdict;
   }
 
+  let parsed: unknown;
   try {
-    return pass(JSON.parse(rawBody));
+    parsed = JSON.parse(rawBody);
   } catch {
     return fail("MALFORMED_JSON");
   }
+
+  // Batch-count runs LAST: the cap compares the parsed array's length, so it
+  // needs the parse to have succeeded (guard order preserved end-to-end).
+  return assertBatchOperationCount(parsed);
 }

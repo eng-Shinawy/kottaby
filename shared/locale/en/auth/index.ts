@@ -26,6 +26,7 @@ export const authEn: AuthLabels = {
   phoneInvalid: "Please enter a valid phone number.",
   passwordRequired: "Password is required.",
   passwordTooShort: "Password must be at least 8 characters.",
+  passwordTooLong: "Password must be at most 1024 characters.",
   countryRequired: "Country is required.",
   countryCodeRequired: "Please select a country.",
   countryCodeInvalid: "The selected country is not recognized.",

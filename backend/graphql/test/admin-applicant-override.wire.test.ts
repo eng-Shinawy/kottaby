@@ -35,10 +35,13 @@
  *  - **Admin happy paths** — certify a `failed` applicant answers HTTP 200
  *    with the refreshed profile (`status: "Passed"`, `cooldownState:
  *    "None"`, not purchasable), commits a certified `teacher` row
- *    (`is_approved=true`, `is_evaluator=false`), and exactly ONE `override`
- *    audit row carrying the composed details document; reject a `passed`
- *    applicant (WITH `cooldownDays`) flips the row to `failed` with the
- *    stamped cooldown, demotes the teacher row, and the audit details carry
+ *    (`is_approved=true`, `is_evaluator=false`), exactly ONE `override`
+ *    audit row carrying the composed details document, and exactly ONE
+ *    `applicant_outcome` notification row to the applicant (the #287
+ *    fan-out: composed in the recipient's persisted locale, pointed at the
+ *    applicants row, unread); reject a `passed` applicant (WITH
+ *    `cooldownDays`) flips the row to `failed` with the stamped cooldown,
+ *    demotes the teacher row, and the audit details carry
  *    `cooldownUntil` + `cooldownDays`; grant re-evaluation clears an active
  *    cooldown without touching the status. The cooldownDays-optional
  *    contract is proven by certifying WITHOUT the arg.
@@ -73,12 +76,14 @@ import {
   createTestUser,
 } from "@/backend/db/test/entity-setup";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
+import { NotificationType } from "@/backend/enum/notifications/notification-type.enum";
 import { ApplicantStatus } from "@/backend/enum/teachers/applicant-status.enum";
 import { UserRole } from "@/backend/enum/users/user-role.enum";
 import { graphQLSchema } from "@/backend/graphql/gqlSchema";
 import { hashPassword } from "@/backend/lib/auth/password";
 import { PUBLIC_OPERATIONS } from "@/backend/lib/gateway";
 import type { ApplicantSelectType, UserSelectType } from "@/backend/types";
+import { defaultLocale } from "@/shared/locale/AppLocale";
 import { getServerTranslations } from "@/shared/locale/server-graphql";
 import { countUsersByIds, expectMutationError, setupTestServerLifecycle, TEST_PORT, testClient } from "@/test/helpers";
 // Deep import (mirrors the journey suites): the `@/test/helpers` barrel pulls
@@ -88,6 +93,13 @@ import { withAuditDeleteTriggersSuspended } from "@/test/helpers/db-cleanup";
 setupTestServerLifecycle();
 
 const tErrorsEn = getServerTranslations("en").errorsTranslations;
+
+/**
+ * The applicant_outcome notification type widened to its primitive string
+ * value — the DB column infers a string union, so comparisons go through
+ * this constant.
+ */
+const NOTIFICATION_TYPE_APPLICANT_OUTCOME: string = NotificationType.ApplicantOutcome;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -255,7 +267,15 @@ async function auditCountByActors(actorIds: readonly number[]): Promise<number> 
 
 async function notificationRowsOf(userId: number) {
   return db
-    .select({ id: notifications.id, type: notifications.type })
+    .select({
+      id: notifications.id,
+      type: notifications.type,
+      title: notifications.title,
+      body: notifications.body,
+      isRead: notifications.isRead,
+      relatedEntityType: notifications.relatedEntityType,
+      relatedEntityId: notifications.relatedEntityId,
+    })
     .from(notifications)
     .where(eq(notifications.userId, userId));
 }
@@ -678,8 +698,27 @@ describe("applicant-override wire happy paths", () => {
       to: ApplicantStatus.Passed,
     });
 
-    // No fan-out — the override writes no notification rows.
-    expect(await notificationRowsOf(the.certifyTarget.user.id)).toHaveLength(0);
+    // #287 fan-out — the certify override persists exactly ONE notification
+    // row to the applicant's inbox and it IS the `applicant_outcome` verdict
+    // row (no other type fans out): composed in the RECIPIENT's persisted
+    // locale (never the acting admin's; the fixture carries no locale, so
+    // the emitter's default-locale fallback applies), pointed at the
+    // applicants row, unread.
+    const outcomeRows = await notificationRowsOf(the.certifyTarget.user.id);
+    expect(outcomeRows).toHaveLength(1);
+    const applicantOutcomeRows = outcomeRows.filter(outcome => outcome.type === NOTIFICATION_TYPE_APPLICANT_OUTCOME);
+    expect(applicantOutcomeRows).toHaveLength(1);
+    const outcomeRow = applicantOutcomeRows[0];
+    if (!outcomeRow) {
+      throw new Error("expected the certify override to persist an applicant_outcome notification");
+    }
+    const recipientLocale = the.certifyTarget.user.locale ?? defaultLocale;
+    const recipientCopy = getServerTranslations(recipientLocale).notificationsTranslations;
+    expect(outcomeRow.title).toBe(recipientCopy.eventApplicantOverrideCertifiedTitle);
+    expect(outcomeRow.body).toBe(recipientCopy.eventApplicantOverrideCertifiedBody);
+    expect(outcomeRow.isRead).toBe(false);
+    expect(outcomeRow.relatedEntityType).toBe("applicants");
+    expect(outcomeRow.relatedEntityId).toBe(the.certifyTarget.user.id);
   });
 
   test("reject WITH cooldownDays flips the passed applicant to failed with the stamped cooldown, demotes the teacher row, and the audit carries the cooldown members", async () => {

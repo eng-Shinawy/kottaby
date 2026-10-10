@@ -246,7 +246,7 @@ describe("Global audit-trail journey — produce, observe, filter, paginate, den
       email: `${runPrefix}-target-${randomUUID().slice(0, 8)}@journey.test`,
       phone: "+10000000000",
       password: TARGET_CREDENTIAL,
-      country: "Egypt",
+      country: "EG",
       role: "student",
     };
     const created = await AdminUserManagementService.createUser(input, adminA.userId, LOCALE);

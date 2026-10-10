@@ -40,7 +40,9 @@
  *    `student-lane-debit.test-d.ts` (a plain string argument is a type
  *    error); direct raw UPDATEs to negative paid-lane balances are rejected
  *    by the DB CHECK constraints (23514) — the backstop behind the guarded
- *    predicate.
+ *    predicate; the reviews lane is pinned outside the debit vocabulary —
+ *    the enum and the frozen map carry exactly trial/hifz/tajweed, so the
+ *    credit-only reviews column can never fund a held fee.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -362,6 +364,30 @@ describe("StudentRepository.decrementLaneIfAvailable", () => {
     // Both method signatures type `lane` as the enum — never a string.
     const laneParamHits = source.match(/lane: HeldBalanceLane/g) ?? [];
     expect(laneParamHits.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("the reviews lane is structurally absent from the debit vocabulary (credit-only by design)", async () => {
+    // The held-balance lane enum carries exactly the three funded-fee
+    // lanes: no `Reviews` member can exist, so no booking or refund can
+    // ever select the reviews balance column through the typed lane
+    // parameter.
+    expect(Object.values(HeldBalanceLane)).toEqual([
+      HeldBalanceLane.Trial,
+      HeldBalanceLane.Hifz,
+      HeldBalanceLane.Tajweed,
+    ]);
+
+    const source = await readFile(join(__dirname, "..", "student.repository.ts"), "utf-8");
+
+    // The frozen resolution map resolves only the three real debit
+    // columns — the reviews column is unreachable from the map, so the
+    // guarded debit statement can never target it. The reviews balance is
+    // credit-only: plan activations and the expiry sweep may write it, a
+    // held-fee debit never can.
+    const mapStart = source.indexOf("LANE_BALANCE_COLUMNS");
+    const mapBody = source.slice(mapStart, source.indexOf("});", mapStart));
+    expect(mapBody).not.toContain("Reviews");
+    expect(mapBody).not.toContain("balanceReviews");
   });
 
   test("statement hygiene pins: no sql.raw, no inArray, no `--` sequences", async () => {

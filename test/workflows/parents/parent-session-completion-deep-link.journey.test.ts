@@ -35,6 +35,11 @@
  *    teacher, and a student all hit the SAME constant localized
  *    ForbiddenError — byte-identical fingerprints across every cause
  *    (existence non-disclosure), zero data, zero publishes.
+ *  - Step 7 — Absence pin: the linked child's THIRD session completes with
+ *    NO report submitted — the completion flip alone produces ZERO parent
+ *    notification rows and ZERO spied publishes (the completion prompt the
+ *    flip emits targets the student only; the parent-facing producer is
+ *    report submission alone).
  *
  * Cast (real users rows + real role-child rows; en persisted locale):
  *  - Teacher T  — certified; produces both sessions and both reports.
@@ -174,6 +179,7 @@ const MADI_BLOCK_SIGMA2: HomeWorkBlockInput = {
 /** Per-run idempotency keys — one per booked session. */
 const KEY_SIGMA1 = `${RUN_PREFIX}-k-sigma-1`;
 const KEY_SIGMA2 = `${RUN_PREFIX}-k-sigma-2`;
+const KEY_SIGMA3 = `${RUN_PREFIX}-k-sigma-3`;
 
 /** Cast bundle — every actor row the journey creates in `beforeAll`. */
 interface JourneyCast {
@@ -755,6 +761,76 @@ describe("Journey — parent session-completion deep link", () => {
     } finally {
       logs.stop();
     }
+  });
+
+  test("Step 7 — INV-P3: a linked child with a completed-but-unreported session ⇒ zero parent notification rows and zero spied publishes", async () => {
+    const c = requireCast();
+    transportSpy.clear();
+
+    // Baseline: the linked parent's inbox BEFORE the completion flip. The
+    // absence oracle is a scoped delta against this count (keyed to the
+    // fixture parent only), never an absolute table-wide count.
+    const parentInboxBefore = await db.$count(notifications, eq(notifications.userId, c.parentP.id));
+
+    // The linked child books a THIRD session on a fresh lane credit
+    // (fixture control only — the lane's production credit path is the
+    // subscription activation flow; the fixture write just re-arms the
+    // booking gate) and the REAL lifecycle drives it to `completed` with NO
+    // report submitted. The caller-owned transaction returns the
+    // completion prompt's delivery receipt UNPUBLISHED — publication is
+    // the caller's step on this path, and this pin deliberately never
+    // takes it, so the spied transport window stays closed by design.
+    const sigma3 = await db.transaction(async (tx: DBTransaction) => {
+      await tx.update(students).set({ balanceHifz: 1 }).where(eq(students.id, c.studentS1.id));
+      const booked = await SessionLifecycleService.createSession(
+        c.studentS1.id,
+        { teacherId: c.teacherT.id, intent: SessionIntent.Hifz },
+        KEY_SIGMA3,
+        LOCALE_EN,
+        tx
+      );
+      await SessionLifecycleService.startSession(c.teacherT.id, booked.id, LOCALE_EN, tx);
+      return SessionLifecycleService.completeSessionWithReceipt(c.teacherT.id, booked.id, LOCALE_EN, tx);
+    });
+
+    // Fixture + side-effect rows the lifecycle created — registered for
+    // teardown: the session row, the idempotency claim the booking spent,
+    // and every inbox row the completion flip persisted for the student.
+    tracked.register(session, sigma3.session.id);
+    await registerClaimRow(KEY_SIGMA3, "σ3 booking");
+    const studentSigma3Rows = await db
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(and(eq(notifications.userId, c.studentS1.id), eq(notifications.relatedEntityId, sigma3.session.id)));
+    expect(studentSigma3Rows).toHaveLength(1);
+    for (const row of studentSigma3Rows) {
+      tracked.register(notifications, row.id);
+    }
+
+    // The completion flip's ONLY prepared emission is the student's
+    // confirm prompt — the LINKED parent is absent from the wave's
+    // recipient set even though the child is linked at completion time.
+    expect(sigma3.receipt.recipientUserIds).toEqual([c.studentS1.id]);
+
+    // ZERO parent notification rows point at the completed-but-unreported
+    // session — any type, any title, any wave.
+    expect(
+      await db.$count(
+        notifications,
+        and(eq(notifications.userId, c.parentP.id), eq(notifications.relatedEntityId, sigma3.session.id))
+      )
+    ).toBe(0);
+
+    // The parent's whole inbox is byte-count-identical to the baseline —
+    // the completion flip added nothing for any session.
+    expect(await db.$count(notifications, eq(notifications.userId, c.parentP.id))).toBe(parentInboxBefore);
+
+    // ZERO spied publishes: nothing was dispatched through the fan-out
+    // transport for the completed flip. The parent-facing producer is
+    // report submission alone — and no report row exists for σ3, so the
+    // report-ready wave never ran.
+    expect(transportSpy.publishCount).toBe(0);
+    expect(await reportRowBySessionId(sigma3.session.id)).toBeNull();
   });
 
   afterAll(async () => {

@@ -2,7 +2,9 @@ import type { subscriptions } from "@/backend/db/schema/billing/subscriptions";
 import type { PaymentGateway } from "@/backend/enum/billing/payment-gateway.enum";
 import type { SubscriptionStatus } from "@/backend/enum/billing/subscription-status.enum";
 import type { PaymentCheckoutSession } from "@/backend/types/billing/payment-gateway.types";
+import type { PlanReturnType } from "@/backend/types/billing/plan.types";
 import type { StudentPaymentReturnType } from "@/backend/types/billing/student-payment.types";
+import type { SubscriptionAuditTrailPeek } from "@/backend/types/billing/subscription-admin.types";
 
 export type SubscriptionSelectType = typeof subscriptions.$inferSelect;
 export type SubscriptionInsertType = typeof subscriptions.$inferInsert;
@@ -22,6 +24,28 @@ export type SubscriptionInsertType = typeof subscriptions.$inferInsert;
 export type SubscriptionReturnType = Omit<SubscriptionSelectType, "status" | "paymentMethod"> & {
   status: SubscriptionStatus;
   paymentMethod: PaymentGateway | null;
+};
+
+/**
+ * A canonical subscription row plus its page-level enrichment — the read
+ * shape the two list producers return.
+ *
+ * A FLAT structural supertype of `SubscriptionReturnType` (the plain
+ * intersection keeps every enriched row assignable anywhere the bare row
+ * type is expected, so the GraphQL object ref keeps its backing type):
+ * the enrichment members are OPTIONAL because a producer that has not
+ * enriched still yields a valid value, and each member is nullable where
+ * "absent" is an honest answer — a plan row that no longer exists
+ * enriches `plan: null` (a value, never a thrown miss), a subscription
+ * with no recorded history carries `auditTrailPeek: null`, and
+ * `auditEntriesCount` is the honest `0`. Producers merge the members into
+ * row COPIES (the `Object.assign` idiom) — the source rows are never
+ * mutated.
+ */
+export type EnrichedSubscriptionReturnType = SubscriptionReturnType & {
+  readonly plan?: PlanReturnType | null;
+  readonly auditEntriesCount?: number;
+  readonly auditTrailPeek?: SubscriptionAuditTrailPeek | null;
 };
 
 /**

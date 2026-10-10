@@ -1,0 +1,229 @@
+{
+  "tool": "probe-indexes",
+  "fkColumnCount": 37,
+  "coveredCount": 37,
+  "rows": [
+    {
+      "fk": "admin.id",
+      "covered": true,
+      "coveringIndex": "admin_pkey",
+      "kind": "primary"
+    },
+    {
+      "fk": "applicants.id",
+      "covered": true,
+      "coveringIndex": "applicants_pkey",
+      "kind": "primary"
+    },
+    {
+      "fk": "audit_logs.actor_id",
+      "covered": true,
+      "coveringIndex": "audit_logs_actor_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "broadcasts.sent_by_id",
+      "covered": true,
+      "coveringIndex": "broadcasts_sent_by_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "broadcasts.stopped_by_id",
+      "covered": true,
+      "coveringIndex": "broadcasts_stopped_by_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "evaluations.evaluated_id",
+      "covered": true,
+      "coveringIndex": "evaluations_evaluated_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "evaluations.evaluator_id",
+      "covered": true,
+      "coveringIndex": "evaluations_evaluator_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "evaluations.session_id",
+      "covered": true,
+      "coveringIndex": "evaluations_session_evaluator_unique",
+      "kind": "unique"
+    },
+    {
+      "fk": "home_work.session_id",
+      "covered": true,
+      "coveringIndex": "home_work_session_id_unique",
+      "kind": "unique"
+    },
+    {
+      "fk": "lessons.plan_id",
+      "covered": true,
+      "coveringIndex": "lessons_plan_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "notifications.user_id",
+      "covered": true,
+      "coveringIndex": "notifications_user_id_is_read_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "parent_link_requests.parent_id",
+      "covered": true,
+      "coveringIndex": "parent_link_requests_pending_pair_unique",
+      "kind": "unique"
+    },
+    {
+      "fk": "parent_link_requests.student_id",
+      "covered": true,
+      "coveringIndex": "parent_link_requests_student_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "parents.id",
+      "covered": true,
+      "coveringIndex": "parents_pkey",
+      "kind": "primary"
+    },
+    {
+      "fk": "progress.lesson_id",
+      "covered": true,
+      "coveringIndex": "progress_lesson_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "progress.student_id",
+      "covered": true,
+      "coveringIndex": "progress_student_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "recitation.session_id",
+      "covered": true,
+      "coveringIndex": "recitation_session_id_unique",
+      "kind": "unique"
+    },
+    {
+      "fk": "reports.session_id",
+      "covered": true,
+      "coveringIndex": "reports_session_id_unique",
+      "kind": "unique"
+    },
+    {
+      "fk": "session_request_idempotency.session_id",
+      "covered": true,
+      "coveringIndex": "session_request_idempotency_session_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "session_request_idempotency.user_id",
+      "covered": true,
+      "coveringIndex": "session_request_idempotency_user_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "session.student_id",
+      "covered": true,
+      "coveringIndex": "session_student_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "session.teacher_id",
+      "covered": true,
+      "coveringIndex": "session_teacher_id_status_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "student_payments.student_id",
+      "covered": true,
+      "coveringIndex": "student_payments_student_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "student_payments.subscription_id",
+      "covered": true,
+      "coveringIndex": "student_payments_subscription_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "student_subscriptions.student_id",
+      "covered": true,
+      "coveringIndex": "student_subscriptions_pkey",
+      "kind": "primary"
+    },
+    {
+      "fk": "student_subscriptions.subscription_id",
+      "covered": true,
+      "coveringIndex": "student_subscriptions_subscription_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "students.id",
+      "covered": true,
+      "coveringIndex": "students_pkey",
+      "kind": "primary"
+    },
+    {
+      "fk": "students.parent_id",
+      "covered": true,
+      "coveringIndex": "students_parent_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "subscription_purchase_idempotency.subscription_id",
+      "covered": true,
+      "coveringIndex": "subscription_purchase_idempotency_subscription_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "subscription_purchase_idempotency.user_id",
+      "covered": true,
+      "coveringIndex": "subscription_purchase_idempotency_user_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "subscriptions.plan_id",
+      "covered": true,
+      "coveringIndex": "subscriptions_plan_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "subscriptions.user_id",
+      "covered": true,
+      "coveringIndex": "subscriptions_user_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "teacher_transaction.session_id",
+      "covered": true,
+      "coveringIndex": "teacher_transaction_session_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "teacher_transaction.wallet_id",
+      "covered": true,
+      "coveringIndex": "teacher_transaction_wallet_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "teacher_verification.teacher_id",
+      "covered": true,
+      "coveringIndex": "teacher_verification_teacher_id_idx",
+      "kind": "index"
+    },
+    {
+      "fk": "teacher.id",
+      "covered": true,
+      "coveringIndex": "teacher_pkey",
+      "kind": "primary"
+    },
+    {
+      "fk": "wallet.teacher_id",
+      "covered": true,
+      "coveringIndex": "wallet_teacher_id_unique",
+      "kind": "unique"
+    }
+  ]
+}

@@ -89,6 +89,17 @@ export default defineConfig({
       },
     },
     {
+      // Perf load harnesses are CLOSED-MODEL generators: each virtual user
+      // issues one request at a time, readiness polls must stay sequential,
+      // and the pg_stat_activity sampler wakes in order — parallelizing any
+      // of these loops (the rule's Promise.all suggestion) would change the
+      // measured semantics, not improve them.
+      files: ["scripts/perf/lib/load-api-*.ts"],
+      rules: {
+        "no-await-in-loop": "off",
+      },
+    },
+    {
       // Test/story files: long describe blocks are idiomatic; size rules add no value.
       files: [
         "**/*.test.{ts,tsx}",

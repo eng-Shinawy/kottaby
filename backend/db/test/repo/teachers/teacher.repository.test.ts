@@ -147,6 +147,19 @@
  *    and the lock-then-recheck shape (candidates pinned FOR UPDATE, the
  *    UPDATE re-running the same predicates scoped to the pinned ids).
  *
+ * INV-A2 writer-closure battery (the in-session availability invariant,
+ * runInRollback — docs/specs/state-machine-invariants.md §3): one shared
+ * fixture — a teacher captured online (marker=true), locked offline,
+ * holding ONE started session — and EVERY `is_online` writer fired
+ * against it as its own cell with a re-read oracle: the Available-direction
+ * toggle is guard-blocked to a null no-op, the marker-gated release is
+ * deferred (active_sessions_remain), a mid-session re-acquire writes only
+ * false (first-captured marker preserved), and the inactivity sweep
+ * demonstrably runs (a stale-online control is flipped) yet leaves the
+ * in-session teacher offline. No writer ever produces is_online=true
+ * while a started session exists; the per-writer deep semantics stay in
+ * their own suites above.
+ *
  * listMatchingCandidates suite (the student-facing matching read):
  *  - Eligibility matrix: online + certified fail-closed, governance via
  *    IS DISTINCT FROM true (legacy NULL rows kept), in-session exclusion
@@ -2214,6 +2227,93 @@ describe("TeacherRepository.sweepInactiveOnlineOnce (the inactivity auto-offline
     // One-now discipline survives the two-statement form: the primitive
     // never reads the clock itself.
     expect(source.includes("new Date(")).toBe(false);
+  });
+});
+
+describe("INV-A2 — no writer can produce is_online=true while a started session exists", () => {
+  /**
+   * The shared in-session fixture: a certified teacher captured online
+   * (marker=true), locked offline, holding ONE started session — the
+   * exact persisted state a live session start leaves behind. The
+   * pinned-epoch stamp exposes any writer that fires a statement it
+   * must not: the guard-blocked legs write nothing.
+   */
+  async function createInSessionTeacher(tx: DBTransaction): Promise<number> {
+    const user = await createTestUser(tx, { role: "teacher" });
+    await createTeacherRowFixture(tx, user.id, { wasOnlineBeforeLock: true, updatedAt: new Date(0) });
+    await createTeacherSession(tx, user.id, SessionStatus.Started);
+    return user.id;
+  }
+
+  test("the toggle writer: the Available direction is guard-blocked to a null no-op — the row stays untouched", async () => {
+    await runInRollback(async tx => {
+      const teacherId = await createInSessionTeacher(tx);
+
+      const row = await TeacherRepository.setAvailabilityIntent(teacherId, true, tx);
+
+      // The direction guard fired at write time: zero rows matched, so
+      // the toggle cannot flip a locked teacher back online.
+      expect(row).toBeNull();
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, teacherId));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
+      expect(reread?.updatedAt.getTime()).toBe(0);
+    });
+  });
+
+  test("the release writer: the marker-gated restore is deferred — nothing is restored while the session runs", async () => {
+    await runInRollback(async tx => {
+      const teacherId = await createInSessionTeacher(tx);
+
+      const result = await TeacherRepository.releaseInSessionLock(teacherId, tx);
+
+      // The last-exit guard refused the restore: the started session
+      // still holds the lock, and the row is unchanged.
+      expect(result?.outcome).toBe("active_sessions_remain");
+      const [reread] = await tx.select().from(teacher).where(eq(teacher.id, teacherId));
+      expect(reread?.isOnline).toBe(false);
+      expect(reread?.wasOnlineBeforeLock).toBe(true);
+      expect(reread?.updatedAt.getTime()).toBe(0);
+    });
+  });
+
+  test("the capture-and-lock writer: a mid-session re-acquire writes only false and preserves the first-captured marker", async () => {
+    await runInRollback(async tx => {
+      const teacherId = await createInSessionTeacher(tx);
+
+      const row = await TeacherRepository.acquireInSessionLock(teacherId, tx);
+
+      // The lock primitive's only is_online value is false — even a
+      // concurrent session's re-acquire cannot produce true, and the
+      // COALESCE capture keeps the FIRST marker (never re-captured from
+      // the now-false flag).
+      expect(row).not.toBeNull();
+      expect(row?.isOnline).toBe(false);
+      expect(row?.wasOnlineBeforeLock).toBe(true);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
+  });
+
+  test("the inactivity sweep writer: the offline-only batch demonstrably runs yet leaves the in-session teacher offline", async () => {
+    await runInRollback(async tx => {
+      const now = secondPrecisionInstant(Date.now());
+      const cutoff = minutesBefore(now, 15);
+      // Drain pass: the sweep predicate is global, so any pre-existing
+      // stale-online row leaves BEFORE the fixtures are created — the
+      // counted pass below transitions only what this cell created.
+      await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+      const teacherId = await createInSessionTeacher(tx);
+      const staleOnline = await createOnlineTeacher(tx, minutesBefore(now, 30));
+
+      const offlined = await TeacherRepository.sweepInactiveOnlineOnce(now, cutoff, tx);
+
+      // The pass demonstrably ran and wrote its only possible value
+      // (false) on the control — while the in-session teacher stays
+      // exactly as the session lock left them.
+      expect(offlined).toBe(1);
+      expect(await isOnlineOf(tx, staleOnline)).toBe(false);
+      expect(await isOnlineOf(tx, teacherId)).toBe(false);
+    });
   });
 });
 

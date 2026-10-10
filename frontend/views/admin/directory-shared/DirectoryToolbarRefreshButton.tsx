@@ -13,6 +13,7 @@
 import { RefreshOutlined as RefreshIcon } from "@mui/icons-material";
 import { Button } from "@mui/material";
 import type { ReactNode } from "react";
+import { focusVisibleRingSx } from "@/frontend/components/ui/focusRing";
 
 interface DirectoryToolbarRefreshButtonProps {
   /** Visible and accessible label (e.g. `labels.filters.refresh`). */
@@ -36,7 +37,7 @@ export function DirectoryToolbarRefreshButton({
       loading={loading}
       disabled={loading}
       aria-label={refreshLabel}
-      sx={theme => ({ minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
+      sx={theme => ({ ...focusVisibleRingSx, minHeight: 54, flexShrink: 0, color: theme.palette.text.secondary })}
     >
       {refreshLabel}
     </Button>

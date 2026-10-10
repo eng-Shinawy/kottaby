@@ -39,6 +39,16 @@ const PLAN_READ_COLUMNS = `
   created_at AS "createdAt", updated_at AS "updatedAt"
 `;
 
+/**
+ * Upper bound on ids per single batch statement — the explicit cap that
+ * keeps every `inArray` expansion (and the raw `= ANY($1::int[])` array)
+ * bounded. Longer id lists are transparently split into chunks whose
+ * results are concatenated, so a caller never manages chunking and a
+ * page-sized batch (well under the cap) still costs exactly one round
+ * trip.
+ */
+export const PLAN_ID_BATCH_LIMIT = 1000;
+
 export namespace PlanRepository {
   /**
    * Inserts a new subscription plan record.
@@ -206,6 +216,65 @@ export namespace PlanRepository {
       [[...ids]]
     );
     return result.rows;
+  }
+
+  /**
+   * Batch plan lookup by IDs — the page-enrichment read that resolves a
+   * page's distinct plan ids in one bounded round trip instead of one
+   * read per row.
+   *
+   * Same tx/no-tx split as the other bare reads: a supplied transaction
+   * runs a Drizzle `inArray` select on that executor (the caller judges
+   * enrichment against its own snapshot), while the default executor
+   * runs raw parameterized SQL through `queryDb` (Neon HTTP fast path)
+   * with the id array bound as a single `= ANY($1::int[])` parameter.
+   * ID lists longer than `PLAN_ID_BATCH_LIMIT` are split into chunked
+   * statements and the chunk results concatenated.
+   *
+   * No active-status predicate — this is the enrichment read, the
+   * single-row `findById` twin: a deactivated plan enriches its
+   * historical subscription rows exactly like an active one. An empty
+   * ID list short-circuits to an empty result without touching the
+   * database (the pg protocol cannot expand an empty array into `IN`).
+   *
+   * @returns One row per MATCHED plan id — unmatched ids contribute no
+   *          row (the caller's map assembly distinguishes present from
+   *          absent), duplicate ids collapse to the single stored row,
+   *          and row order is unspecified (key results by `id`).
+   */
+  export async function findByIds(ids: readonly number[], tx?: DBQueryExecutor): Promise<PlanSelectType[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const chunks = Array.from({ length: Math.ceil(ids.length / PLAN_ID_BATCH_LIMIT) }, (_, index) =>
+      ids.slice(index * PLAN_ID_BATCH_LIMIT, (index + 1) * PLAN_ID_BATCH_LIMIT)
+    );
+    if (tx && isDBTransaction(tx)) {
+      // Transactional read — Drizzle select on the supplied executor.
+      // `inArray` with a PLAIN array (never `sql.placeholder`) per the
+      // repo prepared-statement rule. Chunks are read SEQUENTIALLY: a
+      // transaction's single client must not pipeline concurrent
+      // statements.
+      return chunks.reduce<Promise<PlanSelectType[]>>(
+        async (accumulated, chunk) => [
+          ...(await accumulated),
+          ...(await tx
+            .select()
+            .from(plans)
+            .where(inArray(plans.id, [...chunk]))),
+        ],
+        Promise.resolve([])
+      );
+    }
+    // Non-transactional read — raw SQL via queryDb (Neon HTTP fast path);
+    // `= ANY($1::int[])` binds the id array as one parameterized value.
+    // Chunks are read sequentially for executor-shape parity.
+    return chunks.reduce<Promise<PlanSelectType[]>>(async (accumulated, chunk) => {
+      const result = await queryDb<PlanSelectType>(`SELECT ${PLAN_READ_COLUMNS} FROM plans WHERE id = ANY($1::int[])`, [
+        [...chunk],
+      ]);
+      return [...(await accumulated), ...result.rows];
+    }, Promise.resolve([]));
   }
 
   /**

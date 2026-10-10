@@ -14,6 +14,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# CI — the merge-blocking pipeline. Canonical documentation (read before
+# editing): docs/quality/ci-pipeline.md (bidirectional contract: the doc
+# describes THIS file byte-for-byte).
+#
 # Self-contained CI environment variables (no external GitHub secrets/vars required)
 env:
   TEST_SERVER: "1"
@@ -56,7 +60,7 @@ jobs:
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
           restore-keys: ${{ runner.os }}-bun-
 
-      - name: Restore ESLint cache
+      - name: Restore ESLint caches (restored/saved only — never cleared)
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
@@ -140,7 +144,7 @@ jobs:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}-${{ github.run_id }}
 
-      - name: Save ESLint cache
+      - name: Save ESLint caches (restored/saved only — never cleared)
         if: always()
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -156,7 +160,9 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16
+        # postgres:16 (docker hub tag 16, manifest-list digest pinned per
+        # docs/quality/ci-pipeline.md policy — tag kept in comment for humans)
+        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: kottaby
           POSTGRES_PASSWORD: ci-local-only-fixture
@@ -223,7 +229,9 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16
+        # postgres:16 (docker hub tag 16, manifest-list digest pinned per
+        # docs/quality/ci-pipeline.md policy — tag kept in comment for humans)
+        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: kottaby
           POSTGRES_PASSWORD: ci-local-only-fixture
@@ -292,7 +300,9 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16
+        # postgres:16 (docker hub tag 16, manifest-list digest pinned per
+        # docs/quality/ci-pipeline.md policy — tag kept in comment for humans)
+        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: kottaby
           POSTGRES_PASSWORD: ci-local-only-fixture

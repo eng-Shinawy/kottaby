@@ -392,10 +392,26 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
 
   test("country filter narrows to exact country match", async () => {
     await runInRollback(async tx => {
-      const egUser = await createTestUser(tx, { country: "Egypt" });
-      const saUser = await createTestUser(tx, { country: "Saudi Arabia" });
+      // The shared test DB carries a large committed Egypt population (a
+      // sibling perf session seeds it), so an unfiltered country query's
+      // first page may not include these fixtures at all (the directory
+      // orders createdAt ASC with a page bound). Narrow to JUST the
+      // fixtures via the search filter — the file's established
+      // seed-isolation pattern — so the country arm's inclusion/exclusion
+      // semantics stay assertable regardless of committed row volume.
+      const tag = randomUUID().slice(0, 8);
+      const egUser = await createTestUser(tx, { fullName: `Country Probe EG ${tag}`, country: "Egypt" });
+      const saUser = await createTestUser(tx, {
+        fullName: `Country Probe SA ${tag}`,
+        country: "Saudi Arabia",
+      });
 
-      const rows = await AdminUserRepository.listDirectory({ country: "Egypt" }, 100, 0, tx);
+      const rows = await AdminUserRepository.listDirectory(
+        { country: "Egypt", searchPattern: serviceEscapedSearchPattern(tag) },
+        100,
+        0,
+        tx
+      );
       const ids = rows.map(r => r.id);
       expect(ids).toContain(egUser.id);
       expect(ids).not.toContain(saUser.id);
@@ -404,16 +420,39 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
 
   test("country filter bridges ISO-code seeds onto legacy display-text rows", async () => {
     await runInRollback(async tx => {
+      // Same seed-isolation discipline as the exact-match test above: the
+      // shared test DB's Egypt population can push these fixtures past the
+      // first page of a country-only query, so every query composes the
+      // country arm with a search over a unique per-test tag. The country
+      // arm's inclusion/exclusion semantics per fixture stay asserted
+      // exactly; only the row-location strategy changed.
+      const tag = randomUUID().slice(0, 8);
       // New-style row: canonical English display name + stamped ISO code.
-      const codeRow = await createTestUser(tx, { country: "Egypt", countryCode: "EG" });
+      const codeRow = await createTestUser(tx, {
+        fullName: `Country Bridge Code ${tag}`,
+        country: "Egypt",
+        countryCode: "EG",
+      });
       // Legacy rows: case-variant display text, or the code spelled as text.
-      const legacyNameRow = await createTestUser(tx, { country: "egypt" });
-      const legacyCodeRow = await createTestUser(tx, { country: "EG" });
+      const legacyNameRow = await createTestUser(tx, {
+        fullName: `Country Bridge Legacy Name ${tag}`,
+        country: "egypt",
+      });
+      const legacyCodeRow = await createTestUser(tx, {
+        fullName: `Country Bridge Legacy Code ${tag}`,
+        country: "EG",
+      });
       // A different country — excluded by every arm.
-      const saUser = await createTestUser(tx, { country: "Saudi Arabia", countryCode: "SA" });
+      const saUser = await createTestUser(tx, {
+        fullName: `Country Bridge SA ${tag}`,
+        country: "Saudi Arabia",
+        countryCode: "SA",
+      });
+
+      const filters = { searchPattern: serviceEscapedSearchPattern(tag) };
 
       // An ISO seed matches the stamped code AND both legacy spellings.
-      const byCode = await AdminUserRepository.listDirectory({ country: "EG" }, 100, 0, tx);
+      const byCode = await AdminUserRepository.listDirectory({ ...filters, country: "EG" }, 100, 0, tx);
       const codeIds = byCode.map(r => r.id);
       expect(codeIds).toContain(codeRow.id);
       expect(codeIds).toContain(legacyNameRow.id);
@@ -421,7 +460,7 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
       expect(codeIds).not.toContain(saUser.id);
 
       // A display-text seed keeps matching case-insensitively (old links).
-      const byName = await AdminUserRepository.listDirectory({ country: "egypt" }, 100, 0, tx);
+      const byName = await AdminUserRepository.listDirectory({ ...filters, country: "egypt" }, 100, 0, tx);
       const nameIds = byName.map(r => r.id);
       expect(nameIds).toContain(codeRow.id);
       expect(nameIds).toContain(legacyNameRow.id);
@@ -429,7 +468,7 @@ describe("AdminUserRepository — Tier 1: filter matrix + projection coverage", 
       expect(nameIds).not.toContain(saUser.id);
 
       // Wildcards in the seed are escaped — % never widens the match.
-      const byWildcard = await AdminUserRepository.listDirectory({ country: "Eg%pt" }, 100, 0, tx);
+      const byWildcard = await AdminUserRepository.listDirectory({ ...filters, country: "Eg%pt" }, 100, 0, tx);
       const wildcardIds = byWildcard.map(r => r.id);
       expect(wildcardIds).not.toContain(codeRow.id);
       expect(wildcardIds).not.toContain(legacyNameRow.id);

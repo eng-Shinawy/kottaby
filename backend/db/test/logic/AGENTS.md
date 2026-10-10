@@ -12,23 +12,24 @@ Files are grouped by domain, mirroring the `backend/db/test/repo/`, `backend/db/
 backend/db/test/logic/
 ├── AGENTS.md            (this file)
 │
-├── shared/              cross-cutting infra + integrity tests
-│                        audit-immutability, audit-trail, cache_split_routing, concurrency,
-│                        column-encryption, hours-recalc, ip-format, poly-integrity, rls,
-│                        soft_delete_security, session-scalability, permissions_rls
-├── auth/                auth-rate-limit, auth_rate_limit_enforcement, impersonation-sessions, password-reset-token
-├── classes/             session-schema-deltas (session domain: held_balance_lane column +
-│                        session_request_idempotency claim-table constraints)
-├── parents/             parent_directory
-├── students/            student-pagination-stability, student_progress, student_status_history, student_status_transition
-├── teachers/           teacher_availability, teacher_banking_history, teacher_banking_verification, teacher_profile
-├── scheduling/          class_instances_overlap, class_instances_security, class_quota_race, class_rescheduling,
-│                        class_teacher_integrity, leave_quota, scheduling_security
-├── billing/             billing-safeguards, exchange-rate, invoice-restriction, payment-idempotency
-├── notifications/       notification_delivery_tracking, notification_preferences
-├── audit/               audit-immutability, audit-trail           (audit-domain logic tests; shared/* holds cross-cutting ones)
-├── timezone/            timezone_dst, timezone_validation
-└── permissions/         permissions_rls, permission-management.service.test
+├── admin/               admin-user-governance, admin-user, platform-analytics repository logic
+├── audit/               audit-census-drift, audit-immutability, audit-trail
+├── auth/                auth.service (auth + refresh governance arms), registration.service
+├── billing/             financial-immutability, plan-catalog (repository/schema/service/preservation),
+│                        plan-seed, student-payment.repository, student-zero-lane,
+│                        subscription (expiry / purchase-idempotency / repository)
+├── classes/             session-schema-deltas, lesson.service (plan-gate), student-progress.service
+├── invariants/          the state-machine invariant census: the 67-row doc↔census↔test registry
+│                        (invariant-census.catalog.ts), the drift oracle (invariant-census-drift.test.ts),
+│                        the shared savepoint/constraint/trigger probe helpers (invariant-probe.helpers.ts),
+│                        plus the session and plan-catalog invariant suites
+├── notifications/       broadcast-audience, broadcast, notification repository logic
+├── shared/              cross-cutting integrity statics: data-integrity probe (users-delete-guard),
+│                        retention-anti-drift census, schema-registry-census (pgEnum↔mirror parity)
+├── students/            handshake-code-generation-locks, handshake-code-immutability-scan,
+│                        student_status_history, student_status_transition
+├── teachers/           applicant-lifecycle, applicants re-evaluation column contract
+└── users/               user.repository
 ```
 
 ## Rules
@@ -45,7 +46,7 @@ All rules from the parent `backend/db/test/AGENTS.md` apply here — transaction
 - Group related business-logic tests for the same domain in the matching sub-directory.
 - File naming follows the existing convention (mixed `_` and `-` are tolerated for legacy file names): `backend/db/test/logic/<subdir>/<scenario>.test.ts`.
 - The pre-existing `backend/db/test/repo/` directory holds repository **unit** tests (one repo per file); this `logic/` directory holds **cross-repo / cross-service** tests. Don't duplicate coverage between them.
-- Cross-cutting tests that don't fit any single domain (RLS, cache routing, encryption, concurrency, audit immutability across tables) live in `shared/`. Domain-specific audit tests live in `audit/`. Domain-specific permission RLS tests can live either in `permissions/` (permission-table-centred) or in the relevant domain subdir — both are acceptable; pick the one that matches the table the test primarily asserts against.
+- Domain-specific audit tests live in `audit/`. Permission/RLS and other cross-cutting tests that don't fit any single domain live in the sub-directory matching the table the test primarily asserts against.
 
 ### Adding New Tests
 1. Identify the matching sub-directory (or create a new one following the sub-directory convention).

@@ -369,6 +369,48 @@ describe("SubscriptionExpiryService — window boundary (Tier 2)", () => {
   });
 });
 
+describe("SubscriptionExpiryService — cancel→sweep interplay (cancel-preserved lanes)", () => {
+  test("INV-B3: a cancel-preserved lane may be zeroed by a later covering sweep (cancelled is NON-covering)", async () => {
+    await runInRollback(async tx => {
+      const now = new Date();
+      // The lane balance below is the remainder an earlier admin cancel
+      // preserved (cancelling a subscription never touches credited
+      // balances) — modelled directly as the post-cancel state: a positive
+      // hifz lane next to a cancelled same-lane subscription row.
+      const { user, student, plan } = await createLaneSubscriber(tx, SubscriptionCreditLane.Hifz, {
+        balanceHifz: 4,
+        balanceTrial: 2,
+      });
+      const cancelled = await createTestSubscription(tx, user.id, plan.id, {
+        status: SubscriptionStatus.Cancelled,
+        startDate: new Date(now.getTime() - 60 * MS_PER_DAY),
+        endDate: new Date(now.getTime() - 30 * MS_PER_DAY),
+      });
+      // A SECOND same-lane subscription whose window has since closed —
+      // the later sweep that must decide the preserved remainder's fate.
+      const secondPlan = await createTestPlan(tx, { balanceLane: SubscriptionCreditLane.Hifz });
+      const due = await createPastWindowActive(tx, user.id, secondPlan.id, now, 10);
+
+      scopeSweepToUsers([user.id]);
+      const sweep = await SubscriptionExpiryService.expireDue(tx);
+
+      // The due row flips; the cancelled row is not sweep-eligible and
+      // stays exactly as the cancel left it.
+      expect(sweep).toEqual({ expired: 1, lanesZeroed: 1 });
+      const statuses = await readStatuses(tx, [cancelled.id, due.id]);
+      expect(statuses.get(cancelled.id)).toBe(SubscriptionStatus.Cancelled);
+      expect(statuses.get(due.id)).toBe(SubscriptionStatus.Expired);
+
+      // Cancelled is NON-covering for the zeroing guard: the sweep finds
+      // no active/pending same-lane subscription, so the cancel-preserved
+      // remainder IS retired. The trial lane stays structurally exempt.
+      const balances = await readBalances(tx, student.id);
+      expect(balances.balanceHifz).toBe(0);
+      expect(balances.balanceTrial).toBe(2);
+    });
+  });
+});
+
 describe("SubscriptionExpiryService — atomicity (Tier 3: rollback probe)", () => {
   test("an induced mid-cohort zeroing failure rolls the WHOLE cohort back — nothing half-swept", async () => {
     await runInRollback(async tx => {

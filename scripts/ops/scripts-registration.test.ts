@@ -89,7 +89,9 @@ describe("ops script registration (package.json)", () => {
 
     expect(backupIndex).toBe(remindIndex + 1);
     expect(restoreIndex).toBe(backupIndex + 1);
-    expect(wsIndex).toBe(restoreIndex + 1);
+    // The perf:* tooling registry (pinned by scripts/perf/scripts-registration.test.ts)
+    // occupies the block between the ops db tooling entries and the ws entry.
+    expect(wsIndex).toBeGreaterThan(restoreIndex);
     expect(sweepIndex).toBeLessThan(remindIndex);
   });
 });

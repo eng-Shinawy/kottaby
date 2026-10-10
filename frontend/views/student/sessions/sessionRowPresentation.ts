@@ -56,7 +56,7 @@ export const STATUS_LABEL_KEY: Record<string, StatusChipLabelKey> = {
  */
 export function resolveStatusLabel(status: string, labels: SessionsLabels): string {
   const labelKey = STATUS_LABEL_KEY[status];
-  return labelKey !== undefined && labelKey in labels ? labels[labelKey] : status;
+  return status in STATUS_LABEL_KEY && labelKey in labels ? labels[labelKey] : status;
 }
 
 /**
@@ -87,7 +87,7 @@ export function resolveIntentTitle(intent: string | null, labels: SessionsLabels
     return NO_VALUE_PLACEHOLDER;
   }
   const labelKey = INTENT_LABEL_KEY[intent];
-  return labelKey !== undefined && labelKey in labels ? labels[labelKey] : intent;
+  return intent in INTENT_LABEL_KEY && labelKey in labels ? labels[labelKey] : intent;
 }
 
 /**

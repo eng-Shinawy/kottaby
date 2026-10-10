@@ -29,6 +29,8 @@ import { users } from "@/backend/db/schema/users/users";
  *    (send-path replay arbitration)
  *  - `broadcasts_sent_at_idx` on `sent_at` (newest-first history listing)
  *  - `broadcasts_status_idx` on `status` (status-filtered history queries)
+ *  - `broadcasts_sent_by_id_idx` on `sent_by_id` (FK join to users)
+ *  - `broadcasts_stopped_by_id_idx` on `stopped_by_id` (FK join to users)
  */
 export const broadcasts = pgTable(
   "broadcasts",
@@ -56,5 +58,7 @@ export const broadcasts = pgTable(
     uniqueIndex("broadcasts_idempotency_key_uidx").on(t.idempotencyKey),
     index("broadcasts_sent_at_idx").on(t.sentAt),
     index("broadcasts_status_idx").on(t.status),
+    index("broadcasts_sent_by_id_idx").on(t.sentById),
+    index("broadcasts_stopped_by_id_idx").on(t.stoppedById),
   ]
 );

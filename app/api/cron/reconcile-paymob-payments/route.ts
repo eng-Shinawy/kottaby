@@ -42,6 +42,14 @@
  *    very next run. The sweep itself gates identically — the route hides
  *    the endpoint, the service stays honest when invoked from anywhere
  *    else; both sides must agree before any work happens.
+ *  - **Rate-limited before the credential compare** — the dedicated
+ *    `cron-sweep` limiter namespace (keyed on client IP) runs AFTER both
+ *    bare-404 existence gates and BEFORE the bearer compare, through the
+ *    factory's own shared `enforceCronSweepRateLimit` helper: repeated
+ *    failed-auth guessing is throttled to a 429 `RATE_LIMIT_EXCEEDED`
+ *    through the shared envelope (a correct bearer cannot bypass a spent
+ *    quota), while a disabled or unconfigured surface's junk traffic
+ *    never consumes limiter state.
  *  - **Envelope** — success
  *    `{ data: { checked, confirmed, failed, skipped }, requestId }`
  *    through `apiSuccessResponse`: the honest per-run tally only, never
@@ -54,6 +62,17 @@
  *
  * The route owns no reconciliation logic of its own: the batch bound,
  * the inquiry walk, and the settlement handoff belong to the service.
+ *
+ * Divergence from the sweep factory (`backend/lib/gateway/cron-endpoint.ts`):
+ * this surface is hand-rolled rather than factory-built because its
+ * provider-configuration existence gate (paymob active + the
+ * server-to-server API key) is a reconciliation-specific condition the
+ * factory does not model, and folding it into the factory would widen the
+ * shared contract for one route. The rate limiter runs through the
+ * factory's shared `enforceCronSweepRateLimit` helper (the factory's own
+ * exported `cronSweepRateLimiter` config, single-sourced inside it) in
+ * the factory's documented position: after the bare-404 existence gates,
+ * before the credential compare.
  */
 
 import type { NextRequest } from "next/server";
@@ -66,6 +85,7 @@ import {
   resolveRequestId,
 } from "@/backend/lib/api";
 import { getEnv, getPaymentGatewayProvider, getPaymobConfig } from "@/backend/lib/env";
+import { enforceCronSweepRateLimit } from "@/backend/lib/gateway/cron-endpoint";
 import { reconcilePendingPaymobPayments } from "@/backend/services/billing/payment-gateway/paymob/paymob.reconcile";
 
 /**
@@ -111,6 +131,16 @@ export async function GET(request: NextRequest): Promise<Response> {
   // no credential may prove otherwise.
   if (!isReconciliationConfigured()) {
     return new Response(null, { status: ENDPOINT_GONE_STATUS });
+  }
+
+  // Rate limiter — the shared `cron-sweep` namespace enforcement (the
+  // factory's own `enforceCronSweepRateLimit` helper owns the namespace,
+  // the warn log, and the 429 envelope), BEFORE the secret compare. A
+  // correct bearer cannot bypass a spent quota, and a disabled or
+  // unconfigured surface's junk traffic never consumes limiter state.
+  const rateLimited = await enforceCronSweepRateLimit(request, requestId, envelopeLocale);
+  if (rateLimited !== null) {
+    return rateLimited;
   }
 
   // Bearer gate — timing-safe compare against CRON_SECRET.

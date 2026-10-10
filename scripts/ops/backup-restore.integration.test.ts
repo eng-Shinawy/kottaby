@@ -10,11 +10,12 @@
  * application-level transaction, so the repo's rollback-wrapper test pattern
  * is not applicable. Isolation is achieved at the only boundary available to
  * OS tools: every run creates uniquely-named scratch databases — the source
- * is template-copied from the dev database so the schema plus seed fixtures
- * cover every critical table — runs the real PASS chain, the guard probe,
- * and the tamper-FAIL chain against them, and drops them all in `afterAll`.
- * The dev database serves strictly as a read-only template source and is
- * never written. Run exclusively via test/scripts/run-test.ts.
+ * is template-copied from the DATABASE_URL-named database (the test DB under
+ * the canonical runner, the dev DB on a raw `bun test` run) so the schema
+ * plus seed fixtures cover every critical table — runs the real PASS chain,
+ * the guard probe, and the tamper-FAIL chain against them, and drops them all
+ * in `afterAll`. The source database serves strictly as a read-only template
+ * and is never written. Run exclusively via test/scripts/run-test.ts.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -34,16 +35,41 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
+import { decodeUrlSegment, effectiveDatabaseName, parsePostgresDatabaseUrl } from "@/scripts/ops/_shared";
 import { ARTIFACT_FILE_NAME, MANIFEST_FILE_NAME } from "@/scripts/ops/backup-artifacts";
 import { CONFIRMATION_FLAG } from "@/scripts/ops/restore-guard";
 import { ORACLES } from "@/scripts/ops/restore-oracles";
 import { CRITICAL_TABLES } from "@/scripts/ops/restore-structure";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
-const PG_HOST = "127.0.0.1";
-const PG_USER = "postgres";
-const PG_BASE_ARGS = ["-h", PG_HOST, "-U", PG_USER] as const;
-const DEV_DATABASE = "app_db";
+
+/**
+ * Drill topology is sourced from the seated DATABASE_URL (the canonical
+ * runners pin it: run-test.ts → .env.test, CI → the workflow's Postgres
+ * service) instead of hardcoded coordinates — the OS-level tools must target
+ * the same server the application itself connects to. Defaults keep the
+ * canonical CI topology for direct `bun test` runs with no seated DSN.
+ */
+const DEFAULT_PG_HOST = "127.0.0.1";
+const DEFAULT_PG_PORT = "5432";
+const DEFAULT_PG_USER = "postgres";
+const DEFAULT_SOURCE_DATABASE = "kottaby_test";
+const sourceDsn = parsePostgresDatabaseUrl(process.env.DATABASE_URL);
+const PG_HOST = sourceDsn?.hostname ?? DEFAULT_PG_HOST;
+const PG_PORT = sourceDsn?.port ?? DEFAULT_PG_PORT;
+const PG_USER = (sourceDsn ? decodeUrlSegment(sourceDsn.username) : "") || DEFAULT_PG_USER;
+const SOURCE_DATABASE = (sourceDsn ? effectiveDatabaseName(sourceDsn) : "") || DEFAULT_SOURCE_DATABASE;
+const PG_BASE_ARGS = ["--no-password", "-h", PG_HOST, "-p", PG_PORT, "-U", PG_USER] as const;
+if (sourceDsn !== null) {
+  const dsnPassword = decodeUrlSegment(sourceDsn.password);
+  // The OS tools read the DSN's password from libpq's PGPASSWORD, never from
+  // argv; an operator-provided PGPASSWORD always wins. `--no-password` above
+  // makes every tool fail fast when no credential is seated instead of
+  // prompting on a controlling terminal.
+  if (dsnPassword !== "" && process.env.PGPASSWORD === undefined) {
+    process.env.PGPASSWORD = dsnPassword;
+  }
+}
 /** Quote-safe: the name is interpolated into identifiers and shell argv positions. */
 const SCRATCH_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/;
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -151,8 +177,21 @@ function isRestoredReport(value: unknown): value is RestoredReport {
   return structuralValid && oraclesValid;
 }
 
+/**
+ * Spawn helper for the drill's external tools. The environment is passed
+ * EXPLICITLY: a Bun child without an `env` option inherits the parent's
+ * startup environment snapshot, so the PGPASSWORD seated at module scope
+ * would never reach psql/createdb/dropdb/pg_dump (nor the CLI children whose
+ * own allowlist forwards it to pg_restore).
+ */
 function spawnCapture(cmd: readonly string[]): Promise<SpawnOutcome> {
-  const proc = Bun.spawn([...cmd], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  const proc = Bun.spawn([...cmd], {
+    cwd: REPO_ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+    env: { ...process.env },
+  });
   return Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]).then(
     ([stdout, stderr, exitCode]) => ({ exitCode, stdout, stderr })
   );
@@ -186,12 +225,12 @@ async function countRows(database: string, table: string): Promise<number> {
 }
 
 function scratchDsn(database: string): string {
-  return `postgresql://${PG_USER}@${PG_HOST}:5432/${database}`;
+  return `postgresql://${PG_USER}@${PG_HOST}:${PG_PORT}/${database}`;
 }
 
 function assertQuoteSafeName(name: string): void {
   if (!SCRATCH_NAME_PATTERN.test(name)) {
-    throw new Error(`scratch database name is not quote-safe: ${name}`);
+    throw new Error(`database name is not quote-safe: ${name}`);
   }
 }
 
@@ -202,9 +241,9 @@ async function createEmptyDatabase(database: string): Promise<void> {
   }
 }
 
-/** Template-copies the dev database; falls back to dump|psql when the template is connection-locked. */
+/** Template-copies the source database; falls back to dump|psql when the template is connection-locked. */
 async function createSourceCopy(database: string, workspace: string): Promise<void> {
-  const templateOutcome = await spawnCapture(["createdb", ...PG_BASE_ARGS, "-T", DEV_DATABASE, database]);
+  const templateOutcome = await spawnCapture(["createdb", ...PG_BASE_ARGS, "-T", SOURCE_DATABASE, database]);
   if (templateOutcome.exitCode === 0) {
     return;
   }
@@ -214,10 +253,10 @@ async function createSourceCopy(database: string, workspace: string): Promise<vo
     "--format=plain",
     "--no-owner",
     "--no-privileges",
-    DEV_DATABASE,
+    SOURCE_DATABASE,
   ]);
   if (dumpOutcome.exitCode !== 0) {
-    throw new Error(`pg_dump ${DEV_DATABASE} failed: ${dumpOutcome.stderr.trim()}`);
+    throw new Error(`pg_dump ${SOURCE_DATABASE} failed: ${dumpOutcome.stderr.trim()}`);
   }
   await createEmptyDatabase(database);
   const dumpPath = join(workspace, "dev-template.sql");
@@ -311,6 +350,7 @@ describe("backup → restore-verify drill chain (real binaries, scratch database
     for (const name of [sourceDb, targetDb, tamperDb]) {
       assertQuoteSafeName(name);
     }
+    assertQuoteSafeName(SOURCE_DATABASE);
     tmpWorkspace = mkdtempSync(join(tmpdir(), "kottaby-dr-it-"));
     backupsDir = join(tmpWorkspace, "backups");
     mkdirSync(backupsDir);

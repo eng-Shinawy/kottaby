@@ -17,11 +17,17 @@
  *     SAVEPOINT (`savepoint` / `rollback to savepoint`), so a raised
  *     exception never aborts the outer transaction: the row can be read
  *     back and re-probed afterwards. Attempts MUST throw with the exact
- *     raised message, asserted via the `expectRepoError` try/catch helper
- *     (NEVER `rejects.toThrow`, which deadlocks the rollback wrapper).
+ *     raised message, captured with a try/catch probe (NEVER
+ *     `rejects.toThrow`, which deadlocks the rollback wrapper).
  *     Covered: teacher_transaction UPDATE (row compared unchanged) +
  *     DELETE (row still present) + the relabeling settlement probe (an
- *     earning row relabeled to withdrawal/completed RAISES); student_payments tamper UPDATE on a
+ *     earning row relabeled to withdrawal/completed RAISES); the four
+ *     settlement-guard residual cells against the amended
+ *     `prevent_teacher_transaction_update()` guard (a pending→pending
+ *     no-op rewrite, re-opening a decided withdrawal, a description
+ *     rewrite riding a valid settle, and a session_id NULL-swap riding a
+ *     valid settle — each RAISES with the row byte-identical after);
+ *     student_payments tamper UPDATE on a
  *     decided (paid) row (the full guarded-transition matrix lives in the
  *     StudentPaymentRepository suite); an idempotent re-probe (the same
  *     UPDATE fails identically on repeat, in a separate savepoint); and
@@ -31,6 +37,11 @@
  *     a fixture audit_logs row — the third immutable table gets the same
  *     behavioral proof, not just the presence probe.
  *
+ * The teacher_transaction and student_payments tiers use the shared
+ * savepoint/trigger-raise probe scaffold
+ * (`@/backend/db/test/logic/invariants/invariant-probe.helpers`); the
+ * audit_logs tier keeps the file-local savepoint/chain helpers.
+ *
  * DB SAFETY: every database statement in this file runs inside
  * `runInRollback` with the `tx` passed through — no fixture row ever
  * commits, and no global trigger state is touched (probes only read
@@ -39,10 +50,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
+import { WalletRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { studentPayments } from "@/backend/db/schema/billing/student-payments";
 import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transaction";
 import {
+  createTestSession,
   createTestStudent,
   createTestStudentPayment,
   createTestTeacherRow,
@@ -50,6 +63,7 @@ import {
   createTestUser,
   createTestWallet,
 } from "@/backend/db/test/entity-setup";
+import { expectTriggerRaise, probeInsideSavepoint } from "@/backend/db/test/logic/invariants/invariant-probe.helpers";
 import { expectRepoError, runInRollback } from "@/backend/db/test/test-utils";
 import { AuditActionType } from "@/backend/enum/audit/audit-action-type.enum";
 import { PaymentStatus } from "@/backend/enum/billing/payment-status.enum";
@@ -184,6 +198,8 @@ interface TeacherTxRowSnapshot {
   readonly amount: string;
   readonly type: string;
   readonly status: string;
+  readonly description: string | null;
+  readonly sessionId: number | null;
 }
 
 /** Reads back the teacher_transaction row by id (independent oracle on the same tx). */
@@ -195,6 +211,8 @@ async function readTeacherTransactionRow(tx: DBTransaction, id: number): Promise
       amount: teacherTransaction.amount,
       type: teacherTransaction.type,
       status: teacherTransaction.status,
+      description: teacherTransaction.description,
+      sessionId: teacherTransaction.sessionId,
     })
     .from(teacherTransaction)
     .where(eq(teacherTransaction.id, id))
@@ -258,20 +276,37 @@ function deepestCauseMessage(error: Error): string {
  * INSERTs one fixture teacher_transaction ledger row inside the caller's
  * transaction (user → teacher row → wallet → ledger row; the append path is
  * NEVER blocked) and returns the persisted row snapshot for tamper attempts.
+ * The session link and description are overridable so the frozen-column
+ * probes can stage the exact row shape the guard must compare against.
  */
 async function insertTeacherLedgerFixture(
   tx: DBTransaction,
-  overrides: Partial<{ amount: string; type: TransactionType; status: TransactionStatus }> = {}
+  overrides: Partial<{
+    amount: string;
+    type: TransactionType;
+    status: TransactionStatus;
+    description: string | null;
+    sessionId: number | null;
+  }> = {}
 ): Promise<TeacherTxRowSnapshot> {
   const user = await createTestUser(tx);
   await createTestTeacherRow(tx, user.id);
   const teacherWallet = await createTestWallet(tx, user.id);
-  const row = await createTestTeacherTransaction(tx, teacherWallet.id, null, {
+  const row = await createTestTeacherTransaction(tx, teacherWallet.id, overrides.sessionId ?? null, {
     type: overrides.type ?? TransactionType.Earning,
     amount: overrides.amount ?? "50.00",
     status: overrides.status ?? TransactionStatus.Completed,
+    description: overrides.description ?? null,
   });
-  return { id: row.id, walletId: row.walletId, amount: row.amount, type: row.type, status: row.status };
+  return {
+    id: row.id,
+    walletId: row.walletId,
+    amount: row.amount,
+    type: row.type,
+    status: row.status,
+    description: row.description,
+    sessionId: row.sessionId,
+  };
 }
 
 /** INSERTs one fixture student_payments row (user → student → ledger row). */
@@ -366,14 +401,11 @@ describeTriggerTier("financial ledger immutability — teacher_transaction tampe
       const fixture = await insertTeacherLedgerFixture(tx);
       await expectTeacherTransactionPresent(tx, fixture.id);
 
-      await withinSavepoint(tx, "teacher_tx_update_probe", async () => {
-        const error = await expectRepoError(() =>
-          tx.update(teacherTransaction).set({ amount: "999.99" }).where(eq(teacherTransaction.id, fixture.id))
-        );
-        const chain = errorMessageChain(error);
-        expect(chain).toContain(TEACHER_TX_IMMUTABLE);
-        expect(chain).toContain(TEACHER_TX_UPDATE_MSG);
-      });
+      const error = await probeInsideSavepoint(tx, "teacher tx update probe", () =>
+        tx.update(teacherTransaction).set({ amount: "999.99" }).where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
+      expectTriggerRaise(error, TEACHER_TX_UPDATE_MSG);
 
       const after = await readTeacherTransactionRow(tx, fixture.id);
       expect(after).toEqual(fixture);
@@ -385,14 +417,11 @@ describeTriggerTier("financial ledger immutability — teacher_transaction tampe
       const fixture = await insertTeacherLedgerFixture(tx);
       await expectTeacherTransactionPresent(tx, fixture.id);
 
-      await withinSavepoint(tx, "teacher_tx_delete_probe", async () => {
-        const error = await expectRepoError(() =>
-          tx.delete(teacherTransaction).where(eq(teacherTransaction.id, fixture.id))
-        );
-        const chain = errorMessageChain(error);
-        expect(chain).toContain(TEACHER_TX_IMMUTABLE);
-        expect(chain).toContain(TEACHER_TX_DELETE_MSG);
-      });
+      const error = await probeInsideSavepoint(tx, "teacher tx delete probe", () =>
+        tx.delete(teacherTransaction).where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
+      expectTriggerRaise(error, TEACHER_TX_DELETE_MSG);
 
       await expectTeacherTransactionPresent(tx, fixture.id);
     });
@@ -403,22 +432,17 @@ describeTriggerTier("financial ledger immutability — teacher_transaction tampe
       const fixture = await insertTeacherLedgerFixture(tx);
       await expectTeacherTransactionPresent(tx, fixture.id);
 
-      let firstMessage = "";
-      await withinSavepoint(tx, "teacher_tx_repeat_probe_1", async () => {
-        const error = await expectRepoError(() =>
-          tx.update(teacherTransaction).set({ amount: "999.99" }).where(eq(teacherTransaction.id, fixture.id))
-        );
-        firstMessage = deepestCauseMessage(error);
-        expect(firstMessage).toContain(TEACHER_TX_IMMUTABLE);
-        expect(firstMessage).toContain(TEACHER_TX_UPDATE_MSG);
-      });
+      const first = await probeInsideSavepoint(tx, "teacher tx repeat probe 1", () =>
+        tx.update(teacherTransaction).set({ amount: "999.99" }).where(eq(teacherTransaction.id, fixture.id))
+      );
+      const firstMessage = deepestCauseMessage(first);
+      expect(firstMessage).toContain(TEACHER_TX_IMMUTABLE);
+      expect(firstMessage).toContain(TEACHER_TX_UPDATE_MSG);
 
-      await withinSavepoint(tx, "teacher_tx_repeat_probe_2", async () => {
-        const error = await expectRepoError(() =>
-          tx.update(teacherTransaction).set({ amount: "999.99" }).where(eq(teacherTransaction.id, fixture.id))
-        );
-        expect(deepestCauseMessage(error)).toBe(firstMessage);
-      });
+      const second = await probeInsideSavepoint(tx, "teacher tx repeat probe 2", () =>
+        tx.update(teacherTransaction).set({ amount: "999.99" }).where(eq(teacherTransaction.id, fixture.id))
+      );
+      expect(deepestCauseMessage(second)).toBe(firstMessage);
 
       const after = await readTeacherTransactionRow(tx, fixture.id);
       expect(after).toEqual(fixture);
@@ -437,17 +461,14 @@ describeTriggerTier("financial ledger immutability — teacher_transaction tampe
       expect(fixture.type).toBe(TransactionType.Earning);
       expect(fixture.status).toBe(TransactionStatus.Pending);
 
-      await withinSavepoint(tx, "teacher_tx_relabel_probe", async () => {
-        const error = await expectRepoError(() =>
-          tx
-            .update(teacherTransaction)
-            .set({ type: TransactionType.Withdrawal, status: TransactionStatus.Completed })
-            .where(eq(teacherTransaction.id, fixture.id))
-        );
-        const chain = errorMessageChain(error);
-        expect(chain).toContain(TEACHER_TX_IMMUTABLE);
-        expect(chain).toContain(TEACHER_TX_UPDATE_MSG);
-      });
+      const error = await probeInsideSavepoint(tx, "teacher tx relabel probe", () =>
+        tx
+          .update(teacherTransaction)
+          .set({ type: TransactionType.Withdrawal, status: TransactionStatus.Completed })
+          .where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
+      expectTriggerRaise(error, TEACHER_TX_UPDATE_MSG);
 
       const after = await readTeacherTransactionRow(tx, fixture.id);
       expect(after).toEqual(fixture);
@@ -459,12 +480,10 @@ describeTriggerTier("financial ledger immutability — teacher_transaction tampe
       const fixture = await insertTeacherLedgerFixture(tx);
       await expectTeacherTransactionPresent(tx, fixture.id);
 
-      await withinSavepoint(tx, "teacher_tx_compensating_probe", async () => {
-        const error = await expectRepoError(() =>
-          tx.update(teacherTransaction).set({ amount: "0.00" }).where(eq(teacherTransaction.id, fixture.id))
-        );
-        expect(errorMessageChain(error)).toContain(TEACHER_TX_IMMUTABLE);
-      });
+      const error = await probeInsideSavepoint(tx, "teacher tx compensating probe", () =>
+        tx.update(teacherTransaction).set({ amount: "0.00" }).where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
 
       const corrective = await createTestTeacherTransaction(tx, fixture.walletId, null, {
         type: TransactionType.Withdrawal,
@@ -476,6 +495,122 @@ describeTriggerTier("financial ledger immutability — teacher_transaction tampe
       await expectTeacherTransactionPresent(tx, corrective.id);
     });
   });
+
+  test("INV-W5: a pending→pending no-op rewrite raises (settlement is the only permitted update)", async () => {
+    await runInRollback(async tx => {
+      const fixture = await insertTeacherLedgerFixture(tx, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Pending,
+      });
+      await expectTeacherTransactionPresent(tx, fixture.id);
+
+      // Even a rewrite that changes nothing observable is rejected: the
+      // guard permits ONLY the pending → completed/failed settlement shape,
+      // so a pending → pending "no-op" can never slip through as a silent
+      // in-place edit.
+      const error = await probeInsideSavepoint(tx, "teacher tx pending noop probe", () =>
+        tx
+          .update(teacherTransaction)
+          .set({ status: TransactionStatus.Pending })
+          .where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
+      expectTriggerRaise(error, TEACHER_TX_UPDATE_MSG);
+
+      const after = await readTeacherTransactionRow(tx, fixture.id);
+      expect(after).toEqual(fixture);
+    });
+  });
+
+  test("INV-W5: re-opening a decided withdrawal (completed→failed) raises", async () => {
+    await runInRollback(async tx => {
+      const fixture = await insertTeacherLedgerFixture(tx, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Pending,
+      });
+
+      // The sanctioned settlement decides the row; the decided snapshot is
+      // the comparison baseline for the re-open attempt.
+      const settled = await WalletRepository.settleWithdrawalOnce(
+        { transactionId: fixture.id, nextStatus: TransactionStatus.Completed },
+        tx
+      );
+      expect(settled?.status).toBe(TransactionStatus.Completed);
+      const decided = await readTeacherTransactionRow(tx, fixture.id);
+      expect(decided?.status).toBe(TransactionStatus.Completed);
+
+      const error = await probeInsideSavepoint(tx, "teacher tx decided reopen probe", () =>
+        tx
+          .update(teacherTransaction)
+          .set({ status: TransactionStatus.Failed })
+          .where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
+      expectTriggerRaise(error, TEACHER_TX_UPDATE_MSG);
+
+      const after = await readTeacherTransactionRow(tx, fixture.id);
+      expect(after).toEqual(decided);
+    });
+  });
+
+  test("INV-W5: a description rewrite on a pending withdrawal raises (column freeze)", async () => {
+    await runInRollback(async tx => {
+      const fixture = await insertTeacherLedgerFixture(tx, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Pending,
+        description: "payout request",
+      });
+      await expectTeacherTransactionPresent(tx, fixture.id);
+
+      // The rewrite is otherwise a VALID settlement (pending withdrawal →
+      // completed, every other column untouched), so the raise isolates the
+      // description freeze arm — a tampered note can never ride a settle.
+      const error = await probeInsideSavepoint(tx, "teacher tx description freeze probe", () =>
+        tx
+          .update(teacherTransaction)
+          .set({ status: TransactionStatus.Completed, description: "tampered payout note" })
+          .where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
+      expectTriggerRaise(error, TEACHER_TX_UPDATE_MSG);
+
+      const after = await readTeacherTransactionRow(tx, fixture.id);
+      expect(after).toEqual(fixture);
+    });
+  });
+
+  test("INV-W5: a session_id NULL-swap on a pending withdrawal raises (IS NOT DISTINCT FROM arm)", async () => {
+    await runInRollback(async tx => {
+      const fixture = await insertTeacherLedgerFixture(tx, {
+        type: TransactionType.Withdrawal,
+        status: TransactionStatus.Pending,
+        sessionId: null,
+      });
+      await expectTeacherTransactionPresent(tx, fixture.id);
+
+      // A LIVE session row is the swap target — the FK is satisfied, so the
+      // raise is attributable to the frozen-link arm alone. The rewrite is
+      // otherwise a valid settlement; a plain `=` comparison would treat
+      // NULL = <id> as unknown and let the swap ride the settle through.
+      const swapTeacherUser = await createTestUser(tx, { role: "teacher" });
+      await createTestTeacherRow(tx, swapTeacherUser.id);
+      const swapStudentUser = await createTestUser(tx, { role: "student" });
+      const swapStudent = await createTestStudent(tx, swapStudentUser.id);
+      const swapSession = await createTestSession(tx, swapTeacherUser.id, swapStudent.id);
+
+      const error = await probeInsideSavepoint(tx, "teacher tx session link freeze probe", () =>
+        tx
+          .update(teacherTransaction)
+          .set({ status: TransactionStatus.Completed, sessionId: swapSession.id })
+          .where(eq(teacherTransaction.id, fixture.id))
+      );
+      expectTriggerRaise(error, TEACHER_TX_IMMUTABLE);
+      expectTriggerRaise(error, TEACHER_TX_UPDATE_MSG);
+
+      const after = await readTeacherTransactionRow(tx, fixture.id);
+      expect(after).toEqual(fixture);
+    });
+  });
 });
 
 describeTriggerTier("financial ledger immutability — student_payments tamper tier", () => {
@@ -485,14 +620,11 @@ describeTriggerTier("financial ledger immutability — student_payments tamper t
       expect(payment.status).toBe(PaymentStatus.Paid);
       await expectStudentPaymentPresent(tx, payment.id);
 
-      await withinSavepoint(tx, "payments_update_probe", async () => {
-        const error = await expectRepoError(() =>
-          tx.update(studentPayments).set({ amount: "999.99" }).where(eq(studentPayments.id, payment.id))
-        );
-        const chain = errorMessageChain(error);
-        expect(chain).toContain(PAYMENTS_IMMUTABLE);
-        expect(chain).toContain("permitted only to transition a pending payment");
-      });
+      const error = await probeInsideSavepoint(tx, "payments update probe", () =>
+        tx.update(studentPayments).set({ amount: "999.99" }).where(eq(studentPayments.id, payment.id))
+      );
+      expectTriggerRaise(error, PAYMENTS_IMMUTABLE);
+      expectTriggerRaise(error, "permitted only to transition a pending payment");
 
       await expectStudentPaymentPresent(tx, payment.id);
     });
@@ -503,12 +635,11 @@ describeTriggerTier("financial ledger immutability — student_payments tamper t
       const payment = await insertStudentPaymentFixture(tx);
       await expectStudentPaymentPresent(tx, payment.id);
 
-      await withinSavepoint(tx, "payments_delete_probe", async () => {
-        const error = await expectRepoError(() => tx.delete(studentPayments).where(eq(studentPayments.id, payment.id)));
-        const chain = errorMessageChain(error);
-        expect(chain).toContain(PAYMENTS_IMMUTABLE);
-        expect(chain).toContain("DELETE is not permitted");
-      });
+      const error = await probeInsideSavepoint(tx, "payments delete probe", () =>
+        tx.delete(studentPayments).where(eq(studentPayments.id, payment.id))
+      );
+      expectTriggerRaise(error, PAYMENTS_IMMUTABLE);
+      expectTriggerRaise(error, "DELETE is not permitted");
 
       await expectStudentPaymentPresent(tx, payment.id);
     });

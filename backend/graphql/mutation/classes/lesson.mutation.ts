@@ -2,9 +2,14 @@
  * Lessons mutations — `createLesson`, `updateLesson`, `deleteLesson`.
  *
  * Security:
- *  - All lesson management mutations require `{ role: [UserRole.Admin] }`
- *    (anonymous & non-admin callers are rejected by the authScopes gate
- *    BEFORE any resolver body runs — BFLA-safe).
+ *  - All lesson management mutations declare the EXPLICIT `$all` conjunction
+ *    `authScopes: { $all: { authenticated: true, role: [UserRole.Admin] } }`.
+ *    The `$all` key is load-bearing: a plain `{ authenticated, role }` map
+ *    combines its keys with ANY semantics, and a bare role map answers
+ *    anonymous callers with FORBIDDEN. The conjunction makes the combine
+ *    AND — the `authenticated` leg denies anonymous callers with
+ *    UNAUTHORIZED (401) before the role leg is ever consulted, and the
+ *    role leg denies authenticated non-admins with FORBIDDEN (403).
  *  - `actorId` is sourced EXCLUSIVELY from `ctx.user.id` (never from args —
  *    BOLA-safe by construction) and threaded into the service, which
  *    re-asserts the admin role from the user row (defense in depth) and
@@ -29,7 +34,10 @@ gqlSchemaBuilder.mutationField("createLesson", t =>
     type: LessonPothosObject,
     description: "Creates a new lesson, optionally tied to a subscription plan (Admin only).",
     authScopes: {
-      role: [UserRole.Admin],
+      $all: {
+        authenticated: true,
+        role: [UserRole.Admin],
+      },
     },
     args: {
       input: t.arg({
@@ -39,14 +47,13 @@ gqlSchemaBuilder.mutationField("createLesson", t =>
       }),
     },
     resolve: async (_root, args, ctx) => {
-      // TypeScript narrowing only — the `role: [UserRole.Admin]` scope
-      // guarantees a verified user row at resolution time (anonymous callers
-      // never get past the scope step). This branch exists purely for
-      // TypeScript narrowing — the repo-wide no-non-null-assertion rule
-      // forbids dereferencing the nullable context directly; it is
-      // unreachable in practice, and the thrown message is a
-      // locale-independent fallback, not a verbatim mirror of the localized
-      // scope error builder.ts's `authenticated` scope throws.
+      // TypeScript narrowing only — the `$all` conjunction's `authenticated`
+      // leg guarantees a verified user row at resolution time (anonymous
+      // callers are denied with UNAUTHORIZED at the scope step). This
+      // branch exists purely for TypeScript narrowing — the repo-wide
+      // no-non-null-assertion rule forbids dereferencing the nullable
+      // context directly; the thrown error mirrors the `authenticated`
+      // scope's UnauthorizedError family and is unreachable in practice.
       if (!ctx.user) {
         throw new UnauthorizedError("Authentication required.");
       }
@@ -61,7 +68,10 @@ gqlSchemaBuilder.mutationField("updateLesson", t =>
     type: LessonPothosObject,
     description: "Updates mutable fields on an existing lesson (Admin only).",
     authScopes: {
-      role: [UserRole.Admin],
+      $all: {
+        authenticated: true,
+        role: [UserRole.Admin],
+      },
     },
     args: {
       id: t.arg.id({
@@ -102,7 +112,10 @@ gqlSchemaBuilder.mutationField("deleteLesson", t =>
     type: LessonPothosObject,
     description: "Deletes an existing lesson and returns the removed row for cache eviction (Admin only).",
     authScopes: {
-      role: [UserRole.Admin],
+      $all: {
+        authenticated: true,
+        role: [UserRole.Admin],
+      },
     },
     args: {
       id: t.arg.id({

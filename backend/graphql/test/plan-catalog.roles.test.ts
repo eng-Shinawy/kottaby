@@ -477,3 +477,79 @@ describe("Plan Catalog GraphQL Role-Matrix (REQ-064)", () => {
     });
   });
 });
+
+describe("Plan catalog mutations — unauthenticated callers get the 401 family first", () => {
+  interface MutationProbe {
+    readonly name: "createPlan" | "updatePlan" | "setPlanActiveStatus";
+    readonly source: string;
+  }
+
+  // Inline-literal documents (no variable plumbing): the scope step denies
+  // before any resolver or coercion runs, so inert literal args suffice.
+  const UNAUTHENTICATED_PROBES: readonly MutationProbe[] = [
+    {
+      name: "createPlan",
+      source: `
+        mutation ProbeCreatePlan {
+          createPlan(input: { title: "probe", sessionCount: 1, price: "1.00", currency: "EGP", intervalDays: 1 }) { id }
+        }
+      `,
+    },
+    {
+      name: "updatePlan",
+      source: `
+        mutation ProbeUpdatePlan {
+          updatePlan(id: "1", input: { title: "probe" }) { id }
+        }
+      `,
+    },
+    {
+      name: "setPlanActiveStatus",
+      source: `
+        mutation ProbeSetStatus {
+          setPlanActiveStatus(id: "1", isActive: false) { id }
+        }
+      `,
+    },
+  ];
+
+  test("expired-token caller (no verified user on the context) receives UNAUTHORIZED on all three mutations", async () => {
+    // The HTTP boundary maps an expired access token to a context with NO
+    // verified user, so at the scope layer the caller is indistinguishable
+    // from an anonymous one — every plan mutation must answer with the 401
+    // family, never the role leg's FORBIDDEN.
+    const results = await Promise.all(
+      UNAUTHENTICATED_PROBES.map(async probe =>
+        graphql({
+          schema: graphQLSchema,
+          source: probe.source,
+          contextValue: buildContextForUser(null),
+        })
+      )
+    );
+    for (const [index, result] of results.entries()) {
+      const probe = UNAUTHENTICATED_PROBES[index];
+      if (!probe) throw new Error("expected a probe for every result");
+      expect(result.errors).toBeDefined();
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0]?.extensions?.code).toBe("UNAUTHORIZED");
+      expect(result.errors?.[0]?.path).toEqual([probe.name]);
+    }
+  });
+
+  test("the 401 denial is the localized unauthorized message, byte-identical across all three fields (no field-existence leak)", async () => {
+    const localized = getServerTranslations("en").errorsTranslations.unauthorized;
+    const results = await Promise.all(
+      UNAUTHENTICATED_PROBES.map(async probe =>
+        graphql({
+          schema: graphQLSchema,
+          source: probe.source,
+          contextValue: buildContextForUser(null),
+        })
+      )
+    );
+    for (const result of results) {
+      expect(result.errors?.[0]?.message).toBe(localized);
+    }
+  });
+});

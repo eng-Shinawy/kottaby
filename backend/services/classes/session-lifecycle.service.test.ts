@@ -38,11 +38,16 @@
  *    key, non-safe-integer ids, `intent=evaluation` with a zero-writes
  *    proof); governance re-check denials (`FORBIDDEN`) on create/start/
  *    complete with cancel deliberately EXEMPT (a governed student can
- *    still release an in-flight hold); teacher-lock branches (missing
+ *    still release an in-flight hold) — and the booking guard's raw
+ *    `suspended` boolean denies a LAPSED suspension too, deliberately
+ *    stricter than the login window predicate; teacher-lock branches (missing
  *    teacher → `TEACHER_NOT_FOUND`, unapproved/null-certification →
  *    `TEACHER_NOT_CERTIFIED`); oracle-safe read branches; the dispute
  *    pair (participant open from both live states with the hold frozen;
- *    admin arbitration over both outcomes with the role re-check).
+ *    admin arbitration over both outcomes with the role re-check) — the
+ *    arbitration-Complete arm never ensures the teacher's wallet and
+ *    never stamps the student's confirmation (no credit without the
+ *    student confirm).
  *  - Tier 2 (boundary): confirmation deadline = captured now +
  *    86_400_000 ms EXACTLY (bracketed); fee "25.00" decimal STRING per
  *    intent; cancel reason 500 chars accepted-and-persisted (trim-
@@ -122,6 +127,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { SessionRepository, TeacherRepository, WalletRepository } from "@/backend/db/repo";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
+import { teacherTransaction } from "@/backend/db/schema/billing/teacher-transaction";
 import { progress } from "@/backend/db/schema/classes/progress";
 import { session } from "@/backend/db/schema/classes/session";
 import { sessionRequestIdempotency } from "@/backend/db/schema/classes/session-request-idempotency";
@@ -146,6 +152,7 @@ import { HeldBalanceLane } from "@/backend/enum/scheduling/held-balance-lane.enu
 import { SessionIntent } from "@/backend/enum/scheduling/session-intent.enum";
 import { SessionStatus } from "@/backend/enum/scheduling/session-status.enum";
 import { SessionType } from "@/backend/enum/scheduling/session-type.enum";
+import { isSuspensionActive } from "@/backend/lib/auth/suspension-window";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "@/backend/lib/errors";
 import { logger } from "@/backend/lib/logger";
 import { SessionLifecycleService } from "@/backend/services/classes/session-lifecycle.service";
@@ -779,6 +786,49 @@ describe("SessionLifecycleService — transactional flows (runInRollback)", () =
       // The clean actors are untouched by the denials.
       expect(await countSessionsForStudent(tx, actors.studentUserId)).toBe(0);
       expect(await countClaimsForUser(tx, actors.studentUserId)).toBe(0);
+    });
+  });
+
+  test("INV-U2: a LAPSED suspension still denies booking FORBIDDEN (raw-boolean guard, stricter than the login window)", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      const dayMs = 86_400_000;
+      // A 7-day suspension window that closed a week ago: the auth
+      // boundary's window predicate evaluates this caller as lapsed (and
+      // login would proceed) — the booking guard reads the raw `suspended`
+      // boolean and still denies. This is the shipped, deliberately
+      // stricter-than-login semantics; pinned here, never widened.
+      const lapsedUser = await createTestUser(tx, {
+        role: "student",
+        suspended: true,
+        suspendedAt: new Date(Date.now() - 14 * dayMs),
+        suspendedPeriodDays: 7,
+      });
+      await createTestStudent(tx, lapsedUser.id);
+      expect(
+        isSuspensionActive(
+          {
+            suspended: lapsedUser.suspended,
+            suspendedAt: lapsedUser.suspendedAt,
+            suspendedPeriodDays: lapsedUser.suspendedPeriodDays,
+          },
+          new Date()
+        )
+      ).toBe(false);
+
+      await setLaneBalances(tx, lapsedUser.id, { trial: 1 });
+
+      const error = await expectRepoError(() =>
+        bookSession(tx, lapsedUser.id, actors.teacherUserId, SessionIntent.Hifz, "key-lapsed-suspension")
+      );
+      expectDomainDenial(error, "FORBIDDEN", t().forbidden);
+
+      // Zero writes: no claim, no session, the lane untouched.
+      expect(await countClaimsForUser(tx, lapsedUser.id)).toBe(0);
+      expect(await countSessionsForStudent(tx, lapsedUser.id)).toBe(0);
+      const balances = await readLaneBalances(tx, lapsedUser.id);
+      expect(balances.trial).toBe(1);
+      expect(await readClaimByKey(tx, "key-lapsed-suspension")).toBeNull();
     });
   });
 
@@ -1935,6 +1985,45 @@ describe("SessionLifecycleService — dispute pair (runInRollback)", () => {
       expect(balances.trial).toBe(0);
       expect(balances.hifz).toBe(0);
       expect(balances.tajweed).toBe(0);
+    });
+  });
+
+  test("INV-W4: arbitration-Complete — the wallet is never ensured and confirmedByStudentAt is null (no credit without student confirm)", async () => {
+    await runInRollback(async tx => {
+      const actors = await createSessionActors(tx);
+      await setLaneBalances(tx, actors.studentUserId, { trial: 1 });
+      const admin = await createTestUser(tx, { role: "admin" });
+      const row = await bookSession(
+        tx,
+        actors.studentUserId,
+        actors.teacherUserId,
+        SessionIntent.Hifz,
+        "key-arbitration-no-credit"
+      );
+      await SessionLifecycleService.startSession(actors.teacherUserId, row.id, "en", tx);
+      await SessionLifecycleService.openSessionDispute(actors.teacherUserId, row.id, "disputed pre-confirm", "en", tx);
+
+      const resolved = await SessionLifecycleService.resolveSessionDispute(
+        admin.id,
+        row.id,
+        DisputeResolution.Complete,
+        "resolved without the student stamp",
+        "en",
+        tx
+      );
+
+      // The arbitration-Complete arm flips the row to completed WITHOUT the
+      // student's confirmation stamp — the dual-confirmation predicate of the
+      // earning path can never match this row.
+      expect(resolved.status).toBe(SessionStatus.Completed);
+      expect(resolved.confirmedByStudentAt).toBeNull();
+
+      // The wallet channel is never entered: no wallet row was ensured for
+      // the teacher, and no earning ledger row exists for the session —
+      // credit flows ONLY through the student-confirmed settlement.
+      expect(await WalletRepository.findByTeacherId(actors.teacherUserId, tx)).toBeNull();
+      const ledgerRows = await tx.select().from(teacherTransaction).where(eq(teacherTransaction.sessionId, row.id));
+      expect(ledgerRows).toEqual([]);
     });
   });
 

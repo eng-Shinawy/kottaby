@@ -8,22 +8,27 @@
  *    `db` handle when not); the Drizzle builder API is shared by both `db`
  *    and `tx` so the same chain runs on either.
  *  - No prepared statements: trail filters compose a dynamic AND chain of
- *    scalar predicates (no `inArray`), so every query is built fresh with
- *    Drizzle-bound parameters — no `sql.placeholder` usage of any kind.
+ *    scalar predicates, and the batch enrichment methods use dynamic
+ *    `inArray` with plain arrays (the repo batch-lookup rule), so every
+ *    query is built fresh with Drizzle-bound parameters — no
+ *    `sql.placeholder` usage of any kind.
  *  - No business logic, no permission checks, no localized error strings —
  *    the service layer owns filter normalization, raw-enum coercion, and
  *    the typed-error surface. Filters reach this repository as DATA
  *    (already validated); they are never authorization inputs.
  *  - READ-ONLY surface: `audit_logs` is append-only (UPDATE/DELETE are
  *    blocked at the DB layer by an immutability trigger) and this
- *    repository exposes no write path — list and count only.
+ *    repository exposes no write path — list and count only. The batch
+ *    enrichment reads (per-entity count + latest-entry peek, keyed by
+ *    one entity-type label) stay inside that surface: plain selects,
+ *    one grouped count and one DISTINCT ON latest-per-entity read.
  *  - No governance filtering of any kind: the trail renders an entity's
  *    full history regardless of any actor's current governance state.
  *    The `users` inner join projects the acting account's CURRENT display
  *    name for every row (`actor_id` is NOT NULL with ON DELETE RESTRICT,
  *    so the join never drops a row and never orphans an entry).
  */
-import { and, desc, eq, gte, lt, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, type SQL, sql } from "drizzle-orm";
 import { db } from "@/backend/db";
 import { auditLogs } from "@/backend/db/schema/audit/audit-logs";
 import { users } from "@/backend/db/schema/users/users";
@@ -81,6 +86,46 @@ export interface AuditTrailEntryRow {
   readonly entityId: number | null;
   readonly details: string | null;
   readonly createdAt: Date;
+}
+
+/**
+ * `AuditTrailLatestEntryRow` — raw DB row shape returned by
+ * `listLatestEntriesByEntityIds`: one row per matched entity id, the
+ * entity's MOST RECENT trail entry under the requested entity-type label.
+ *
+ * Module-local repo projection mirroring `AuditTrailEntryRow`: the
+ * repository never coerces — `actionType` carries the RAW stored pgEnum
+ * string, and the fail-closed canonical-enum certification stays above
+ * the repo seam (the service layer maps this row onto the canonical
+ * peek shape and withholds an uncertifiable literal as `null`).
+ */
+export interface AuditTrailLatestEntryRow {
+  readonly entityId: number;
+  readonly actionType: string;
+  readonly createdAt: Date;
+}
+
+/**
+ * Upper bound on entity ids per single batch statement — the explicit
+ * cap that keeps every `inArray` expansion bounded. Longer id lists are
+ * transparently split into chunks whose results merge into the returned
+ * map, so a caller never manages chunking and a page-sized batch (well
+ * under the cap) still costs exactly one round trip.
+ */
+export const AUDIT_ENTITY_ID_BATCH_LIMIT = 1000;
+
+/**
+ * Splits an entity-id list into `AUDIT_ENTITY_ID_BATCH_LIMIT`-sized
+ * chunks for the batch reads. A plain synchronous slicer — chunking is
+ * invisible to callers and never widens a single statement's parameter
+ * list past the cap.
+ */
+function chunkEntityIds(entityIds: readonly number[]): number[][] {
+  const chunks: number[][] = [];
+  for (let index = 0; index < entityIds.length; index += AUDIT_ENTITY_ID_BATCH_LIMIT) {
+    chunks.push(entityIds.slice(index, index + AUDIT_ENTITY_ID_BATCH_LIMIT));
+  }
+  return chunks;
 }
 
 /**
@@ -179,5 +224,145 @@ export namespace AuditTrailRepository {
       .from(auditLogs)
       .where(buildWhere(filters));
     return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * Counts trail entries per entity id under ONE entity-type label —
+   * the batched twin of `countEntries`: a single grouped query
+   * (`GROUP BY entity_id`) instead of one count per id, so a page's
+   * per-row trail-depth badges cost one round trip regardless of page
+   * size. The entity-type label is DATA (the canonical audit label the
+   * service mints); rows carrying the same entity id under a different
+   * label never match.
+   *
+   * The returned `Map` is pre-initialized with EVERY requested id mapped
+   * to the honest `0` (mirroring the single-row count's never-error,
+   * never-clamp contract), then filled from the grouped counts — an id
+   * with no entries stays `0`, never an absence. Duplicate ids collapse
+   * to one key. Empty input returns an empty map without executing a
+   * statement. ID lists longer than `AUDIT_ENTITY_ID_BATCH_LIMIT` are
+   * chunked and the per-chunk counts merged.
+   *
+   * @returns `Map<entityId, entryCount>` — exactly one entry per
+   *          requested id, present-or-not.
+   */
+  export async function countEntriesByEntityIds(
+    entityType: string,
+    entityIds: readonly number[],
+    tx?: DBTransaction
+  ): Promise<Map<number, number>> {
+    const counts = new Map<number, number>();
+    for (const id of entityIds) {
+      counts.set(id, 0);
+    }
+    if (entityIds.length === 0) {
+      return counts;
+    }
+    // `inArray` with a PLAIN array (never `sql.placeholder`) per the repo
+    // prepared-statement rule; `sql<number>` + `.mapWith(Number)` per the
+    // conditional-aggregation rule (count(*) arrives as an int8 string).
+    // Chunks are read SEQUENTIALLY: the shared `(tx ?? db)` executor may
+    // be a transaction's single client, which must not pipeline
+    // concurrent statements.
+    const chunkRows = await chunkEntityIds(entityIds).reduce<
+      Promise<Array<{ entityId: number | null; count: number }>>
+    >(
+      async (accumulated, chunk) => [
+        ...(await accumulated),
+        ...(await (tx ?? db)
+          .select({ entityId: auditLogs.entityId, count: sql<number>`count(*)`.mapWith(Number) })
+          .from(auditLogs)
+          .where(and(eq(auditLogs.entityType, entityType), inArray(auditLogs.entityId, [...chunk])))
+          .groupBy(auditLogs.entityId)),
+      ],
+      Promise.resolve([])
+    );
+    for (const row of chunkRows) {
+      // `inArray` never matches NULL entity ids, so a null here is a
+      // structural impossibility — the guard only satisfies the column's
+      // nullable type.
+      if (row.entityId !== null) {
+        counts.set(row.entityId, row.count);
+      }
+    }
+    return counts;
+  }
+
+  /**
+   * The MOST RECENT trail entry per entity id under ONE entity-type
+   * label — the batched twin of the service's single-row peek read: one
+   * `DISTINCT ON (entity_id)` query instead of one `limit: 1` read per
+   * id, so a page's per-row trail teasers cost one round trip regardless
+   * of page size. The entity-type label is DATA, exactly as above.
+   *
+   * `DISTINCT ON` keeps, per entity, the row winning the
+   * `created_at DESC, id DESC` order — the SAME deterministic ordering
+   * `listEntries` exposes (the id tiebreak keeps same-timestamp entries
+   * in stable insertion-latest order), so the batched peek can never
+   * disagree with the single-row peek on which entry is "latest".
+   *
+   * The returned `Map` is pre-initialized with EVERY requested id mapped
+   * to `null`, then filled from the matched rows — an entity with no
+   * entries under the label stays `null` (the honest empty arm, mirroring
+   * the single-row peek). Duplicate ids collapse to one key. Empty input
+   * returns an empty map without executing a statement. ID lists longer
+   * than `AUDIT_ENTITY_ID_BATCH_LIMIT` are chunked and the per-chunk
+   * latest rows merged (the per-chunk DISTINCT ON is per-chunk-exact, so
+   * the merged map is identical to an unchunked read).
+   *
+   * Rows are RAW (the `AuditTrailLatestEntryRow` projection): the
+   * repository never coerces — the fail-closed action-type
+   * certification stays above the repo seam.
+   *
+   * @returns `Map<entityId, AuditTrailLatestEntryRow | null>` — exactly
+   *          one entry per requested id; present rows carry the raw
+   *          latest-entry projection, absent ids carry `null`.
+   */
+  export async function listLatestEntriesByEntityIds(
+    entityType: string,
+    entityIds: readonly number[],
+    tx?: DBTransaction
+  ): Promise<Map<number, AuditTrailLatestEntryRow | null>> {
+    const latest = new Map<number, AuditTrailLatestEntryRow | null>();
+    for (const id of entityIds) {
+      latest.set(id, null);
+    }
+    if (entityIds.length === 0) {
+      return latest;
+    }
+    // `inArray` with a PLAIN array (never `sql.placeholder`) per the repo
+    // prepared-statement rule; the DISTINCT ON expression must lead the
+    // ORDER BY (PostgreSQL requirement), and the trailing `id DESC`
+    // tiebreak mirrors `listEntries`'s deterministic newest-first order.
+    // Chunks are read SEQUENTIALLY (single-client executor discipline);
+    // the per-chunk DISTINCT ON is per-chunk-exact, so the merged map is
+    // identical to an unchunked read.
+    const chunkRows = await chunkEntityIds(entityIds).reduce<
+      Promise<Array<{ entityId: number | null; actionType: string; createdAt: Date }>>
+    >(
+      async (accumulated, chunk) => [
+        ...(await accumulated),
+        ...(await (tx ?? db)
+          .selectDistinctOn([auditLogs.entityId], {
+            entityId: auditLogs.entityId,
+            actionType: auditLogs.actionType,
+            createdAt: auditLogs.createdAt,
+          })
+          .from(auditLogs)
+          .where(and(eq(auditLogs.entityType, entityType), inArray(auditLogs.entityId, [...chunk])))
+          .orderBy(auditLogs.entityId, desc(auditLogs.createdAt), desc(auditLogs.id))),
+      ],
+      Promise.resolve([])
+    );
+    for (const row of chunkRows) {
+      if (row.entityId !== null) {
+        latest.set(row.entityId, {
+          entityId: row.entityId,
+          actionType: row.actionType,
+          createdAt: row.createdAt,
+        });
+      }
+    }
+    return latest;
   }
 }

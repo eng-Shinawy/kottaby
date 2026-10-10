@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
   // it as an overlapping artifact on production-looking screenshots; it has
   // no effect on production builds).
   devIndicators: false,
+  // Suppress the default `x-powered-by` response header.
+  poweredByHeader: false,
   experimental: {
     // TypeScript 7.0.2's `lib/tsc.js` is an ESM module that cannot be loaded
     // by Next.js's runTypeScriptCli (which uses require/child_process).
@@ -46,6 +48,13 @@ const nextConfig: NextConfig = {
     "newrelic",
   ],
   async headers() {
+    // Read NODE_ENV at call time (not module scope) so both CSP branches are
+    // observable: production drops 'unsafe-eval' (no production path needs
+    // eval); dev keeps it for HMR / Fast Refresh.
+    const scriptSrc =
+      process.env.NODE_ENV === "production"
+        ? "script-src 'self' 'unsafe-inline'"
+        : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
     return [
       {
         source: "/:path*",
@@ -71,9 +80,16 @@ const nextConfig: NextConfig = {
             value: "0",
           },
           {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin",
+          },
+          {
+            key: "Cross-Origin-Resource-Policy",
+            value: "same-origin",
+          },
+          {
             key: "Content-Security-Policy",
-            value:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' *.space-z.ai *.space-zai; frame-ancestors 'none';",
+            value: `default-src 'self'; ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' *.space-z.ai *.space-zai; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self';`,
           },
           {
             key: "Strict-Transport-Security",

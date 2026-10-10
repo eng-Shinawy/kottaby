@@ -8,7 +8,8 @@
  *  - `./version`            — `resolveAppVersion()` for the health payload.
  *  - `./public-operations`  — closed public-operation allowlist.
  *  - `./route-inventory`    — classifying registry for every API route.
- *  - `./transport-guard`    — pure transport guards + canonical body-limit constant.
+ *  - `./transport-guard`    — pure transport guards + canonical body-limit /
+ *    operation-count constants.
  */
 
 export * from "./public-operations";
